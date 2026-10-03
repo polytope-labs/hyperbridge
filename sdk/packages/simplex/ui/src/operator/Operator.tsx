@@ -5,6 +5,7 @@ import hyperfxLogo from "../assets/hyperfx-logo.webp"
 import { CopyHash } from "../components/CopyHash"
 import {
 	ActivityIcon,
+	ChartLineIcon,
 	LogsIcon,
 	OperationsIcon,
 	OverviewIcon,
@@ -15,6 +16,7 @@ import { OperatorSheet } from "../components/OperatorSheet"
 import { InstallAppButton } from "../components/InstallAppButton"
 import { useAction, useIsHandheld, usePolling } from "../lib/hooks"
 import type { BalanceSnapshot, StatusOperator } from "../types"
+import { OrderBook } from "./OrderBook"
 import { Orders } from "./Orders"
 import { Operations, type OperationsPanel } from "./Operations"
 import { Logs } from "./Logs"
@@ -32,6 +34,7 @@ const PAGE_TABS: Array<{
 	desktopOnly?: true
 }> = [
 	{ value: "overview", label: "Overview", description: "Orders, health and liquidity", icon: OverviewIcon },
+	{ value: "orderbook", label: "Order book", description: "Live bids and asks", icon: ChartLineIcon },
 	{ value: "history", label: "History", description: "Orders and bids", icon: ActivityIcon },
 	{ value: "wallet", label: "Wallet", description: "Funds and history", icon: WalletIcon },
 	{ value: "logs", label: "Logs", description: "Live filler output", icon: LogsIcon, desktopOnly: true },
@@ -43,6 +46,11 @@ const PAGE_COPY: Record<Tab, { eyebrow: string; title: string; description: stri
 		eyebrow: "Live workspace",
 		title: "Overview",
 		description: "Post what simplex will pay, and watch your liquidity and the health of your running filler.",
+	},
+	orderbook: {
+		eyebrow: "Live market",
+		title: "Order book",
+		description: "Compare bids and asks across solvers before posting a limit order.",
 	},
 	history: {
 		eyebrow: "Execution feed",
@@ -174,6 +182,7 @@ export function Operator(props: { status: StatusOperator; refresh: () => void })
 								<button
 									type="button"
 									key={item.value}
+									aria-label={item.label}
 									className="operator-nav-item"
 									data-active={tab === item.value || undefined}
 									onClick={() => setTab(item.value)}
@@ -212,6 +221,7 @@ export function Operator(props: { status: StatusOperator; refresh: () => void })
 						/>
 					) : null}
 
+					{tab === "orderbook" ? <OrderBook /> : null}
 					{tab === "history" ? <Orders chainLabels={status.chainLabels} /> : null}
 					{tab === "logs" && !handheld ? <Logs /> : null}
 					{tab === "wallet" ? (
@@ -270,7 +280,6 @@ export function Operator(props: { status: StatusOperator; refresh: () => void })
 					</div>
 				) : null}
 			</OperatorSheet>
-
 		</div>
 	)
 }

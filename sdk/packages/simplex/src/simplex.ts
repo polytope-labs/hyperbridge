@@ -21,7 +21,15 @@ import type {
 	LimitOrderService,
 	PostedLimitOrder,
 } from "@/orderbook/limit-orders"
-import type { Book, ChainInfo, TokenMinSize } from "@/orderbook/types"
+import type {
+	Book,
+	ChainInfo,
+	TokenMinSize,
+	OrderbookFilters,
+	OrderbookLevelOrder,
+	OrderbookLevelQuery,
+	OrderbookSnapshot,
+} from "@/orderbook/types"
 import type { BalanceSnapshot } from "@/services/BalanceProvider"
 import type { Signer } from "@/services/wallet"
 
@@ -248,6 +256,16 @@ export class LimitOrderController {
 	/** The pairs the orderbook lists, the smallest payout each token may carry, and its tokens per chain. */
 	books(): Promise<{ books: Book[]; minOrderSizes: TokenMinSize[]; chains: ChainInfo[] }> {
 		return this.service.books()
+	}
+
+	/** Public bids and asks across solvers, optionally restricted to a route. */
+	orderbookSnapshot(book: string, filters: OrderbookFilters = {}): Promise<OrderbookSnapshot | null> {
+		return this.service.orderbookSnapshot(book, filters)
+	}
+
+	/** Every solver's order behind one public price level. */
+	orderbookLevelOrders(book: string, level: OrderbookLevelQuery): Promise<OrderbookLevelOrder[] | null> {
+		return this.service.orderbookLevelOrders(book, level)
 	}
 
 	/** Creates the order, posts it, and reports what the orderbook made of it. */

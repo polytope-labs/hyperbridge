@@ -39,6 +39,57 @@ export interface Book {
 	quote: string
 }
 
+/** Live price levels. All prices and sizes are decimal integer strings at 1e18. */
+export interface OrderbookLevel {
+	fillChain: string
+	priceBucket: string
+	price: string
+	worstPrice: string
+	baseSize: string
+	quoteSize: string
+	orderCount: number
+	solverCount: number
+}
+
+export interface OrderbookSnapshot extends Book {
+	/** Best first: bids descending, asks ascending. */
+	bids: OrderbookLevel[]
+	asks: OrderbookLevel[]
+	/** True backing liquidity, in quote for bids and base for asks. */
+	bidLiquidity: string
+	askLiquidity: string
+	/** Price bucket width, quote per 1 base at 1e18; null when the orderbook does not report one. */
+	granularity: string | null
+}
+
+/** One solver's order inside a price level. Prices and sizes are decimal integer strings at 1e18. */
+export interface OrderbookLevelOrder {
+	solver: string
+	commitment: string
+	fillChain: string
+	price: string
+	/** What the order publishes as depth, in the token its side pays out: quote for bids, base for asks. */
+	advertisedSize: string
+	/** The signed output before any balance cap, in the same token as `advertisedSize`. */
+	quotedAmount: string
+	/** True when the solver's balance, not the quote, binds `advertisedSize`. */
+	resized: boolean
+	expiresAt: string
+	acceptedSources: string[]
+}
+
+export interface OrderbookLevelQuery {
+	side: "BID" | "ASK"
+	fillChain: string
+	priceBucket: string
+	sourceChain?: string
+}
+
+export interface OrderbookFilters {
+	sourceChain?: string
+	fillChain?: string
+}
+
 export interface TokenMinSize {
 	symbol: string
 	size: string

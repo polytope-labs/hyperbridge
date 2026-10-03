@@ -51,6 +51,7 @@ rustls = { version = "0.23.23", features = ["ring"] }
 tesseract-tendermint = { workspace = true }
 tesseract-tron = { workspace = true }
 tesseract-pharos = { workspace = true }
+tesseract-arc = { workspace = true }
 pharos-primitives = { workspace = true }
 
 [dependencies.polkadot-sdk]

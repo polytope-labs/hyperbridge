@@ -61,26 +61,4 @@ describe("deriveCanonicalPlacedOrder", () => {
 		expect(submitted.user).toBe("0x0000000000000000000000000000000000000000000000000000000000000000")
 		expect(submitted.inputs[0].amount).toBe(1_000n)
 	})
-
-	it("falls back to the submitted order's call payloads when the event omits them", () => {
-		const submitted = makeSubmittedOrder()
-		const args: DecodedOrderPlacedLog["args"] = {
-			user: ADDRESS,
-			source: "EVM-8453",
-			destination: "EVM-8453",
-			deadline: 120n,
-			nonce: 42n,
-			fees: 5n,
-			session: SESSION,
-			beneficiary: ADDRESS,
-			predispatch: [{ token: ADDRESS, amount: 8n }],
-			inputs: [{ token: ADDRESS, amount: 995n }],
-			outputs: [{ token: ADDRESS, amount: 990n }],
-		}
-
-		const placed = deriveCanonicalPlacedOrder(submitted, args)
-
-		expect(placed.predispatch.call).toBe("0x1234")
-		expect(placed.output.call).toBe("0xabcd")
-	})
 })

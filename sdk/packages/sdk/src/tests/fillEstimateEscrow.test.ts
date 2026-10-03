@@ -95,7 +95,7 @@ describe("GasEstimator.buildStateOverride call dispatcher", () => {
 		// A chain with no `Calldispatcher` answers "0x". Written as it stands, the slot's value
 		// is 12 bytes and the bundler rejects the estimate as `Invalid params`.
 		const onChain = "0x876F1891982E260026630c233A4897160A281Fb8" as HexString
-		const readContract = vi.fn(async () => ({ dispatcher: onChain }))
+		const readContract = vi.fn(async (_call: unknown) => ({ dispatcher: onChain }))
 		const gasEstimator = estimator({ dispatcher: "0x" as HexString, client: { readContract } })
 
 		const { bundler } = await override(gasEstimator)

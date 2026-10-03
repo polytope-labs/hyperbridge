@@ -618,6 +618,8 @@ export class IntentGateway {
 	 * order. Use `relayerFee` to approve the ERC-20 spend before submitting.
 	 * Same-chain orders use the direct local route for either `from` option and
 	 * return `{ nativeValue: 0n, relayerFee: 0n }`.
+	 * When the chain receiving the cancel transaction is a testnet, `nativeValue` is `0n` and the caller
+	 * approves `relayerFee` of that host's fee token to that chain's gateway.
 	 *
 	 * Delegates to {@link OrderCanceller.quoteCancelOrder}.
 	 *

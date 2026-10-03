@@ -577,6 +577,8 @@ async quoteCancelOrder(
 
 **Returns:** `Promise<CancelQuote>` — `{ nativeValue, relayerFee }`
 
+Same-chain orders quote `0n` for both values. A cross-chain cancel is paid on the chain that receives the cancel transaction: the source chain for the source route, the destination chain for the destination route. When that chain is a testnet, `nativeValue` is `0n` and the gateway pays the dispatch in the host's fee token instead. Approve `relayerFee` of that host's fee token to that chain's IntentGateway, then submit the cancel transaction with `value: 0n`.
+
 ---
 
 ### quoteCancelOrderFromSource(order)

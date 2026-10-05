@@ -15,7 +15,14 @@ import { MemoryDataStore } from "@/data/memory"
 import { OrderScanner as OrderScannerImpl } from "@/scanner/order-scanner"
 import type { OrderScanner } from "@/scanner/types"
 import type { LimitOrder, LimitOrderFilter } from "@/data/types"
-import { type Profitability, type ProfitPeriod, summarizeProfit } from "@/orderbook/profitability"
+import { inventoryOf, parseUtc } from "@/data/inventory"
+import {
+	type InventoryOutflow,
+	type InventoryRecord,
+	type Profitability,
+	type ProfitPeriod,
+	summarizeProfit,
+} from "@/orderbook/profitability"
 import type {
 	CancelledLimitOrder,
 	CreateLimitOrderRequest,
@@ -258,13 +265,42 @@ export class LimitOrderController {
 	 * What the operator's buys and sells earned over `period`, bucketed on a clock
 	 * `tzOffsetMinutes` behind UTC.
 	 *
-	 * Worked out from the fills on record, which is every fill since the first: a
-	 * period's fills close against volume bought or sold before it. It reads the
-	 * store alone, so it answers whether or not an orderbook is configured.
+	 * Profit is the change the period's fills made to what the solver holds, and
+	 * it is compared with the inventory the period began with. That inventory
+	 * comes from the stored snapshots and, when the balances have been read in
+	 * full, from what is held now, each carried to the period's start by the fills
+	 * and sends between. It reads the store and the balances already in memory, so
+	 * it answers whether or not an orderbook is configured.
 	 */
 	async profitability(period: ProfitPeriod, tzOffsetMinutes = 0): Promise<Profitability> {
-		const fills = await this.runtime.data.limitOrders.fillHistory()
-		return summarizeProfit(fills, { period, now: Date.now(), tzOffsetMinutes })
+		const now = Date.now()
+		const { data, balanceProvider } = this.runtime
+		// Every snapshot is read: there is one a day, and which of them a period needs depends
+		// on where its buckets start.
+		const [fills, snapshots, ledger] = await Promise.all([
+			data.limitOrders.fillHistory(),
+			data.inventory.since(new Date(0)),
+			data.activity.walletTxs(500),
+		])
+
+		const inventory: InventoryRecord[] = snapshots.map((snapshot) => ({
+			at: parseUtc(snapshot.takenAt),
+			balances: snapshot.balances,
+		}))
+		const held = inventoryOf(balanceProvider.getSnapshot())
+		if (held) inventory.push({ at: now, balances: held, live: true })
+
+		// A sweep or a redeem moves tokens between the wallet and a vault, both of which are
+		// inventory. Only a send takes them out of it.
+		const outflows: InventoryOutflow[] = []
+		for (const tx of ledger) {
+			const amount = Number(tx.amount)
+			if (tx.kind === "send" && tx.token && Number.isFinite(amount) && amount > 0) {
+				outflows.push({ at: tx.ts, symbol: tx.token, amount })
+			}
+		}
+
+		return summarizeProfit(fills, { period, now, tzOffsetMinutes, inventory, outflows })
 	}
 
 	/** The pairs the orderbook lists, the smallest payout each token may carry, and its tokens per chain. */

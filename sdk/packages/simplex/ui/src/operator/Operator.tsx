@@ -38,7 +38,7 @@ const PAGE_TABS: Array<{
 	{ value: "overview", label: "Overview", description: "Orders, health and liquidity", icon: OverviewIcon },
 	{ value: "orderbook", label: "Order book", description: "Live bids and asks", icon: ChartLineIcon },
 	{ value: "history", label: "History", description: "Orders and bids", icon: ActivityIcon },
-	{ value: "analytics", label: "Analytics", description: "Spread and profit", icon: AnalyticsIcon },
+	{ value: "analytics", label: "Analytics", description: "Profit and return", icon: AnalyticsIcon },
 	{ value: "wallet", label: "Wallet", description: "Funds and history", icon: WalletIcon },
 	{ value: "logs", label: "Logs", description: "Live filler output", icon: LogsIcon, desktopOnly: true },
 	{ value: "operations", label: "Operations", description: "Live configuration", icon: OperationsIcon },
@@ -63,7 +63,7 @@ const PAGE_COPY: Record<Tab, { eyebrow: string; title: string; description: stri
 	analytics: {
 		eyebrow: "Performance",
 		title: "Analytics",
-		description: "What your buys and sells earned. Profit is counted when volume you bought is sold again.",
+		description: "What your buys and sells added to your inventory, against what you held when the period began.",
 	},
 	wallet: {
 		eyebrow: "Treasury",

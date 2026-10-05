@@ -81,6 +81,7 @@ export type {
 	ProfitFigures,
 	ProfitBucketFigures,
 	BookProfit,
+	StartingInventory,
 } from "@/orderbook/profitability"
 
 // ─── Persistence ────────────────────────────────────────────────────────────
@@ -94,6 +95,8 @@ export type {
 	ActivityStore,
 	StateStore,
 	LimitOrderStore,
+	InventoryStore,
+	InventorySnapshot,
 	LimitOrder,
 	LimitOrderInsert,
 	LimitOrderFilter,

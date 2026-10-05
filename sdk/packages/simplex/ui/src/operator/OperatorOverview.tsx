@@ -1,6 +1,6 @@
 import { formatAmount } from "../lib/format"
 import type { BalanceSnapshot, StatusOperator } from "../types"
-import { SpreadMetric } from "./analytics/SpreadMetric"
+import { ReturnMetric } from "./analytics/ReturnMetric"
 import { LimitOrders } from "./LimitOrders"
 import { availableStablecoinLiquidity, OperatorBalances } from "./OperatorBalances"
 
@@ -39,7 +39,7 @@ export function OperatorOverview(props: {
 					value={stablecoinLiquidity === null ? "—" : `$${formatAmount(stablecoinLiquidity)}`}
 				/>
 				<Metric label="BRIDGE available" value={balances?.hyperbridge?.free.toLocaleString() ?? "—"} />
-				<SpreadMetric onOpen={onOpenAnalytics} />
+				<ReturnMetric onOpen={onOpenAnalytics} />
 			</section>
 
 			<section className="operator-section operator-runtime" aria-label="Runtime controls">

@@ -18,6 +18,7 @@ export interface SimplexDataStore {
 	activity: ActivityStore
 	state: StateStore
 	limitOrders: LimitOrderStore
+	inventory: InventoryStore
 	/** Releases any underlying handles. Called by `Simplex.stop()`. */
 	close?(): Promise<void>
 }
@@ -592,4 +593,35 @@ export interface StateStore {
 	 * concurrently. The bundled SQLite store implements it.
 	 */
 	patch?(patch: Partial<RuntimeState>): Promise<RuntimeState>
+}
+
+// ===========================================================================
+// Inventory
+// ===========================================================================
+
+/**
+ * What the solver held at one moment: whole tokens per symbol, counting the wallet and the
+ * vaults on every chain.
+ */
+export interface InventorySnapshot {
+	id: number
+	/** SQLite-style "YYYY-MM-DD HH:MM:SS" in UTC. */
+	takenAt: string
+	balances: Record<string, number>
+}
+
+/**
+ * A record of what the solver held, taken about once a day.
+ *
+ * It is what profit is measured against: the inventory a period began with. The chain can say
+ * what an account holds now but not what it held last week, so a snapshot that was never taken
+ * cannot be recovered. Like {@link ActivityStore} it is observability rather than correctness:
+ * a lost row costs a figure on the analytics page and nothing else.
+ */
+export interface InventoryStore {
+	record(balances: Record<string, number>): Promise<void>
+	/** The most recent snapshot, or null when none has been taken. */
+	latest(): Promise<InventorySnapshot | null>
+	/** Every snapshot taken at or after `from`, oldest first. */
+	since(from: Date): Promise<InventorySnapshot[]>
 }

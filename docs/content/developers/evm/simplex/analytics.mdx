@@ -1,17 +1,17 @@
 ---
 title: Profitability
-description: See what your limit orders earned, from the seven-day spread on the Overview page to the Analytics page that breaks it down by period and by pair.
+description: See what your limit orders earned, from the seven-day return on the Overview page to the Analytics page that breaks it down by period and by pair.
 ---
 
 # Profitability
 
-A solver earns by buying a token a little under the rate it sells it at. Simplex works out what that came to from the fills of your [limit orders](/developers/evm/simplex/limit-orders), and shows it in two places on the [dashboard](/developers/evm/simplex/dashboard).
+A solver earns by buying a token a little under the rate it sells it at. Simplex works out what that came to from the fills of your [limit orders](/developers/evm/simplex/limit-orders), compares it with the inventory you started with, and shows it in two places on the [dashboard](/developers/evm/simplex/dashboard).
 
-## The 7-day spread
+## The 7-day return
 
-The **Overview** page shows one figure, **7-day spread**, beside your liquidity. It is the profit you realized over the last seven days as a percentage of the volume that realized it. It is green when you made money and red when you lost it, with the dollars underneath.
+The **Overview** page shows one figure, **7-day return**, beside your liquidity. It is what your buys and sells added to your inventory over the last seven days, as a percentage of the inventory you held when those seven days began. It is green when your inventory grew and red when it shrank, with the dollars underneath.
 
-The figure is a dash until some volume has been both bought and sold. A week with only buys, or only sells, has nothing to compare, and the line underneath says which.
+The figure is a dash when there is nothing to compare, and the line underneath says why: no fills yet, or no record of what you held at the start.
 
 Click the figure to open the Analytics page.
 
@@ -21,7 +21,7 @@ Click the figure to open the Analytics page.
 
 ![The Analytics page: a period control, four summary figures and a chart of the running total](./images/analytics-page.png)
 
-<figcaption>Thirty days of fills: realized profit, the spread, the volume matched and what is still open.</figcaption>
+<figcaption>Thirty days of fills: the profit, the return on inventory, the inventory the period began with, and the volume traded.</figcaption>
 </figure>
 
 Pick a period at the top. Each one is cut into buckets of its own size:
@@ -39,10 +39,10 @@ The four figures under it cover the whole period:
 
 | Figure | What it shows |
 |---|---|
-| **Realized profit** | Profit from volume that was bought and then sold, or sold and then bought back. |
-| **Spread** | Realized profit as a percentage of matched volume. |
-| **Matched volume** | The volume that realized that profit. |
-| **Open position** | Volume bought and not yet sold, or sold and not yet bought back, as it stands now. This one is not tied to the period. |
+| **Profit** | What the period's buys and sells added to your inventory, less what they took out of it, in dollars. |
+| **Return on inventory** | That profit as a percentage of the starting inventory. |
+| **Starting inventory** | The dollar value of everything the solver held when the period began, and where that figure came from. The line under the figures lists the tokens. |
+| **Volume** | The dollars bought plus the dollars sold. |
 
 Two charts follow, on the same time axis. **Running total** is the profit to date at the end of each bucket. Under it, each bucket's own profit is a bar, green above the line for a gain and red below it for a loss. Point at a bucket in either chart to read both of its figures out above them.
 
@@ -53,31 +53,45 @@ Two charts follow, on the same time axis. **Running total** is the profit to dat
 <figcaption>One loss among thirty days, then the same period by pair and by day.</figcaption>
 </figure>
 
-**By pair** compares your buys with your sells on each pair: how much you bought and sold, the average rate of each, the spread, the profit, and the position still open. A position with a plus is bought and not yet sold. One with a minus is sold and not yet bought back.
+**By pair** sets your buys against your sells on each pair: how much you bought and sold, the average rate of each, the spread between those averages, what the fills did to the two tokens you hold, and the profit.
 
-The last table lists every bucket in the period, latest first, with the dollars bought, sold and matched in it.
+The last table lists every bucket in the period, latest first, with the inventory each one began with and its own return.
 
 ## How profit is counted
 
-Simplex keeps a position for each pair at its average cost, and replays every fill against it in order.
+Every fill takes one token in and pays another out. Added up token by token, the period's fills are what the period did to your inventory, and the dollar value of that change is your profit.
 
-- A fill that adds to what you hold changes the average and earns nothing yet. Buying 100 USDC at 1,580 cNGN and another 100 at 1,600 leaves you holding 200 at an average of 1,590.
-- A fill the other way closes part of what you hold, and the difference between its rate and your average is the profit. Selling 100 of those at 1,595 earns 5 cNGN on each, so 500 cNGN.
-- Profit is counted when the closing fill happens. Volume you bought last month and sold today counts as today's profit.
-- Selling first and buying back later works the same way round.
+- Buying 100 USDC at 1,580 cNGN and selling 100 USDC at 1,590 leaves your USDC where it was and your cNGN up by 1,000. That 1,000 cNGN is the profit.
+- Buying 200 USDC and selling only 100 leaves you 100 USDC up and some cNGN down. Both changes count: the profit is what the extra USDC is worth, less what the missing cNGN is worth.
 
-Profit is worked out in the pair's quote token and shown in dollars at the rate of the fill that realized it.
+Each token is valued at one rate throughout, the pair's latest: midway between its latest buy and its latest sell. So volume you bought and have not yet sold counts at that rate, and a past figure moves a little when the rate does.
 
 A few things are deliberately left out:
 
-- **Open positions are not marked to market.** What you still hold is valued at what it cost you. A move in the rate shows up only when you close the position.
 - **Network fees are not counted.** Neither the gas your fills paid nor the fees an order carried are part of these figures.
-- **Pairs with no dollar stable are left out of the dollar figures.** A pair needs USDC, USDT or DAI on one side to be valued in dollars. Other pairs still appear under **By pair**, with their profit in their own quote token, and the note under the tables names them.
+- **Tokens with no dollar price are left out of the dollar figures.** A token is priced through a pair that connects it to USDC, USDT or DAI, directly or through another token. One that no pair connects is named in the note under the tables.
+
+## The starting inventory
+
+The return compares the profit with what you held when the period began: every token in the solver's wallet and its [vaults](/developers/evm/simplex/treasury), on every chain, at the same latest rates.
+
+A blockchain can say what an account holds now but not what it held last month, so Simplex keeps its own record:
+
+- **A daily snapshot.** Once a day the solver stores what it holds. A period that begins near a snapshot uses it, adjusted by the fills and sends between the snapshot and the period's start.
+- **Today's balances, for the last seven days.** Where there is no snapshot, Simplex takes what you hold now and undoes the fills and sends since. It only does this for a period that began within the last seven days.
+
+Either way a record is used only if it lies within seven days of the moment it is asked to describe. A deposit from outside appears on no record, so the further a record is carried, the less it can be trusted.
 
 <Callout type="info">
-    Simplex began recording what each fill took in with the release that added this page. Older fills
-    are priced at their order's own rate instead, which is the least they could have taken in. The
-    note under the tables says how many fills in the period are priced this way.
+    Snapshots begin when you upgrade to the release that added this page. Until then the 7-day figures
+    work from today's balances, and longer periods show their profit with a dash for the return. Each
+    longer period gains its return once a snapshot exists near its start.
+</Callout>
+
+<Callout type="info">
+    Simplex began recording what each fill took in with the same release. Older fills are priced at
+    their order's own rate instead, which is the least they could have taken in. The note under the
+    tables says how many fills in the period are priced this way.
 </Callout>
 
 ## From the API

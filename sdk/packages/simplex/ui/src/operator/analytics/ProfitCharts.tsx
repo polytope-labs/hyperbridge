@@ -46,7 +46,7 @@ function scaleY(ticks: number[], top: number, bottom: number): (value: number) =
 }
 
 /**
- * Realized profit over the period, twice: the running total as a line, and each bucket's own
+ * Profit over the period, twice: the running total as a line, and each bucket's own
  * figure as a bar, green above the line for a gain and red below it for a loss. Two charts on one
  * time axis rather than one chart with two scales.
  *
@@ -78,12 +78,12 @@ export function ProfitCharts(props: { series: ProfitBucketFigures[]; bucket: Pro
 	const area = `${line.join(" ")} L${x(count - 1).toFixed(1)},${totalY(0).toFixed(1)} L${x(0).toFixed(1)},${totalY(0).toFixed(1)} Z`
 
 	// Each bucket.
-	const values = series.map((entry) => entry.realizedUsd)
+	const values = series.map((entry) => entry.profitUsd)
 	const barTicks = niceTicks(Math.min(...values), Math.max(...values))
 	const barY = scaleY(barTicks, 12, 152)
 	const barWidth = Math.max(2, Math.min(BAR_MAX, slot - 2))
 
-	const readout = `${bucketLabel(series[shown].start, bucket)}: ${formatUsd(series[shown].realizedUsd, { signed: true })}, ${formatUsd(totals[shown], { signed: true })} to date`
+	const readout = `${bucketLabel(series[shown].start, bucket)}: ${formatUsd(series[shown].profitUsd, { signed: true })}, ${formatUsd(totals[shown], { signed: true })} to date`
 
 	/** One invisible column per bucket, the full height of a chart, so a thin bar is still easy to point at. */
 	const columns = (height: number) =>
@@ -111,7 +111,7 @@ export function ProfitCharts(props: { series: ProfitBucketFigures[]; bucket: Pro
 					width={width}
 					height={200}
 					role="img"
-					aria-label={`Running total of realized profit, ending at ${formatUsd(totals[count - 1], { signed: true })}`}
+					aria-label={`Running total of profit, ending at ${formatUsd(totals[count - 1], { signed: true })}`}
 				>
 					{totalTicks.map((tick) => (
 						<g key={tick}>
@@ -148,12 +148,7 @@ export function ProfitCharts(props: { series: ProfitBucketFigures[]; bucket: Pro
 						Loss
 					</span>
 				</figcaption>
-				<svg
-					width={width}
-					height={180}
-					role="img"
-					aria-label={`Realized profit for each ${noun} in the period`}
-				>
+				<svg width={width} height={180} role="img" aria-label={`Profit for each ${noun} in the period`}>
 					{barTicks.map((tick) => (
 						<g key={tick}>
 							<line
@@ -170,7 +165,7 @@ export function ProfitCharts(props: { series: ProfitBucketFigures[]; bucket: Pro
 						</g>
 					))}
 					{series.map((entry, index) => {
-						const value = entry.realizedUsd
+						const value = entry.profitUsd
 						if (value === 0) return null
 						const zero = barY(0)
 						const tip = barY(value)

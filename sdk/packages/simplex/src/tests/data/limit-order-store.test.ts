@@ -491,13 +491,14 @@ describe("SqliteLimitOrderStore fill migration", () => {
 			now: Date.parse("2026-10-05T12:00:00Z"),
 		})
 
-		// 1 USDC bought at 1,500 and sold at 1,510, each at its order's own rate.
+		// 1 USDC bought at 1,500 and sold at 1,510, each at its order's own rate: 10 cNGN up.
 		expect(summary.books[0]).toMatchObject({
 			bought: 1,
 			sold: 1,
 			averageBuy: 1500,
 			averageSell: 1510,
-			realized: 10,
+			baseChange: 0,
+			quoteChange: 10,
 		})
 		expect(summary.estimatedFills).toBe(2)
 		await store.close()

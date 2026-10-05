@@ -231,17 +231,20 @@ curl -s "$SIMPLEX/api/analytics/profitability?period=30d&tz=-60"
   "bucket": "day",
   "from": 1788649200000,
   "to": 1791200520000,
-  "totals": { "realizedUsd": 2813.41, "matchedUsd": 398297.12, "boughtUsd": 406261.0, "soldUsd": 398297.12,
-              "spreadPct": 0.71, "buys": 119, "sells": 122 },
-  "series": [ { "start": 1788649200000, "realizedUsd": 152.3, "matchedUsd": 21044.0, "…": "…" } ],
+  "totals": { "profitUsd": 2312.0, "startInventoryUsd": 131429.43, "returnPct": 1.76,
+              "boughtUsd": 406261.0, "soldUsd": 398297.12, "buys": 119, "sells": 122 },
+  "series": [ { "start": 1788649200000, "profitUsd": 71.4, "startInventoryUsd": 131429.43, "…": "…" } ],
   "books": [
     { "book": "USDC-cNGN", "base": "USDC", "quote": "cNGN", "bought": 235629, "sold": 223020,
-      "averageBuy": 1579.88, "averageSell": 1589.3, "matched": 223020, "realized": 2668481.5,
-      "realizedUsd": 1679.02, "spreadPct": 0.75, "position": 99102, "positionUsd": 99102 }
+      "averageBuy": 1579.88, "averageSell": 1589.3, "spreadPct": 0.6,
+      "baseChange": 12609, "quoteChange": -17819994.94, "rate": 1584.6, "profitUsd": 1360.1 }
   ],
-  "openPositionUsd": 132756,
+  "startInventory": {
+    "at": 1788649200000, "source": "snapshot", "recordedAt": 1788609720000, "usd": 131429.43,
+    "tokens": [ { "symbol": "USDC", "amount": 61362.67, "usd": 61362.67 }, { "…": "…" } ]
+  },
   "estimatedFills": 0,
-  "unpricedBooks": []
+  "unpricedTokens": []
 }
 ```
 
@@ -250,12 +253,12 @@ Unlike the rest of this page, these figures are plain numbers in whole tokens an
 | Field | Description |
 |---|---|
 | `from`, `to` | The start of the first bucket and the moment the summary was taken, in milliseconds since the epoch. |
-| `totals` | The whole period: dollars realized, the volume that realized them, dollars bought and sold, and the number of buy and sell fills. `spreadPct` is `realizedUsd` over `matchedUsd` as a percentage, and `null` when nothing was matched. |
-| `series` | One entry per bucket, oldest first, with the same figures as `totals` and the bucket's `start`. Buckets nothing happened in are included. |
-| `books` | One entry per pair. `bought`, `sold` and `matched` are in the base token, `averageBuy` and `averageSell` in quote per base, and `realized` in the quote token. `position` is base still held: positive is bought and not yet sold, negative is sold and not yet bought back. |
-| `openPositionUsd` | The dollar value of every pair's open position, at cost. |
+| `totals` | The whole period. `profitUsd` is what the period's fills added to inventory less what they took out, in dollars at each pair's latest rate. `startInventoryUsd` is the inventory held when the period began, and `returnPct` is the first over the second as a percentage. Both are `null` when no record of inventory lies within seven days of the period's start. `boughtUsd`, `soldUsd`, `buys` and `sells` are the volume and the number of fills each way. |
+| `series` | One entry per bucket, oldest first, with the same figures as `totals` and the bucket's `start`. Each is compared with the inventory at its own start. Buckets nothing happened in are included. |
+| `books` | One entry per pair. `bought` and `sold` are in the base token, and `averageBuy` and `averageSell` in quote per base. `spreadPct` is how far the average sell sits above the average buy. `baseChange` and `quoteChange` are what the fills did to the two tokens held. `rate` is the rate the pair is valued at: midway between its latest buy and its latest sell. |
+| `startInventory` | The inventory the period began with: its dollar value, its tokens, and its `source`. `snapshot` is a stored daily snapshot and `balances` is what is held now; either is adjusted by the fills and sends between `recordedAt` and `at`. `null` when nothing within seven days of the start records it. |
 | `estimatedFills` | Fills in the period that had no `amountIn`, and were priced at their order's rate instead. |
-| `unpricedBooks` | Pairs with no dollar-stable token. The dollar figures leave them out, and their `realizedUsd` and `positionUsd` are `null`. |
+| `unpricedTokens` | Tokens the period touched that no pair connects to a dollar stable. The dollar figures leave them out. |
 
 It answers `400` for an unknown `period` or a `tz` that is not a whole number of minutes.
 

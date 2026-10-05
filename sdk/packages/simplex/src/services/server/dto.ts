@@ -256,6 +256,7 @@ export type {
 	ProfitFigures,
 	Profitability as ProfitabilityDto,
 	ProfitPeriod,
+	StartingInventory,
 } from "@/orderbook/profitability"
 
 export interface SendTokenOption {

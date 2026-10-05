@@ -65,14 +65,30 @@ export function formatPercent(value: number | null): string {
 }
 
 /**
- * Why a period has no spread. A spread needs volume that was both bought and sold, so one side
- * alone, or two sides on different pairs, leaves nothing to state.
+ * Why a stretch has no return. A return needs a profit and an inventory to compare it with: no
+ * fills leaves nothing to compare, and without a record of what was held when the stretch began
+ * there is nothing to compare it with.
  */
-export function describeNoSpread(figures: Pick<ProfitFigures, "buys" | "sells">): string {
+export function describeNoReturn(figures: Pick<ProfitFigures, "buys" | "sells" | "startInventoryUsd">): string {
 	if (figures.buys === 0 && figures.sells === 0) return "No fills yet"
-	if (figures.sells === 0) return "Buys only, nothing sold yet"
-	if (figures.buys === 0) return "Sells only, nothing bought back yet"
-	return "Nothing matched yet"
+	if (figures.startInventoryUsd === null) return "Starting inventory not on record"
+	return "Nothing was held at the start"
+}
+
+/** "+12,609 USDC", "-19,921,000 cNGN": a change in what is held, signed, and a dash for none. */
+export function formatChange(amount: number, symbol: string): string {
+	const figure = Math.abs(amount).toLocaleString(undefined, { maximumFractionDigits: 4 })
+	if (Number(figure.replace(/[^0-9.]/g, "")) === 0) return "—"
+	return `${amount < 0 ? "-" : "+"}${figure} ${symbol}`
+}
+
+/** "43,450 USDC, 6,210 USDT and 21,480,000 cNGN": what an inventory is made of, largest first. */
+export function describeHoldings(tokens: ReadonlyArray<{ symbol: string; amount: number }>): string {
+	const parts = tokens.map(
+		(token) => `${token.amount.toLocaleString(undefined, { maximumFractionDigits: 2 })} ${token.symbol}`,
+	)
+	if (parts.length <= 1) return parts[0] ?? ""
+	return `${parts.slice(0, -1).join(", ")} and ${parts[parts.length - 1]}`
 }
 
 /**
@@ -94,10 +110,10 @@ export function bucketLabel(start: number, bucket: ProfitBucket, style: "row" | 
 }
 
 /** The profit to date at the end of each bucket. */
-export function runningTotal(series: ReadonlyArray<Pick<ProfitBucketFigures, "realizedUsd">>): number[] {
+export function runningTotal(series: ReadonlyArray<Pick<ProfitBucketFigures, "profitUsd">>): number[] {
 	let total = 0
 	return series.map((entry) => {
-		total += entry.realizedUsd
+		total += entry.profitUsd
 		return total
 	})
 }

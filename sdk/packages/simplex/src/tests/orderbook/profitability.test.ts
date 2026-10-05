@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import type { LimitOrderFillRecord } from "@/data/types"
-import { isProfitPeriod, summarizeProfit } from "@/orderbook/profitability"
+import { INVENTORY_REACH_MS, type InventoryRecord, isProfitPeriod, summarizeProfit } from "@/orderbook/profitability"
 
 const ONE = 10n ** 18n
 /** A whole-token figure at 1e18, exact to six decimals. */
@@ -43,78 +43,76 @@ function sell(base: number, rate: number, filledAt: string, overrides: Overrides
 	}
 }
 
+const HOUR = 3_600_000
+const DAY = 24 * HOUR
 const NOW = Date.parse("2026-10-05T12:00:00Z")
+/** The week's first instant on a UTC clock: seven days of buckets ending with today's. */
+const WEEK_START = Date.parse("2026-09-29T00:00:00Z")
 const week = (fills: LimitOrderFillRecord[], tzOffsetMinutes = 0) =>
 	summarizeProfit(fills, { period: "7d", now: NOW, tzOffsetMinutes })
 
-describe("profit from buys against sells", () => {
-	it("realizes the spread when bought volume is sold again", () => {
+describe("profit as the change fills made to inventory", () => {
+	it("is the spread when what was bought is sold again", () => {
 		const summary = week([buy(100, 1580, "2026-10-04 09:00:00"), sell(100, 1590, "2026-10-05 09:00:00")])
 
-		// 100 USDC bought at 1,580 and sold at 1,590 leaves 1,000 cNGN, which is 1000 ÷ 1590 dollars
-		// at the rate of the sale that realized it.
-		expect(summary.books[0]).toMatchObject({ bought: 100, sold: 100, matched: 100, realized: 1000, position: 0 })
-		expect(summary.totals.realizedUsd).toBeCloseTo(1000 / 1590, 9)
-		expect(summary.totals.matchedUsd).toBeCloseTo(100, 9)
-		expect(summary.totals.spreadPct).toBeCloseTo(100 * (10 / 1590), 9)
+		// The base is back where it started and the quote is up by 10 a unit: 1,000 cNGN, worth
+		// 1000 ÷ 1585 dollars at the rate midway between the latest buy and the latest sell.
+		expect(summary.books[0]).toMatchObject({ bought: 100, sold: 100, baseChange: 0, quoteChange: 1000, rate: 1585 })
+		expect(summary.books[0].profitUsd).toBeCloseTo(1000 / 1585, 9)
+		expect(summary.totals.profitUsd).toBeCloseTo(1000 / 1585, 9)
 		expect(summary.totals).toMatchObject({ buys: 1, sells: 1 })
+		expect(summary.totals.boughtUsd).toBeCloseTo(100, 9)
+		expect(summary.totals.soldUsd).toBeCloseTo(100, 9)
 	})
 
-	it("realizes nothing while only one side has traded", () => {
-		const summary = week([buy(100, 1580, "2026-10-04 09:00:00"), buy(50, 1582, "2026-10-05 09:00:00")])
-
-		expect(summary.totals).toMatchObject({ realizedUsd: 0, matchedUsd: 0, spreadPct: null, buys: 2, sells: 0 })
-		expect(summary.totals.boughtUsd).toBeCloseTo(150, 9)
-		// Bought and not yet sold, and dollars at face since the base is one.
-		expect(summary.books[0]).toMatchObject({ position: 150, positionUsd: 150 })
-		expect(summary.openPositionUsd).toBe(150)
-	})
-
-	it("closes against the average of what was bought, not the first or the last", () => {
+	it("states how far the average sell sits above the average buy", () => {
 		const summary = week([
 			buy(100, 1580, "2026-10-03 09:00:00"),
 			buy(100, 1600, "2026-10-04 09:00:00"),
 			sell(100, 1595, "2026-10-05 09:00:00"),
 		])
 
-		// The 200 held cost 1,590 on average, so selling 100 at 1,595 earns 5 each.
-		expect(summary.books[0]).toMatchObject({ matched: 100, realized: 500, position: 100 })
 		expect(summary.books[0].averageBuy).toBe(1590)
 		expect(summary.books[0].averageSell).toBe(1595)
+		expect(summary.books[0].spreadPct).toBeCloseTo(100 * (1595 / 1590 - 1), 9)
+		// One side alone has no spread.
+		expect(week([buy(100, 1580, "2026-10-05 09:00:00")]).books[0].spreadPct).toBeNull()
 	})
 
-	it("counts selling first and buying back the same way round", () => {
-		const summary = week([sell(100, 1590, "2026-10-04 09:00:00"), buy(100, 1580, "2026-10-05 09:00:00")])
-
-		expect(summary.books[0]).toMatchObject({ matched: 100, realized: 1000, position: 0 })
-		expect(summary.totals.realizedUsd).toBeCloseTo(1000 / 1580, 9)
-	})
-
-	it("shows a loss when volume is sold under what it cost", () => {
-		const summary = week([buy(100, 1590, "2026-10-04 09:00:00"), sell(100, 1585, "2026-10-05 09:00:00")])
-
-		expect(summary.books[0].realized).toBe(-500)
-		expect(summary.totals.realizedUsd).toBeLessThan(0)
-		expect(summary.totals.spreadPct).toBeLessThan(0)
-	})
-
-	it("opens the other way at the fill's own rate once it has closed what was held", () => {
+	it("values volume the period left open at the latest rate", () => {
+		// 200 bought and only 100 sold. The 100 still held cost 1,570 and are worth the latest
+		// rate, midway between the last buy at 1,580 and the last sell at 1,590.
 		const summary = week([
-			buy(50, 1580, "2026-10-03 09:00:00"),
-			sell(80, 1590, "2026-10-04 09:00:00"),
-			buy(30, 1585, "2026-10-05 09:00:00"),
+			buy(100, 1570, "2026-10-03 09:00:00"),
+			buy(100, 1580, "2026-10-04 09:00:00"),
+			sell(100, 1590, "2026-10-05 09:00:00"),
 		])
 
-		// The sale closes the 50 held for 10 each and leaves 30 sold at 1,590; buying those back
-		// at 1,585 earns 5 each.
-		expect(summary.books[0]).toMatchObject({ matched: 80, realized: 500 + 150, position: 0 })
+		expect(summary.books[0]).toMatchObject({ baseChange: 100, quoteChange: 159_000 - 157_000 - 158_000 })
+		expect(summary.totals.profitUsd).toBeCloseTo(100 - 156_000 / 1585, 9)
+	})
+
+	it("neither gains nor loses on a first buy valued at its own rate", () => {
+		// Nothing has sold, so the latest rate is the buy's, and what was paid is what it is worth.
+		const summary = week([buy(100, 1580, "2026-10-05 09:00:00")])
+
+		expect(summary.books[0]).toMatchObject({ baseChange: 100, quoteChange: -158_000, rate: 1580 })
+		expect(summary.totals.profitUsd).toBeCloseTo(0, 9)
+		expect(summary.totals).toMatchObject({ buys: 1, sells: 0 })
+	})
+
+	it("shows a loss when volume is sold under what it was bought for", () => {
+		const summary = week([buy(100, 1590, "2026-10-04 09:00:00"), sell(100, 1585, "2026-10-05 09:00:00")])
+
+		expect(summary.books[0].quoteChange).toBe(-500)
+		expect(summary.totals.profitUsd).toBeCloseTo(-500 / 1587.5, 9)
 	})
 
 	it("prices a fill that kept no record of what it took in at its order's rate", () => {
 		const legacy = sell(100, 1590, "2026-10-05 09:00:00", { amountIn: null })
 		const summary = week([buy(100, 1580, "2026-10-04 09:00:00"), legacy])
 
-		expect(summary.books[0].realized).toBe(1000)
+		expect(summary.books[0].quoteChange).toBe(1000)
 		expect(summary.estimatedFills).toBe(1)
 	})
 
@@ -123,7 +121,7 @@ describe("profit from buys against sells", () => {
 		const better = sell(100, 1590, "2026-10-05 09:00:00", { amountIn: scaled(159_200) })
 		const summary = week([buy(100, 1580, "2026-10-04 09:00:00"), better])
 
-		expect(summary.books[0].realized).toBe(1200)
+		expect(summary.books[0].quoteChange).toBe(1200)
 		expect(summary.books[0].averageSell).toBe(1592)
 		expect(summary.estimatedFills).toBe(0)
 	})
@@ -135,18 +133,36 @@ describe("profit from buys against sells", () => {
 
 		expect(summary.totals).toMatchObject({ buys: 1, sells: 0 })
 	})
+
+	it("lists the book that earned the most first", () => {
+		const usdt = { book: "USDT-cNGN", base: "USDT" }
+		const summary = week([
+			buy(100, 1580, "2026-10-04 09:00:00"),
+			sell(100, 1582, "2026-10-05 09:00:00"),
+			buy(100, 1580, "2026-10-04 09:00:00", usdt),
+			sell(100, 1595, "2026-10-05 09:00:00", usdt),
+		])
+
+		expect(summary.books.map((book) => book.book)).toEqual(["USDT-cNGN", "USDC-cNGN"])
+		// Each token has one price whichever book moved it, so the books add up to the total.
+		const byBook = summary.books.reduce((sum, book) => sum + (book.profitUsd ?? 0), 0)
+		expect(byBook).toBeCloseTo(summary.totals.profitUsd, 9)
+	})
 })
 
 describe("the period a summary covers", () => {
-	it("closes against volume bought before the period began", () => {
+	it("counts only the period's fills, at a rate the fills before it still inform", () => {
 		const summary = week([buy(100, 1580, "2026-08-20 09:00:00"), sell(100, 1590, "2026-10-05 09:00:00")])
 
-		// The buy is outside the week, so it is not counted as bought, but it set the cost.
-		expect(summary.books[0]).toMatchObject({ bought: 0, sold: 100, matched: 100, realized: 1000 })
+		// The buy is outside the week: only the sale changed this week's inventory. It is valued
+		// midway between that sale and the last buy, old as it is.
+		expect(summary.books[0]).toMatchObject({ bought: 0, sold: 100, baseChange: -100, quoteChange: 159_000 })
+		expect(summary.books[0].rate).toBe(1585)
+		expect(summary.totals.profitUsd).toBeCloseTo(-100 + 159_000 / 1585, 9)
 		expect(summary.totals).toMatchObject({ buys: 0, sells: 1 })
 	})
 
-	it("counts profit in the bucket of the fill that realized it", () => {
+	it("counts each fill in its own bucket, and the buckets add up to the period", () => {
 		const summary = week([buy(100, 1580, "2026-10-01 09:00:00"), sell(100, 1590, "2026-10-04 09:00:00")])
 
 		expect(summary.bucket).toBe("day")
@@ -159,12 +175,13 @@ describe("the period a summary covers", () => {
 			"2026-10-04",
 			"2026-10-05",
 		])
-		const profits = summary.series.map((day) => day.realizedUsd)
-		expect(profits.slice(0, 5)).toEqual([0, 0, 0, 0, 0])
-		expect(profits[5]).toBeCloseTo(1000 / 1590, 9)
+		const profits = summary.series.map((day) => day.profitUsd)
+		// Bought five under the latest rate on the 1st, sold five over it on the 4th.
+		expect(profits[2]).toBeCloseTo(100 - 158_000 / 1585, 9)
+		expect(profits[5]).toBeCloseTo(-100 + 159_000 / 1585, 9)
+		expect(profits.filter((profit) => profit === 0)).toHaveLength(5)
 		expect(summary.series[2]).toMatchObject({ buys: 1, sells: 0 })
-		// The buckets add up to the period.
-		expect(profits.reduce((sum, value) => sum + value, 0)).toBeCloseTo(summary.totals.realizedUsd, 9)
+		expect(profits.reduce((sum, value) => sum + value, 0)).toBeCloseTo(summary.totals.profitUsd, 9)
 	})
 
 	it("starts a day at the viewer's midnight", () => {
@@ -223,8 +240,9 @@ describe("the period a summary covers", () => {
 		const summary = summarizeProfit([], { period: "all", now: NOW })
 
 		expect(summary.series).toHaveLength(1)
-		expect(summary.totals).toMatchObject({ realizedUsd: 0, spreadPct: null, buys: 0, sells: 0 })
+		expect(summary.totals).toMatchObject({ profitUsd: 0, returnPct: null, buys: 0, sells: 0 })
 		expect(summary.books).toEqual([])
+		expect(summary.startInventory).toBeNull()
 	})
 
 	it("ignores a fill dated after the summary was taken", () => {
@@ -239,6 +257,141 @@ describe("the period a summary covers", () => {
 	})
 })
 
+describe("the inventory a period began with", () => {
+	/** A buy and a sell inside the week: 50 USDC more held, and 78,500 cNGN less. */
+	const fills = () => [buy(100, 1580, "2026-10-02 09:00:00"), sell(50, 1590, "2026-10-04 09:00:00")]
+	const live: InventoryRecord = { at: NOW, balances: { USDC: 1000, cNGN: 1_000_000 }, live: true }
+	const withInventory = (
+		inventory: InventoryRecord[],
+		extra: { period?: "7d" | "30d"; outflows?: Array<{ at: number; symbol: string; amount: number }> } = {},
+	) => summarizeProfit(fills(), { period: extra.period ?? "7d", now: NOW, inventory, outflows: extra.outflows })
+
+	it("rebuilds it from today's balances by undoing the period's fills", () => {
+		const summary = withInventory([live])
+
+		// Before the buy there were 100 fewer USDC and 158,000 more cNGN; before the sale, 50 more
+		// USDC and 79,500 fewer cNGN.
+		expect(summary.startInventory).toMatchObject({ at: WEEK_START, source: "balances", recordedAt: NOW })
+		expect(summary.startInventory?.tokens).toEqual([
+			{ symbol: "USDC", amount: 950, usd: 950 },
+			{ symbol: "cNGN", amount: 1_078_500, usd: 1_078_500 / 1585 },
+		])
+		expect(summary.startInventory?.usd).toBeCloseTo(950 + 1_078_500 / 1585, 9)
+	})
+
+	it("compares the period's profit with it", () => {
+		const { totals } = withInventory([live])
+
+		const profit = 50 - 78_500 / 1585
+		const began = 950 + 1_078_500 / 1585
+		expect(totals.profitUsd).toBeCloseTo(profit, 9)
+		expect(totals.startInventoryUsd).toBeCloseTo(began, 9)
+		expect(totals.returnPct).toBeCloseTo((100 * profit) / began, 9)
+		// The profit is the whole of the difference between then and now, at one rate.
+		expect(began + profit).toBeCloseTo(1000 + 1_000_000 / 1585, 9)
+	})
+
+	it("carries a stored snapshot forward by the fills between it and the period's start", () => {
+		// Taken two days before the week began, with a sale of 20 USDC in between.
+		const before = sell(20, 1590, "2026-09-28 09:00:00")
+		const snapshot: InventoryRecord = { at: WEEK_START - 2 * DAY, balances: { USDC: 900, cNGN: 1_200_000 } }
+		const summary = summarizeProfit([before, ...fills()], { period: "7d", now: NOW, inventory: [snapshot] })
+
+		expect(summary.startInventory).toMatchObject({ source: "snapshot", recordedAt: snapshot.at })
+		expect(summary.startInventory?.tokens.map(({ symbol, amount }) => [symbol, amount])).toEqual([
+			["USDC", 880],
+			["cNGN", 1_231_800],
+		])
+	})
+
+	it("uses whichever record is nearest the period's start", () => {
+		const near: InventoryRecord = { at: WEEK_START + HOUR, balances: { USDC: 700, cNGN: 0 } }
+		const far: InventoryRecord = { at: WEEK_START - 3 * DAY, balances: { USDC: 5, cNGN: 0 } }
+		const summary = withInventory([far, near, live])
+
+		expect(summary.startInventory).toMatchObject({ source: "snapshot", recordedAt: near.at })
+		expect(summary.startInventory?.tokens[0]).toMatchObject({ symbol: "USDC", amount: 700 })
+	})
+
+	it("leaves it unknown when no record lies within seven days of the start", () => {
+		// Thirty days back, with only today's balances to go on.
+		const summary = withInventory([live], { period: "30d" })
+
+		expect(summary.startInventory).toBeNull()
+		expect(summary.totals).toMatchObject({ startInventoryUsd: null, returnPct: null })
+		// The profit itself needs no inventory, and is still stated.
+		expect(summary.totals.profitUsd).toBeCloseTo(50 - 78_500 / 1585, 9)
+
+		const start = Date.parse("2026-09-06T00:00:00Z")
+		const within: InventoryRecord = { at: start - INVENTORY_REACH_MS, balances: { USDC: 400 } }
+		const beyond: InventoryRecord = { at: start - INVENTORY_REACH_MS - 1, balances: { USDC: 400 } }
+		expect(withInventory([within], { period: "30d" }).startInventory?.usd).toBe(400)
+		expect(withInventory([beyond], { period: "30d" }).startInventory).toBeNull()
+	})
+
+	it("compares each bucket with the inventory that bucket began with", () => {
+		const { series } = withInventory([live], { period: "30d" })
+
+		// Only the buckets that start within seven days of today's balances can be rebuilt. It is
+		// noon, so midnight on the 28th is half a day too far back.
+		const known = series.filter((day) => day.startInventoryUsd !== null)
+		expect(known).toHaveLength(7)
+		expect(known[0].start).toBe(Date.parse("2026-09-29T00:00:00Z"))
+
+		// The 4th began with the buy of the 2nd already made, and ended with the sale.
+		const fourth = series.find((day) => day.start === Date.parse("2026-10-04T00:00:00Z"))
+		const began = 1050 + 920_500 / 1585
+		expect(fourth?.startInventoryUsd).toBeCloseTo(began, 9)
+		expect(fourth?.returnPct).toBeCloseTo((100 * (-50 + 79_500 / 1585)) / began, 9)
+	})
+
+	it("puts back what was sent out of the wallet since", () => {
+		const sent = { at: Date.parse("2026-10-03T12:00:00Z"), symbol: "USDC", amount: 300 }
+		const before = { at: WEEK_START - DAY, symbol: "USDC", amount: 9_999 }
+		const summary = withInventory([live], { outflows: [sent, before] })
+
+		// The 300 were still held when the week began. The earlier send was already gone.
+		expect(summary.startInventory?.tokens[0]).toMatchObject({ symbol: "USDC", amount: 1250 })
+	})
+
+	it("never counts a token as held in the negative", () => {
+		// 79,500 cNGN came in from the sale, but the wallet holds only 1,000 now: the rest was
+		// moved out in a way no record shows.
+		const summary = withInventory([{ at: NOW, balances: { USDC: 1000, cNGN: 1000 }, live: true }])
+
+		expect(summary.startInventory?.tokens.find((token) => token.symbol === "cNGN")).toMatchObject({
+			amount: 79_500,
+		})
+		const drained = summarizeProfit([sell(50, 1590, "2026-10-04 09:00:00")], {
+			period: "7d",
+			now: NOW,
+			inventory: [{ at: NOW, balances: { USDC: 1000, cNGN: 1000 }, live: true }],
+		})
+		expect(drained.startInventory?.tokens.map((token) => token.symbol)).toEqual(["USDC"])
+	})
+
+	it("has no return without an inventory to compare with", () => {
+		const summary = withInventory([{ at: NOW, balances: { USDC: 50, cNGN: 0 }, live: true }], {
+			outflows: [],
+		})
+
+		// Rebuilt, the week began with nothing: 50 USDC fewer than now, and cNGN that was spent.
+		expect(summary.totals.returnPct).not.toBeNull()
+		const nothing = summarizeProfit([buy(50, 1580, "2026-10-04 09:00:00")], {
+			period: "7d",
+			now: NOW,
+			inventory: [{ at: NOW, balances: { USDC: 50 }, live: true }],
+		})
+		expect(nothing.startInventory?.tokens).toEqual([{ symbol: "cNGN", amount: 79_000, usd: 50 }])
+		const empty = summarizeProfit([], {
+			period: "7d",
+			now: NOW,
+			inventory: [{ at: NOW, balances: {}, live: true }],
+		})
+		expect(empty.totals).toMatchObject({ startInventoryUsd: 0, returnPct: null })
+	})
+})
+
 describe("dollars", () => {
 	const inverse = { book: "cNGN-USDC", base: "cNGN", quote: "USDC" }
 
@@ -249,19 +402,11 @@ describe("dollars", () => {
 			sell(1_000_000, 0.00064, "2026-10-05 09:00:00", inverse),
 		])
 
-		expect(summary.totals.realizedUsd).toBeCloseTo(10, 9)
-		expect(summary.totals.matchedUsd).toBeCloseTo(640, 9)
-		expect(summary.totals.boughtUsd).toBeCloseTo(630, 9)
+		expect(summary.totals.profitUsd).toBeCloseTo(10, 9)
+		expect(summary.totals.boughtUsd).toBeCloseTo(1_000_000 * 0.000635, 9)
 	})
 
-	it("values held volume at what it cost when the base is not dollars", () => {
-		const summary = week([buy(1_000_000, 0.00063, "2026-10-05 09:00:00", inverse)])
-
-		expect(summary.books[0].positionUsd).toBeCloseTo(630, 9)
-		expect(summary.openPositionUsd).toBeCloseTo(630, 9)
-	})
-
-	it("leaves a book with no dollar stable out of the dollar figures", () => {
+	it("prices a token with no dollar stable of its own through one that has", () => {
 		const euro = { book: "EURC-cNGN", base: "EURC", quote: "cNGN" }
 		const summary = week([
 			buy(100, 1850, "2026-10-04 09:00:00", euro),
@@ -270,35 +415,38 @@ describe("dollars", () => {
 			sell(100, 1590, "2026-10-05 09:00:00"),
 		])
 
-		const unpriced = summary.books.find((book) => book.book === "EURC-cNGN")
-		expect(unpriced).toMatchObject({ realized: 1000, realizedUsd: null, positionUsd: null })
+		// 1,000 cNGN from each pair, and cNGN has a dollar price from USDC.
+		expect(summary.unpricedTokens).toEqual([])
+		expect(summary.books.find((book) => book.book === "EURC-cNGN")?.profitUsd).toBeCloseTo(1000 / 1585, 9)
+		expect(summary.totals.profitUsd).toBeCloseTo(2000 / 1585, 9)
+	})
+
+	it("leaves tokens no pair connects to a dollar out of the dollar figures, and names them", () => {
+		const rand = { book: "EURC-ZARP", base: "EURC", quote: "ZARP" }
+		const summary = week([
+			buy(100, 20, "2026-10-04 09:00:00", rand),
+			sell(100, 21, "2026-10-05 09:00:00", rand),
+			buy(100, 1580, "2026-10-04 09:00:00"),
+			sell(100, 1590, "2026-10-05 09:00:00"),
+		])
+
+		const unpriced = summary.books.find((book) => book.book === "EURC-ZARP")
+		expect(unpriced).toMatchObject({ quoteChange: 100, profitUsd: null })
 		// Its spread is still known, in its own tokens.
-		expect(unpriced?.spreadPct).toBeCloseTo(100 * (10 / 1860), 9)
-		expect(summary.unpricedBooks).toEqual(["EURC-cNGN"])
-		expect(summary.totals.realizedUsd).toBeCloseTo(1000 / 1590, 9)
+		expect(unpriced?.spreadPct).toBeCloseTo(5, 9)
+		expect(summary.unpricedTokens).toEqual(["EURC", "ZARP"])
+		expect(summary.totals.profitUsd).toBeCloseTo(1000 / 1585, 9)
 		// Its fills are still counted as fills.
 		expect(summary.totals).toMatchObject({ buys: 2, sells: 2 })
 	})
 
-	it("realizes a same-asset book's spread fill by fill, with no position", () => {
+	it("counts what a same-asset book takes in over what it pays out", () => {
 		const same = { book: "USDC-USDC", base: "USDC", quote: "USDC" }
 		// Paying 999 USDC out for every 1,000 taken in.
 		const fill = buy(1000, 0.999, "2026-10-05 09:00:00", same)
 		const summary = week([fill, { ...fill, id: nextId++ }])
 
-		expect(summary.books[0]).toMatchObject({ realized: 2, position: 0 })
-		expect(summary.totals.realizedUsd).toBeCloseTo(2, 9)
-	})
-
-	it("lists the book that earned the most first", () => {
-		const usdt = { book: "USDT-cNGN", base: "USDT" }
-		const summary = week([
-			buy(100, 1580, "2026-10-04 09:00:00"),
-			sell(100, 1582, "2026-10-05 09:00:00"),
-			buy(100, 1580, "2026-10-04 09:00:00", usdt),
-			sell(100, 1595, "2026-10-05 09:00:00", usdt),
-		])
-
-		expect(summary.books.map((book) => book.book)).toEqual(["USDT-cNGN", "USDC-cNGN"])
+		expect(summary.books[0].profitUsd).toBeCloseTo(2, 9)
+		expect(summary.totals.profitUsd).toBeCloseTo(2, 9)
 	})
 })

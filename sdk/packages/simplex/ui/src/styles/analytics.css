@@ -13,7 +13,7 @@
 	--tone: var(--err);
 }
 
-/* The overview's spread: one of the summary cells, and a link. */
+/* The overview's return: one of the summary cells, and a link. */
 a.operator-metric-link {
 	color: inherit;
 	text-decoration: none;
@@ -39,6 +39,14 @@ a.operator-metric-link:focus-visible {
 	font-size: 0.6875rem;
 	text-overflow: ellipsis;
 	white-space: nowrap;
+}
+
+/* What the starting inventory is made of, in a line under the figures. */
+.analytics-holdings {
+	margin: 1rem 0 0;
+	color: var(--muted);
+	font-size: 0.75rem;
+	line-height: 1.6;
 }
 
 .analytics .steps.analytics-periods {
@@ -210,6 +218,17 @@ a.operator-metric-link:focus-visible {
 .analytics-table small {
 	color: var(--muted);
 	font-weight: 400;
+}
+
+/* A pair's change in the base it holds, over its change in the quote. */
+.analytics-change {
+	display: grid;
+	gap: 0.15rem;
+	justify-items: end;
+}
+
+.analytics-change span + span {
+	color: var(--muted);
 }
 
 .analytics-pair {

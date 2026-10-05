@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest"
 import {
 	bucketLabel,
-	describeNoSpread,
+	describeHoldings,
+	describeNoReturn,
+	formatChange,
 	formatPercent,
 	formatRate,
 	formatUsd,
@@ -58,12 +60,31 @@ describe("figures", () => {
 		expect(toneOf(null)).toBe("")
 	})
 
-	it("says why a period has no spread", () => {
-		expect(describeNoSpread({ buys: 0, sells: 0 })).toBe("No fills yet")
-		expect(describeNoSpread({ buys: 3, sells: 0 })).toBe("Buys only, nothing sold yet")
-		expect(describeNoSpread({ buys: 0, sells: 2 })).toBe("Sells only, nothing bought back yet")
-		// Both sides traded, on different pairs.
-		expect(describeNoSpread({ buys: 1, sells: 1 })).toBe("Nothing matched yet")
+	it("says why a stretch has no return", () => {
+		expect(describeNoReturn({ buys: 0, sells: 0, startInventoryUsd: null })).toBe("No fills yet")
+		expect(describeNoReturn({ buys: 3, sells: 0, startInventoryUsd: null })).toBe(
+			"Starting inventory not on record",
+		)
+		expect(describeNoReturn({ buys: 1, sells: 1, startInventoryUsd: 0 })).toBe("Nothing was held at the start")
+	})
+
+	it("signs a change in what is held, and dashes one that is nothing", () => {
+		expect(formatChange(12_609.25, "USDC")).toBe("+12,609.25 USDC")
+		expect(formatChange(-19_921_000, "cNGN")).toBe("-19,921,000 cNGN")
+		expect(formatChange(0, "USDC")).toBe("—")
+		expect(formatChange(-0.00001, "USDC")).toBe("—")
+	})
+
+	it("lists what an inventory is made of", () => {
+		expect(
+			describeHoldings([
+				{ symbol: "USDC", amount: 43_450.52 },
+				{ symbol: "USDT", amount: 6210.1 },
+				{ symbol: "cNGN", amount: 21_480_000 },
+			]),
+		).toBe("43,450.52 USDC, 6,210.1 USDT and 21,480,000 cNGN")
+		expect(describeHoldings([{ symbol: "USDC", amount: 950 }])).toBe("950 USDC")
+		expect(describeHoldings([])).toBe("")
 	})
 })
 
@@ -81,9 +102,9 @@ describe("buckets", () => {
 	})
 
 	it("adds each bucket's profit to the total before it", () => {
-		expect(
-			runningTotal([{ realizedUsd: 100 }, { realizedUsd: -40 }, { realizedUsd: 0 }, { realizedUsd: 15 }]),
-		).toEqual([100, 60, 60, 75])
+		expect(runningTotal([{ profitUsd: 100 }, { profitUsd: -40 }, { profitUsd: 0 }, { profitUsd: 15 }])).toEqual([
+			100, 60, 60, 75,
+		])
 		expect(runningTotal([])).toEqual([])
 	})
 

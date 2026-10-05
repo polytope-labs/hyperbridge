@@ -37,6 +37,7 @@ import { BalanceProvider } from "@/services/BalanceProvider"
 import { ActivityRecorder, type TokenDescriber } from "@/data/recorder"
 import { backfillOrderSummaries, DEFAULT_INDEXER_URLS } from "@/data/backfill"
 import { backfillVaultLedger } from "@/data/ledger-backfill"
+import { InventoryRecorder } from "@/data/inventory"
 import { chainByChainId } from "@/cli/init/chains"
 import type { SimplexDataStore } from "@/data/types"
 import type { OrderScanner } from "@/scanner/types"
@@ -600,6 +601,18 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 
 	started.push(() => balanceProvider.stop())
 	await balanceProvider.start()
+
+	// What the solver holds, about once a day: the inventory profit is measured against. A
+	// signerless observer runs on a throwaway key that holds nothing worth recording.
+	if (options.signer) {
+		const inventoryRecorder = new InventoryRecorder(
+			options.data.inventory,
+			balanceProvider,
+			moduleLogger(options.loggers, "inventory"),
+		)
+		started.push(() => inventoryRecorder.stop())
+		inventoryRecorder.start()
+	}
 
 	const watchOnlyChains = watchOnlyConfig
 		? Object.entries(watchOnlyConfig)

@@ -32,6 +32,7 @@ export type {
 	ProfitBucketFigures,
 	ProfitFigures,
 	ProfitPeriod,
+	StartingInventory,
 	AdminStrategyDto,
 	BalanceSnapshot,
 	BidDto,

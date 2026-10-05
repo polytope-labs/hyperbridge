@@ -2,12 +2,14 @@ import { useState } from "react"
 import { Pager } from "../components/Pager"
 import { PillTabs } from "../components/PillTabs"
 import { TokenPairIcons } from "../components/TokenIcon"
-import { formatAmount } from "../lib/format"
-import type { BookProfit, ProfitabilityDto, ProfitFigures, ProfitPeriod } from "../types"
+import { formatAmount, formatDate } from "../lib/format"
+import type { BookProfit, ProfitabilityDto, ProfitFigures, ProfitPeriod, StartingInventory } from "../types"
 import {
 	BUCKET_NOUNS,
 	bucketLabel,
-	describeNoSpread,
+	describeHoldings,
+	describeNoReturn,
+	formatChange,
 	formatPercent,
 	formatRate,
 	formatUsd,
@@ -24,9 +26,10 @@ const PAGE_SIZE = 10
 /**
  * What the operator's buys and sells earned, over a period they choose.
  *
- * Profit is realized when volume bought is sold again, or volume sold is bought back, at the
- * average cost of what was held. So a period's figures are its fills closing against everything
- * before them, and what is still held shows as an open position rather than as profit or loss.
+ * Profit is the change the period's fills made to what the solver holds, each token valued at its
+ * latest rate, and it is compared with the inventory the period began with. That inventory is on
+ * record only where a daily snapshot was taken or, for the last seven days, where it can be
+ * rebuilt from today's balances, so an older period shows its profit without a return.
  */
 export function Analytics() {
 	const [period, setPeriod] = useState<ProfitPeriod>("30d")
@@ -51,8 +54,15 @@ export function Analytics() {
 	)
 }
 
+/** Where a starting inventory came from, in a few words under its figure. */
+function describeSource(inventory: StartingInventory): string {
+	return inventory.source === "snapshot"
+		? `From the snapshot of ${formatDate(inventory.recordedAt)}`
+		: "Rebuilt from today's balances"
+}
+
 function Summary({ summary }: { summary: ProfitabilityDto }) {
-	const { totals, series, bucket, books } = summary
+	const { totals, series, bucket, books, startInventory } = summary
 	const fills = totals.buys + totals.sells
 	const periodLabel = PERIODS.find((entry) => entry.value === summary.period)?.label.toLowerCase() ?? ""
 
@@ -60,25 +70,33 @@ function Summary({ summary }: { summary: ProfitabilityDto }) {
 		<>
 			<section className="operator-metrics" aria-label="Period summary">
 				<Figure
-					label="Realized profit"
-					value={formatUsd(totals.realizedUsd, { signed: true })}
-					tone={toneOf(totals.realizedUsd)}
+					label="Profit"
+					value={formatUsd(totals.profitUsd, { signed: true })}
+					tone={toneOf(totals.profitUsd)}
 					note={`${fills.toLocaleString()} ${fills === 1 ? "fill" : "fills"} in ${periodLabel === "all time" ? "all" : periodLabel}`}
 				/>
 				<Figure
-					label="Spread"
-					value={formatPercent(totals.spreadPct)}
-					tone={toneOf(totals.spreadPct)}
-					note={totals.spreadPct === null ? describeNoSpread(totals) : "Profit over matched volume"}
+					label="Return on inventory"
+					value={formatPercent(totals.returnPct)}
+					tone={toneOf(totals.returnPct)}
+					note={totals.returnPct === null ? describeNoReturn(totals) : "Profit over starting inventory"}
 				/>
-				<Figure label="Matched volume" value={formatUsd(totals.matchedUsd)} note="Bought and sold again" />
-				<Figure label="Open position" value={formatUsd(summary.openPositionUsd)} note="Not yet matched" />
+				<Figure
+					label="Starting inventory"
+					value={startInventory ? formatUsd(startInventory.usd) : "—"}
+					note={startInventory ? describeSource(startInventory) : "Not on record for this period"}
+				/>
+				<Figure label="Volume" value={formatUsd(totals.boughtUsd + totals.soldUsd)} note="Bought and sold" />
 			</section>
+
+			{startInventory && startInventory.tokens.length > 0 ? (
+				<p className="analytics-holdings">The period began with {describeHoldings(startInventory.tokens)}.</p>
+			) : null}
 
 			<section className="operator-section">
 				<div className="operator-section-heading">
 					<div>
-						<span className="eyebrow">Realized profit</span>
+						<span className="eyebrow">Profit</span>
 						<h2>Running total and each {BUCKET_NOUNS[bucket].one}</h2>
 					</div>
 				</div>
@@ -107,8 +125,8 @@ function Summary({ summary }: { summary: ProfitabilityDto }) {
 									<th scope="col">Sold</th>
 									<th scope="col">Average sell</th>
 									<th scope="col">Spread</th>
-									<th scope="col">Realized profit</th>
-									<th scope="col">Open position</th>
+									<th scope="col">Inventory change</th>
+									<th scope="col">Profit</th>
 								</tr>
 							</thead>
 							<tbody>
@@ -124,15 +142,16 @@ function Summary({ summary }: { summary: ProfitabilityDto }) {
 			{fills > 0 ? <Buckets key={summary.period} summary={summary} /> : null}
 
 			<p className="analytics-method">
-				Profit is realized when volume bought is sold again, or volume sold is bought back, at the average cost
-				of what you held. It is counted in the pair's quote token and shown in dollars at the rate of the fill
-				that realized it. An open position is valued at cost, not at today's rate. Network fees are not
-				included.
+				Profit is the change your buys and sells made to what you hold: what they took in, less what they paid
+				out, with each token valued at its latest rate. Volume bought and not yet sold counts at that rate, so
+				the figure moves with it. The return compares that profit with the inventory you held when the period
+				began, taken from a daily snapshot or, for the last seven days, rebuilt from today's balances. Network
+				fees are not included.
 				{summary.estimatedFills > 0
 					? ` ${summary.estimatedFills.toLocaleString()} ${summary.estimatedFills === 1 ? "fill in this period was" : "fills in this period were"} recorded before fills kept what they took in, and ${summary.estimatedFills === 1 ? "is" : "are"} priced at the order's own rate.`
 					: ""}
-				{summary.unpricedBooks.length > 0
-					? ` ${summary.unpricedBooks.join(", ")} ${summary.unpricedBooks.length === 1 ? "has" : "have"} no dollar-stable token, so the dollar figures leave ${summary.unpricedBooks.length === 1 ? "it" : "them"} out.`
+				{summary.unpricedTokens.length > 0
+					? ` ${summary.unpricedTokens.join(", ")} ${summary.unpricedTokens.length === 1 ? "has" : "have"} no dollar price, so the dollar figures leave ${summary.unpricedTokens.length === 1 ? "it" : "them"} out.`
 					: ""}
 			</p>
 		</>
@@ -147,12 +166,6 @@ function Figure(props: { label: string; value: string; note: string; tone?: stri
 			<small>{props.note}</small>
 		</div>
 	)
-}
-
-/** Base held open, signed: bought and not yet sold reads as a plus. */
-function describePosition(book: BookProfit): string {
-	if (book.position === 0) return "—"
-	return `${book.position > 0 ? "+" : "-"}${formatAmount(Math.abs(book.position))} ${book.base}`
 }
 
 function BookRow({ book }: { book: BookProfit }) {
@@ -176,14 +189,18 @@ function BookRow({ book }: { book: BookProfit }) {
 			<td>{book.averageSell === null ? "—" : formatRate(book.averageSell)}</td>
 			<td>{formatPercent(book.spreadPct)}</td>
 			<td>
-				{/* A pair with no dollar-stable token has its profit only in its own quote. */}
-				<strong data-tone={toneOf(book.realizedUsd ?? book.realized)}>
-					{book.realizedUsd === null
-						? `${formatAmount(book.realized)} ${book.quote}`
-						: formatUsd(book.realizedUsd, { signed: true })}
-				</strong>
+				<span className="analytics-change">
+					<span>{formatChange(book.baseChange, book.base)}</span>
+					<span>{formatChange(book.quoteChange, book.quote)}</span>
+				</span>
 			</td>
-			<td>{describePosition(book)}</td>
+			<td>
+				{book.profitUsd === null ? (
+					"—"
+				) : (
+					<strong data-tone={toneOf(book.profitUsd)}>{formatUsd(book.profitUsd, { signed: true })}</strong>
+				)}
+			</td>
 		</tr>
 	)
 }
@@ -213,9 +230,9 @@ function Buckets({ summary }: { summary: ProfitabilityDto }) {
 							<th scope="col">{noun.one}</th>
 							<th scope="col">Bought</th>
 							<th scope="col">Sold</th>
-							<th scope="col">Matched</th>
-							<th scope="col">Spread</th>
-							<th scope="col">Realized profit</th>
+							<th scope="col">Starting inventory</th>
+							<th scope="col">Return</th>
+							<th scope="col">Profit</th>
 						</tr>
 					</thead>
 					<tbody>
@@ -224,12 +241,12 @@ function Buckets({ summary }: { summary: ProfitabilityDto }) {
 								<td>{bucketLabel(row.start, bucket)}</td>
 								<td>{traded(row) ? formatUsd(row.boughtUsd) : "—"}</td>
 								<td>{traded(row) ? formatUsd(row.soldUsd) : "—"}</td>
-								<td>{traded(row) ? formatUsd(row.matchedUsd) : "—"}</td>
-								<td>{formatPercent(row.spreadPct)}</td>
+								<td>{row.startInventoryUsd === null ? "—" : formatUsd(row.startInventoryUsd)}</td>
+								<td>{traded(row) ? formatPercent(row.returnPct) : "—"}</td>
 								<td>
 									{traded(row) ? (
-										<strong data-tone={toneOf(row.realizedUsd)}>
-											{formatUsd(row.realizedUsd, { signed: true })}
+										<strong data-tone={toneOf(row.profitUsd)}>
+											{formatUsd(row.profitUsd, { signed: true })}
 										</strong>
 									) : (
 										"—"

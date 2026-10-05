@@ -2,12 +2,17 @@ import { describe, expect, it } from "vitest"
 import type { LimitOrder } from "../../types"
 import {
 	groupThousands,
+	describeProgress,
 	describeRate,
 	fromScaled,
 	legs,
 	type LimitOrderDraft,
+	progressOf,
+	rateParts,
 	requestFrom,
+	rowBadge,
 	statusOf,
+	tabOf,
 } from "./limitOrderModel"
 
 const ONE = 10n ** 18n
@@ -95,6 +100,81 @@ describe("what the operator sees at a glance", () => {
 		const closed = statusOf(order({ status: "filled", quote: "cNGN", remaining: "3624688001000000000000" }))
 		expect(closed).toMatchObject({ label: "Filled", tone: "ok" })
 		expect(closed.detail).toBe("closed with 3,624.688001 cNGN left, below the orderbook's dust floor")
+	})
+})
+
+describe("the list an order is kept in", () => {
+	it("keeps an order live while it is open or between postings", () => {
+		expect(tabOf(order())).toBe("live")
+		// A fill is being settled and the order goes straight back on the book.
+		expect(tabOf(order({ status: "resizing" }))).toBe("live")
+	})
+
+	it("keeps filled orders apart from the ones that closed without filling", () => {
+		expect(tabOf(order({ status: "filled" }))).toBe("filled")
+		expect(tabOf(order({ status: "cancelled" }))).toBe("cancelled")
+		expect(tabOf(order({ status: "expired" }))).toBe("cancelled")
+		expect(tabOf(order({ status: "rejected" }))).toBe("cancelled")
+	})
+})
+
+describe("a row as a bar of its cap", () => {
+	const size = 1_500_000n * ONE
+	const left = (remaining: bigint, reserved = 0n) =>
+		order({ remaining: remaining.toString(), reserved: reserved.toString() })
+
+	it("measures what has gone out and what bids hold against the cap", () => {
+		expect(progressOf(order())).toEqual({ consumed: 0, held: 0 })
+		expect(progressOf(left(570_000n * ONE, 60_000n * ONE))).toEqual({ consumed: 62, held: 4 })
+		expect(progressOf(left(0n))).toEqual({ consumed: 100, held: 0 })
+	})
+
+	it("cuts rather than rounds, so a bar never shows more consumed than was", () => {
+		// 2/3 consumed is 66.666…%.
+		expect(progressOf(left(size / 3n)).consumed).toBe(66.66)
+		// One unit short of the whole cap is not yet 100.
+		expect(progressOf(left(1n)).consumed).toBe(99.99)
+	})
+
+	it("keeps the held part inside what is left", () => {
+		// Bids hold against what is left without counting one another, so their sum can pass it.
+		expect(progressOf(left(150_000n * ONE, 400_000n * ONE))).toEqual({ consumed: 90, held: 10 })
+	})
+
+	it("draws nothing for an order it cannot measure", () => {
+		expect(progressOf(order({ size: "0", remaining: "0" }))).toEqual({ consumed: 0, held: 0 })
+		expect(progressOf(order({ remaining: "not a number" }))).toEqual({ consumed: 0, held: 0 })
+	})
+
+	it("says how far an order has filled, in words at either end", () => {
+		expect(describeProgress(order())).toBe("Nothing filled yet")
+		expect(describeProgress(order({ status: "expired" }))).toBe("Nothing filled")
+		expect(describeProgress(left(570_000n * ONE))).toBe("62% filled")
+		expect(describeProgress(order({ status: "filled", remaining: "0" }))).toBe("Filled in full")
+	})
+
+	it("never reads a part fill as none or as the whole", () => {
+		expect(describeProgress(left(size - size / 400n))).toBe("0.25% filled")
+		expect(describeProgress(left(size - 1n))).toBe("<0.01% filled")
+		// Closed under the dust floor with a little left.
+		expect(describeProgress(order({ status: "filled", remaining: (size / 1000n).toString() }))).toBe("99.9% filled")
+	})
+
+	it("splits the rate into the figure and what it is a rate of", () => {
+		expect(rateParts(order())).toEqual({ figure: "1,500", unit: "CNGN per USDC" })
+	})
+
+	it("badges only a status the operator has to read", () => {
+		// Being in the live list already says an order is on the book.
+		expect(rowBadge(order())).toBeNull()
+		expect(rowBadge(order({ lastError: "TTL_TOO_SHORT: minimum is 900" }))).toBeNull()
+		expect(rowBadge(order({ commitment: null }))).toEqual({ label: "Posting", tone: "warn" })
+		expect(rowBadge(order({ status: "resizing" }))).toEqual({ label: "Resizing", tone: "warn" })
+		expect(rowBadge(order({ status: "filled", remaining: "0" }))).toEqual({ label: "Filled", tone: "ok" })
+		expect(rowBadge(order({ status: "rejected", lastError: "UNSUPPORTED_PAIR: no such book" }))).toEqual({
+			label: "Refused",
+			tone: "err",
+		})
 	})
 })
 

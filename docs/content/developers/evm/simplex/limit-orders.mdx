@@ -25,9 +25,9 @@ Limit orders are on the **Overview** page of the [dashboard](/developers/evm/sim
 
 <figure style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
 
-![The Limit orders list on the Overview page, with live orders above and closed orders below](./images/limit-orders-list.png)
+![The Limit orders list on the Overview page, on the Sells tab, with two live orders](./images/limit-orders-list.png)
 
-<figcaption>Live orders sit at the top and closed ones under their own heading. Each row shows the side, what is left, the rate, the token taken in, the fill chain and the status.</figcaption>
+<figcaption>Buys and sells are on separate tabs, and each is split into Live, Filled and Cancelled. Each row shows the rate, how much of the order has filled, what is left, the fill chain and the order's cap.</figcaption>
 </figure>
 
 ## Creating a limit order
@@ -121,13 +121,13 @@ Click **Post limit order**. Simplex checks the order before storing it:
 
 If any check fails, the form shows why and nothing is posted. If you are posting to several chains and one fails partway through, the form tells you which chains succeeded and deselects them, so that retrying does not post them again.
 
-The new order appears in the list straight away. It shows **Posting** until the orderbook accepts it, then **On the book**.
+The new order appears straight away under **Live**, on the **Buys** or **Sells** tab for its side. It carries a **Posting** badge until the orderbook accepts it. A live order with no badge is on the book.
 
 <figure style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
 
-![The Limit orders list with the new 5,000 USDC sell order at the top, on the book](./images/limit-orders-posted.png)
+![The Sells tab with the new 5,000 USDC sell order at the top of the live list](./images/limit-orders-posted.png)
 
-<figcaption>The new order at the top of the live list, on the book on Base.</figcaption>
+<figcaption>The new order at the top of the live sells, on the book on Base.</figcaption>
 </figure>
 </Step>
 </Steps>
@@ -138,22 +138,26 @@ An order created from the dashboard lives for `[orderbook] defaultTtlSecs`, whic
 
 ### Reading the list
 
-The list refreshes every 10 seconds, because orders fill, resize and expire without you doing anything. Each row reads as the offer it makes, such as `7,520 USDC left at 1,545 cNGN per USDC`, followed by the token taken in and the fill chain. The **Buy** or **Sell** tag is green or red, so you can see the side at a glance.
+The list refreshes every 10 seconds, because orders fill, resize and expire without you doing anything. **Buys** and **Sells** are separate tabs, and each is split into **Live**, **Filled** and **Cancelled**. The number beside a tab is how many orders it holds. Expired and refused orders are listed under **Cancelled**.
 
-The status badge shows whether the order is actually working:
+Each row is a progress bar for its order:
+
+- **The rate** comes first, such as `1,545 cNGN per USDC`.
+- **The bar** fills as the order pays out, green for a buy and red for a sell. The row says how far it has filled and what is left, such as `24% filled` and `7,520 USDC left`, followed by the token taken in and the fill chain. A fainter line past the fill is output held by bids that have not settled yet.
+- **Cap**, in the right corner, is the order's original size.
+
+A live order with no badge is posted and live on the orderbook. A badge marks any other status:
 
 | Badge | Meaning |
 |---|---|
-| **On the book** (green) | Posted and live on the orderbook. |
 | **Posting** (amber) | Stored, but the orderbook has not accepted it yet. |
-| **On the book** (amber) | Still open, but the last posting or check reported a problem. Open the order to see the reason. Simplex retries on its next cycle. |
 | **Resizing** (amber) | A fill is being settled and the order is being reposted at its new size. |
 | **Filled** | Everything has been paid out. If an order is closed with a small amount left, that amount was below the orderbook's dust floor. |
 | **Cancelled** | You cancelled it. |
 | **Expired** | Its TTL ran out. |
 | **Refused** | The orderbook rejected the posting. The reason is shown on the order. |
 
-An amber **On the book** that reads `UNDER_FUNDED` means your balance no longer covers the order, so the orderbook is advertising less than the order's size. Top up the fill chain or cancel the order. Reposting it would only get it cut down again.
+A live order whose second line is amber is still open, but the last posting or check reported a problem, and the line shows the reason. Simplex retries on its next cycle. A line that reads `UNDER_FUNDED` means your balance no longer covers the order, so the orderbook is advertising less than the order's size. Top up the fill chain or cancel the order. Reposting it would only get it cut down again.
 
 ### Opening an order
 
@@ -179,13 +183,13 @@ Click a row to see its details and the fills that drew it down.
 
 ### Cancelling an order
 
-Open the order and click **Cancel order**. Simplex withdraws the order from the orderbook and moves it under **Closed**. Bids already placed against it can still settle. Cancelling stops new bids, not ones already in flight.
+Open the order and click **Cancel order**. Simplex withdraws the order from the orderbook and moves it to the **Cancelled** tab. Bids already placed against it can still settle. Cancelling stops new bids, not ones already in flight.
 
 <figure style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
 
-![The Limit orders list after cancelling: the 7,520 USDC order now appears under Closed as Cancelled](./images/limit-orders-closed.png)
+![The Cancelled tab after cancelling: the order with 7,520 USDC unfilled is now listed as Cancelled](./images/limit-orders-closed.png)
 
-<figcaption>The cancelled order moves to the Closed list and keeps its history.</figcaption>
+<figcaption>The cancelled order moves to the Cancelled tab and keeps its history.</figcaption>
 </figure>
 
 You cannot edit an order. To change its rate or size, cancel it and post a new one.

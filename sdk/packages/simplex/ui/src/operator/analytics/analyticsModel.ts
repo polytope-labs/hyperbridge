@@ -75,6 +75,18 @@ export function describeNoReturn(figures: Pick<ProfitFigures, "buys" | "sells" |
 	return "Nothing was held at the start"
 }
 
+/**
+ * What moved in and out other than through fills, in a few words: "$500.00 more came in than went
+ * out", or the reverse. Nothing to say when there was no such movement, or none is known.
+ */
+export function describeTransfers(transfersUsd: number | null): string {
+	if (transfersUsd === null || Math.abs(transfersUsd) < 0.005) return ""
+	const amount = formatUsd(Math.abs(transfersUsd))
+	return transfersUsd > 0
+		? `Other than through fills, ${amount} more came in than went out.`
+		: `Other than through fills, ${amount} more went out than came in.`
+}
+
 /** "+12,609 USDC", "-19,921,000 cNGN": a change in what is held, signed, and a dash for none. */
 export function formatChange(amount: number, symbol: string): string {
 	const figure = Math.abs(amount).toLocaleString(undefined, { maximumFractionDigits: 4 })

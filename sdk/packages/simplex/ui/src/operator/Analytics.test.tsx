@@ -11,6 +11,7 @@ const none: ProfitFigures = {
 	profitUsd: 0,
 	startInventoryUsd: 10_000,
 	returnPct: 0,
+	transfersUsd: 0,
 	boughtUsd: 0,
 	soldUsd: 0,
 	buys: 0,
@@ -25,6 +26,7 @@ function summary(overrides: Partial<ProfitabilityDto> = {}): ProfitabilityDto {
 		profitUsd: 62.89,
 		startInventoryUsd: 10_000,
 		returnPct: 0.6289,
+		transfersUsd: 500,
 		boughtUsd: 5_000,
 		soldUsd: 5_000,
 		buys: 1,
@@ -111,7 +113,7 @@ describe("analytics page", () => {
 		// A gain reads green.
 		expect(element.querySelector('.operator-metrics strong[data-tone="ok"]')?.textContent).toBe("+$62.89")
 		expect(element.querySelector(".analytics-holdings")?.textContent).toBe(
-			"The period began with 6,000 USDC and 6,340,000 cNGN.",
+			"The period began with 6,000 USDC and 6,340,000 cNGN. Other than through fills, $500.00 more came in than went out.",
 		)
 	})
 
@@ -147,6 +149,7 @@ describe("analytics page", () => {
 			"$5,000",
 			"$5,000",
 			"$10,000",
+			"+$500.00",
 			"+0.63%",
 			"+$62.89",
 		])

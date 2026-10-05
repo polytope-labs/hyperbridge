@@ -123,6 +123,10 @@ export interface FillerRuntime {
 	rebalancingService?: RebalancingService
 	resolvedChains: ResolvedChainConfig[]
 	fillerAddress: HexString
+	/** The indexer this filler reads history from: order details, and what it held at past moments. */
+	indexerUrl: string
+	/** A token's registry symbol and on-chain decimals, where either can be had. */
+	describeToken: TokenDescriber
 	watchOnly?: Record<number, boolean>
 	config: FillerTomlConfig
 	/** Where the config came from, when it came from a file. */
@@ -500,9 +504,10 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 	const network = resolvedChains.some((chain) => chainByChainId(chain.chainId)?.network === "testnet")
 		? "testnet"
 		: "mainnet"
+	const indexerUrl = config.simplex.indexerUrl ?? DEFAULT_INDEXER_URLS[network]
 	void backfillOrderSummaries({
 		store: options.data.activity,
-		indexerUrl: config.simplex.indexerUrl ?? DEFAULT_INDEXER_URLS[network],
+		indexerUrl,
 		fillerAddress: runtimeSigner.address,
 		describeToken,
 		onUpdated: (rows) => {
@@ -669,6 +674,8 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 		rebalancingService,
 		resolvedChains,
 		fillerAddress: runtimeSigner.address as HexString,
+		indexerUrl,
+		describeToken,
 		watchOnly: watchOnlyConfig,
 		config,
 		configPath: options.configPath,

@@ -55,7 +55,7 @@ Two charts follow, on the same time axis. **Running total** is the profit to dat
 
 **By pair** sets your buys against your sells on each pair: how much you bought and sold, the average rate of each, the spread between those averages, what the fills did to the two tokens you hold, and the profit.
 
-The last table lists every bucket in the period, latest first, with the inventory each one began with and its own return.
+The last table lists every bucket in the period, latest first, with the inventory each one began with and its own return. **Other transfers** is what moved in or out of your inventory in that bucket other than through fills: a deposit, a withdrawal, a fee, or yield on a vault position.
 
 ## How profit is counted
 
@@ -80,7 +80,9 @@ A blockchain can say what an account holds now but not what it held last month, 
 - **A daily snapshot.** Once a day the solver stores what it holds. A period uses the snapshot nearest its start, adjusted by the fills and sends between the two, however far apart they are.
 - **Today's balances, for the last seven days.** Simplex can also take what you hold now and undo the fills and sends since. It does this only for a period that began within the last seven days, and only when no snapshot is nearer.
 
-A deposit from outside appears on no record, so it counts as if you had held it all along. The nearer a record is to the period's start, the less of that there can be.
+A record is rarely taken at the exact moment a period began, so Simplex carries it there by what moved in between. It asks the Hyperbridge indexer, which follows your solver's balances on chain, what you held at both moments. The difference is everything that moved, including deposits and withdrawals that were not fills. So a deposit made last week counts from the day it arrived, not as if you had held it all along.
+
+The indexer follows a solver from its first fill, and only the tokens the network supports. For a token or a moment it has nothing on, or when it cannot be reached, Simplex carries the record by your fills and the sends it has recorded instead. A deposit from outside is then not accounted for, and **Other transfers** shows a dash.
 
 <Callout type="info">
     Snapshots begin when you upgrade to the release that added this page: the first is taken on the

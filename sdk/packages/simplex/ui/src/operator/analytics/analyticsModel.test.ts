@@ -3,6 +3,7 @@ import {
 	bucketLabel,
 	describeHoldings,
 	describeNoReturn,
+	describeTransfers,
 	formatChange,
 	formatPercent,
 	formatRate,
@@ -66,6 +67,15 @@ describe("figures", () => {
 			"Starting inventory not on record",
 		)
 		expect(describeNoReturn({ buys: 1, sells: 1, startInventoryUsd: 0 })).toBe("Nothing was held at the start")
+	})
+
+	it("says which way transfers other than fills went, and nothing when there were none", () => {
+		expect(describeTransfers(500)).toBe("Other than through fills, $500.00 more came in than went out.")
+		expect(describeTransfers(-12_000)).toBe("Other than through fills, $12,000 more went out than came in.")
+		expect(describeTransfers(0)).toBe("")
+		expect(describeTransfers(0.001)).toBe("")
+		// Not known is not the same as none, but there is equally nothing to say.
+		expect(describeTransfers(null)).toBe("")
 	})
 
 	it("signs a change in what is held, and dashes one that is nothing", () => {

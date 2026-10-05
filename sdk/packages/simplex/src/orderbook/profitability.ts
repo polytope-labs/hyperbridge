@@ -55,6 +55,22 @@ export interface InventoryOutflow {
 	amount: number
 }
 
+/**
+ * What the indexer says the solver held at one instant, for the tokens it follows.
+ *
+ * It keeps a running balance from every Transfer on chain, so the difference between two readings
+ * is everything that moved between them: fills, and also deposits, withdrawals and anything else
+ * no record on this side shows. It does not replace a snapshot, since it only follows some tokens
+ * and only from when it first saw the solver.
+ */
+export interface InventoryReading {
+	at: number
+	/** Whole tokens per symbol, summed over the chains named for it in `chains`. */
+	balances: Record<string, number>
+	/** The chains each symbol's figure covers. Two readings compare only where these agree. */
+	chains: Record<string, readonly string[]>
+}
+
 /** What a stretch of fills came to, in dollars at the latest rate. Unpriced tokens are left out. */
 export interface ProfitFigures {
 	/** What the stretch's fills added to inventory, less what they took out of it. */
@@ -63,6 +79,11 @@ export interface ProfitFigures {
 	startInventoryUsd: number | null
 	/** `profitUsd` over `startInventoryUsd`, as a percentage. Null without a starting inventory. */
 	returnPct: number | null
+	/**
+	 * What moved in and out over the stretch other than through fills, net: deposits, withdrawals,
+	 * fees and vault yield. Null when the indexer has no reading for both ends of the stretch.
+	 */
+	transfersUsd: number | null
 	boughtUsd: number
 	soldUsd: number
 	buys: number
@@ -250,23 +271,45 @@ class BookLedger {
 	}
 }
 
+/** A reading as the arithmetic wants it: holdings by normalised symbol, and what each covers. */
+interface Reading {
+	held: Holdings
+	cover: Map<string, string>
+}
+
+function readingOf(reading: InventoryReading): Reading {
+	const held: Holdings = new Map()
+	const cover = new Map<string, string>()
+	for (const [symbol, amount] of Object.entries(reading.balances)) {
+		const chains = reading.chains[symbol]
+		if (!Number.isFinite(amount) || !chains?.length) continue
+		add(held, normalizeSymbol(symbol), new Decimal(amount))
+		cover.set(normalizeSymbol(symbol), [...chains].sort().join(","))
+	}
+	return { held, cover }
+}
+
 /**
- * What the solver held at `instant`, from the record nearest it.
- *
- * A record is rarely taken at the instant asked about, so it is carried there by what is known to
- * have happened between: fills, which moved tokens both ways, and sends, which took them out. A
- * record from after the instant has those undone; one from before has them applied. A deposit
- * from outside is on no record, so it reads as held from the start of whatever gap it fell in.
- *
- * A stored snapshot is used however far it is from the instant. Today's balances are used only
- * within {@link BALANCES_REACH_MS} of it. Null when there is neither.
+ * What the chain says moved between two readings, for every token both cover alike. A token one
+ * reading counts on a chain the other does not is left out: the difference would be that chain's
+ * whole balance appearing from nowhere.
  */
-function inventoryAt(
-	instant: number,
-	records: readonly InventoryRecord[],
-	trades: readonly Trade[],
-	outflows: readonly InventoryOutflow[],
-): { held: Holdings; record: InventoryRecord } | null {
+function movedBetween(earlier: Reading | undefined, later: Reading | undefined): Holdings | null {
+	if (!earlier || !later) return null
+	const moved: Holdings = new Map()
+	for (const [symbol, cover] of later.cover) {
+		if (earlier.cover.get(symbol) !== cover) continue
+		const before = earlier.held.get(symbol) ?? new Decimal(0)
+		moved.set(symbol, (later.held.get(symbol) ?? new Decimal(0)).sub(before))
+	}
+	return moved
+}
+
+/**
+ * The record to describe `instant` from: the nearest. A stored snapshot is used however far it
+ * is from the instant. Today's balances are used only within {@link BALANCES_REACH_MS} of it.
+ */
+function nearestRecord(instant: number, records: readonly InventoryRecord[]): InventoryRecord | undefined {
 	let record: InventoryRecord | undefined
 	let gap = Number.POSITIVE_INFINITY
 	for (const candidate of records) {
@@ -279,12 +322,36 @@ function inventoryAt(
 			gap = distance
 		}
 	}
+	return record
+}
+
+/**
+ * What the solver held at `instant`, from the record nearest it.
+ *
+ * A record is rarely taken at the instant asked about, so it is carried there by what happened
+ * between. Where the indexer has a reading at both moments, the difference between the readings
+ * is that, exactly: every transfer on chain, whether it was a fill, a deposit or a withdrawal.
+ * For a token it does not follow, or a moment it has no reading for, the record is carried by
+ * what is known on this side instead: fills, which moved tokens both ways, and sends, which took
+ * them out. A deposit from outside is then on no record, and reads as held all along.
+ *
+ * Null when there is no record to start from.
+ */
+function inventoryAt(
+	instant: number,
+	records: readonly InventoryRecord[],
+	trades: readonly Trade[],
+	outflows: readonly InventoryOutflow[],
+	readings: ReadonlyMap<number, Reading>,
+): { held: Holdings; record: InventoryRecord } | null {
+	const record = nearestRecord(instant, records)
 	if (!record) return null
 
-	const held: Holdings = new Map()
+	const recorded: Holdings = new Map()
 	for (const [symbol, amount] of Object.entries(record.balances)) {
-		if (Number.isFinite(amount)) add(held, normalizeSymbol(symbol), new Decimal(amount))
+		if (Number.isFinite(amount)) add(recorded, normalizeSymbol(symbol), new Decimal(amount))
 	}
+	const held: Holdings = new Map(recorded)
 
 	const after = record.at >= instant
 	const [from, to] = after ? [instant, record.at] : [record.at, instant]
@@ -298,10 +365,63 @@ function inventoryAt(
 			add(held, normalizeSymbol(outflow.symbol), new Decimal(outflow.amount).mul(-sign))
 		}
 	}
+
+	// Where the chain's own account of the gap is known, it replaces the one pieced together above.
+	const moved = movedBetween(readings.get(from), readings.get(to))
+	if (moved) {
+		for (const [symbol, amount] of moved) {
+			held.set(symbol, (recorded.get(symbol) ?? new Decimal(0)).add(amount.mul(sign)))
+		}
+	}
+
 	// A deposit after the instant can leave a token looking overdrawn before it; nothing is ever
 	// held in the negative.
 	for (const [symbol, amount] of held) if (amount.isNegative()) held.set(symbol, new Decimal(0))
 	return { held, record }
+}
+
+/** The fills that can be priced, as trades, oldest first, up to `now`. */
+function tradesOf(fills: readonly LimitOrderFillRecord[], now: number): Trade[] {
+	const trades: Trade[] = []
+	for (const fill of fills) {
+		const at = parseUtc(fill.filledAt)
+		if (!Number.isFinite(at) || at > now) continue
+		const trade = tradeOf(fill, at)
+		if (trade) trades.push(trade)
+	}
+	return trades.sort((a, b) => a.at - b.at)
+}
+
+/** Bucket starts on the viewer's clock, oldest first. "all" opens at the first fill's bucket. */
+function bucketStarts(period: ProfitPeriod, now: number, offset: number, firstAt: number | undefined): number[] {
+	const { bucket, count } = PROFIT_PERIODS[period]
+	const last = bucketStart(now - offset, bucket)
+	const first = count === null ? bucketStart((firstAt ?? now) - offset, bucket) : shiftBucket(last, bucket, 1 - count)
+	const starts: number[] = []
+	for (let start = first; start <= last; start = shiftBucket(start, bucket, 1)) starts.push(start)
+	return starts
+}
+
+/**
+ * The instants a summary measures inventory at: where each bucket starts, now, and the record
+ * each bucket's start is described from. These are the moments the indexer is asked for a
+ * reading of, so that what moved between a record and a bucket's start is known rather than
+ * pieced together.
+ */
+export function inventoryInstants(
+	fills: readonly LimitOrderFillRecord[],
+	options: { period: ProfitPeriod; now: number; tzOffsetMinutes?: number; inventory?: readonly InventoryRecord[] },
+): number[] {
+	const { period, now } = options
+	const offset = (options.tzOffsetMinutes ?? 0) * MINUTE
+	const records = (options.inventory ?? []).filter((record) => record.at <= now)
+	const instants = new Set<number>([now])
+	for (const start of bucketStarts(period, now, offset, tradesOf(fills, now)[0]?.at)) {
+		instants.add(start + offset)
+		const record = nearestRecord(start + offset, records)
+		if (record) instants.add(record.at)
+	}
+	return [...instants].sort((a, b) => a - b)
 }
 
 /**
@@ -331,29 +451,20 @@ export function summarizeProfit(
 		/** Stored snapshots and, when they could be read, the balances as they stand now. */
 		inventory?: readonly InventoryRecord[]
 		outflows?: readonly InventoryOutflow[]
+		/** The indexer's readings at the instants {@link inventoryInstants} names, where it has them. */
+		readings?: readonly InventoryReading[]
 	},
 ): Profitability {
 	const { period, now } = options
 	const offset = (options.tzOffsetMinutes ?? 0) * MINUTE
-	const { bucket, count } = PROFIT_PERIODS[period]
+	const { bucket } = PROFIT_PERIODS[period]
 	const records = (options.inventory ?? []).filter((record) => record.at <= now)
 	const outflows = options.outflows ?? []
+	const readings = new Map((options.readings ?? []).map((reading) => [reading.at, readingOf(reading)]))
 
-	const trades: Trade[] = []
-	for (const fill of fills) {
-		const at = parseUtc(fill.filledAt)
-		if (!Number.isFinite(at) || at > now) continue
-		const trade = tradeOf(fill, at)
-		if (trade) trades.push(trade)
-	}
-	trades.sort((a, b) => a.at - b.at)
-
-	// Bucket starts on the viewer's clock, oldest first. "all" opens at the first fill's bucket.
-	const last = bucketStart(now - offset, bucket)
-	const first =
-		count === null ? bucketStart((trades[0]?.at ?? now) - offset, bucket) : shiftBucket(last, bucket, 1 - count)
-	const starts: number[] = []
-	for (let start = first; start <= last; start = shiftBucket(start, bucket, 1)) starts.push(start)
+	const trades = tradesOf(fills, now)
+	const starts = bucketStarts(period, now, offset, trades[0]?.at)
+	const first = starts[0]
 
 	// Every book's latest rates come from its whole history: a book that did not trade in the
 	// period still prices the tokens the period's fills and the starting inventory are made of.
@@ -449,14 +560,23 @@ export function summarizeProfit(
 	}
 
 	/** A stretch's sums against the inventory it began with. */
-	const figures = (sums: Sums, startsAt: number): ProfitFigures => {
+	const figures = (sums: Sums, startsAt: number, endsAt: number): ProfitFigures => {
 		const profit = valueOf(sums.change)
-		const began = inventoryAt(startsAt, records, trades, outflows)
+		const began = inventoryAt(startsAt, records, trades, outflows, readings)
 		const inventory = began ? valueOf(began.held) : null
+
+		// Everything the chain says moved over the stretch, less what the fills account for.
+		const moved = movedBetween(readings.get(startsAt), readings.get(endsAt))
+		if (moved) {
+			for (const [symbol, amount] of sums.change) {
+				if (moved.has(symbol)) moved.set(symbol, (moved.get(symbol) ?? new Decimal(0)).sub(amount))
+			}
+		}
 		return {
 			profitUsd: profit.toNumber(),
 			startInventoryUsd: inventory ? inventory.toNumber() : null,
 			returnPct: inventory?.gt(0) ? profit.div(inventory).mul(100).toNumber() : null,
+			transfersUsd: moved && moved.size > 0 ? valueOf(moved).toNumber() : null,
 			boughtUsd: sums.boughtUsd.toNumber(),
 			soldUsd: sums.soldUsd.toNumber(),
 			buys: sums.buys,
@@ -465,7 +585,7 @@ export function summarizeProfit(
 	}
 
 	const from = first + offset
-	const began = inventoryAt(from, records, trades, outflows)
+	const began = inventoryAt(from, records, trades, outflows, readings)
 	const startInventory: StartingInventory | null = began && {
 		at: from,
 		source: began.record.live ? "balances" : "snapshot",
@@ -517,10 +637,12 @@ export function summarizeProfit(
 		bucket,
 		from,
 		to: now,
-		totals: figures(totals, from),
-		series: starts.map((start) => {
+		totals: figures(totals, from, now),
+		series: starts.map((start, index) => {
 			const sums = buckets.get(start) ?? new Sums()
-			return { start: start + offset, ...figures(sums, start + offset) }
+			// A bucket runs to the start of the next, and the last one to now.
+			const endsAt = index + 1 < starts.length ? starts[index + 1] + offset : now
+			return { start: start + offset, ...figures(sums, start + offset, endsAt) }
 		}),
 		books: rows,
 		startInventory,

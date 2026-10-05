@@ -9,6 +9,7 @@ import {
 	bucketLabel,
 	describeHoldings,
 	describeNoReturn,
+	describeTransfers,
 	formatChange,
 	formatPercent,
 	formatRate,
@@ -90,7 +91,10 @@ function Summary({ summary }: { summary: ProfitabilityDto }) {
 			</section>
 
 			{startInventory && startInventory.tokens.length > 0 ? (
-				<p className="analytics-holdings">The period began with {describeHoldings(startInventory.tokens)}.</p>
+				<p className="analytics-holdings">
+					The period began with {describeHoldings(startInventory.tokens)}.{" "}
+					{describeTransfers(totals.transfersUsd)}
+				</p>
 			) : null}
 
 			<section className="operator-section">
@@ -145,8 +149,9 @@ function Summary({ summary }: { summary: ProfitabilityDto }) {
 				Profit is the change your buys and sells made to what you hold: what they took in, less what they paid
 				out, with each token valued at its latest rate. Volume bought and not yet sold counts at that rate, so
 				the figure moves with it. The return compares that profit with the inventory you held when the period
-				began, taken from a daily snapshot or, for the last seven days, rebuilt from today's balances. Network
-				fees are not included.
+				began, taken from a daily snapshot or, for the last seven days, rebuilt from today's balances. Deposits,
+				withdrawals and other transfers that were not fills are taken from the indexer where it follows your
+				balances, and shown as other transfers. Network fees are not included.
 				{summary.estimatedFills > 0
 					? ` ${summary.estimatedFills.toLocaleString()} ${summary.estimatedFills === 1 ? "fill in this period was" : "fills in this period were"} recorded before fills kept what they took in, and ${summary.estimatedFills === 1 ? "is" : "are"} priced at the order's own rate.`
 					: ""}
@@ -231,6 +236,7 @@ function Buckets({ summary }: { summary: ProfitabilityDto }) {
 							<th scope="col">Bought</th>
 							<th scope="col">Sold</th>
 							<th scope="col">Starting inventory</th>
+							<th scope="col">Other transfers</th>
 							<th scope="col">Return</th>
 							<th scope="col">Profit</th>
 						</tr>
@@ -242,6 +248,11 @@ function Buckets({ summary }: { summary: ProfitabilityDto }) {
 								<td>{traded(row) ? formatUsd(row.boughtUsd) : "—"}</td>
 								<td>{traded(row) ? formatUsd(row.soldUsd) : "—"}</td>
 								<td>{row.startInventoryUsd === null ? "—" : formatUsd(row.startInventoryUsd)}</td>
+								<td>
+									{row.transfersUsd === null || Math.abs(row.transfersUsd) < 0.005
+										? "—"
+										: formatUsd(row.transfersUsd, { signed: true })}
+								</td>
 								<td>{traded(row) ? formatPercent(row.returnPct) : "—"}</td>
 								<td>
 									{traded(row) ? (

@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest"
 import type { LimitOrderFillRecord } from "@/data/types"
-import { BALANCES_REACH_MS, type InventoryRecord, isProfitPeriod, summarizeProfit } from "@/orderbook/profitability"
+import {
+	BALANCES_REACH_MS,
+	type InventoryReading,
+	type InventoryRecord,
+	inventoryInstants,
+	isProfitPeriod,
+	summarizeProfit,
+} from "@/orderbook/profitability"
 
 const ONE = 10n ** 18n
 /** A whole-token figure at 1e18, exact to six decimals. */
@@ -421,6 +428,137 @@ describe("the inventory a period began with", () => {
 			inventory: [{ at: NOW, balances: {}, live: true }],
 		})
 		expect(empty.totals).toMatchObject({ startInventoryUsd: 0, returnPct: null })
+	})
+})
+
+describe("what the indexer says moved", () => {
+	/** A buy and a sell inside the week: 50 USDC more held, and 78,500 cNGN less. */
+	const fills = () => [buy(100, 1580, "2026-10-02 09:00:00"), sell(50, 1590, "2026-10-04 09:00:00")]
+	const live: InventoryRecord = { at: NOW, balances: { USDC: 1000, cNGN: 1_000_000 }, live: true }
+	const reading = (at: number, balances: Record<string, number>, chains = ["EVM-8453"]): InventoryReading => ({
+		at,
+		balances,
+		chains: Object.fromEntries(Object.keys(balances).map((symbol) => [symbol, chains])),
+	})
+	const summarize = (readings: InventoryReading[], inventory: InventoryRecord[] = [live]) =>
+		summarizeProfit(fills(), { period: "7d", now: NOW, inventory, readings })
+
+	it("accounts for a deposit that no fill or snapshot shows", () => {
+		// The chain says 550 USDC more are held than when the week began. The fills explain 50
+		// of that, so 500 came in some other way, and were not there at the start.
+		const summary = summarize([
+			reading(WEEK_START, { USDC: 450, cNGN: 1_078_500 }),
+			reading(NOW, { USDC: 1000, cNGN: 1_000_000 }),
+		])
+
+		expect(summary.startInventory?.tokens.map(({ symbol, amount }) => [symbol, amount])).toEqual([
+			["cNGN", 1_078_500],
+			["USDC", 450],
+		])
+		expect(summary.totals.transfersUsd).toBeCloseTo(500, 9)
+		// Undoing the fills alone would have counted the deposit as held all week.
+		expect(summarize([]).startInventory?.tokens.find((token) => token.symbol === "USDC")?.amount).toBe(950)
+		expect(summarize([]).totals.transfersUsd).toBeNull()
+	})
+
+	it("accounts for a withdrawal the same way, as a negative", () => {
+		const summary = summarize([
+			reading(WEEK_START, { USDC: 1250, cNGN: 1_078_500 }),
+			reading(NOW, { USDC: 1000, cNGN: 1_000_000 }),
+		])
+
+		expect(summary.startInventory?.tokens.find((token) => token.symbol === "USDC")?.amount).toBe(1250)
+		expect(summary.totals.transfersUsd).toBeCloseTo(-300, 9)
+	})
+
+	it("reads no transfer where the fills explain everything that moved", () => {
+		const summary = summarize([
+			reading(WEEK_START, { USDC: 950, cNGN: 1_078_500 }),
+			reading(NOW, { USDC: 1000, cNGN: 1_000_000 }),
+		])
+
+		expect(summary.totals.transfersUsd).toBeCloseTo(0, 9)
+		expect(summary.startInventory?.usd).toBeCloseTo(950 + 1_078_500 / 1585, 9)
+	})
+
+	it("carries what the record holds, not what the indexer counts", () => {
+		// The indexer follows only one of the chains this solver holds USDC on, so its figures
+		// are smaller than the record's. Only the difference between its readings is used.
+		const summary = summarize([reading(WEEK_START, { USDC: 100 }), reading(NOW, { USDC: 400 })])
+
+		// 300 more on chain, 50 of them from fills: the record's 1,000 were 700 at the start.
+		expect(summary.startInventory?.tokens.find((token) => token.symbol === "USDC")?.amount).toBe(700)
+		// cNGN has no reading, so it is carried by the fills as before.
+		expect(summary.startInventory?.tokens.find((token) => token.symbol === "cNGN")?.amount).toBe(1_078_500)
+		expect(summary.totals.transfersUsd).toBeCloseTo(250, 9)
+	})
+
+	it("falls back to the fills for a token two readings cover on different chains", () => {
+		// The indexer began following a second chain during the week. Its later USDC figure
+		// includes that chain's whole balance, which did not arrive from anywhere.
+		const summary = summarize([
+			reading(WEEK_START, { USDC: 450, cNGN: 1_078_500 }),
+			{
+				at: NOW,
+				balances: { USDC: 9000, cNGN: 1_000_000 },
+				chains: { USDC: ["EVM-8453", "EVM-56"], cNGN: ["EVM-8453"] },
+			},
+		])
+
+		expect(summary.startInventory?.tokens.find((token) => token.symbol === "USDC")?.amount).toBe(950)
+		expect(summary.startInventory?.tokens.find((token) => token.symbol === "cNGN")?.amount).toBe(1_078_500)
+		// Only cNGN can be compared, and the fills explain all of it.
+		expect(summary.totals.transfersUsd).toBeCloseTo(0, 9)
+	})
+
+	it("places a transfer in the bucket it happened in", () => {
+		// 500 USDC arrive on the 3rd. Everything else that moves is a fill.
+		const balanceAt = (at: number) => ({
+			USDC:
+				450 +
+				(at > Date.parse("2026-10-02T09:00:00Z") ? 100 : 0) +
+				(at > Date.parse("2026-10-03T12:00:00Z") ? 500 : 0) -
+				(at > Date.parse("2026-10-04T09:00:00Z") ? 50 : 0),
+			cNGN:
+				1_078_500 -
+				(at > Date.parse("2026-10-02T09:00:00Z") ? 158_000 : 0) +
+				(at > Date.parse("2026-10-04T09:00:00Z") ? 79_500 : 0),
+		})
+		const instants = inventoryInstants(fills(), { period: "7d", now: NOW, inventory: [live] })
+		const summary = summarize(instants.map((at) => reading(at, balanceAt(at))))
+
+		const transfers = summary.series.map((day) => Math.round(day.transfersUsd ?? Number.NaN))
+		expect(transfers).toEqual([0, 0, 0, 0, 500, 0, 0])
+		// And each day began with what was really held then: the deposit only from the 4th on.
+		const third = summary.series[4]
+		const fourth = summary.series[5]
+		expect(third.startInventoryUsd).toBeCloseTo(550 + 920_500 / 1585, 9)
+		expect(fourth.startInventoryUsd).toBeCloseTo(1050 + 920_500 / 1585, 9)
+	})
+
+	it("uses the readings to carry a snapshot as well as today's balances", () => {
+		// A snapshot from two days before the week, and a deposit of 200 USDC in between.
+		const taken = WEEK_START - 2 * DAY
+		const snapshot: InventoryRecord = { at: taken, balances: { USDC: 300, cNGN: 1_078_500 } }
+		const summary = summarize(
+			[reading(taken, { USDC: 250, cNGN: 1_078_500 }), reading(WEEK_START, { USDC: 450, cNGN: 1_078_500 })],
+			[snapshot],
+		)
+
+		expect(summary.startInventory).toMatchObject({ source: "snapshot", recordedAt: taken })
+		expect(summary.startInventory?.tokens.find((token) => token.symbol === "USDC")?.amount).toBe(500)
+	})
+
+	it("names the instants it needs readings for", () => {
+		const taken = WEEK_START - 2 * DAY
+		const snapshot: InventoryRecord = { at: taken, balances: { USDC: 300 } }
+		const instants = inventoryInstants(fills(), { period: "7d", now: NOW, inventory: [snapshot, live] })
+
+		// Where each of the seven days starts, now, and the snapshot the earliest days are
+		// described from. The later days are described from today's balances, which is now.
+		expect(instants).toEqual([taken, ...Array.from({ length: 7 }, (_, day) => WEEK_START + day * DAY), NOW])
+		// With no record there is nothing to carry, and only the buckets' own edges are needed.
+		expect(inventoryInstants(fills(), { period: "7d", now: NOW })).toHaveLength(8)
 	})
 })
 

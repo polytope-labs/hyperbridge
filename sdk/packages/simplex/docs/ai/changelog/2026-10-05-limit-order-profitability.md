@@ -56,9 +56,27 @@ the change in inventory over the period, compared with the inventory at the peri
 ## The inventory a period began with
 
 `inventoryAt(instant)` takes the record nearest the instant: a stored snapshot, or the balances as
-they stand now. It then carries that record to the instant by the fills between them and by the
-sends recorded in the wallet ledger. A sweep or a redeem is not an outflow, since vault positions
-are inventory. A token that comes out negative is counted as zero.
+they stand now. It then carries that record to the instant by what moved between the two. A token
+that comes out negative is counted as zero.
+
+What moved comes from the indexer where it can (David, 2026-10-05). The indexer's `SolverInventory`
+is a running balance per chain and token, built from every Transfer and kept with history, so
+`solverInventories(filter: { solver }, blockHeight: "<ms>")` answers for any past moment. It stores
+no individual transfers. `IndexerInventory` (`src/data/indexer-inventory.ts`) asks for a reading at
+every instant `inventoryInstants` names, in one aliased request per forty instants, and keeps
+readings older than ten minutes. The difference between two readings is everything that moved:
+fills, deposits, withdrawals, fees and vault yield.
+
+- For a token two readings cover on the same chains, the record is carried by their difference.
+  The indexer's own totals are not used, only the difference, since it follows fewer tokens and
+  chains than the solver holds.
+- For any other token, or when the indexer does not answer, the record is carried by the fills and
+  by the sends in the wallet ledger, as before. A deposit from outside is then on no record.
+- `transfersUsd` on `totals` and on each bucket is the difference between the readings at its two
+  ends, less what its fills account for. It is null without a reading at both ends.
+
+The indexer follows a solver from its first fill or from the orderbook's watchlist, and only the
+chain's supported tokens, so a moment before that has no reading.
 
 Today's balances are carried back at most `BALANCES_REACH_MS`, seven days (David, 2026-10-05). They
 are a fact about now, and a deposit from outside is on no record, so the further back they are
@@ -85,7 +103,8 @@ bucket is compared with the inventory at its own start, resolved the same way.
 
 The response (`Profitability`) holds `totals`, one `series` entry per bucket including empty ones,
 one `books` entry per book, `startInventory` (its dollar value, its tokens, and whether it came
-from a `snapshot` or from `balances`), `estimatedFills` and `unpricedTokens`.
+from a `snapshot` or from `balances`), `estimatedFills` and `unpricedTokens`. `totals` and each
+bucket carry `transfersUsd`.
 
 `simplex.limitOrders.profitability(period, tzOffsetMinutes)` is the same read from the library.
 
@@ -96,7 +115,9 @@ from a `snapshot` or from `balances`), `estimatedFills` and `unpricedTokens`.
   nothing to compare it is a dash and says why. It links to Analytics.
 - **Analytics** is a new page at `/analytics`, after History in the sidebar. It has a period
   control, four figures (profit, return on inventory, starting inventory, volume), the running
-  total as a line over each bucket's profit as bars, a table by pair and a table by bucket.
+  total as a line over each bucket's profit as bars, a table by pair and a table by bucket. The
+  bucket table has an **Other transfers** column, and the line under the figures says which way
+  they went over the period.
   Pointing at a bucket in either chart reads its figures out above them. The charts are drawn at
   the width of their container, so their type stays legible on a phone.
 - The handheld bottom bar has seven columns.

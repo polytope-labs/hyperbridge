@@ -231,17 +231,17 @@ curl -s "$SIMPLEX/api/analytics/profitability?period=30d&tz=-60"
   "bucket": "day",
   "from": 1788649200000,
   "to": 1791200520000,
-  "totals": { "profitUsd": 2312.0, "startInventoryUsd": 131429.43, "returnPct": 1.76,
+  "totals": { "profitUsd": 2312.0, "startInventoryUsd": 126429.43, "returnPct": 1.83, "transfersUsd": 5000.0,
               "boughtUsd": 406261.0, "soldUsd": 398297.12, "buys": 119, "sells": 122 },
-  "series": [ { "start": 1788649200000, "profitUsd": 71.4, "startInventoryUsd": 131429.43, "…": "…" } ],
+  "series": [ { "start": 1788649200000, "profitUsd": 71.4, "startInventoryUsd": 126429.43, "transfersUsd": 0, "…": "…" } ],
   "books": [
     { "book": "USDC-cNGN", "base": "USDC", "quote": "cNGN", "bought": 235629, "sold": 223020,
       "averageBuy": 1579.88, "averageSell": 1589.3, "spreadPct": 0.6,
       "baseChange": 12609, "quoteChange": -17819994.94, "rate": 1584.6, "profitUsd": 1360.1 }
   ],
   "startInventory": {
-    "at": 1788649200000, "source": "snapshot", "recordedAt": 1788609720000, "usd": 131429.43,
-    "tokens": [ { "symbol": "USDC", "amount": 61362.67, "usd": 61362.67 }, { "…": "…" } ]
+    "at": 1788649200000, "source": "snapshot", "recordedAt": 1788609720000, "usd": 126429.43,
+    "tokens": [ { "symbol": "USDC", "amount": 56362.67, "usd": 56362.67 }, { "…": "…" } ]
   },
   "estimatedFills": 0,
   "unpricedTokens": []
@@ -253,10 +253,10 @@ Unlike the rest of this page, these figures are plain numbers in whole tokens an
 | Field | Description |
 |---|---|
 | `from`, `to` | The start of the first bucket and the moment the summary was taken, in milliseconds since the epoch. |
-| `totals` | The whole period. `profitUsd` is what the period's fills added to inventory less what they took out, in dollars at each pair's latest rate. `startInventoryUsd` is the inventory held when the period began, and `returnPct` is the first over the second as a percentage. Both are `null` when there is no snapshot and the period began more than seven days ago. `boughtUsd`, `soldUsd`, `buys` and `sells` are the volume and the number of fills each way. |
+| `totals` | The whole period. `profitUsd` is what the period's fills added to inventory less what they took out, in dollars at each pair's latest rate. `startInventoryUsd` is the inventory held when the period began, and `returnPct` is the first over the second as a percentage. Both are `null` when there is no snapshot and the period began more than seven days ago. `transfersUsd` is what moved in and out other than through fills, net, from the indexer's record of the solver's balances; it is `null` when the indexer has no reading for both ends of the period. `boughtUsd`, `soldUsd`, `buys` and `sells` are the volume and the number of fills each way. |
 | `series` | One entry per bucket, oldest first, with the same figures as `totals` and the bucket's `start`. Each is compared with the inventory at its own start. Buckets nothing happened in are included. |
 | `books` | One entry per pair. `bought` and `sold` are in the base token, and `averageBuy` and `averageSell` in quote per base. `spreadPct` is how far the average sell sits above the average buy. `baseChange` and `quoteChange` are what the fills did to the two tokens held. `rate` is the rate the pair is valued at: midway between its latest buy and its latest sell. |
-| `startInventory` | The inventory the period began with: its dollar value, its tokens, and its `source`. `snapshot` is a stored daily snapshot and `balances` is what is held now; either is adjusted by the fills and sends between `recordedAt` and `at`. The nearest snapshot is used however far it is from the start, and today's balances only for a start within the last seven days. `null` when there is neither. |
+| `startInventory` | The inventory the period began with: its dollar value, its tokens, and its `source`. `snapshot` is a stored daily snapshot and `balances` is what is held now; either is adjusted by what moved between `recordedAt` and `at`, which comes from the indexer where it follows the solver and from the fills and sends on record elsewhere. The nearest snapshot is used however far it is from the start, and today's balances only for a start within the last seven days. `null` when there is neither. |
 | `estimatedFills` | Fills in the period that had no `amountIn`, and were priced at their order's rate instead. |
 | `unpricedTokens` | Tokens the period touched that no pair connects to a dollar stable. The dollar figures leave them out. |
 

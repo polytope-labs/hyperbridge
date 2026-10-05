@@ -368,8 +368,9 @@ profitability(period: ProfitPeriod, tzOffsetMinutes?: number): Promise<Profitabi
 The result holds `totals`, one `series` entry per bucket, one `books` entry per pair,
 `startInventory`, `estimatedFills` and `unpricedTokens`, as plain numbers in whole tokens and
 dollars. The [profitability route](/developers/evm/simplex/api/limit-orders#get-apianalyticsprofitability)
-describes each field. It reads the data store and the balances already in memory, so it answers
-without an orderbook configured.
+describes each field. It reads the data store and the balances already in memory, and asks the
+indexer what moved between the moments it compares. It answers without an orderbook configured,
+and without the indexer, which only costs it the deposits and withdrawals no fill shows.
 
 ### books()
 

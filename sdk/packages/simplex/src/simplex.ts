@@ -15,10 +15,12 @@ import { MemoryDataStore } from "@/data/memory"
 import { OrderScanner as OrderScannerImpl } from "@/scanner/order-scanner"
 import type { OrderScanner } from "@/scanner/types"
 import type { LimitOrder, LimitOrderFilter } from "@/data/types"
+import { IndexerInventory } from "@/data/indexer-inventory"
 import { inventoryOf, parseUtc } from "@/data/inventory"
 import {
 	type InventoryOutflow,
 	type InventoryRecord,
+	inventoryInstants,
 	type Profitability,
 	type ProfitPeriod,
 	summarizeProfit,
@@ -223,6 +225,8 @@ export interface SimplexStatus {
  * enabled, rather than quietly doing nothing.
  */
 export class LimitOrderController {
+	private indexed?: IndexerInventory
+
 	constructor(
 		private runtime: FillerRuntime,
 		private emit: LimitOrderEmitter,
@@ -268,9 +272,11 @@ export class LimitOrderController {
 	 * Profit is the change the period's fills made to what the solver holds, and
 	 * it is compared with the inventory the period began with. That inventory
 	 * comes from the stored snapshots and, when the balances have been read in
-	 * full, from what is held now, each carried to the period's start by the fills
-	 * and sends between. It reads the store and the balances already in memory, so
-	 * it answers whether or not an orderbook is configured.
+	 * full, from what is held now, each carried to the period's start by what
+	 * moved between. The indexer says what moved, deposits and withdrawals
+	 * included, wherever it has followed the solver; elsewhere the fills and
+	 * sends on record stand in. It answers whether or not an orderbook is
+	 * configured, and whether or not the indexer does.
 	 */
 	async profitability(period: ProfitPeriod, tzOffsetMinutes = 0): Promise<Profitability> {
 		const now = Date.now()
@@ -300,7 +306,20 @@ export class LimitOrderController {
 			}
 		}
 
-		return summarizeProfit(fills, { period, now, tzOffsetMinutes, inventory, outflows })
+		const instants = inventoryInstants(fills, { period, now, tzOffsetMinutes, inventory })
+		const readings = await this.indexerInventory().at(instants, now)
+		return summarizeProfit(fills, { period, now, tzOffsetMinutes, inventory, outflows, readings })
+	}
+
+	/** One reader for the life of the filler, so the readings it has already fetched are kept. */
+	private indexerInventory(): IndexerInventory {
+		this.indexed ??= new IndexerInventory({
+			indexerUrl: this.runtime.indexerUrl,
+			solver: this.runtime.fillerAddress,
+			describeToken: this.runtime.describeToken,
+			logger: this.runtime.loggers.get("inventory"),
+		})
+		return this.indexed
 	}
 
 	/** The pairs the orderbook lists, the smallest payout each token may carry, and its tokens per chain. */

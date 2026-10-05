@@ -72,6 +72,12 @@ export interface LimitOrderHold {
 	 * before bids carried their own rate have none.
 	 */
 	take?: string
+	/**
+	 * The input token's decimals on the order's source chain, which is where `take` and the escrow
+	 * a fill releases are counted. With it, settlement records what a fill took in at 1e18. Holds
+	 * recorded before fills kept their input have none.
+	 */
+	takeDecimals?: number
 }
 
 export interface BidInsert {
@@ -425,6 +431,11 @@ export interface LimitOrderFill {
 	bid: string | null
 	/** What the fill drew the limit order down by, at 1e18 in the token it pays. */
 	amount: string
+	/**
+	 * The escrow the fill released to the solver, at 1e18 in the token the order takes in. Null
+	 * for a fill recorded before this was kept, and for one whose event carried no inputs.
+	 */
+	amountIn: string | null
 	/** The fill's transaction on the order's fill chain, when the event carried it. */
 	transactionHash: string | null
 	/** SQLite-style "YYYY-MM-DD HH:MM:SS" in UTC. */
@@ -436,7 +447,25 @@ export interface LimitOrderFillInsert {
 	commitment: string
 	bid?: string | null
 	amount: string
+	amountIn?: string | null
 	transactionHash?: string | null
+}
+
+/**
+ * A fill with the terms of the order it drew on: what profitability is worked out from. The
+ * order's `price` stands in for the rate of a fill that kept no `amountIn`.
+ */
+export interface LimitOrderFillRecord {
+	id: number
+	limitOrderId: string
+	book: string
+	base: string
+	quote: string
+	side: LimitOrderSide
+	price: string
+	amount: string
+	amountIn: string | null
+	filledAt: string
 }
 
 export interface LimitOrderStore {
@@ -490,6 +519,8 @@ export interface LimitOrderStore {
 	clampRemaining(id: string, room: string): Promise<LimitOrder | null>
 	/** Records a fill against its limit order. Called alongside the draw-down it explains. */
 	recordFill(fill: LimitOrderFillInsert): Promise<void>
+	/** Every fill of every limit order, oldest first, each with its order's terms. */
+	fillHistory(): Promise<LimitOrderFillRecord[]>
 	/** A limit order's fills, newest first. */
 	fills(limitOrderId: string, limit?: number): Promise<LimitOrderFill[]>
 	/**

@@ -10,6 +10,7 @@ import type {
 	LimitOrder,
 	LimitOrderFill,
 	LimitOrderFillInsert,
+	LimitOrderFillRecord,
 	LimitOrderFilter,
 	LimitOrderHold,
 	LimitOrderInsert,
@@ -352,8 +353,19 @@ class MemoryLimitOrderStore implements LimitOrderStore {
 			commitment: fill.commitment,
 			bid: fill.bid ?? null,
 			amount: fill.amount,
+			amountIn: fill.amountIn ?? null,
 			transactionHash: fill.transactionHash ?? null,
 			filledAt: sqliteDatetime(new Date()),
+		})
+	}
+
+	async fillHistory(): Promise<LimitOrderFillRecord[]> {
+		return this.fillRows.flatMap((fill) => {
+			const order = this.orders.get(fill.limitOrderId)
+			if (!order) return []
+			const { id, limitOrderId, amount, amountIn, filledAt } = fill
+			const { book, base, quote, side, price } = order
+			return [{ id, limitOrderId, book, base, quote, side, price, amount, amountIn, filledAt }]
 		})
 	}
 

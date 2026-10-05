@@ -1158,7 +1158,12 @@ export class IntentFiller {
 					// Held before the bid goes out, against this bid's own limit order: a
 					// hold that cannot be taken drops this bid, not the rest.
 					reservation = await this.holdAll([
-						{ limitOrderId: plan.limitOrderId, payout: plan.payout, take: plan.fillerInputs[plan.leg]?.amount },
+						{
+							limitOrderId: plan.limitOrderId,
+							payout: plan.payout,
+							take: plan.fillerInputs[plan.leg]?.amount,
+							takeDecimals: plan.inputDecimals,
+						},
 					])
 					if (reservation.length === 0) {
 						this.logger.info(
@@ -1379,7 +1384,7 @@ export class IntentFiller {
 	 * racing the same pair of orders from taking them in opposite sequences.
 	 */
 	private async holdAll(
-		holds: { limitOrderId: string; payout: bigint; take?: bigint }[],
+		holds: { limitOrderId: string; payout: bigint; take?: bigint; takeDecimals?: number }[],
 	): Promise<LimitOrderHold[]> {
 		if (!this.limitOrders || holds.length === 0) return []
 
@@ -1394,6 +1399,7 @@ export class IntentFiller {
 				limitOrderId: hold.limitOrderId,
 				amount,
 				...(hold.take !== undefined ? { take: hold.take.toString() } : {}),
+				...(hold.takeDecimals !== undefined ? { takeDecimals: hold.takeDecimals } : {}),
 			})
 		}
 		return taken
@@ -1442,6 +1448,10 @@ export class IntentFiller {
 		// back. On a partial fill only the executed bid's holds were claimed.
 		const settled = executedHold(claimed, delivered.scaled, released)
 		const charged = chargedFor(settled, delivered, released)
+		// What the fill took in, for the profit worked out from it later. The event counts the
+		// escrow in the input token's own units, and only the hold knows that token's decimals.
+		const takenIn =
+			released > 0n && settled.takeDecimals !== undefined ? toScaled(released, settled.takeDecimals) : null
 		const settledBid =
 			rows.find((row) =>
 				row.reservations.some(
@@ -1472,6 +1482,7 @@ export class IntentFiller {
 							commitment,
 							bid: settledBid,
 							amount: share.toString(),
+							amountIn: takenIn?.toString() ?? null,
 							transactionHash: transactionHash ?? null,
 						})
 					}

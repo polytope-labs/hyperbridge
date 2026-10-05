@@ -416,7 +416,7 @@
 	.operator-sidebar nav {
 		/* One column per page shown here, plus the install button. Logs is
 		   desktop-only, so it is not one of them. */
-		grid-template-columns: repeat(6, minmax(0, 1fr));
+		grid-template-columns: repeat(7, minmax(0, 1fr));
 	}
 
 	button.operator-nav-item {
@@ -457,12 +457,12 @@
 		gap: 0;
 	}
 
-	.operator-metrics > div {
+	.operator-metrics > * {
 		padding: 1rem 0.75rem;
 		border-bottom: 1px solid var(--border);
 	}
 
-	.operator-metrics > div:nth-child(odd) {
+	.operator-metrics > *:nth-child(odd) {
 		padding-left: 0;
 		border-left: 0;
 	}

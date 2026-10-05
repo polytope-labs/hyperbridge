@@ -15,6 +15,7 @@ import { MemoryDataStore } from "@/data/memory"
 import { OrderScanner as OrderScannerImpl } from "@/scanner/order-scanner"
 import type { OrderScanner } from "@/scanner/types"
 import type { LimitOrder, LimitOrderFilter } from "@/data/types"
+import { type Profitability, type ProfitPeriod, summarizeProfit } from "@/orderbook/profitability"
 import type {
 	CancelledLimitOrder,
 	CreateLimitOrderRequest,
@@ -251,6 +252,19 @@ export class LimitOrderController {
 			this.runtime.data.bids.byLimitOrder(id),
 		])
 		return { order, fills, bids }
+	}
+
+	/**
+	 * What the operator's buys and sells earned over `period`, bucketed on a clock
+	 * `tzOffsetMinutes` behind UTC.
+	 *
+	 * Worked out from the fills on record, which is every fill since the first: a
+	 * period's fills close against volume bought or sold before it. It reads the
+	 * store alone, so it answers whether or not an orderbook is configured.
+	 */
+	async profitability(period: ProfitPeriod, tzOffsetMinutes = 0): Promise<Profitability> {
+		const fills = await this.runtime.data.limitOrders.fillHistory()
+		return summarizeProfit(fills, { period, now: Date.now(), tzOffsetMinutes })
 	}
 
 	/** The pairs the orderbook lists, the smallest payout each token may carry, and its tokens per chain. */

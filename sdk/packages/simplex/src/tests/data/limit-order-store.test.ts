@@ -385,6 +385,42 @@ describe("SqliteLimitOrderStore", () => {
 	})
 })
 
+describe("SqliteLimitOrderStore fill migration", () => {
+	it("adds what a fill took in to a database written before fills kept it", async () => {
+		const dir = dataDir()
+		// The fill table as it was first created, with one fill already in it.
+		const legacy = new DatabaseSync(join(dir, "bids.db"))
+		legacy.exec(`
+			CREATE TABLE limit_order_fills (
+				id INTEGER PRIMARY KEY AUTOINCREMENT,
+				limit_order_id TEXT NOT NULL,
+				commitment TEXT NOT NULL,
+				bid TEXT,
+				amount TEXT NOT NULL,
+				transaction_hash TEXT,
+				filled_at TEXT NOT NULL DEFAULT (datetime('now'))
+			);
+			INSERT INTO limit_order_fills (limit_order_id, commitment, amount) VALUES ('${ORDER.id}', '0xold', '900');
+		`)
+		legacy.close()
+
+		const store = new SqliteDataStore(dir, new LoggerContext({ level: "warn" }))
+		await store.limitOrders.create(ORDER)
+		await store.limitOrders.recordFill({ limitOrderId: ORDER.id, commitment: "0xnew", amount: "1500", amountIn: "1" })
+
+		expect((await store.limitOrders.fillHistory()).map((fill) => [fill.amount, fill.amountIn])).toEqual([
+			["900", null],
+			["1500", "1"],
+		])
+		await store.close()
+
+		// Opening it again finds the column already there.
+		const again = new SqliteDataStore(dir, new LoggerContext({ level: "warn" }))
+		expect(await again.limitOrders.fills(ORDER.id)).toHaveLength(2)
+		await again.close()
+	})
+})
+
 describe.each(backends)("%s fill history", (_name, open) => {
 	it("keeps every fill against its order, newest first, across a repost", async () => {
 		const { store, close } = open()
@@ -408,6 +444,38 @@ describe.each(backends)("%s fill history", (_name, open) => {
 			["0xaa", "100", "0xb1", "0xt1"],
 		])
 		expect(fills.every((fill) => fill.limitOrderId === ORDER.id && typeof fill.filledAt === "string")).toBe(true)
+		await close()
+	})
+
+	it("keeps what a fill took in beside what it paid out", async () => {
+		const { store, close } = open()
+		await store.create(ORDER)
+		await store.recordFill({ limitOrderId: ORDER.id, commitment: "0xaa", amount: "1500", amountIn: "1" })
+		// A fill whose event carried no inputs has nothing to keep.
+		await store.recordFill({ limitOrderId: ORDER.id, commitment: "0xbb", amount: "3000" })
+
+		expect((await store.fills(ORDER.id)).map((fill) => [fill.commitment, fill.amountIn])).toEqual([
+			["0xbb", null],
+			["0xaa", "1"],
+		])
+		await close()
+	})
+
+	it("reads every order's fills back with its terms, oldest first", async () => {
+		const { store, close } = open()
+		await store.create(ORDER)
+		await store.create({ ...ORDER, id: "order-2", side: "ASK", price: "1510000000000000000000" })
+		await store.recordFill({ limitOrderId: ORDER.id, commitment: "0xaa", amount: "1500", amountIn: "1" })
+		await store.recordFill({ limitOrderId: "order-2", commitment: "0xbb", amount: "2" })
+		// A fill whose order is not on record could not be priced, and is left out.
+		await store.recordFill({ limitOrderId: "someone-else", commitment: "0xcc", amount: "7" })
+
+		const history = await store.fillHistory()
+		expect(history.map(({ id, filledAt, ...terms }) => terms)).toEqual([
+			{ limitOrderId: ORDER.id, book: ORDER.book, base: "USDC", quote: "CNGN", side: "BID", price: ORDER.price, amount: "1500", amountIn: "1" },
+			{ limitOrderId: "order-2", book: ORDER.book, base: "USDC", quote: "CNGN", side: "ASK", price: "1510000000000000000000", amount: "2", amountIn: null },
+		])
+		expect(history.every((fill) => typeof fill.filledAt === "string" && fill.id > 0)).toBe(true)
 		await close()
 	})
 

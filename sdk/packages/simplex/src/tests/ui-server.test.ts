@@ -294,6 +294,30 @@ describe("UiServer (operator mode)", () => {
 		expect(await response.json()).toEqual({ error: "offline" })
 	})
 
+	it("reads profitability for a period on the viewer's clock", async () => {
+		const summary = { period: "30d", bucket: "day", series: [] }
+		const read = vi.fn().mockResolvedValue(summary)
+		const { base } = await startServer({
+			limitOrders: { profitability: read } as unknown as OperatorContext["limitOrders"],
+		})
+
+		const response = await fetch(`${base}/api/analytics/profitability?period=30d&tz=-60`)
+		expect(response.status).toBe(200)
+		expect(await response.json()).toEqual(summary)
+		expect(read).toHaveBeenCalledWith("30d", -60)
+
+		// The overview asks for its week without saying so.
+		await fetch(`${base}/api/analytics/profitability`)
+		expect(read).toHaveBeenLastCalledWith("7d", 0)
+
+		for (const query of ["period=1y", "period=7d&tz=abc", "period=7d&tz=1.5", "period=7d&tz=900"]) {
+			expect((await fetch(`${base}/api/analytics/profitability?${query}`)).status).toBe(400)
+		}
+		expect(
+			(await fetch(`${base}/api/analytics/profitability`, { method: "POST", headers: CSRF })).status,
+		).toBe(405)
+	})
+
 	it("reads one level's orders and validates the level", async () => {
 		const read = vi.fn().mockResolvedValue([])
 		const { base } = await startServer({

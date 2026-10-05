@@ -1,5 +1,6 @@
 import { formatAmount } from "../lib/format"
 import type { BalanceSnapshot, StatusOperator } from "../types"
+import { SpreadMetric } from "./analytics/SpreadMetric"
 import { LimitOrders } from "./LimitOrders"
 import { availableStablecoinLiquidity, OperatorBalances } from "./OperatorBalances"
 
@@ -9,8 +10,9 @@ export function OperatorOverview(props: {
 	onResetHalt: () => void
 	/** Pause/resume and stop, rendered inline so the page that shows health also controls it. */
 	runtime: { pending: boolean; onTogglePause: () => void; onStop: () => void }
+	onOpenAnalytics: () => void
 }) {
-	const { status, balances, onResetHalt, runtime } = props
+	const { status, balances, onResetHalt, runtime, onOpenAnalytics } = props
 	const stablecoinLiquidity = availableStablecoinLiquidity(balances)
 
 	return (
@@ -37,6 +39,7 @@ export function OperatorOverview(props: {
 					value={stablecoinLiquidity === null ? "—" : `$${formatAmount(stablecoinLiquidity)}`}
 				/>
 				<Metric label="BRIDGE available" value={balances?.hyperbridge?.free.toLocaleString() ?? "—"} />
+				<SpreadMetric onOpen={onOpenAnalytics} />
 			</section>
 
 			<section className="operator-section operator-runtime" aria-label="Runtime controls">

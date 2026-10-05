@@ -1,0 +1,85 @@
+---
+title: Profitability
+description: See what your limit orders earned, from the seven-day spread on the Overview page to the Analytics page that breaks it down by period and by pair.
+---
+
+# Profitability
+
+A solver earns by buying a token a little under the rate it sells it at. Simplex works out what that came to from the fills of your [limit orders](/developers/evm/simplex/limit-orders), and shows it in two places on the [dashboard](/developers/evm/simplex/dashboard).
+
+## The 7-day spread
+
+The **Overview** page shows one figure, **7-day spread**, beside your liquidity. It is the profit you realized over the last seven days as a percentage of the volume that realized it. It is green when you made money and red when you lost it, with the dollars underneath.
+
+The figure is a dash until some volume has been both bought and sold. A week with only buys, or only sells, has nothing to compare, and the line underneath says which.
+
+Click the figure to open the Analytics page.
+
+## The Analytics page
+
+<figure style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+
+![The Analytics page: a period control, four summary figures and a chart of the running total](./images/analytics-page.png)
+
+<figcaption>Thirty days of fills: realized profit, the spread, the volume matched and what is still open.</figcaption>
+</figure>
+
+Pick a period at the top. Each one is cut into buckets of its own size:
+
+| Period | Bucket |
+|---|---|
+| **7 days**, **30 days** | Day |
+| **12 weeks** | Week, starting on Monday |
+| **12 months** | Month |
+| **All time** | Year, from your first fill |
+
+Days start at midnight on your own clock, not at UTC.
+
+The four figures under it cover the whole period:
+
+| Figure | What it shows |
+|---|---|
+| **Realized profit** | Profit from volume that was bought and then sold, or sold and then bought back. |
+| **Spread** | Realized profit as a percentage of matched volume. |
+| **Matched volume** | The volume that realized that profit. |
+| **Open position** | Volume bought and not yet sold, or sold and not yet bought back, as it stands now. This one is not tied to the period. |
+
+Two charts follow, on the same time axis. **Running total** is the profit to date at the end of each bucket. Under it, each bucket's own profit is a bar, green above the line for a gain and red below it for a loss. Point at a bucket in either chart to read both of its figures out above them.
+
+<figure style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+
+![The lower half of the Analytics page: profit for each day as bars, then a table by pair and a table by day](./images/analytics-tables.png)
+
+<figcaption>One loss among thirty days, then the same period by pair and by day.</figcaption>
+</figure>
+
+**By pair** compares your buys with your sells on each pair: how much you bought and sold, the average rate of each, the spread, the profit, and the position still open. A position with a plus is bought and not yet sold. One with a minus is sold and not yet bought back.
+
+The last table lists every bucket in the period, latest first, with the dollars bought, sold and matched in it.
+
+## How profit is counted
+
+Simplex keeps a position for each pair at its average cost, and replays every fill against it in order.
+
+- A fill that adds to what you hold changes the average and earns nothing yet. Buying 100 USDC at 1,580 cNGN and another 100 at 1,600 leaves you holding 200 at an average of 1,590.
+- A fill the other way closes part of what you hold, and the difference between its rate and your average is the profit. Selling 100 of those at 1,595 earns 5 cNGN on each, so 500 cNGN.
+- Profit is counted when the closing fill happens. Volume you bought last month and sold today counts as today's profit.
+- Selling first and buying back later works the same way round.
+
+Profit is worked out in the pair's quote token and shown in dollars at the rate of the fill that realized it.
+
+A few things are deliberately left out:
+
+- **Open positions are not marked to market.** What you still hold is valued at what it cost you. A move in the rate shows up only when you close the position.
+- **Network fees are not counted.** Neither the gas your fills paid nor the fees an order carried are part of these figures.
+- **Pairs with no dollar stable are left out of the dollar figures.** A pair needs USDC, USDT or DAI on one side to be valued in dollars. Other pairs still appear under **By pair**, with their profit in their own quote token, and the note under the tables names them.
+
+<Callout type="info">
+    Simplex began recording what each fill took in with the release that added this page. Older fills
+    are priced at their order's own rate instead, which is the least they could have taken in. The
+    note under the tables says how many fills in the period are priced this way.
+</Callout>
+
+## From the API
+
+The same figures are available from [`GET /api/analytics/profitability`](/developers/evm/simplex/api/limit-orders#get-apianalyticsprofitability), for a spreadsheet or your own monitoring.

@@ -1,9 +1,11 @@
 import type { DatabaseSync } from "node:sqlite"
 import { defaultLoggerContext, type Logger, type LoggerContext } from "@/services/Logger"
+import { columnNames } from "./schema"
 import type {
 	LimitOrder,
 	LimitOrderFill,
 	LimitOrderFillInsert,
+	LimitOrderFillRecord,
 	LimitOrderFilter,
 	LimitOrderInsert,
 	LimitOrderPosting,
@@ -110,6 +112,13 @@ export class SqliteLimitOrderStore implements LimitOrderStore {
 
 			CREATE INDEX IF NOT EXISTS idx_limit_order_fills_order ON limit_order_fills(limit_order_id);
 		`)
+
+		// A database created before fills kept what they took in needs the column added in place.
+		// Its existing rows stay null, and are priced at their order's rate when read.
+		if (!columnNames(this.db, "limit_order_fills").has("amount_in")) {
+			this.db.exec("ALTER TABLE limit_order_fills ADD COLUMN amount_in TEXT")
+			this.logger.info({ column: "amount_in" }, "Migrated limit order fill schema")
+		}
 	}
 
 	// biome-ignore lint/suspicious/noExplicitAny: raw sqlite row
@@ -260,15 +269,35 @@ export class SqliteLimitOrderStore implements LimitOrderStore {
 	async recordFill(fill: LimitOrderFillInsert): Promise<void> {
 		this.db
 			.prepare(
-				"INSERT INTO limit_order_fills (limit_order_id, commitment, bid, amount, transaction_hash) VALUES (?, ?, ?, ?, ?)",
+				"INSERT INTO limit_order_fills (limit_order_id, commitment, bid, amount, amount_in, transaction_hash) VALUES (?, ?, ?, ?, ?, ?)",
 			)
-			.run(fill.limitOrderId, fill.commitment, fill.bid ?? null, fill.amount, fill.transactionHash ?? null)
+			.run(
+				fill.limitOrderId,
+				fill.commitment,
+				fill.bid ?? null,
+				fill.amount,
+				fill.amountIn ?? null,
+				fill.transactionHash ?? null,
+			)
+	}
+
+	async fillHistory(): Promise<LimitOrderFillRecord[]> {
+		// Joined rather than left-joined: a fill is only written against an order that exists, and
+		// one without its order's side and rate could not be priced anyway.
+		return this.db
+			.prepare(
+				`SELECT f.id, f.limit_order_id as limitOrderId, o.book, o.base, o.quote, o.side, o.price,
+					f.amount, f.amount_in as amountIn, f.filled_at as filledAt
+				FROM limit_order_fills f JOIN limit_orders o ON o.id = f.limit_order_id
+				ORDER BY f.filled_at, f.id`,
+			)
+			.all() as unknown as LimitOrderFillRecord[]
 	}
 
 	async fills(limitOrderId: string, limit = 100): Promise<LimitOrderFill[]> {
 		return this.db
 			.prepare(
-				`SELECT id, limit_order_id as limitOrderId, commitment, bid, amount, transaction_hash as transactionHash,
+				`SELECT id, limit_order_id as limitOrderId, commitment, bid, amount, amount_in as amountIn, transaction_hash as transactionHash,
 					filled_at as filledAt
 				FROM limit_order_fills WHERE limit_order_id = ? ORDER BY id DESC LIMIT ?`,
 			)

@@ -6,8 +6,10 @@ Analytics page breaks profit down over a period the operator picks.
 ## A fill records what it took in
 
 `limit_order_fills` gains `amount_in`: the escrow the fill released to the solver, at 1e18 in the
-token the order takes in. Existing databases get the column added in place, and their rows stay
-null.
+token the order takes in. A new database is created with it. An existing one gets the column
+added in place the first time this version opens it, and its rows stay null. The column is
+nullable with no default, so a solver still on the earlier version can keep writing fills to the
+same file.
 
 The fill event counts that escrow in the input token's own units on the order's source chain, and
 only the bid knows that token's decimals. So `BidPlan` carries `inputDecimals`, the hold a bid takes

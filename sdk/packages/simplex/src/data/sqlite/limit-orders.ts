@@ -106,6 +106,7 @@ export class SqliteLimitOrderStore implements LimitOrderStore {
 				commitment TEXT NOT NULL,
 				bid TEXT,
 				amount TEXT NOT NULL,
+				amount_in TEXT,
 				transaction_hash TEXT,
 				filled_at TEXT NOT NULL DEFAULT (datetime('now'))
 			);
@@ -114,7 +115,9 @@ export class SqliteLimitOrderStore implements LimitOrderStore {
 		`)
 
 		// A database created before fills kept what they took in needs the column added in place.
-		// Its existing rows stay null, and are priced at their order's rate when read.
+		// Its existing rows stay null, and are priced at their order's rate when read. The column
+		// is nullable with no default, so a solver still on the earlier version can go on writing
+		// fills to the same file.
 		if (!columnNames(this.db, "limit_order_fills").has("amount_in")) {
 			this.db.exec("ALTER TABLE limit_order_fills ADD COLUMN amount_in TEXT")
 			this.logger.info({ column: "amount_in" }, "Migrated limit order fill schema")

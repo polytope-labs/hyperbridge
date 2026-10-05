@@ -33,10 +33,12 @@ no encoder for paymaster governance requests; the pallet builds every body.
 
 ## Turning the check on for a chain
 
-- The first `set_paymaster_bundlers` request for a chain must list, together, every bundler signer
-  wallet (one per EntryPoint enabled in rundler), a spare wallet, and rundler's simulation origin
-  `0x0643866dA50efE0b055Cd15aF95191968c8411b5`. With any of them missing, rundler's own validation
-  simulation and gas estimation fail.
+- The first `set_paymaster_bundlers` request for a chain must list, together, every rundler signer
+  wallet (any signer can bundle for any enabled EntryPoint), a spare wallet, and rundler's
+  simulation origin `0x0643866dA50efE0b055Cd15aF95191968c8411b5`. Without the simulation origin,
+  rundler's validation and gas estimation fail for every sponsored op. Rundler only simulates from
+  that origin, so it still sends bundles from an unlisted signer; they revert on-chain at the
+  signer's cost. Remove a signer only after it stops bundling.
 - List plain EOAs only. The paymaster serves EntryPoint v0.8 today, but v0.9 requires the
   `handleOps` caller to be the transaction sender with no code, so a wallet with an EIP-7702
   delegation stops working once the paymaster moves to v0.9.

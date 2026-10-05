@@ -5,6 +5,8 @@ import {Test} from "forge-std/Test.sol";
 import {ERC4337Utils, PackedUserOperation} from "@openzeppelin/contracts/account/utils/draft-ERC4337Utils.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
+import {IncomingPostRequest} from "@hyperbridge/core/interfaces/IApp.sol";
+import {IDispatcher} from "@hyperbridge/core/interfaces/IDispatcher.sol";
 
 import {SimplexPaymaster, AggregatorV3Interface} from "../../src/utils/SimplexPaymaster.sol";
 import {SimplexPaymasterHarness} from "./SimplexPaymasterTest.t.sol";
@@ -14,6 +16,8 @@ interface IPermit2Domain {
 }
 
 interface IEntryPointGas {
+    error FailedOpWithRevert(uint256 opIndex, string reason, bytes inner);
+
     function handleOps(PackedUserOperation[] calldata ops, address payable beneficiary) external;
 
     function getUserOpHash(PackedUserOperation calldata userOp) external view returns (bytes32);
@@ -188,6 +192,41 @@ contract SimplexPaymasterGasGriefTest is Test {
                 assertGe(charged, spent, "paymaster subsidised an op inside the band");
             }
         }
+    }
+
+    /// Through the real EntryPoint, only a listed bundler's handleOps reaches the sponsored op;
+    /// any other origin is refused with the paymaster's own reason.
+    function testBundlerAllowlistGatesHandleOps() public onFork {
+        address bundler = makeAddr("bundler");
+        address outsider = makeAddr("outsider");
+        address[] memory bundlers = new address[](1);
+        bundlers[0] = bundler;
+
+        IncomingPostRequest memory incoming;
+        incoming.request.source = IDispatcher(HOST).hyperbridge();
+        incoming.request.body =
+            bytes.concat(bytes1(uint8(SimplexPaymaster.RequestKind.SetBundlers)), abi.encode(bundlers, true));
+        vm.prank(HOST);
+        paymaster.onAccept(incoming);
+
+        PackedUserOperation[] memory ops = new PackedUserOperation[](1);
+        ops[0] = _buildOp(USDT, 60_000, 40_000);
+        uint256 nonce = ops[0].nonce;
+
+        vm.prank(outsider, outsider);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IEntryPointGas.FailedOpWithRevert.selector,
+                uint256(0),
+                "AA33 reverted",
+                abi.encodeWithSelector(SimplexPaymaster.UnauthorizedBundler.selector, outsider)
+            )
+        );
+        ENTRY_POINT.handleOps(ops, payable(beneficiary));
+
+        vm.prank(bundler, bundler);
+        ENTRY_POINT.handleOps(ops, payable(beneficiary));
+        assertEq(ENTRY_POINT.getNonce(solver, 0), nonce + 1);
     }
 
     function _run(uint128 callGasLimit) internal returns (uint256 weiCharged, uint256 nativeSpent) {

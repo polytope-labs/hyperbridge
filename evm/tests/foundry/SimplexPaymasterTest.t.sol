@@ -2,6 +2,7 @@
 pragma solidity ^0.8.24;
 
 import {Test} from "forge-std/Test.sol";
+import {Vm} from "forge-std/Vm.sol";
 import {ERC4337Utils, PackedUserOperation} from "@openzeppelin/contracts/account/utils/draft-ERC4337Utils.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
@@ -162,13 +163,27 @@ contract SimplexPaymasterTest is Test {
     bytes32 constant PERMIT_TYPEHASH =
         keccak256("Permit(address owner,address spender,uint256 value,uint256 nonce,uint256 deadline)");
     bytes32 constant INITIALIZABLE_SLOT = 0xf0c57e16840df040f15088dc2f81fe391c3923bec73e23a9662efc9c229c6a00;
+    // The origin rundler simulates validation from; governance lists it like any bundler wallet.
+    address constant RUNDLER_SIMULATION_ORIGIN = 0x0643866dA50efE0b055Cd15aF95191968c8411b5;
+    uint256 constant BUNDLERS_SLOT = 9;
 
     event RelayerUpdated(address previous, address current);
     event PermitExecuted(address indexed token, address indexed owner, uint256 amount);
 
+    struct StorageEntry {
+        uint256 astId;
+        string contract_;
+        string label;
+        uint256 offset;
+        string slot;
+        string type_;
+    }
+
     address treasury = makeAddr("treasury");
     address relayerA = makeAddr("relayerA");
     address relayerB = makeAddr("relayerB");
+    address bundlerA = makeAddr("bundlerA");
+    address bundlerB = makeAddr("bundlerB");
     address sender;
     uint256 senderKey;
 
@@ -763,6 +778,202 @@ contract SimplexPaymasterTest is Test {
         assertEq(other.version(), 2);
     }
 
+    // ── Bundler allowlist ────────────────────────────────────────────
+
+    function testEmptyBundlerSetAcceptsAnyOrigin() public {
+        assertEq(paymaster.getBundlers().length, 0);
+        _fund(1_000e6);
+        _validateFrom(makeAddr("anyBundler"), _permitOp(5e6, 40_000));
+    }
+
+    /// ERC-7562 bans ORIGIN during validation, so the `tx.origin` lookup must not run while the
+    /// list is empty.
+    function testEmptyBundlerSetSkipsOriginLookup() public {
+        _fund(1_000e6);
+        assertFalse(_validationLooksUpOrigin(bundlerA), "origin looked up with an empty list");
+
+        _setBundlers(_addresses(bundlerA), true);
+        assertTrue(_validationLooksUpOrigin(bundlerA), "origin lookup not detected with a non-empty list");
+    }
+
+    function testListedBundlerPasses() public {
+        _setBundlers(_addresses(bundlerA, bundlerB), true);
+        _fund(1_000e6);
+        _validateFrom(bundlerB, _permitOp(5e6, 40_000));
+        assertEq(usdc6.nonces(sender), 1);
+    }
+
+    function testUnlistedBundlerRevertsBeforePermit() public {
+        _setBundlers(_addresses(bundlerA), true);
+        _fund(1_000e6);
+        PackedUserOperation memory op = _permitOp(5e6, 40_000);
+
+        vm.prank(address(entryPoint), bundlerB);
+        vm.expectRevert(abi.encodeWithSelector(SimplexPaymaster.UnauthorizedBundler.selector, bundlerB));
+        paymaster.validatePaymasterUserOp(op, bytes32(0), 1e15);
+        assertEq(usdc6.nonces(sender), 0);
+        assertEq(usdc6.allowance(sender, address(paymaster)), 0);
+
+        _validateFrom(bundlerA, op);
+        assertEq(usdc6.nonces(sender), 1);
+    }
+
+    /// The origin is checked before the postOp bounds and the permit, so an unlisted bundler
+    /// never reaches a validation-phase external call.
+    function testBundlerCheckRunsFirst() public {
+        _setBundlers(_addresses(bundlerA), true);
+        PackedUserOperation memory op = _userOpWithPaymasterData(_permitData(address(usdc6)), uint128(100_001));
+        vm.prank(address(entryPoint), bundlerB);
+        vm.expectRevert(abi.encodeWithSelector(SimplexPaymaster.UnauthorizedBundler.selector, bundlerB));
+        paymaster.validatePaymasterUserOp(op, bytes32(0), 1e15);
+    }
+
+    function testSimulationOriginPassesOnlyOnceListed() public {
+        _setBundlers(_addresses(bundlerA), true);
+        _fund(1_000e6);
+        PackedUserOperation memory op = _permitOp(5e6, 40_000);
+        _expectBundlerRefused(RUNDLER_SIMULATION_ORIGIN);
+
+        _setBundlers(_addresses(RUNDLER_SIMULATION_ORIGIN), true);
+        _validateFrom(RUNDLER_SIMULATION_ORIGIN, op);
+    }
+
+    function testRemovingEveryBundlerTurnsTheCheckOff() public {
+        _setBundlers(_addresses(bundlerA, bundlerB), true);
+        _setBundlers(_addresses(bundlerA), false);
+        assertEq(paymaster.getBundlers(), _addresses(bundlerB));
+        _expectBundlerRefused(bundlerA);
+
+        _setBundlers(_addresses(bundlerB), false);
+        assertEq(paymaster.getBundlers().length, 0);
+        _fund(1_000e6);
+        _validateFrom(bundlerA, _permitOp(5e6, 40_000));
+    }
+
+    function testReAddAndRemovingNonMemberAreSilentNoOps() public {
+        _setBundlers(_addresses(bundlerA), true);
+
+        vm.recordLogs();
+        _setBundlers(_addresses(bundlerA), true);
+        _setBundlers(_addresses(bundlerB), false);
+        assertEq(vm.getRecordedLogs().length, 0);
+        assertEq(paymaster.getBundlers(), _addresses(bundlerA));
+    }
+
+    function testBundlerUpdatedEmittedOnlyOnChange() public {
+        address[] memory bundlers = new address[](3);
+        bundlers[0] = bundlerA;
+        bundlers[1] = bundlerB;
+        bundlers[2] = bundlerA;
+
+        vm.recordLogs();
+        _setBundlers(bundlers, true);
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+        assertEq(logs.length, 2);
+        _assertBundlerLog(logs[0], bundlerA, true);
+        _assertBundlerLog(logs[1], bundlerB, true);
+
+        vm.recordLogs();
+        _setBundlers(bundlers, false);
+        logs = vm.getRecordedLogs();
+        assertEq(logs.length, 2);
+        _assertBundlerLog(logs[0], bundlerA, false);
+        _assertBundlerLog(logs[1], bundlerB, false);
+    }
+
+    function testSetBundlersRejectsZero() public {
+        bytes memory withZero = abi.encode(_addresses(bundlerA, address(0)), true);
+        vm.prank(address(hyperbridgeHost));
+        vm.expectRevert(SimplexPaymaster.ZeroAddress.selector);
+        paymaster.onAccept(_request(HYPERBRIDGE_ID, SimplexPaymaster.RequestKind.SetBundlers, withZero));
+        assertEq(paymaster.getBundlers().length, 0);
+    }
+
+    function testSetBundlersHonoursRelayerGate() public {
+        _govern(SimplexPaymaster.RequestKind.SetRelayer, abi.encode(relayerA));
+        bytes memory payload = abi.encode(_addresses(bundlerA), true);
+
+        vm.prank(address(hyperbridgeHost));
+        vm.expectRevert(SimplexPaymaster.UnauthorizedRelayer.selector);
+        paymaster.onAccept(_request(HYPERBRIDGE_ID, SimplexPaymaster.RequestKind.SetBundlers, payload, relayerB));
+        assertEq(paymaster.getBundlers().length, 0);
+
+        _govern(SimplexPaymaster.RequestKind.SetBundlers, payload, relayerA);
+        assertEq(paymaster.getBundlers(), _addresses(bundlerA));
+    }
+
+    /// Pins the wire format: bare ABI `(address[], bool)`, as the pallet encodes it, never packed.
+    function testSetBundlersRejectsPackedPayload() public {
+        vm.prank(address(hyperbridgeHost));
+        vm.expectRevert();
+        paymaster.onAccept(
+            _request(
+                HYPERBRIDGE_ID,
+                SimplexPaymaster.RequestKind.SetBundlers,
+                abi.encodePacked(_addresses(bundlerA, bundlerB), true)
+            )
+        );
+        assertEq(paymaster.getBundlers().length, 0);
+    }
+
+    /// The exact body the pallet produces for this call; both sides pin the same bytes.
+    function testSetBundlersWireFixture() public {
+        bytes memory body = bytes.concat(
+            hex"08",
+            hex"0000000000000000000000000000000000000000000000000000000000000040",
+            hex"0000000000000000000000000000000000000000000000000000000000000001",
+            hex"0000000000000000000000000000000000000000000000000000000000000002",
+            hex"0000000000000000000000001111111111111111111111111111111111111111",
+            hex"0000000000000000000000002222222222222222222222222222222222222222"
+        );
+        assertEq(body.length, 161);
+        assertEq(uint8(SimplexPaymaster.RequestKind.SetBundlers), 8);
+
+        IncomingPostRequest memory incoming;
+        incoming.request.source = HYPERBRIDGE_ID;
+        incoming.request.body = body;
+        vm.prank(address(hyperbridgeHost));
+        paymaster.onAccept(incoming);
+
+        assertEq(
+            paymaster.getBundlers(),
+            _addresses(0x1111111111111111111111111111111111111111, 0x2222222222222222222222222222222222222222)
+        );
+    }
+
+    /// `_bundlers` takes two slots out of `__gap`, so every earlier field and the end of the
+    /// layout stay where live proxies have them.
+    function testStorageLayoutAppendsBundlersInsideTheGap() public view {
+        string memory json = vm.readFile("out/SimplexPaymaster.sol/SimplexPaymaster.json");
+        require(vm.keyExistsJson(json, ".storageLayout"), "build with extra_output = [\"storageLayout\"]");
+        StorageEntry[] memory layout = abi.decode(vm.parseJson(json, ".storageLayout.storage"), (StorageEntry[]));
+
+        string[12] memory labels = [
+            "_hostAddr",
+            "nativeOracle",
+            "nativeOracleDecimals",
+            "maxOracleAge",
+            "markupBps",
+            "treasury",
+            "tokenConfigs",
+            "registeredTokens",
+            "swapSlippageBps",
+            "_relayer",
+            "_bundlers",
+            "__gap"
+        ];
+        string[12] memory slots = ["0", "1", "1", "2", "3", "4", "5", "6", "7", "8", "9", "11"];
+        assertEq(layout.length, labels.length);
+        for (uint256 i; i < labels.length; i++) {
+            assertEq(layout[i].label, labels[i]);
+            assertEq(layout[i].slot, slots[i], labels[i]);
+            assertEq(layout[i].offset, uint256(i == 2 ? 20 : 0), labels[i]);
+        }
+        assertEq(vm.indexOf(layout[10].type_, "t_struct(AddressSet)"), 0, "_bundlers type");
+        assertEq(layout[11].type_, "t_array(t_uint256)46_storage", "__gap type");
+        assertEq(vm.parseUint(layout[11].slot) + 46 - 1, 56, "last used slot");
+    }
+
     // ── postOp gas limit cap ─────────────────────────────────────────
 
     function testPostOpGasLimitAboveCapReverts() public {
@@ -1083,6 +1294,60 @@ contract SimplexPaymasterTest is Test {
 
     function _fund(uint256 amount) internal {
         deal(address(usdc6), sender, amount);
+    }
+
+    function _setBundlers(address[] memory bundlers, bool allowed) internal {
+        _govern(SimplexPaymaster.RequestKind.SetBundlers, abi.encode(bundlers, allowed));
+    }
+
+    function _addresses(address a) internal pure returns (address[] memory list) {
+        list = new address[](1);
+        list[0] = a;
+    }
+
+    function _addresses(address a, address b) internal pure returns (address[] memory list) {
+        list = new address[](2);
+        list[0] = a;
+        list[1] = b;
+    }
+
+    /// @dev Calls the public entry point as the EntryPoint, inside a transaction `origin` sent.
+    function _validateFrom(address origin, PackedUserOperation memory op) internal {
+        vm.prank(address(entryPoint), origin);
+        (, uint256 validationData) = paymaster.validatePaymasterUserOp(op, bytes32(0), 1e15);
+        assertEq(validationData, 0);
+    }
+
+    /// @dev Whether validation reads `_bundlers._positions[origin]`, i.e. evaluates
+    ///      `_bundlers.contains(tx.origin)`. Debug trace cheatcodes need `-vvv`, so storage reads
+    ///      stand in for the ORIGIN opcode.
+    function _validationLooksUpOrigin(address origin) internal returns (bool) {
+        PackedUserOperation memory op = _permitOp(5e6, 40_000);
+        bytes32 positionSlot = keccak256(abi.encode(bytes32(uint256(uint160(origin))), BUNDLERS_SLOT + 1));
+
+        vm.record();
+        _validateFrom(origin, op);
+        (bytes32[] memory reads,) = vm.accesses(address(paymaster));
+        vm.stopRecord();
+
+        for (uint256 i; i < reads.length; i++) {
+            if (reads[i] == positionSlot) return true;
+        }
+        return false;
+    }
+
+    function _expectBundlerRefused(address origin) internal {
+        PackedUserOperation memory op = _userOpWithPaymasterData(_permitData(address(usdc6)));
+        vm.prank(address(entryPoint), origin);
+        vm.expectRevert(abi.encodeWithSelector(SimplexPaymaster.UnauthorizedBundler.selector, origin));
+        paymaster.validatePaymasterUserOp(op, bytes32(0), 1e15);
+    }
+
+    function _assertBundlerLog(Vm.Log memory log, address bundler, bool allowed) internal view {
+        assertEq(log.emitter, address(paymaster));
+        assertEq(log.topics[0], SimplexPaymaster.BundlerUpdated.selector);
+        assertEq(log.topics[1], bytes32(uint256(uint160(bundler))));
+        assertEq(log.data, abi.encode(allowed));
     }
 
     /// @dev A permit-mode op whose EIP-2612 signature the sender key really signed.

@@ -9,6 +9,7 @@ import {IERC20Permit} from "@openzeppelin/contracts/token/ERC20/extensions/IERC2
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {Initializable} from "@openzeppelin/contracts/proxy/utils/Initializable.sol";
 import {ERC1967Utils} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Utils.sol";
+import {EnumerableSet} from "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
 import {HyperApp} from "@hyperbridge/core/apps/HyperApp.sol";
 import {IncomingPostRequest} from "@hyperbridge/core/interfaces/IApp.sol";
 import {IDispatcher} from "@hyperbridge/core/interfaces/IDispatcher.sol";
@@ -112,9 +113,14 @@ interface ISignatureTransfer {
 ///      ERC-7562 note: Permit2's nonce bitmap and the token's Permit2 allowance
 ///      are not sender-associated storage, so spec-enforcing bundlers may reject
 ///      mode 0x02 during validation; only mode 0x00 remains for permit tokens.
+///
+///      Bundler allowlist. Once governance lists bundler wallets, validation
+///      refuses any op whose `tx.origin` is not listed; an empty list turns the
+///      check off, so spec-enforcing bundlers keep accepting this paymaster.
 contract SimplexPaymaster is Initializable, HyperApp, PaymasterERC20 {
     using SafeERC20 for IERC20;
     using ERC4337Utils for PackedUserOperation;
+    using EnumerableSet for EnumerableSet.AddressSet;
 
     enum RequestKind {
         /// @dev Points the ERC-1967 proxy at a new implementation, optionally calling it.
@@ -133,7 +139,9 @@ contract SimplexPaymaster is Initializable, HyperApp, PaymasterERC20 {
         /// @dev Sweeps the unlocked EntryPoint stake to the treasury.
         WithdrawStake,
         /// @dev Replaces the only relayer whose governance deliveries are accepted. Never zero.
-        SetRelayer
+        SetRelayer,
+        /// @dev Adds or removes the bundler wallets allowed to submit sponsored ops.
+        SetBundlers
     }
 
     struct Params {
@@ -209,7 +217,10 @@ contract SimplexPaymaster is Initializable, HyperApp, PaymasterERC20 {
     /// @dev The only relayer whose `onAccept` deliveries are accepted; zero means every relayer.
     address private _relayer;
 
-    uint256[48] private __gap;
+    /// @dev The only `tx.origin`s whose sponsored ops pass validation; empty means every origin.
+    EnumerableSet.AddressSet private _bundlers;
+
+    uint256[46] private __gap;
 
     /// @dev The `Initializable` version this implementation lands a proxy on, through `initialize`
     ///      or `migrate`. Bumped by the next implementation that needs a migration.
@@ -222,6 +233,7 @@ contract SimplexPaymaster is Initializable, HyperApp, PaymasterERC20 {
     event Permit2Executed(address indexed token, address indexed owner, uint256 amount, uint256 nonce);
     event FeesRecycled(address indexed token, uint256 amountIn, uint256 nativeOut, uint256 deposited);
     event RelayerUpdated(address previous, address current);
+    event BundlerUpdated(address indexed bundler, bool allowed);
 
     error TokenNotRegistered(address token);
     error TokenNotActive(address token);
@@ -242,6 +254,7 @@ contract SimplexPaymaster is Initializable, HyperApp, PaymasterERC20 {
     error InvalidHost();
     error LengthMismatch();
     error UnauthorizedRelayer();
+    error UnauthorizedBundler(address origin);
 
     constructor() {
         _disableInitializers();
@@ -340,6 +353,9 @@ contract SimplexPaymaster is Initializable, HyperApp, PaymasterERC20 {
             address newRelayer = abi.decode(payload, (address));
             if (newRelayer == address(0)) revert ZeroAddress();
             _setRelayer(newRelayer);
+        } else if (kind == RequestKind.SetBundlers) {
+            (address[] memory bundlers, bool allowed) = abi.decode(payload, (address[], bool));
+            _setBundlers(bundlers, allowed);
         }
     }
 
@@ -352,6 +368,17 @@ contract SimplexPaymaster is Initializable, HyperApp, PaymasterERC20 {
     function _setRelayer(address relayer_) internal {
         emit RelayerUpdated(_relayer, relayer_);
         _relayer = relayer_;
+    }
+
+    /// @dev Adding a listed bundler or removing an unlisted one is a silent no-op.
+    function _setBundlers(address[] memory bundlers, bool allowed) internal {
+        for (uint256 i = 0; i < bundlers.length; i++) {
+            address bundler = bundlers[i];
+            if (bundler == address(0)) revert ZeroAddress();
+            if (allowed ? _bundlers.add(bundler) : _bundlers.remove(bundler)) {
+                emit BundlerUpdated(bundler, allowed);
+            }
+        }
     }
 
     /// @dev Validates and applies pricing/treasury parameters, re-caching the
@@ -494,6 +521,9 @@ contract SimplexPaymaster is Initializable, HyperApp, PaymasterERC20 {
         override
         returns (bytes memory context, uint256 validationData)
     {
+        // Length first: ORIGIN must not run while the list is empty (ERC-7562 bans it in validation).
+        if (_bundlers.length() != 0 && !_bundlers.contains(tx.origin)) revert UnauthorizedBundler(tx.origin);
+
         uint256 postOpGasLimit = userOp.paymasterPostOpGasLimit();
         if (postOpGasLimit > MAX_POST_OP_GAS_LIMIT || postOpGasLimit < MIN_POST_OP_GAS_LIMIT) {
             revert InvalidPostOpGasLimit(postOpGasLimit, MIN_POST_OP_GAS_LIMIT, MAX_POST_OP_GAS_LIMIT);
@@ -699,5 +729,10 @@ contract SimplexPaymaster is Initializable, HyperApp, PaymasterERC20 {
     /// @notice List all registered tokens.
     function getRegisteredTokens() external view returns (address[] memory) {
         return registeredTokens;
+    }
+
+    /// @notice The bundler wallets allowed to submit sponsored ops.
+    function getBundlers() external view returns (address[] memory) {
+        return _bundlers.values();
     }
 }

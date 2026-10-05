@@ -851,12 +851,22 @@ fn paymaster_actions_fail_when_not_registered() {
 			Intents::set_paymaster_relayer(RuntimeOrigin::root(), sm, H160::repeat_byte(0x55)),
 			Error::<Test>::PaymasterNotFound
 		);
+		assert_noop!(
+			Intents::set_paymaster_bundlers(
+				RuntimeOrigin::root(),
+				sm,
+				vec![H160::repeat_byte(0x66)],
+				true
+			),
+			Error::<Test>::PaymasterNotFound
+		);
 	});
 }
 
 #[test]
 fn paymaster_governance_actions_dispatch() {
 	new_test_ext().execute_with(|| {
+		System::set_block_number(1);
 		let sm = StateMachine::Evm(1);
 		let paymaster = H160::repeat_byte(0xAA);
 		assert_ok!(Intents::add_paymaster_deployment(RuntimeOrigin::root(), sm, paymaster));
@@ -896,6 +906,35 @@ fn paymaster_governance_actions_dispatch() {
 			sm,
 			H160::repeat_byte(0x55)
 		));
+		let bundlers = vec![H160::repeat_byte(0x66), H160::repeat_byte(0x77)];
+		assert_ok!(Intents::set_paymaster_bundlers(
+			RuntimeOrigin::root(),
+			sm,
+			bundlers.clone(),
+			true
+		));
+		System::assert_last_event(
+			Event::<Test>::PaymasterBundlersUpdateInitiated {
+				state_machine: sm,
+				bundlers: bundlers.clone(),
+				allowed: true,
+			}
+			.into(),
+		);
+		assert_ok!(Intents::set_paymaster_bundlers(
+			RuntimeOrigin::root(),
+			sm,
+			bundlers.clone(),
+			false
+		));
+		System::assert_last_event(
+			Event::<Test>::PaymasterBundlersUpdateInitiated {
+				state_machine: sm,
+				bundlers,
+				allowed: false,
+			}
+			.into(),
+		);
 	});
 }
 
@@ -916,6 +955,31 @@ fn set_paymaster_relayer_rejects_zero() {
 }
 
 #[test]
+fn set_paymaster_bundlers_rejects_zero_and_empty() {
+	new_test_ext().execute_with(|| {
+		let sm = StateMachine::Evm(1);
+		assert_ok!(Intents::add_paymaster_deployment(
+			RuntimeOrigin::root(),
+			sm,
+			H160::repeat_byte(0xAA)
+		));
+		assert_noop!(
+			Intents::set_paymaster_bundlers(RuntimeOrigin::root(), sm, vec![], true),
+			Error::<Test>::InvalidPaymasterBundlers
+		);
+		assert_noop!(
+			Intents::set_paymaster_bundlers(
+				RuntimeOrigin::root(),
+				sm,
+				vec![H160::repeat_byte(0x66), H160::zero()],
+				false
+			),
+			Error::<Test>::InvalidPaymasterBundlers
+		);
+	});
+}
+
+#[test]
 fn paymaster_actions_require_governance_origin() {
 	new_test_ext().execute_with(|| {
 		let sm = StateMachine::Evm(1);
@@ -930,6 +994,13 @@ fn paymaster_actions_require_governance_origin() {
 			RuntimeOrigin::signed(AccountId32::new([1; 32])),
 			sm,
 			H160::repeat_byte(0x55)
+		)
+		.is_err());
+		assert!(Intents::set_paymaster_bundlers(
+			RuntimeOrigin::signed(AccountId32::new([1; 32])),
+			sm,
+			vec![H160::repeat_byte(0x66)],
+			true
 		)
 		.is_err());
 	});

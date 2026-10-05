@@ -31,8 +31,8 @@ import { IntentGateway } from "@/protocols/intents/IntentGateway"
 import { readLegEscrow } from "@/protocols/intents/escrowReads"
 import { type CancelEvent, DEFAULT_GRAFFITI } from "@/protocols/intents/types"
 import { createQueryClient } from "@/queryClient"
-import { type HexString, type Order, RequestKind } from "@/types"
-import { ADDRESS_ZERO, bytes20ToBytes32, postRequestCommitment } from "@/utils"
+import { type HexString, type Order, RequestKind, RequestStatus } from "@/types"
+import { ADDRESS_ZERO, bytes20ToBytes32, postRequestCommitment, sleep } from "@/utils"
 
 /**
  * Live cancellation of a cross-chain order from its destination: BSC Chapel to Polygon Amoy.
@@ -56,6 +56,13 @@ const DELIVERED_TIMEOUT_MS = 15 * 60_000
 const REFUND_TIMEOUT_MS = 90 * 60_000
 const SETUP_TIMEOUT_MS = 10 * 60_000
 const RECEIPT_POLL_MS = 15_000
+const INDEXER_POLL_MS = 10_000
+const INDEXED_TIMEOUT_MS = 5 * 60_000
+const DELIVERED_OR_LATER = new Set<string>([
+	RequestStatus.HYPERBRIDGE_DELIVERED,
+	RequestStatus.HYPERBRIDGE_FINALIZED,
+	RequestStatus.DESTINATION,
+])
 
 const WITHDRAWAL_REQUEST = [
 	{
@@ -231,6 +238,7 @@ describe("IntentGateway cancel from destination, BSC Chapel to Polygon Amoy (liv
 					await hyperbridge.queryRequestReceipt(postCommitment),
 					"Hyperbridge holds no refund POST receipt",
 				)
+				await awaitIndexedDelivery(ismpClient, postCommitment, env.indexerUrl)
 				assert.equal(
 					await readLegEscrow(chapel.evm.client, chapel.gateway, placed.id, 0, placed.inputs[0].token),
 					escrowed,
@@ -267,7 +275,7 @@ describe("IntentGateway cancel from destination, BSC Chapel to Polygon Amoy (liv
 				await hyperbridge.disconnect()
 			}
 		},
-		SETUP_TIMEOUT_MS + DELIVERED_TIMEOUT_MS + (FULL_REFUND ? REFUND_TIMEOUT_MS : 0),
+		SETUP_TIMEOUT_MS + DELIVERED_TIMEOUT_MS + INDEXED_TIMEOUT_MS + (FULL_REFUND ? REFUND_TIMEOUT_MS : 0),
 	)
 })
 
@@ -356,6 +364,33 @@ async function awaitHyperbridgeDelivery(
 	throw new Error(
 		`Refund POST ${commitment} did not reach Hyperbridge within ${DELIVERED_TIMEOUT_MS / 60_000} minutes`,
 	)
+}
+
+/**
+ * Waits until the indexer records the refund POST as delivered to Hyperbridge. The receipt read in
+ * awaitHyperbridgeDelivery passes without the indexer, so this is the step that fails when the indexer
+ * misses the request.
+ */
+async function awaitIndexedDelivery(ismpClient: IsmpClient, commitment: HexString, indexerUrl: string): Promise<void> {
+	const deadline = Date.now() + INDEXED_TIMEOUT_MS
+	let indexed = "unknown"
+	let lastError: string | undefined
+	while (true) {
+		try {
+			const request = await ismpClient.queryPostRequest(commitment)
+			const statuses = request?.statuses.map(({ status }) => status) ?? []
+			if (statuses.some((status) => DELIVERED_OR_LATER.has(status))) return
+			indexed = request ? statuses.join(", ") || "none" : "no record"
+		} catch (e) {
+			lastError = e instanceof Error ? e.message : String(e)
+		}
+		if (Date.now() >= deadline) {
+			throw new Error(
+				`The indexer at ${indexerUrl} did not record refund POST ${commitment} as delivered to Hyperbridge within ${INDEXED_TIMEOUT_MS / 60_000} minutes (indexed statuses: ${indexed}${lastError ? `; last query error: ${lastError}` : ""})`,
+			)
+		}
+		await sleep(INDEXER_POLL_MS)
+	}
 }
 
 function readEnv() {

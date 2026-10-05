@@ -22,8 +22,8 @@ import type { HexString } from "@/types"
  * HYPERBRIDGE_FINALIZED, at which point the GetResponse calldata is submitted to the BSC handler,
  * invoking HyperGet.onGetResponse (which RLP-decodes and emits the balance), then DESTINATION.
  *
- * Requires PRIVATE_KEY, BSC_CHAPEL_ARCHIVE and POLYGON_AMOY_ARCHIVE; skipped otherwise.
- * Slow (source finalization).
+ * Needs PRIVATE_KEY, BSC_CHAPEL, POLYGON_AMOY and HYPERBRIDGE_GARGANTUA. GARGANTUA_INDEXER_URL
+ * overrides the public gargantua indexer. Slow (source finalization).
  *   npx vitest run --sequence.concurrent=false src/tests/sequential/getRequestBscAmoy.test.ts
  */
 
@@ -59,43 +59,37 @@ const HYPER_GET_ABI = [
 	},
 ] as const
 
-const has = (v?: string) => typeof v === "string" && v.length > 0
-
 describe("GET self-delivery from BSC Chapel to Polygon Amoy (live)", () => {
-	it.skipIf(
-		!has(process.env.PRIVATE_KEY) || !has(process.env.BSC_CHAPEL_ARCHIVE) || !has(process.env.POLYGON_AMOY_ARCHIVE),
-	)(
+	it(
 		"reads WMATIC.balanceOf on Amoy via GET and drives it to completion on the source (onGetResponse)",
 		async () => {
-			// Both RPCs must serve archive state. The response proof is taken at the exact Amoy
-			// height the GET named when it was sent, and the source proof at the Chapel height
-			// Hyperbridge has finalized, which is usually minutes old. Non-archive RPCs keep only
-			// the last 128 blocks, about 58 seconds on Chapel and 2 minutes on Amoy.
-			const BSC = process.env.BSC_CHAPEL_ARCHIVE!
-			const AMOY = process.env.POLYGON_AMOY_ARCHIVE!
-			const GARGANTUA = process.env.HYPERBRIDGE_GARGANTUA || "wss://gargantua.rpc.polytope.technology"
-			// The live gargantua indexer (indexes this testnet + connected chains). Not the CI's
-			// local indexer, so default to the public endpoint; override with GARGANTUA_INDEXER_URL.
-			const INDEXER = process.env.GARGANTUA_INDEXER_URL || "https://gargantua.indexer.polytope.technology"
-			const pk = (
-				process.env.PRIVATE_KEY!.startsWith("0x") ? process.env.PRIVATE_KEY! : `0x${process.env.PRIVATE_KEY!}`
-			) as HexString
-			const account = privateKeyToAccount(pk)
+			const env = readEnv()
+			const account = privateKeyToAccount(env.privateKey)
 			const reader = account.address // whose WMATIC balance the GET reads
 
-			const source = EvmChain.fromParams({ chainId: 97, rpcUrl: BSC, host: HOST, consensusStateId: "BSC0" })
-			const dest = EvmChain.fromParams({ chainId: 80002, rpcUrl: AMOY, host: HOST, consensusStateId: "POLY" })
+			const source = EvmChain.fromParams({
+				chainId: 97,
+				rpcUrl: env.chapelRpc,
+				host: HOST,
+				consensusStateId: "BSC0",
+			})
+			const dest = EvmChain.fromParams({
+				chainId: 80002,
+				rpcUrl: env.amoyRpc,
+				host: HOST,
+				consensusStateId: "POLY",
+			})
 			const hyperbridge = await SubstrateChain.connect({
 				consensusStateId: "PAS0",
 				stateMachineId: "KUSAMA-4009",
-				wsUrl: GARGANTUA,
+				wsUrl: env.hyperbridgeWs,
 				hasher: "Keccak",
 			})
 			const client = new IsmpClient({
 				source,
 				dest,
 				hyperbridge,
-				queryClient: createQueryClient({ url: INDEXER }),
+				queryClient: createQueryClient({ url: env.indexerUrl }),
 				pollInterval: 3000,
 			})
 
@@ -113,8 +107,8 @@ describe("GET self-delivery from BSC Chapel to Polygon Amoy (live)", () => {
 				functionName: "readBalance",
 				args: [stringToHex("EVM-80002"), WMATIC, reader, WMATIC_BALANCE_SLOT, amoyHeight],
 			})
-			const publicClient = createPublicClient({ chain: bscTestnet, transport: http(BSC) })
-			const walletClient = createWalletClient({ account, chain: bscTestnet, transport: http(BSC) })
+			const publicClient = createPublicClient({ chain: bscTestnet, transport: http(env.chapelRpc) })
+			const walletClient = createWalletClient({ account, chain: bscTestnet, transport: http(env.chapelRpc) })
 			const txHash = await walletClient.sendTransaction({ to: HYPER_GET, data })
 			console.log(`[2] dispatch tx on BSC Chapel: ${txHash}`)
 			const receipt = await publicClient.waitForTransactionReceipt({ hash: txHash })
@@ -186,3 +180,18 @@ describe("GET self-delivery from BSC Chapel to Polygon Amoy (live)", () => {
 		40 * 60 * 1000,
 	)
 })
+
+function readEnv() {
+	const required = ["PRIVATE_KEY", "BSC_CHAPEL", "POLYGON_AMOY", "HYPERBRIDGE_GARGANTUA"] as const
+	const missing = required.filter((name) => !process.env[name])
+	if (missing.length > 0) throw new Error(`The live GET request test needs ${missing.join(", ")}`)
+
+	const privateKey = process.env.PRIVATE_KEY as string
+	return {
+		privateKey: (privateKey.startsWith("0x") ? privateKey : `0x${privateKey}`) as HexString,
+		chapelRpc: process.env.BSC_CHAPEL as string,
+		amoyRpc: process.env.POLYGON_AMOY as string,
+		hyperbridgeWs: process.env.HYPERBRIDGE_GARGANTUA as string,
+		indexerUrl: process.env.GARGANTUA_INDEXER_URL || "https://gargantua.indexer.polytope.technology",
+	}
+}

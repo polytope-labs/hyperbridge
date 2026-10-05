@@ -14,6 +14,7 @@ import {
 } from "@/protocols/hyperFungibleToken"
 import EVM_HOST from "@/abis/evmHost"
 import { RequestStatus, type HexString } from "@/types"
+import { sleep } from "@/utils"
 
 // WrappedHFT wrapping WBNB on BSC testnet (lock/unlock)
 const BSC_WRAPPED_HFT = "0x5ae3C15EFa6FC9D226c108bD3c706F2400Ab7311" as const
@@ -28,6 +29,8 @@ const BSC_FAUCET = "0xcb00f5b86aac5e2fdca9dc7f34d9bfe00b967c18" as const
 
 const RECEIPT_POLL_MS = 15_000
 const DELIVERED_TIMEOUT_MS = 12 * 60_000
+const INDEXER_POLL_MS = 10_000
+const INDEXED_TIMEOUT_MS = 5 * 60_000
 const DELIVERED_OR_LATER = new Set<string>([
 	RequestStatus.HYPERBRIDGE_DELIVERED,
 	RequestStatus.HYPERBRIDGE_FINALIZED,
@@ -95,9 +98,8 @@ async function createIsmpClient(source: EvmChain, dest: EvmChain) {
 		stateMachineId: "KUSAMA-4009",
 	})
 
-	const queryClient = createQueryClient({
-		url: process.env.GARGANTUA_INDEXER_URL || "https://gargantua.indexer.polytope.technology",
-	})
+	const indexerUrl = process.env.GARGANTUA_INDEXER_URL || "https://gargantua.indexer.polytope.technology"
+	const queryClient = createQueryClient({ url: indexerUrl })
 
 	const ismpClient = new IsmpClient({
 		queryClient,
@@ -107,7 +109,7 @@ async function createIsmpClient(source: EvmChain, dest: EvmChain) {
 		pollInterval: 5_000,
 	})
 
-	return { ismpClient, hyperbridge }
+	return { ismpClient, hyperbridge, indexerUrl }
 }
 
 /**
@@ -261,6 +263,33 @@ async function bridgeToHyperbridge(params: {
 	}
 }
 
+/**
+ * Waits until the indexer records the request as delivered to Hyperbridge. The receipt read in
+ * bridgeToHyperbridge passes without the indexer, so this is the step that fails when the indexer
+ * misses the request.
+ */
+async function awaitIndexedDelivery(ismpClient: IsmpClient, commitment: HexString, indexerUrl: string): Promise<void> {
+	const deadline = Date.now() + INDEXED_TIMEOUT_MS
+	let indexed = "unknown"
+	let lastError: string | undefined
+	while (true) {
+		try {
+			const request = await ismpClient.queryPostRequest(commitment)
+			const statuses = request?.statuses.map(({ status }) => status) ?? []
+			if (statuses.some((status) => DELIVERED_OR_LATER.has(status))) return
+			indexed = request ? statuses.join(", ") || "none" : "no record"
+		} catch (e) {
+			lastError = e instanceof Error ? e.message : String(e)
+		}
+		if (Date.now() >= deadline) {
+			throw new Error(
+				`The indexer at ${indexerUrl} did not record request ${commitment} as delivered to Hyperbridge within ${INDEXED_TIMEOUT_MS / 60_000} minutes (indexed statuses: ${indexed}${lastError ? `; last query error: ${lastError}` : ""})`,
+			)
+		}
+		await sleep(INDEXER_POLL_MS)
+	}
+}
+
 describe("HyperFungibleToken SDK", () => {
 	describe("isWrapped", () => {
 		it("detects WrappedHFT on BSC", async () => {
@@ -284,7 +313,7 @@ describe("HyperFungibleToken SDK", () => {
 			const account = privateKeyToAccount(requireEnv("PRIVATE_KEY") as HexString)
 			const bscRpc = requireEnv("BSC_CHAPEL")
 			const { source, dest } = createBscToPolygon()
-			const { ismpClient, hyperbridge } = await createIsmpClient(source, dest)
+			const { ismpClient, hyperbridge, indexerUrl } = await createIsmpClient(source, dest)
 
 			try {
 				const hft = new HyperFungibleToken({ source, dest, client: ismpClient })
@@ -315,10 +344,11 @@ describe("HyperFungibleToken SDK", () => {
 				})
 
 				expect(await hyperbridge.queryRequestReceipt(commitment)).toBeTruthy()
+				await awaitIndexedDelivery(ismpClient, commitment, indexerUrl)
 			} finally {
 				await hyperbridge.disconnect()
 			}
 		},
-		15 * 60 * 1000,
+		15 * 60 * 1000 + INDEXED_TIMEOUT_MS,
 	)
 })

@@ -33,11 +33,11 @@ const MINUTE = 60_000
 const DAY = 86_400_000
 
 /**
- * The furthest a record of inventory may be from the instant it is asked to describe. Past that,
- * too much may have moved in and out that no fill or send accounts for, and the figure is left
- * unknown rather than guessed.
+ * How far back today's balances may be carried to stand in for what was held then. They are a
+ * fact about now, and past this too much may have moved in and out that no fill or send accounts
+ * for. A stored snapshot has no such limit: it was taken as a record, and is used at any distance.
  */
-export const INVENTORY_REACH_MS = 7 * DAY
+export const BALANCES_REACH_MS = 7 * DAY
 
 /** What the solver held at one moment, as whole tokens per symbol. */
 export interface InventoryRecord {
@@ -118,7 +118,7 @@ export interface Profitability {
 	/** One entry per bucket, oldest first, including buckets nothing happened in. */
 	series: ProfitBucketFigures[]
 	books: BookProfit[]
-	/** Null when no record of inventory lies within {@link INVENTORY_REACH_MS} of the period's start. */
+	/** Null when there is no snapshot, and the period began more than {@link BALANCES_REACH_MS} ago. */
 	startInventory: StartingInventory | null
 	/** Fills in the period priced at their order's rate, because they kept no record of what they took in. */
 	estimatedFills: number
@@ -251,13 +251,15 @@ class BookLedger {
 }
 
 /**
- * What the solver held at `instant`, from the nearest record within reach of it.
+ * What the solver held at `instant`, from the record nearest it.
  *
  * A record is rarely taken at the instant asked about, so it is carried there by what is known to
  * have happened between: fills, which moved tokens both ways, and sends, which took them out. A
  * record from after the instant has those undone; one from before has them applied. A deposit
- * from outside is on no record, so it reads as held from the start of whatever gap it fell in,
- * which is why the gap is capped. Null when no record lies within reach.
+ * from outside is on no record, so it reads as held from the start of whatever gap it fell in.
+ *
+ * A stored snapshot is used however far it is from the instant. Today's balances are used only
+ * within {@link BALANCES_REACH_MS} of it. Null when there is neither.
  */
 function inventoryAt(
 	instant: number,
@@ -269,7 +271,7 @@ function inventoryAt(
 	let gap = Number.POSITIVE_INFINITY
 	for (const candidate of records) {
 		const distance = Math.abs(candidate.at - instant)
-		if (distance > INVENTORY_REACH_MS) continue
+		if (candidate.live && distance > BALANCES_REACH_MS) continue
 		// A stored snapshot is preferred to the live balances at the same distance: it is a fact
 		// about then, where the live balances are a fact about now.
 		if (distance < gap || (distance === gap && record?.live && !candidate.live)) {
@@ -314,8 +316,8 @@ function inventoryAt(
  * down, worth the difference between what was paid and the latest rate.
  *
  * The profit is compared with the inventory the period began with, taken from the nearest
- * snapshot or, failing that, from today's balances, and in either case only from within
- * {@link INVENTORY_REACH_MS} of the period's start. Network fees are not counted.
+ * snapshot or, for a period that began within {@link BALANCES_REACH_MS}, from today's balances
+ * when they are nearer. Network fees are not counted.
  *
  * `tzOffsetMinutes` is what JavaScript's `getTimezoneOffset` returns on the viewer's clock, so
  * a day starts at their midnight rather than at UTC's.

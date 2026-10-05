@@ -60,10 +60,15 @@ they stand now. It then carries that record to the instant by the fills between 
 sends recorded in the wallet ledger. A sweep or a redeem is not an outflow, since vault positions
 are inventory. A token that comes out negative is counted as zero.
 
-A record is used only within `INVENTORY_REACH_MS`, seven days, of the instant. A deposit from
-outside is on no record, so the further a record is carried the less it can be trusted. This is why
-today's balances can stand in for the start of the 7-day period on the day of the upgrade, while a
-30-day period shows its profit with no return until a snapshot exists near its start.
+Today's balances are carried back at most `BALANCES_REACH_MS`, seven days (David, 2026-10-05). They
+are a fact about now, and a deposit from outside is on no record, so the further back they are
+carried the less they can be trusted. A stored snapshot has no such limit and is used at any
+distance from the instant, the nearest record winning.
+
+The recorder takes its first snapshot on the first complete balance read after the upgrade. From
+then on every period has a starting inventory: one that began before that snapshot gets it with
+the fills and sends before it undone. With no snapshot at all, only a period that began within the
+last seven days has one.
 
 `returnPct` is `profitUsd / startInventoryUsd`, and null when the inventory is unknown or zero. Each
 bucket is compared with the inventory at its own start, resolved the same way.

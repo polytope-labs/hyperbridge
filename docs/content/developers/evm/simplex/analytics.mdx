@@ -77,15 +77,15 @@ The return compares the profit with what you held when the period began: every t
 
 A blockchain can say what an account holds now but not what it held last month, so Simplex keeps its own record:
 
-- **A daily snapshot.** Once a day the solver stores what it holds. A period that begins near a snapshot uses it, adjusted by the fills and sends between the snapshot and the period's start.
-- **Today's balances, for the last seven days.** Where there is no snapshot, Simplex takes what you hold now and undoes the fills and sends since. It only does this for a period that began within the last seven days.
+- **A daily snapshot.** Once a day the solver stores what it holds. A period uses the snapshot nearest its start, adjusted by the fills and sends between the two, however far apart they are.
+- **Today's balances, for the last seven days.** Simplex can also take what you hold now and undo the fills and sends since. It does this only for a period that began within the last seven days, and only when no snapshot is nearer.
 
-Either way a record is used only if it lies within seven days of the moment it is asked to describe. A deposit from outside appears on no record, so the further a record is carried, the less it can be trusted.
+A deposit from outside appears on no record, so it counts as if you had held it all along. The nearer a record is to the period's start, the less of that there can be.
 
 <Callout type="info">
-    Snapshots begin when you upgrade to the release that added this page. Until then the 7-day figures
-    work from today's balances, and longer periods show their profit with a dash for the return. Each
-    longer period gains its return once a snapshot exists near its start.
+    Snapshots begin when you upgrade to the release that added this page: the first is taken on the
+    solver's first complete balance read. A period that began before it uses that first snapshot,
+    with the fills and sends before it undone.
 </Callout>
 
 <Callout type="info">

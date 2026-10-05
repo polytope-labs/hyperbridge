@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import type { LimitOrderFillRecord } from "@/data/types"
-import { INVENTORY_REACH_MS, type InventoryRecord, isProfitPeriod, summarizeProfit } from "@/orderbook/profitability"
+import { BALANCES_REACH_MS, type InventoryRecord, isProfitPeriod, summarizeProfit } from "@/orderbook/profitability"
 
 const ONE = 10n ** 18n
 /** A whole-token figure at 1e18, exact to six decimals. */
@@ -313,7 +313,7 @@ describe("the inventory a period began with", () => {
 		expect(summary.startInventory?.tokens[0]).toMatchObject({ symbol: "USDC", amount: 700 })
 	})
 
-	it("leaves it unknown when no record lies within seven days of the start", () => {
+	it("carries today's balances back seven days and no further", () => {
 		// Thirty days back, with only today's balances to go on.
 		const summary = withInventory([live], { period: "30d" })
 
@@ -322,11 +322,43 @@ describe("the inventory a period began with", () => {
 		// The profit itself needs no inventory, and is still stated.
 		expect(summary.totals.profitUsd).toBeCloseTo(50 - 78_500 / 1585, 9)
 
-		const start = Date.parse("2026-09-06T00:00:00Z")
-		const within: InventoryRecord = { at: start - INVENTORY_REACH_MS, balances: { USDC: 400 } }
-		const beyond: InventoryRecord = { at: start - INVENTORY_REACH_MS - 1, balances: { USDC: 400 } }
-		expect(withInventory([within], { period: "30d" }).startInventory?.usd).toBe(400)
-		expect(withInventory([beyond], { period: "30d" }).startInventory).toBeNull()
+		// Balances read exactly seven days after a bucket began still describe it. A millisecond
+		// later they do not.
+		const midnight = Date.parse("2026-10-05T00:00:00Z")
+		const known = (now: number) =>
+			summarizeProfit([], {
+				period: "30d",
+				now,
+				inventory: [{ at: now, balances: { USDC: 500 }, live: true }],
+			}).series.filter((day) => day.startInventoryUsd !== null)
+		expect(midnight - known(midnight)[0].start).toBe(BALANCES_REACH_MS)
+		expect(known(midnight)).toHaveLength(8)
+		expect(known(midnight + 1)).toHaveLength(7)
+	})
+
+	it("uses a stored snapshot however far it is from the period's start", () => {
+		// Taken an hour ago, for a period that began a month ago: the fills since are undone, just
+		// as they would be from today's balances, with no limit on how far back that goes.
+		const recent: InventoryRecord = { at: NOW - HOUR, balances: { USDC: 1000, cNGN: 1_000_000 } }
+		const summary = withInventory([recent, live], { period: "30d" })
+
+		expect(summary.startInventory).toMatchObject({ source: "snapshot", recordedAt: recent.at })
+		expect(summary.startInventory?.usd).toBeCloseTo(950 + 1_078_500 / 1585, 9)
+		expect(summary.totals.returnPct).not.toBeNull()
+
+		// And one from long before the period is carried forward to it.
+		const old: InventoryRecord = { at: Date.parse("2026-06-01T00:00:00Z"), balances: { USDC: 250 } }
+		expect(withInventory([old], { period: "30d" }).startInventory).toMatchObject({ source: "snapshot", usd: 250 })
+	})
+
+	it("prefers today's balances to a snapshot only when they are nearer", () => {
+		// The week began six and a half days ago. A snapshot from a month back is further off
+		// than today's balances, which are still within their reach.
+		const old: InventoryRecord = { at: NOW - 30 * DAY, balances: { USDC: 1, cNGN: 0 } }
+		expect(withInventory([old, live]).startInventory?.source).toBe("balances")
+
+		// For a period that began a month ago the balances are out of reach, so the snapshot is used.
+		expect(withInventory([old, live], { period: "30d" }).startInventory?.source).toBe("snapshot")
 	})
 
 	it("compares each bucket with the inventory that bucket began with", () => {

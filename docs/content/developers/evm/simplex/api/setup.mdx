@@ -68,16 +68,19 @@ Send `urls`, or a single `url`. `expectedChainId` is optional. The URLs must be 
 
 ### POST /api/setup/validate-bundler
 
-Checks that a bundler answers `eth_supportedEntryPoints`. A bundler that does not answer is a warning, not a failure, so `ok` is `true` unless the URL is empty.
+Checks that a bundler answers `eth_supportedEntryPoints` and, when `chainId` is sent, that it lists the EntryPoint the chain's solver account uses. Every finding is a warning, not a failure, so `ok` is `true` unless the URL is empty.
 
 ```bash lineNumbers
 curl -s -X POST $SIMPLEX/api/setup/validate-bundler \
     -H 'Content-Type: application/json' -H 'X-Simplex-UI: 1' \
-    -d '{ "url": "https://api.pimlico.io/v2/8453/rpc?apikey=KEY" }'
+    -d '{ "url": "https://api.pimlico.io/v2/8453/rpc?apikey=KEY", "chainId": 8453 }'
 # → { "ok": true, "entryPoints": ["0x…"] }
 ```
 
-When the bundler does not answer, the response has a `warning` in place of `entryPoints`.
+The response carries a `warning` when:
+
+- the bundler does not answer, in which case there are no `entryPoints`, or its answer is not a list of addresses. Simplex runs with this bundler and logs a warning.
+- it lists addresses without the chain's EntryPoint. Simplex refuses this bundler: the solver does not start, and adding the chain, setting this bundler URL or turning watch-only off for the chain fails.
 
 ### POST /api/setup/validate-alchemy-key
 

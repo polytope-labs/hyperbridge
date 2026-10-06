@@ -55,6 +55,8 @@ print_usage() {
     echo "  VERSION                     CREATE2 salt seed (default: entrypoint-v09)"
     echo "  GOVERNANCE_RELAYER          paymaster relayer (default: 0xc8809DD0b00370be097382d741A43347Ad582757)"
     echo "  ADMIN, TREASURY             default: the PRIVATE_KEY address"
+    echo "  ETH_PRIORITY_GAS_PRICE      forge priority fee (default: 30gwei on polygon-amoy, else the RPC's)"
+    echo "  ETH_GAS_PRICE               forge max fee (default: 40gwei on polygon-amoy, else the RPC's)"
 }
 
 while [[ $# -gt 0 ]]; do
@@ -141,6 +143,14 @@ default_stake() {
 
 rpc_url() { local var; var=$(rpc_var "$1"); printf '%s' "${!var}"; }
 
+# Amoy's RPC suggests a priority fee about 10x what lands. Both fees go together, since a priority
+# fee above the max fee is rejected. A caller's own values win.
+gas_env() {
+    case $1 in
+        polygon-amoy) echo "ETH_PRIORITY_GAS_PRICE=${ETH_PRIORITY_GAS_PRICE:-30gwei} ETH_GAS_PRICE=${ETH_GAS_PRICE:-40gwei}" ;;
+    esac
+}
+
 # Reads `[<chainId>.address] KEY` from the active config.
 config_get() {
     awk -v section="[$1.address]" -v key="$2" '
@@ -168,26 +178,23 @@ implementation_of() {
     cast parse-bytes32-address "$word"
 }
 
-# Runs one forge script on the chains given: straight onto the anvil forks in a dry run,
-# through deploy.sh (confirmation prompt, broadcast, verification) otherwise.
+# Runs one forge script on each chain given, with that chain's gas settings: straight onto the
+# anvil forks in a dry run, through deploy.sh (confirmation prompt, broadcast, verification) otherwise.
 run_script() {
     local script=$1; shift
-    [ $# -gt 0 ] || return 0
-    if $DRY_RUN; then
-        local chain rpc
-        for chain in "$@"; do
+    local chain rpc
+    for chain in "$@"; do
+        if $DRY_RUN; then
             rpc=$(rpc_url "$chain")
             [[ "$rpc" == http://127.0.0.1:* ]] || die "Dry run refuses a non-local RPC for $chain"
             info "${YELLOW}forge script $script on the $chain fork${NC}"
-            (cd "$EVM_DIR" && forge script "script/$script.s.sol" --sig "run()" --rpc-url "$rpc" -g 150 \
-                --broadcast --sender "$ADMIN") || die "$script failed on the $chain fork"
-        done
-    else
-        local list
-        list=$(IFS=,; echo "$*")
-        (cd "$EVM_DIR" && bash script/deploy.sh --mode full -c "$CONFIG" "$script" "$list") ||
-            warn "deploy.sh reported a failure (verification included); checking on-chain state"
-    fi
+            (cd "$EVM_DIR" && env $(gas_env "$chain") forge script "script/$script.s.sol" --sig "run()" \
+                --rpc-url "$rpc" -g 150 --broadcast --sender "$ADMIN") || die "$script failed on the $chain fork"
+        else
+            (cd "$EVM_DIR" && env $(gas_env "$chain") bash script/deploy.sh --mode full -c "$CONFIG" "$script" "$chain") ||
+                warn "deploy.sh reported a failure on $chain (verification included); checking on-chain state"
+        fi
+    done
 }
 
 # ── Environment ─────────────────────────────────────────────────────

@@ -175,22 +175,14 @@ Deployed on Chapel (97) and Amoy (80002):
   `0x6085a14078B7d26259145a894140f7C8361e02ae`, each funded on EntryPoint v0.9 with a deposit and
   a stake (86400 second unstake delay)
 
-Remaining steps, each a Gargantua sudo call described in `evm/script/testnet/README.md`:
-registering the paymasters (step 4), upgrading the gateway proxies to the new implementation
-(step 5), and setting the paymaster bundler allowlist (step 8).
+Remaining steps, each a Gargantua sudo call: `intentsCoprocessor.addPaymasterDeployment` for each
+paymaster proxy, and `intentsCoprocessor.executeOnGateway` carrying
+`upgradeToAndCall(0x38a82f8283a0fAdB763888707aD18fCd34AF719D, "")` for each chain's gateway.
 
 The SDK and indexer testnet configs already point at the new contracts. Until the gateway proxy
 upgrade lands, fills on Chapel and Amoy fail with SDK 2.9.0 and simplex 0.17.0. A v0.9
 `SolverAccount` calls the new `select`, which the current gateway implementation rejects, and the
 SDK refuses a v0.9 bid on a gateway whose format is `address`.
-
-Tooling:
-
-- `evm/script/testnet/entrypoint-v09.sh` runs the EVM side, and
-  `sdk/packages/simplex/e2e/entrypoint-v09-sudo.mjs` runs the Gargantua sudo side.
-- `scripts/docker/rundler/` runs the rundler fork as a v0.9-only, `--unsafe` bundler.
-- `sdk/packages/simplex/e2e/entrypoint-v09-local.mjs` verifies the whole stack on an anvil fork of
-  Chapel with a local rundler.
 
 ## Mainnet rollout
 

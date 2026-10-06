@@ -159,6 +159,8 @@ if [[ ! "$SCRIPT_NAME" =~ \.s\.sol$ ]]; then
 fi
 
 SCRIPT_PATH="script/${SCRIPT_NAME}"
+# forge keys broadcast artifacts by file name, so testnet/X.s.sol lands under broadcast/X.s.sol
+BROADCAST_DIR="broadcast/$(basename "$SCRIPT_NAME")"
 
 if [ ! -f "$SCRIPT_PATH" ]; then
     echo -e "${RED}Error: Script not found: $SCRIPT_PATH${NC}"
@@ -306,7 +308,7 @@ for chain in "${CHAIN_ARRAY[@]}"; do
             continue
         fi
 
-        BROADCAST_FILE="broadcast/${SCRIPT_NAME}/${CHAIN_ID}/run-latest.json"
+        BROADCAST_FILE="${BROADCAST_DIR}/${CHAIN_ID}/run-latest.json"
         if [ ! -f "$BROADCAST_FILE" ]; then
             echo -e "${RED}No broadcast artifacts found: $BROADCAST_FILE${NC}"
             FAILED_CHAINS+=("$chain")
@@ -421,11 +423,11 @@ if [ ${#FAILED_CHAINS[@]} -eq 0 ]; then
     elif [ "$MODE" = "verify" ]; then
         echo ""
         echo -e "${YELLOW}Verification completed using artifacts from:${NC}"
-        echo -e "  broadcast/${SCRIPT_NAME}/<chain-id>/"
+        echo -e "  ${BROADCAST_DIR}/<chain-id>/"
     else
         echo ""
         echo -e "${YELLOW}Deployment artifacts saved in:${NC}"
-        echo -e "  broadcast/${SCRIPT_NAME}/<chain-id>/"
+        echo -e "  ${BROADCAST_DIR}/<chain-id>/"
     fi
     exit 0
 else

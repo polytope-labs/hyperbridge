@@ -20,13 +20,20 @@ import { ERC7821_BATCH_MODE } from "./types"
 import type { BundlerMethod } from "./types"
 
 /**
- * EIP-712 type hash for the `SelectSolver` struct.
+ * EIP-712 type hash of `SelectSolver(bytes32 commitment,bytes32 userOpHash)`.
  *
- * Computed as `keccak256("SelectSolver(bytes32 commitment,address solver)")`.
- * Used when the session key signs a solver-selection message so that the
- * IntentGatewayV2 contract can verify the choice on-chain.
+ * The order's session key signs this struct to select one bid UserOperation
+ * for the order, on gateways that select solvers by userOpHash.
  */
-export const SELECT_SOLVER_TYPEHASH = keccak256(toHex("SelectSolver(bytes32 commitment,address solver)"))
+export const SELECT_SOLVER_TYPEHASH = keccak256(toHex("SelectSolver(bytes32 commitment,bytes32 userOpHash)"))
+
+/**
+ * EIP-712 type hash of `SelectSolver(bytes32 commitment,address solver)`.
+ *
+ * The order's session key signs this struct to select a solver account for the
+ * order, on gateways that select solvers by address.
+ */
+export const LEGACY_SELECT_SOLVER_TYPEHASH = keccak256(toHex("SelectSolver(bytes32 commitment,address solver)"))
 
 /**
  * EIP-712 type hash for the `PackedUserOperation` struct.
@@ -90,37 +97,61 @@ export class CryptoUtils {
 	}
 
 	/**
-	 * Signs a `SelectSolver` EIP-712 message with a session key.
+	 * Signs `SelectSolver(bytes32 commitment,bytes32 userOpHash)` with the
+	 * order's session key, for gateways whose `SELECT_SOLVER_TYPEHASH` is
+	 * {@link SELECT_SOLVER_TYPEHASH}.
 	 *
-	 * The session key authorises the selection of a specific solver for the
-	 * given order commitment. The resulting signature is appended to the
-	 * solver's UserOperation signature before bundle submission.
+	 * The signature selects one bid UserOperation for the order and is appended
+	 * to that operation's signature before it is sent to the bundler.
 	 *
-	 * @param commitment - The order commitment (bytes32) being fulfilled.
-	 * @param solverAddress - Address of the solver account selected to fill the order.
-	 * @param domainSeparator - EIP-712 domain separator for the IntentGatewayV2 contract.
-	 * @param privateKey - Hex-encoded private key of the session key that signs the message.
-	 * @returns The ECDSA signature as a hex string, or `null` if signing fails.
+	 * @param commitment - The order commitment.
+	 * @param userOpHash - EntryPoint userOpHash of the selected bid UserOperation.
+	 * @param domainSeparator - EIP-712 domain separator of the IntentGatewayV2 contract.
+	 * @param privateKey - Private key of the order's session key.
+	 * @returns The 65-byte ECDSA signature.
 	 */
-	static async signSolverSelection(
+	static async signUserOpHashSelection(
+		commitment: HexString,
+		userOpHash: HexString,
+		domainSeparator: HexString,
+		privateKey: HexString,
+	): Promise<HexString> {
+		const structHash = keccak256(
+			encodeAbiParameters(
+				[{ type: "bytes32" }, { type: "bytes32" }, { type: "bytes32" }],
+				[SELECT_SOLVER_TYPEHASH, commitment, userOpHash],
+			),
+		)
+		return signTypedDigest(domainSeparator, structHash, privateKey)
+	}
+
+	/**
+	 * Signs `SelectSolver(bytes32 commitment,address solver)` with the order's
+	 * session key, for gateways whose `SELECT_SOLVER_TYPEHASH` is
+	 * {@link LEGACY_SELECT_SOLVER_TYPEHASH}.
+	 *
+	 * The signature selects a solver account for the order and is appended to
+	 * that solver's bid UserOperation signature before it is sent to the bundler.
+	 *
+	 * @param commitment - The order commitment.
+	 * @param solverAddress - Address of the selected solver account.
+	 * @param domainSeparator - EIP-712 domain separator of the IntentGatewayV2 contract.
+	 * @param privateKey - Private key of the order's session key.
+	 * @returns The 65-byte ECDSA signature.
+	 */
+	static async signLegacySolverSelection(
 		commitment: HexString,
 		solverAddress: HexString,
 		domainSeparator: HexString,
 		privateKey: HexString,
-	): Promise<HexString | null> {
-		const account = privateKeyToAccount(privateKey as Hex)
-
+	): Promise<HexString> {
 		const structHash = keccak256(
 			encodeAbiParameters(
 				[{ type: "bytes32" }, { type: "bytes32" }, { type: "address" }],
-				[SELECT_SOLVER_TYPEHASH, commitment, solverAddress],
+				[LEGACY_SELECT_SOLVER_TYPEHASH, commitment, solverAddress],
 			),
 		)
-
-		const digest = keccak256(concat(["0x1901" as Hex, domainSeparator as Hex, structHash]))
-		const signature = await account.sign({ hash: digest })
-
-		return signature as HexString
+		return signTypedDigest(domainSeparator, structHash, privateKey)
 	}
 
 	/**
@@ -516,4 +547,13 @@ export class CryptoUtils {
 			return null
 		}
 	}
+}
+
+async function signTypedDigest(
+	domainSeparator: HexString,
+	structHash: HexString,
+	privateKey: HexString,
+): Promise<HexString> {
+	const digest = keccak256(concat(["0x1901", domainSeparator, structHash]))
+	return privateKeyToAccount(privateKey as Hex).sign({ hash: digest })
 }

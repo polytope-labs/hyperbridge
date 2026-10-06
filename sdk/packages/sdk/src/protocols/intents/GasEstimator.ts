@@ -1,17 +1,5 @@
-import {
-	encodeAbiParameters,
-	encodeFunctionData,
-	isAddress,
-	toHex,
-	pad,
-	maxUint256,
-	concat,
-	keccak256,
-	isHex,
-	hexToString,
-} from "viem"
+import { encodeAbiParameters, encodeFunctionData, toHex, maxUint256, concat, keccak256, isHex, hexToString } from "viem"
 import { generatePrivateKey, privateKeyToAccount, privateKeyToAddress } from "viem/accounts"
-import { ABI as IntentGatewayV2ABI } from "@/abis/IntentGatewayV2"
 import { encodeFillOrder, assertGatewayRelease } from "./fillOrderCodec"
 import {
 	ADDRESS_ZERO,
@@ -38,6 +26,8 @@ import { BundlerMethod } from "./types"
 import type { BundlerGasEstimate, PimlicoGasPriceEstimate } from "./types"
 import { getFeeToken, transformOrderForContract, convertGasToFeeToken, convertFeeTokenToWei } from "./utils"
 import { CryptoUtils } from "./CryptoUtils"
+import { readSelectionFormat, selectionOffStateDiff } from "./selection"
+import { applyRundlerPriorityFee, fetchRundlerPriorityFee } from "./rundlerFees"
 
 /**
  * Estimates the gas cost for filling an IntentGatewayV2 order and converts it
@@ -52,7 +42,9 @@ import { CryptoUtils } from "./CryptoUtils"
  * Bundler-specific gas-price refinement is applied automatically:
  * Pimlico (`pimlico_getUserOperationGasPrice`) when the URL contains
  * `pimlico.io`, and Alchemy (`rundler_maxPriorityFeePerGas`) when the
- * URL contains `alchemy.com`.
+ * URL contains `alchemy.com`. Any other bundler is asked for rundler's
+ * required priority fee, which raises the fees when it is above the chain
+ * estimate.
  */
 /**
  * Gas budget assumed for delivering and executing the cross-chain RedeemEscrow
@@ -140,9 +132,6 @@ interface GasEstimationPricingOptions {
 }
 
 export class GasEstimator {
-	/** Call dispatchers read from a gateway, for chains whose config carries none. */
-	private readonly dispatchers = new Map<string, HexString>()
-
 	/**
 	 * @param ctx - Shared IntentsV2 context providing the source and destination
 	 *   chain clients, config service, bundler URL, and solver-code cache.
@@ -172,7 +161,10 @@ export class GasEstimator {
 	 * ephemeral keypair, applies state overrides, and calls
 	 * `eth_estimateUserOperationGas`. Gas limits are bumped by 5-10% for
 	 * headroom. If the bundler is Pimlico, gas prices are refined with
-	 * `pimlico_getUserOperationGasPrice`. If the bundler rejects the estimate,
+	 * `pimlico_getUserOperationGasPrice`, and if it is Alchemy, with
+	 * `rundler_maxPriorityFeePerGas`. For any other bundler that answers
+	 * `rundler_maxPriorityFeePerGas`, the fees are raised to at least that
+	 * priority fee (see {@link applyRundlerPriorityFee}). If the bundler rejects the estimate,
 	 * fixed gas limits are returned in its place, or the call throws when
 	 * `params.requireBundlerEstimate` is set.
 	 *
@@ -211,7 +203,7 @@ export class GasEstimator {
 		const souceStateMachineId = isHex(order.source) ? hexToString(order.source) : order.source
 		const destStateMachineId = isHex(order.destination) ? hexToString(order.destination) : order.destination
 		const intentGatewayV2Address = this.ctx.dest.configService.getIntentGatewayAddress(destStateMachineId)
-		const entryPointAddress = this.ctx.dest.configService.getEntryPointV08Address(destStateMachineId)
+		const entryPointAddress = this.ctx.dest.configService.getEntryPointAddress(destStateMachineId)
 		const chainId = BigInt(Number.parseInt(destStateMachineId.split("-")[1]))
 
 		const totalEthValue = quotedOutputs
@@ -309,6 +301,8 @@ export class GasEstimator {
 
 		if (this.ctx.bundlerUrl) {
 			try {
+				if (!entryPointAddress) throw new Error(`No EntryPoint configured for ${destStateMachineId}`)
+
 				const callData = this.crypto.encodeERC7821Execute([
 					...(params.prependCalls ?? []),
 					{ target: intentGatewayV2Address, value: totalNativeValue, data: fillOrderCalldata },
@@ -347,12 +341,21 @@ export class GasEstimator {
 					chainId,
 					intentGatewayV2Address,
 				)
-				const sessionSignature = await CryptoUtils.signSolverSelection(
-					commitment as HexString,
-					solverAccountAddress,
-					domainSeparator,
-					solverPrivateKey,
-				)
+				const selectionFormat = await readSelectionFormat(this.ctx.dest.client, chainId, intentGatewayV2Address)
+				const sessionSignature =
+					selectionFormat === "userOpHash"
+						? await CryptoUtils.signUserOpHashSelection(
+								commitment as HexString,
+								userOpHash,
+								domainSeparator,
+								solverPrivateKey,
+							)
+						: await CryptoUtils.signLegacySolverSelection(
+								commitment as HexString,
+								solverAccountAddress,
+								domainSeparator,
+								solverPrivateKey,
+							)
 
 				preliminaryUserOp.signature = concat([
 					solverSig as import("viem").Hex,
@@ -363,6 +366,8 @@ export class GasEstimator {
 				const bundlerUrlLower = this.ctx.bundlerUrl.toLowerCase()
 				const isPimlico = bundlerUrlLower.includes("pimlico.io")
 				const isAlchemy = bundlerUrlLower.includes("alchemy.com")
+				const rundlerPriorityFeeRequest =
+					isPimlico || isAlchemy ? Promise.resolve(null) : fetchRundlerPriorityFee(this.ctx.bundlerUrl)
 
 				const bundlerRequests: { method: BundlerMethod; params: unknown[] }[] = [
 					{
@@ -437,6 +442,21 @@ export class GasEstimator {
 					const bufferedBaseFee = baseFeePerGas + (baseFeePerGas * 50n) / 100n
 					maxFeePerGas = bufferedBaseFee + maxPriorityFeePerGas
 				}
+
+				const rundlerPriorityFee = await rundlerPriorityFeeRequest
+				if (rundlerPriorityFee !== null) {
+					const rundlerFees = applyRundlerPriorityFee(
+						{ maxFeePerGas, maxPriorityFeePerGas },
+						{
+							rundlerPriorityFee,
+							baseFeePerGas,
+							priorityFeeBumpPercent: BigInt(priorityFeeBumpPercent),
+							maxFeeBumpPercent: BigInt(maxFeeBumpPercent),
+						},
+					)
+					maxFeePerGas = rundlerFees.maxFeePerGas
+					maxPriorityFeePerGas = rundlerFees.maxPriorityFeePerGas
+				}
 			} catch (e) {
 				if (params.requireBundlerEstimate) {
 					throw new Error(`Bundler gas estimation failed: ${e instanceof Error ? e.message : String(e)}`, {
@@ -490,30 +510,6 @@ export class GasEstimator {
 			fillOptions,
 			inputs,
 		}
-	}
-
-	/**
-	 * The call dispatcher the gateway on `chain` uses: the configured address, or the one
-	 * the gateway reports when the chain's config carries none.
-	 *
-	 * {@link buildStateOverride} writes it back into the gateway's params slot. Without an
-	 * address that value is 12 bytes instead of 32, and the bundler rejects the whole
-	 * estimate as `Invalid params`.
-	 */
-	private async callDispatcher(chain: string, gateway: HexString): Promise<HexString> {
-		const configured = this.ctx.dest.configService.getCalldispatcherAddress(chain)
-		if (isAddress(configured)) return configured
-
-		const known = this.dispatchers.get(chain)
-		if (known) return known
-
-		const params = await this.ctx.dest.client.readContract({
-			abi: IntentGatewayV2ABI,
-			address: gateway,
-			functionName: "params",
-		})
-		this.dispatchers.set(chain, params.dispatcher as HexString)
-		return params.dispatcher as HexString
 	}
 
 	/**
@@ -624,9 +620,8 @@ export class GasEstimator {
 	 *   slots should be overridden.
 	 * @param params.spenderAddress - Address that needs allowance from the solver
 	 *   account (i.e. the IntentGatewayV2 contract).
-	 * @param params.intentGatewayV2Address - If provided, overrides slot 5 of
-	 *   IntentGatewayV2 with the call-dispatcher address so dispatch calls
-	 *   succeed during estimation.
+	 * @param params.intentGatewayV2Address - If provided, turns the gateway's
+	 *   solver selection off with {@link selectionOffStateDiff}.
 	 * @param params.entryPointAddress - If provided, overrides the EntryPoint
 	 *   deposit mapping to give the solver account a large deposit.
 	 * @returns An object with `viem` and `bundler` state-override collections.
@@ -673,14 +668,9 @@ export class GasEstimator {
 		> = {}
 
 		if (intentGatewayV2Address) {
-			// Params slot 5 packs the call dispatcher with `solverSelection` in the byte above it.
-			// Written back with that byte cleared, the simulated fill skips the selection check,
-			// which is what lets `estimateFillOrder` simulate the user's real order.
-			const paramsSlot5 = pad(toHex(5n), { size: 32 }) as HexString
-			const dispatcherAddress = await this.callDispatcher(chain, intentGatewayV2Address)
-			const newSlot5Value = ("0x" + "0".repeat(22) + "00" + dispatcherAddress.slice(2).toLowerCase()) as HexString
-
-			const gatewayDiffs = [{ slot: paramsSlot5, value: newSlot5Value }]
+			// With solver selection off the simulated fill skips the selection check, which is what
+			// lets `estimateFillOrder` simulate the user's real order.
+			const gatewayDiffs = [await selectionOffStateDiff(this.ctx.dest.client, intentGatewayV2Address)]
 			for (const [leg, input] of (escrow?.inputs ?? []).entries()) {
 				gatewayDiffs.push({
 					slot: escrowSlot(escrow!.commitment, leg),

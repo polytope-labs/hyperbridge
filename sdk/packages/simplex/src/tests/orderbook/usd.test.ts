@@ -24,6 +24,7 @@ function limitOrder(base: string, quote: string, price: string): LimitOrder {
 		status: "open",
 		commitment: null,
 		orderNonce: "0",
+		entryPoint: null,
 		bookExpiresAt: null,
 		bookPrice: null,
 		lastError: null,

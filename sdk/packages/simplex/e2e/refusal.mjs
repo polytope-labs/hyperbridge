@@ -5,17 +5,17 @@
 import { createWalletClient, encodeFunctionData, erc20Abi, http } from "viem"
 import { privateKeyToAccount } from "viem/accounts"
 import { ACCOUNT_ABI, ENTRY_POINT_ABI, brief, debitOf, readSpent } from "./budget.mjs"
-import { ENTRY_POINT, GATEWAY } from "./env.mjs"
+import { GATEWAY, entryPointOf } from "./env.mjs"
 
 const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 
 /** The first `UserOperationEvent` for `userOpHash` from `fromBlock` on, polled while the bundle lands. */
-async function bundleOf(client, userOpHash, fromBlock) {
+async function bundleOf(client, entryPoint, userOpHash, fromBlock) {
 	const until = Date.now() + 120_000
 	for (;;) {
 		const [event] = await client
 			.getContractEvents({
-				address: ENTRY_POINT,
+				address: entryPoint,
 				abi: ENTRY_POINT_ABI,
 				eventName: "UserOperationEvent",
 				args: { userOpHash },
@@ -119,8 +119,9 @@ export async function refuseBest({ bids, orderInputs, client, chain, rpc, solver
 	log("simulated", { refused: record.simulationError !== undefined, error: record.simulationError })
 
 	// Sent past the simulation, as a bundler takes any operation that validates.
+	const entryPoint = entryPointOf(`EVM-${chain.id}`)
 	const userOpHash = await client.readContract({
-		address: ENTRY_POINT,
+		address: entryPoint,
 		abi: ENTRY_POINT_ABI,
 		functionName: "getUserOpHash",
 		args: [bid.userOp],
@@ -133,7 +134,7 @@ export async function refuseBest({ bids, orderInputs, client, chain, rpc, solver
 	} catch (error) {
 		record.executeError = brief(error)
 	}
-	record.transactionHash = await bundleOf(client, userOpHash, fromBlock)
+	record.transactionHash = await bundleOf(client, entryPoint, userOpHash, fromBlock)
 	log("forced", { userOpHash, transactionHash: record.transactionHash, executeError: record.executeError })
 	return record
 }

@@ -368,6 +368,12 @@ export interface LimitOrder {
 	commitment: string | null
 	/** Bumped on every repost, so each posting hashes differently. */
 	orderNonce: string
+	/**
+	 * The EntryPoint the current posting's op was signed for. Null while nothing is
+	 * posted, and on a posting stored before this was recorded, which was signed
+	 * for v0.8.
+	 */
+	entryPoint: string | null
 	/** When the current posting expires, as the orderbook reported it. */
 	bookExpiresAt: string | null
 	/** `Order.price` from the orderbook, which shades `price` by the protocol fee. */
@@ -408,6 +414,7 @@ export interface LimitOrderPosting {
 	bookExpiresAt: string | null
 	bookPrice: string | null
 	orderNonce: string
+	entryPoint: string | null
 	status: LimitOrderStatus
 	lastError: string | null
 }

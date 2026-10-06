@@ -30,12 +30,14 @@ beforeEach(() => {
 	;(global as any).logger = { warn: jest.fn() }
 })
 
-it.each(["0x5ff137d4b0fdcd49dca30c7cf57e578a026d2789", "0x0000000071727de22e5e9d8baf0edac6f37da032", entryPoint])(
-	"matches a placement from canonical EntryPoint %s",
-	async (address) => {
-		expect(await resolve([start(0, address), boundary(6, account, hash, address)])).toBe(hash)
-	},
-)
+it.each([
+	"0x5ff137d4b0fdcd49dca30c7cf57e578a026d2789",
+	"0x0000000071727de22e5e9d8baf0edac6f37da032",
+	entryPoint,
+	"0x433709009b8330fda32311df1c2afa402ed8d009",
+])("matches a placement from canonical EntryPoint %s", async (address) => {
+	expect(await resolve([start(0, address), boundary(6, account, hash, address)])).toBe(hash)
+})
 
 it("selects each operation for repeated senders in an unordered bundled receipt", async () => {
 	const logs = [boundary(12, account, laterHash), boundary(6), start()]

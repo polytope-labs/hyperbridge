@@ -182,25 +182,6 @@
 	},
 	{
 		"type": "function",
-		"name": "calculateCommitmentSlotHash",
-		"inputs": [
-			{
-				"name": "commitment",
-				"type": "bytes32",
-				"internalType": "bytes32"
-			}
-		],
-		"outputs": [
-			{
-				"name": "",
-				"type": "bytes",
-				"internalType": "bytes"
-			}
-		],
-		"stateMutability": "pure"
-	},
-	{
-		"type": "function",
 		"name": "cancelOrder",
 		"inputs": [
 			{
@@ -1256,9 +1237,9 @@
 						"internalType": "bytes32"
 					},
 					{
-						"name": "solver",
-						"type": "address",
-						"internalType": "address"
+						"name": "userOpHash",
+						"type": "bytes32",
+						"internalType": "bytes32"
 					},
 					{
 						"name": "signature",
@@ -1925,11 +1906,6 @@
 			}
 		],
 		"anonymous": false
-	},
-	{
-		"type": "error",
-		"name": "Cancelled",
-		"inputs": []
 	},
 	{
 		"type": "error",

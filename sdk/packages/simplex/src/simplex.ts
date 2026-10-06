@@ -8,6 +8,7 @@ import { assertPairSymbolsResolve, validatePairConfigs, type PairConfig } from "
 import { assertConfirmationCoverage, type VaultToml } from "@/config/filler-toml"
 import type { ChainConfirmationPolicy, FillerTomlConfig, RebalancingConfig } from "@/config/filler-toml"
 import { resolveChainConfigs, validateRpcUrls, type AllowlistConfig } from "@/services/FillerConfigService"
+import { assertBundlersServeEntryPoint } from "@/services/bundler-preflight"
 import { LoggerContext, type Logger, type LogLevel, type LogSink } from "@/services/Logger"
 import type { ActivityEvent, BidStats, LimitOrderFill, SimplexDataStore, StoredBid, WalletTx } from "@/data/types"
 import { patchRuntimeState } from "@/data/state"
@@ -568,11 +569,13 @@ export class ChainController {
 				)
 			}
 
-			configService.addChain(resolved)
 			// A filler the operator put in watch-only must not start filling on a chain
 			// added later, and a signerless observer never fills at all.
 			// `chain.watchOnly` still wins when given explicitly (checked above).
 			const watchOnly = chain.watchOnly ?? (this.runtime.signerless || this.runtime.globalWatchOnly)
+			await assertBundlersServeEntryPoint([resolved], configService, { watchOnly: { [chainId]: watchOnly } })
+
+			configService.addChain(resolved)
 			if (watchOnly) intentFiller.setWatchOnly(chainId, true)
 
 			try {
@@ -694,6 +697,9 @@ export class ChainController {
 			if (!bundlerUrl?.trim()) throw new Error("A bundler URL is required")
 			const index = this.runtime.resolvedChains.findIndex((chain) => chain.chainId === chainId)
 			if (index < 0) throw new Error(`Chain ${chainId} is not configured`)
+			await assertBundlersServeEntryPoint([{ chainId, bundlerUrl }], this.runtime.configService, {
+				watchOnly: this.runtime.intentFiller.getWatchOnly(),
+			})
 
 			this.runtime.configService.setBundlerUrl(chainId, bundlerUrl)
 			this.runtime.resolvedChains[index].bundlerUrl = bundlerUrl
@@ -711,6 +717,10 @@ export class ChainController {
 				throw new Error(
 					"Watch-only cannot be disabled: this solver was started without a signer. Restart with `signer` to fill.",
 				)
+			}
+			if (!watchOnly) {
+				const chain = this.runtime.resolvedChains.find((resolved) => resolved.chainId === chainId)
+				if (chain) await assertBundlersServeEntryPoint([chain], this.runtime.configService)
 			}
 			this.runtime.intentFiller.setWatchOnly(chainId, watchOnly)
 			this.syncWatchOnlyToConfig()

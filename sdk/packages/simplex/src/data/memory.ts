@@ -390,6 +390,7 @@ class MemoryLimitOrderStore implements LimitOrderStore {
 			status: "open",
 			commitment: null,
 			orderNonce: order.orderNonce ?? "0",
+			entryPoint: null,
 			bookExpiresAt: null,
 			bookPrice: null,
 			lastError: null,

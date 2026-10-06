@@ -127,7 +127,7 @@ Options:
   --env-file PATH         Default: sdk/.env.local, read line by line, never sourced
   --config PATH           Default: evm/config.testnet.toml
 
-Environment: HYPERBRIDGE_GARGANTUA, SECRET_PHRASE (the sudo key; live runs only),
+Environment: HYPERBRIDGE_GARGANTUA, GARGANTUA_SUDO_SEED (seed of sudo.key(); live runs only),
 BSC_TESTNET_RPC_URL or BSC_CHAPEL, POLYGON_AMOY_RPC_URL or POLYGON_AMOY. The process environment wins
 over the env file.`
 
@@ -261,16 +261,35 @@ async function connect() {
 	return api
 }
 
-/** The sudo key, required to match SECRET_PHRASE before anything is signed. */
-async function sudoSigner(api) {
-	const phrase = secret(setting("SECRET_PHRASE"))
-	if (!phrase) throw new Error("SECRET_PHRASE is unset and missing from the env file")
-	const signer = new Keyring({ type: "sr25519" }).addFromUri(phrase)
-	const key = await api.query.sudo.key()
-	if (key.isNone || key.unwrap().toHex() !== u8aToHex(signer.publicKey)) {
-		throw new Error(`SECRET_PHRASE (${signer.address}) is not the sudo key ${key.toString()}`)
+/** Read before anything connects, so a live run without it stops at once. */
+function sudoSeed() {
+	const seed = secret(setting("GARGANTUA_SUDO_SEED"))
+	if (!seed) {
+		throw new Error(
+			`GARGANTUA_SUDO_SEED is unset and missing from ${options["env-file"]}; live runs sign with the Gargantua sudo key`,
+		)
 	}
-	return signer
+	return seed
+}
+
+/** The pair GARGANTUA_SUDO_SEED derives that is `sudo.key()`, sr25519 first. */
+async function sudoSigner(api, seed) {
+	const key = await api.query.sudo.key()
+	if (key.isNone) throw new Error("Gargantua has no sudo key")
+	const sudo = key.unwrap().toHex()
+	const tried = []
+	for (const type of ["sr25519", "ed25519", "ecdsa"]) {
+		let pair
+		try {
+			pair = new Keyring({ type }).addFromUri(seed)
+		} catch (error) {
+			tried.push(`${type}: ${error.message}`)
+			continue
+		}
+		if (u8aToHex(pair.addressRaw) === sudo) return pair
+		tried.push(`${type} ${pair.address}`)
+	}
+	throw new Error(`GARGANTUA_SUDO_SEED is not the sudo key ${key.toString()} (${tried.join(", ")})`)
 }
 
 function describe(api, error) {
@@ -549,10 +568,12 @@ async function main() {
 	}
 	if (!commands[command]) throw new Error(`Unknown command ${command}\n\n${USAGE}`)
 
+	const live = command !== "metadata" && !dryRun
+	const seed = live ? sudoSeed() : undefined
 	const configured = readConfig(options.config)
 	const api = await connect()
 	try {
-		const signer = command === "metadata" || dryRun ? undefined : await sudoSigner(api)
+		const signer = live ? await sudoSigner(api, seed) : undefined
 		if (dryRun) log("dry run: nothing is signed or sent")
 		await commands[command](api, signer, configured)
 	} finally {

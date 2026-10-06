@@ -23,6 +23,7 @@ import {
 	DEFAULT_RECONCILE_INTERVAL_SECS,
 	} from "@/config/defaults"
 import { ChainClientManager } from "@/services/ChainClientManager"
+import { assertBundlersServeEntryPoint } from "@/services/bundler-preflight"
 import { ContractInteractionService } from "@/services/ContractInteractionService"
 import { DelegationService } from "@/services/DelegationService"
 import { OrderbookClient } from "@/orderbook/client"
@@ -277,6 +278,8 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 				"Running the binary? Configure it under [simplex.signer].",
 		)
 	}
+	logger.info("Checking each bundler serves its chain's EntryPoint...")
+	await assertBundlersServeEntryPoint(resolvedChains, configService, { watchOnly: watchOnlyConfig })
 	const chainClientManager = new ChainClientManager(configService, options.signer)
 	const runtimeSigner: Signer = chainClientManager.getSigner()
 	if (options.signer) {

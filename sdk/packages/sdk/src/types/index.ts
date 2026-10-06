@@ -1288,7 +1288,7 @@ export interface SubmitBidOptions {
 	/** Pre-built ERC-7821 calldata encoding the UserOp execution (approvals + fillOrder). */
 	callData: HexString
 	/**
-	 * Optional packed paymasterAndData for EntryPoint v0.8.
+	 * Optional packed paymasterAndData (v0.7+ layout).
 	 * Must be built BEFORE calling prepareSubmitBid so the hash covers paymaster bytes.
 	 * Defaults to "0x" (EntryPoint deposit pays gas).
 	 */
@@ -1475,14 +1475,15 @@ export interface FillerBid {
 }
 
 /**
- * Options for selecting a solver in IntentGatewayV2
+ * Arguments of `select` on an IntentGatewayV2 that selects solvers by userOpHash,
+ * i.e. whose `SELECT_SOLVER_TYPEHASH` is `SelectSolver(bytes32 commitment,bytes32 userOpHash)`.
  */
 export interface SelectOptions {
 	/** The order commitment hash (bytes32) */
 	commitment: HexString
-	/** The solver address to select */
-	solver: HexString
-	/** The EIP-712 signature from the session key */
+	/** EntryPoint userOpHash of the selected bid UserOperation */
+	userOpHash: HexString
+	/** The session key's EIP-712 signature over `SelectSolver(commitment, userOpHash)` */
 	signature: HexString
 }
 
@@ -1514,10 +1515,11 @@ export interface Bid {
 	/** Raw UserOperation for advanced consumers (custom batching, paymaster flows). */
 	readonly userOp: PackedUserOperation
 	/**
-	 * Runs the batched `select` + `fillOrder` `eth_call` simulation so a bid can
-	 * be pre-checked before it is shown to a user or submitted.
+	 * Runs the bid's `fillOrder` as an `eth_call`, with the gateway's solver
+	 * selection turned off, so a bid can be pre-checked before it is shown to a
+	 * user or submitted.
 	 *
-	 * @throws If the simulation reverts.
+	 * @throws If the bid cannot execute on the destination, or the simulation reverts.
 	 */
 	simulate(): Promise<void>
 	/**

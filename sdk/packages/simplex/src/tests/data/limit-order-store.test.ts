@@ -3,6 +3,7 @@ import { mkdtempSync } from "fs"
 import { tmpdir } from "os"
 import { join } from "path"
 import { DatabaseSync } from "node:sqlite"
+import { ENTRY_POINT_V09 } from "@hyperbridge/sdk"
 import { LoggerContext } from "@/services/Logger"
 import { MemoryDataStore } from "@/data/memory"
 import { SqliteDataStore } from "@/data/sqlite"
@@ -46,6 +47,7 @@ describe.each(backends)("%s", (_name, open) => {
 		expect(created.reserved).toBe("0")
 		expect(created.commitment).toBeNull()
 		expect(created.orderNonce).toBe("0")
+		expect(created.entryPoint).toBeNull()
 		expect(created.acceptedSources).toEqual(["EVM-1", "EVM-42161"])
 		await close()
 	})
@@ -69,6 +71,7 @@ describe.each(backends)("%s", (_name, open) => {
 			bookExpiresAt: "2026-09-15T12:00:00.000Z",
 			bookPrice: "1490000000000000000000",
 			orderNonce: "3",
+			entryPoint: ENTRY_POINT_V09,
 			status: "open",
 			lastError: null,
 		})
@@ -76,6 +79,29 @@ describe.each(backends)("%s", (_name, open) => {
 		expect(posted?.commitment).toBe("0xabc")
 		expect(posted?.orderNonce).toBe("3")
 		expect(posted?.bookPrice).toBe("1490000000000000000000")
+		expect(posted?.entryPoint).toBe(ENTRY_POINT_V09)
+		await close()
+	})
+
+	it("keeps a posting's EntryPoint until a new posting replaces it", async () => {
+		const { store, close } = open()
+		await store.create(ORDER)
+		const posting = {
+			commitment: "0xabc",
+			bookExpiresAt: null,
+			bookPrice: null,
+			orderNonce: "1",
+			entryPoint: ENTRY_POINT_V09,
+			status: "open" as const,
+			lastError: null,
+		}
+		await store.setPosting(ORDER.id, posting)
+
+		// A repost marks the row before the new posting lands, and the old one is still up meanwhile.
+		expect((await store.setStatus(ORDER.id, "resizing"))?.entryPoint).toBe(ENTRY_POINT_V09)
+
+		const cleared = await store.setPosting(ORDER.id, { ...posting, commitment: null, entryPoint: null })
+		expect(cleared?.entryPoint).toBeNull()
 		await close()
 	})
 
@@ -374,6 +400,87 @@ describe("SqliteLimitOrderStore", () => {
 		await store.close()
 	})
 
+	it("adds entry_point in place to a database written before it, reading its postings as null", async () => {
+		const dir = dataDir()
+		const legacy = new DatabaseSync(join(dir, "bids.db"))
+		legacy.exec(`
+			CREATE TABLE limit_orders (
+				id TEXT PRIMARY KEY,
+				book TEXT NOT NULL,
+				base TEXT NOT NULL,
+				quote TEXT NOT NULL,
+				side TEXT NOT NULL,
+				fill_chain TEXT NOT NULL,
+				price TEXT NOT NULL,
+				size TEXT NOT NULL,
+				remaining TEXT NOT NULL,
+				reserved TEXT NOT NULL DEFAULT '0',
+				accepted_sources TEXT NOT NULL,
+				ttl_secs INTEGER NOT NULL,
+				expires_at TEXT,
+				status TEXT NOT NULL,
+				commitment TEXT,
+				order_nonce TEXT NOT NULL DEFAULT '0',
+				book_expires_at TEXT,
+				book_price TEXT,
+				last_error TEXT,
+				created_at TEXT NOT NULL DEFAULT (datetime('now')),
+				updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+			);
+		`)
+		legacy
+			.prepare(
+				`
+				INSERT INTO limit_orders (
+					id, book, base, quote, side, fill_chain, price, size, remaining,
+					accepted_sources, ttl_secs, status, commitment, order_nonce
+				)
+				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'open', '0xa1', '4')
+			`,
+			)
+			.run(
+				ORDER.id,
+				ORDER.book,
+				ORDER.base,
+				ORDER.quote,
+				ORDER.side,
+				ORDER.fillChain,
+				ORDER.price,
+				ORDER.size,
+				ORDER.size,
+				JSON.stringify(ORDER.acceptedSources),
+				ORDER.ttlSecs,
+			)
+		legacy.close()
+
+		const migrated = new SqliteDataStore(dir, new LoggerContext({ level: "warn" }))
+		expect(await migrated.limitOrders.get(ORDER.id)).toMatchObject({
+			status: "open",
+			commitment: "0xa1",
+			orderNonce: "4",
+			remaining: ORDER.size,
+			acceptedSources: ORDER.acceptedSources,
+			entryPoint: null,
+		})
+		await migrated.limitOrders.setPosting(ORDER.id, {
+			commitment: "0xa2",
+			bookExpiresAt: null,
+			bookPrice: null,
+			orderNonce: "5",
+			entryPoint: ENTRY_POINT_V09,
+			status: "open",
+			lastError: null,
+		})
+		await migrated.close()
+
+		const reopened = new SqliteDataStore(dir, new LoggerContext({ level: "warn" }))
+		expect(await reopened.limitOrders.get(ORDER.id)).toMatchObject({
+			commitment: "0xa2",
+			entryPoint: ENTRY_POINT_V09,
+		})
+		await reopened.close()
+	})
+
 	it("survives a reopen of the same data directory", async () => {
 		const dir = dataDir()
 		const first = new SqliteDataStore(dir, new LoggerContext({ level: "warn" }))
@@ -557,6 +664,7 @@ describe.each(backends)("%s fill history", (_name, open) => {
 			bookExpiresAt: null,
 			bookPrice: null,
 			orderNonce: "1",
+			entryPoint: null,
 			status: "open",
 			lastError: null,
 		})

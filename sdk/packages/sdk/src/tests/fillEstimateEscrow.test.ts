@@ -17,15 +17,17 @@ const SOLVER = "0x9C7054b429f6b1dd35FD03e4fDC4f875Bc19931f" as HexString
 const COMMITMENT = "0x0cfe2884884e8fd6752b0eab75b100f4111a2cc19018efb02891f16575c4d844" as HexString
 const LEG0_ESCROW_SLOT = "0x7eae9e13a21d616d177f4e2573da33a918bfa4f615c8d57173b436ebd9797750"
 
-const DISPATCHER = "0xc71251c8b3e7b02697a84363eef6dce8dfbdf333" as HexString
 const PARAMS_SLOT = `0x${"0".repeat(63)}5`
 
-function estimator(options: { dispatcher?: HexString; client?: unknown } = {}) {
+/** The gateway's params slot 5 with `solverSelection` set in byte 20, above `dispatcher`. */
+const paramsWord = (dispatcher: HexString) => `0x${"00".repeat(11)}01${dispatcher.slice(2)}` as HexString
+
+function estimator(options: { client?: unknown } = {}) {
 	const ctx = {
 		dest: {
-			client: options.client ?? {},
+			client: options.client ?? { getStorageAt: async () => paramsWord(`0x${"d1".repeat(20)}`) },
 			configService: {
-				getCalldispatcherAddress: () => options.dispatcher ?? DISPATCHER,
+				getCalldispatcherAddress: () => "0xc71251c8b3e7b02697a84363eef6dce8dfbdf333",
 				getSolverAccountAddress: () => undefined,
 			},
 		},
@@ -72,7 +74,7 @@ describe("GasEstimator.buildStateOverride escrow", () => {
 	})
 })
 
-describe("GasEstimator.buildStateOverride call dispatcher", () => {
+describe("GasEstimator.buildStateOverride solver selection", () => {
 	const override = (gasEstimator: InstanceType<typeof GasEstimator>) =>
 		gasEstimator.buildStateOverride({
 			accountAddress: SOLVER,
@@ -82,27 +84,29 @@ describe("GasEstimator.buildStateOverride call dispatcher", () => {
 			intentGatewayV2Address: GATEWAY,
 		})
 
-	it("writes the configured dispatcher into params slot 5 without reading the gateway", async () => {
-		const readContract = vi.fn()
+	it("clears only the solverSelection byte of the gateway's params slot 5", async () => {
+		// Bytes 21-31 are unused by the layout; they are set here to show they are kept as read.
+		const word = `0x${"ee".repeat(11)}01${"d1".repeat(20)}` as HexString
+		const getStorageAt = vi.fn(async (_request: unknown) => word)
 
-		const { bundler } = await override(estimator({ client: { readContract } }))
+		const { bundler } = await override(estimator({ client: { getStorageAt } }))
 
-		expect(bundler[GATEWAY].stateDiff?.[PARAMS_SLOT]).toBe(`0x${"0".repeat(24)}${DISPATCHER.slice(2)}`)
-		expect(readContract).not.toHaveBeenCalled()
+		expect(getStorageAt).toHaveBeenCalledWith({ address: GATEWAY, slot: PARAMS_SLOT })
+		expect(bundler[GATEWAY].stateDiff?.[PARAMS_SLOT]).toBe(`0x${"ee".repeat(11)}00${"d1".repeat(20)}`)
 	})
 
-	it("reads the dispatcher from the gateway, once, when the chain's config has none", async () => {
-		// A chain with no `Calldispatcher` answers "0x". Written as it stands, the slot's value
-		// is 12 bytes and the bundler rejects the estimate as `Invalid params`.
-		const onChain = "0x876F1891982E260026630c233A4897160A281Fb8" as HexString
-		const readContract = vi.fn(async (_call: unknown) => ({ dispatcher: onChain }))
-		const gasEstimator = estimator({ dispatcher: "0x" as HexString, client: { readContract } })
+	it("keeps the gateway's own dispatcher, read on every estimate", async () => {
+		const dispatchers = [`0x${"e2".repeat(20)}`, `0x${"2b".repeat(20)}`] as HexString[]
+		const getStorageAt = vi
+			.fn()
+			.mockResolvedValueOnce(paramsWord(dispatchers[0]))
+			.mockResolvedValueOnce(paramsWord(dispatchers[1]))
+		const gasEstimator = estimator({ client: { getStorageAt } })
 
-		const { bundler } = await override(gasEstimator)
-		await override(gasEstimator)
-
-		expect(bundler[GATEWAY].stateDiff?.[PARAMS_SLOT]).toBe(`0x${"0".repeat(24)}${onChain.slice(2).toLowerCase()}`)
-		expect(readContract).toHaveBeenCalledTimes(1)
-		expect(readContract.mock.calls[0][0]).toMatchObject({ address: GATEWAY, functionName: "params" })
+		for (const dispatcher of dispatchers) {
+			const { bundler } = await override(gasEstimator)
+			expect(bundler[GATEWAY].stateDiff?.[PARAMS_SLOT]).toBe(`0x${"00".repeat(12)}${dispatcher.slice(2)}`)
+		}
+		expect(getStorageAt).toHaveBeenCalledTimes(2)
 	})
 })

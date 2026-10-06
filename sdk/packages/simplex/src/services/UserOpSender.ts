@@ -1,4 +1,11 @@
-import { CryptoUtils, BundlerMethod, type PackedUserOperation, type HexString } from "@hyperbridge/sdk"
+import {
+	CryptoUtils,
+	BundlerMethod,
+	applyRundlerPriorityFee,
+	fetchRundlerPriorityFee,
+	type PackedUserOperation,
+	type HexString,
+} from "@hyperbridge/sdk"
 import { toHex, type PublicClient } from "viem"
 import { ENTRYPOINT_ABI } from "@/config/abis/Entrypoint"
 import type { ChainClientManager } from "./ChainClientManager"
@@ -63,6 +70,9 @@ export interface SponsoredUserOpRequest {
 const FALLBACK_VERIFICATION_GAS_LIMIT = 250_000n
 const FALLBACK_CALL_GAS_LIMIT = 1_500_000n
 const FALLBACK_PRE_VERIFICATION_GAS = 150_000n
+
+const PRIORITY_FEE_BUMP_PERCENT = 8n
+const MAX_FEE_BUMP_PERCENT = 10n
 
 /**
  * Submits self-initiated, paymaster-sponsored UserOperations through the bundler,
@@ -344,7 +354,11 @@ export class UserOpSender {
 		return userOp
 	}
 
-	/** Mirrors the gas-price selection used by the delegation and fill paths. */
+	/**
+	 * Mirrors the gas-price selection used by the delegation and fill paths: Pimlico's and
+	 * Alchemy's own pricing, otherwise the chain's gas price raised to the priority fee a
+	 * rundler bundler requires, when the bundler gives one.
+	 */
 	private async getGasPrice(
 		bundlerUrl: string,
 		publicClient: PublicClient,
@@ -371,8 +385,23 @@ export class UserOpSender {
 			const bufferedBaseFee = baseFeePerGas + (baseFeePerGas * 50n) / 100n
 			return { maxFeePerGas: bufferedBaseFee + maxPriorityFeePerGas, maxPriorityFeePerGas }
 		}
-		const gasPrice = await publicClient.getGasPrice()
-		return { maxFeePerGas: gasPrice + (gasPrice * 10n) / 100n, maxPriorityFeePerGas: gasPrice + (gasPrice * 8n) / 100n }
+		const [gasPrice, rundlerPriorityFee] = await Promise.all([
+			publicClient.getGasPrice(),
+			fetchRundlerPriorityFee(bundlerUrl),
+		])
+		const fees = {
+			maxFeePerGas: gasPrice + (gasPrice * MAX_FEE_BUMP_PERCENT) / 100n,
+			maxPriorityFeePerGas: gasPrice + (gasPrice * PRIORITY_FEE_BUMP_PERCENT) / 100n,
+		}
+		if (rundlerPriorityFee === null) return fees
+
+		const latestBlock = await publicClient.getBlock({ blockTag: "latest" })
+		return applyRundlerPriorityFee(fees, {
+			rundlerPriorityFee,
+			baseFeePerGas: latestBlock.baseFeePerGas ?? gasPrice,
+			priorityFeeBumpPercent: PRIORITY_FEE_BUMP_PERCENT,
+			maxFeeBumpPercent: MAX_FEE_BUMP_PERCENT,
+		})
 	}
 
 	private async sendBundlerRpc<T>(bundlerUrl: string, method: string, params: unknown[]): Promise<T> {

@@ -41,7 +41,7 @@ function makeContext(params: {
 		intentsCoprocessor: { getBidsForOrder: params.getBidsForOrder },
 		dest: {
 			config: { stateMachineId: "EVM-8453" },
-			configService: { getEntryPointV08Address: () => ENTRY_POINT, getIntentGatewayAddress: () => GATEWAY },
+			configService: { getEntryPointAddress: () => ENTRY_POINT, getIntentGatewayAddress: () => GATEWAY },
 			client: {
 				chain: { id: 8453, blockTime: 1 },
 				getBlockNumber: vi.fn(params.getBlockNumber),

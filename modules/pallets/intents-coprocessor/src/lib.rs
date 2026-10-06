@@ -632,9 +632,9 @@ pub mod pallet {
 
 		/// Upgrade the SimplexPaymaster implementation behind its ERC-1967 proxy via
 		/// cross-chain governance. Authorized on the paymaster by `source == hyperbridge`.
-		/// `init_data` is delegatecalled on the new implementation in the same transaction;
-		/// `migrate(relayer)` there arms the paymaster's relayer gate atomically with the
-		/// upgrade on a proxy from before the gate.
+		/// `init_data` is delegatecalled on the new implementation in the same transaction with
+		/// the host as `msg.sender`, so a host-only `migrate()` there runs atomically with the
+		/// upgrade.
 		#[pallet::call_index(11)]
 		#[pallet::weight(T::WeightInfo::upgrade_paymaster())]
 		pub fn upgrade_paymaster(

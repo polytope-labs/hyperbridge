@@ -2,6 +2,7 @@
 pragma solidity ^0.8.24;
 
 import {ERC4337Utils, PackedUserOperation} from "@openzeppelin/contracts/account/utils/draft-ERC4337Utils.sol";
+import {IEntryPoint} from "@openzeppelin/contracts/interfaces/draft-IERC4337.sol";
 import {PaymasterERC20} from "@openzeppelin/community-contracts/contracts/account/paymaster/PaymasterERC20.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
@@ -51,9 +52,22 @@ interface ISignatureTransfer {
     ) external;
 }
 
+/// @notice The EntryPoint's `getDepositInfo` view, which OpenZeppelin's IEntryPointStake omits.
+interface IStakeManager {
+    struct DepositInfo {
+        uint256 deposit;
+        bool staked;
+        uint112 stake;
+        uint32 unstakeDelaySec;
+        uint48 withdrawTime;
+    }
+
+    function getDepositInfo(address account) external view returns (DepositInfo memory info);
+}
+
 /// @title  SimplexPaymaster
 /// @author Polytope Labs
-/// @notice Fully onchain, permissionless ERC-4337 v0.8 paymaster that accepts
+/// @notice Fully onchain, permissionless ERC-4337 v0.9 paymaster that accepts
 ///         ERC-20 stablecoins (USDC, USDT, or any token with a Chainlink feed)
 ///         for gas payment. Deployed behind an ERC1967Proxy and administered
 ///         exclusively through Hyperbridge governance.
@@ -98,12 +112,11 @@ interface ISignatureTransfer {
 ///      `_relayer` is set, any other submitter is refused before the body is
 ///      read, so a forged consensus proof alone cannot reach this contract.
 ///      The host records the refusal as undelivered and the authorised relayer
-///      can resubmit. While `_relayer` is unset (a proxy upgraded without
-///      {migrate}) every relayer passes, as on the gateway; governance can
-///      never set it to zero afterwards. The relayer must be a plain EOA, not
-///      an account that executes third-party calldata. Losing that key loses
-///      governance over the deposit, stake and surplus for good: there is no
-///      second key.
+///      can resubmit. While `_relayer` is unset every relayer passes, as on
+///      the gateway; governance can never set it to zero afterwards. The
+///      relayer must be a plain EOA, not an account that executes third-party
+///      calldata. Losing that key loses governance over the deposit, stake and
+///      surplus for good: there is no second key.
 ///
 ///      Permit2 signatures name this contract as spender and are single-use,
 ///      so no third party can consume or burn them; only the signed
@@ -197,6 +210,12 @@ contract SimplexPaymaster is Initializable, HyperApp, PaymasterERC20 {
     /// @dev mode(1) + token(20) + permitAmount(32) + nonce(32) + deadline(32) + signature(65)
     uint256 internal constant PERMIT2_DATA_LENGTH = 182;
 
+    /// @dev EntryPoint v0.9, the only one this paymaster serves.
+    IEntryPoint private constant ENTRYPOINT_V09 = IEntryPoint(0x433709009B8330FDa32311DF1C2AFA402eD8D009);
+
+    /// @dev EntryPoint v0.8, which {migrate} drains and {withdrawStakeV08} sweeps.
+    IEntryPoint private constant ENTRYPOINT_V08 = ERC4337Utils.ENTRYPOINT_V08;
+
     /// @notice The local Hyperbridge host; the only address allowed to deliver
     ///         governance requests.
     address private _hostAddr;
@@ -224,7 +243,7 @@ contract SimplexPaymaster is Initializable, HyperApp, PaymasterERC20 {
 
     /// @dev The `Initializable` version this implementation lands a proxy on, through `initialize`
     ///      or `migrate`. Bumped by the next implementation that needs a migration.
-    uint64 private constant VERSION = 2;
+    uint64 private constant VERSION = 3;
 
     event TokenRegistered(address indexed token, address indexed oracle);
     event TokenDeactivated(address indexed token);
@@ -234,6 +253,7 @@ contract SimplexPaymaster is Initializable, HyperApp, PaymasterERC20 {
     event FeesRecycled(address indexed token, uint256 amountIn, uint256 nativeOut, uint256 deposited);
     event RelayerUpdated(address previous, address current);
     event BundlerUpdated(address indexed bundler, bool allowed);
+    event EntryPointMigrated(uint256 withdrawn, uint256 staked, uint32 unstakeDelaySec, uint256 deposited);
 
     error TokenNotRegistered(address token);
     error TokenNotActive(address token);
@@ -255,6 +275,7 @@ contract SimplexPaymaster is Initializable, HyperApp, PaymasterERC20 {
     error LengthMismatch();
     error UnauthorizedRelayer();
     error UnauthorizedBundler(address origin);
+    error InsufficientStakeFunds(uint256 balance, uint256 stake);
 
     constructor() {
         _disableInitializers();
@@ -265,6 +286,12 @@ contract SimplexPaymaster is Initializable, HyperApp, PaymasterERC20 {
     ///      with their own host.
     modifier onlyFresh() {
         if (_getInitializedVersion() != 0) revert InvalidInitialization();
+        _;
+    }
+
+    /// @dev `migrate` only takes a proxy one version behind; an older one would skip a migration.
+    modifier onlyPreviousVersion() {
+        if (_getInitializedVersion() != VERSION - 1) revert InvalidInitialization();
         _;
     }
 
@@ -293,17 +320,44 @@ contract SimplexPaymaster is Initializable, HyperApp, PaymasterERC20 {
         _setRelayer(relayer_);
     }
 
-    /// @notice Migration for a proxy from before the relayer gate: arms it and lands at `VERSION`.
+    /// @notice Moves the deposit and stake from EntryPoint v0.8 to v0.9 and lands at `VERSION`.
     /// @dev Host-only, so reachable only as the init data of an `UpgradeContract` request, which
     ///      delegatecalls it with the host still `msg.sender`; one-shot through the reinitializer.
-    /// @param relayer_ The only relayer whose governance deliveries are accepted from now on
-    function migrate(address relayer_) external onlyHost reinitializer(VERSION) {
-        if (relayer_ == address(0)) revert ZeroAddress();
-        _setRelayer(relayer_);
+    ///      The v0.8 stake stays locked for its unstake delay, so the v0.9 stake is funded from the
+    ///      withdrawn deposit and any native held; reverts with {InsufficientStakeFunds} when that
+    ///      falls short, leaving the proxy at its version so governance can retry after a top-up.
+    ///      {withdrawStakeV08} later sweeps the unlocked v0.8 stake to the treasury.
+    function migrate() external onlyHost onlyPreviousVersion reinitializer(VERSION) {
+        IStakeManager.DepositInfo memory info = IStakeManager(address(ENTRYPOINT_V08)).getDepositInfo(address(this));
+        if (info.deposit > 0) ENTRYPOINT_V08.withdrawTo(payable(address(this)), info.deposit);
+        if (info.staked) ENTRYPOINT_V08.unlockStake();
+
+        if (info.stake > 0) {
+            if (address(this).balance < info.stake) revert InsufficientStakeFunds(address(this).balance, info.stake);
+            entryPoint().addStake{value: info.stake}(info.unstakeDelaySec);
+        }
+
+        uint256 deposited = address(this).balance;
+        if (deposited > 0) entryPoint().depositTo{value: deposited}(address(this));
+        emit EntryPointMigrated(info.deposit, info.stake, info.unstakeDelaySec, deposited);
     }
 
-    /// @notice The `Initializable` version: 1 on a proxy from before the relayer gate, `VERSION`
-    ///         once `initialize` or `migrate` has run.
+    /// @notice Sweeps the EntryPoint v0.8 stake that {migrate} unlocked to the treasury.
+    /// @dev Permissionless: the destination is the governance-set treasury, v0.8 enforces the
+    ///      unstake delay and pays out once, and neither ERC-20 prefunds nor the v0.9 deposit move.
+    function withdrawStakeV08() external {
+        ENTRYPOINT_V08.withdrawStake(payable(treasury));
+    }
+
+    /// @dev EntryPoint v0.9 in place of OpenZeppelin's v0.8. It gates validation and postOp, and
+    ///      receives every deposit, stake and withdrawal call; only {migrate} and
+    ///      {withdrawStakeV08} reach v0.8.
+    function entryPoint() public pure override returns (IEntryPoint) {
+        return ENTRYPOINT_V09;
+    }
+
+    /// @notice The `Initializable` version: 0 on a bare proxy, `VERSION` once `initialize` or
+    ///         `migrate` has run.
     function version() external view returns (uint64) {
         return _getInitializedVersion();
     }

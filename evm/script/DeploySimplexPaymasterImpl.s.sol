@@ -9,8 +9,8 @@ import {BaseScript} from "./BaseScript.sol";
 
 /// @notice Deploys a new SimplexPaymaster implementation only. The live ERC-1967 proxy keeps its
 /// address; Hyperbridge governance points it at this implementation through the
-/// intents-coprocessor pallet's `upgrade_paymaster`, with `migrate(relayer)` as the init data so
-/// the relayer gate is armed in the same transaction.
+/// intents-coprocessor pallet's `upgrade_paymaster`, with `migrate()` as the init data so the
+/// proxy's EntryPoint deposit and stake move to v0.9 in the same transaction.
 contract DeployScript is BaseScript {
     using strings for *;
 
@@ -20,6 +20,8 @@ contract DeployScript is BaseScript {
         vm.stopBroadcast();
 
         console.log("SimplexPaymaster implementation deployed at:", address(implementation));
+        console.log("upgrade_paymaster init_data:", vm.toString(abi.encodeCall(SimplexPaymaster.migrate, ())));
+        console.log("After the old stake's unstake delay, call withdrawStakeV08() to sweep it to the treasury.");
 
         config.set("SIMPLEX_PAYMASTER_IMPL", address(implementation));
     }

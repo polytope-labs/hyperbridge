@@ -4,6 +4,8 @@ pragma solidity ^0.8.24;
 import {Test} from "forge-std/Test.sol";
 import {Vm} from "forge-std/Vm.sol";
 import {ERC4337Utils, PackedUserOperation} from "@openzeppelin/contracts/account/utils/draft-ERC4337Utils.sol";
+import {IPaymaster} from "@openzeppelin/contracts/interfaces/draft-IERC4337.sol";
+import {PaymasterCore} from "@openzeppelin/community-contracts/contracts/account/paymaster/PaymasterCore.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {ERC20Permit} from "@openzeppelin/contracts/token/ERC20/extensions/ERC20Permit.sol";
@@ -13,7 +15,7 @@ import {Initializable} from "@openzeppelin/contracts/proxy/utils/Initializable.s
 import {HyperApp} from "@hyperbridge/core/apps/HyperApp.sol";
 import {IncomingPostRequest} from "@hyperbridge/core/interfaces/IApp.sol";
 
-import {SimplexPaymaster, AggregatorV3Interface} from "../../src/utils/SimplexPaymaster.sol";
+import {SimplexPaymaster, AggregatorV3Interface, IStakeManager} from "../../src/utils/SimplexPaymaster.sol";
 
 contract MockHost {
     bytes public hyperbridgeId;
@@ -106,30 +108,65 @@ contract MockV2Router {
     receive() external payable {}
 }
 
+/// @dev The EntryPoint's StakeManager, with v0.8's revert strings.
 contract MockEntryPoint {
-    mapping(address => uint256) public balanceOf;
-    mapping(address => uint256) public stakeOf;
-    mapping(address => bool) public unlocked;
+    mapping(address => IStakeManager.DepositInfo) private _deposits;
 
-    function depositTo(address account) external payable {
-        balanceOf[account] += msg.value;
+    function getDepositInfo(address account) external view returns (IStakeManager.DepositInfo memory) {
+        return _deposits[account];
     }
 
-    function addStake(uint32) external payable {
-        stakeOf[msg.sender] += msg.value;
-        unlocked[msg.sender] = false;
+    function balanceOf(address account) external view returns (uint256) {
+        return _deposits[account].deposit;
+    }
+
+    function stakeOf(address account) external view returns (uint256) {
+        return _deposits[account].stake;
+    }
+
+    function depositTo(address account) external payable {
+        _deposits[account].deposit += msg.value;
+    }
+
+    function withdrawTo(address payable to, uint256 amount) external {
+        IStakeManager.DepositInfo storage info = _deposits[msg.sender];
+        require(amount <= info.deposit, "Withdraw amount too large");
+        info.deposit -= amount;
+        (bool ok,) = to.call{value: amount}("");
+        require(ok, "failed to withdraw");
+    }
+
+    function addStake(uint32 unstakeDelaySec) external payable {
+        IStakeManager.DepositInfo storage info = _deposits[msg.sender];
+        require(unstakeDelaySec > 0, "must specify unstake delay");
+        require(unstakeDelaySec >= info.unstakeDelaySec, "cannot decrease unstake time");
+        uint256 stake = info.stake + msg.value;
+        require(stake > 0, "no stake specified");
+        info.staked = true;
+        info.stake = uint112(stake);
+        info.unstakeDelaySec = unstakeDelaySec;
+        info.withdrawTime = 0;
     }
 
     function unlockStake() external {
-        unlocked[msg.sender] = true;
+        IStakeManager.DepositInfo storage info = _deposits[msg.sender];
+        require(info.unstakeDelaySec != 0, "not staked");
+        require(info.staked, "already unstaking");
+        info.withdrawTime = uint48(block.timestamp) + info.unstakeDelaySec;
+        info.staked = false;
     }
 
     function withdrawStake(address payable to) external {
-        require(unlocked[msg.sender], "not unlocked");
-        uint256 amount = stakeOf[msg.sender];
-        stakeOf[msg.sender] = 0;
-        (bool ok,) = to.call{value: amount}("");
-        require(ok, "send failed");
+        IStakeManager.DepositInfo storage info = _deposits[msg.sender];
+        uint256 stake = info.stake;
+        require(stake > 0, "No stake to withdraw");
+        require(info.withdrawTime > 0, "must call unlockStake() first");
+        require(info.withdrawTime <= block.timestamp, "Stake withdrawal is not due");
+        info.unstakeDelaySec = 0;
+        info.withdrawTime = 0;
+        info.stake = 0;
+        (bool ok,) = to.call{value: stake}("");
+        require(ok, "failed to withdraw stake");
     }
 }
 
@@ -166,6 +203,9 @@ contract SimplexPaymasterTest is Test {
     // The origin rundler simulates validation from; governance lists it like any bundler wallet.
     address constant RUNDLER_SIMULATION_ORIGIN = 0x0643866dA50efE0b055Cd15aF95191968c8411b5;
     uint256 constant BUNDLERS_SLOT = 9;
+    address constant ENTRYPOINT_V09 = 0x433709009B8330FDa32311DF1C2AFA402eD8D009;
+    bytes8 constant PAYMASTER_SIG_MAGIC = 0x22e325a297439656;
+    uint32 constant UNSTAKE_DELAY = 1 days;
 
     event RelayerUpdated(address previous, address current);
     event PermitExecuted(address indexed token, address indexed owner, uint256 amount);
@@ -194,6 +234,7 @@ contract SimplexPaymasterTest is Test {
     MockToken usdc18; // 18-decimal USDC (BSC-style)
     MockV2Router router;
     MockEntryPoint entryPoint;
+    MockEntryPoint entryPointV08;
     SimplexPaymasterHarness paymaster;
 
     function setUp() public {
@@ -210,9 +251,12 @@ contract SimplexPaymasterTest is Test {
         vm.deal(address(router), 100 ether);
         hyperbridgeHost.setUniswapV2Router(address(router));
 
-        // The paymaster deposits to the canonical v0.8 EntryPoint address.
-        vm.etch(address(ERC4337Utils.ENTRYPOINT_V08), address(new MockEntryPoint()).code);
-        entryPoint = MockEntryPoint(address(ERC4337Utils.ENTRYPOINT_V08));
+        // The paymaster serves the canonical v0.9 EntryPoint and migrates its funds out of v0.8.
+        bytes memory entryPointCode = address(new MockEntryPoint()).code;
+        vm.etch(ENTRYPOINT_V09, entryPointCode);
+        vm.etch(address(ERC4337Utils.ENTRYPOINT_V08), entryPointCode);
+        entryPoint = MockEntryPoint(ENTRYPOINT_V09);
+        entryPointV08 = MockEntryPoint(address(ERC4337Utils.ENTRYPOINT_V08));
 
         paymaster = _deployPaymaster(0); // no markup for the base pricing assertions
     }
@@ -581,7 +625,7 @@ contract SimplexPaymasterTest is Test {
     // ── Relayer gate ─────────────────────────────────────────────────
 
     function testVersionTracksInitialization() public {
-        assertEq(paymaster.version(), 2);
+        assertEq(paymaster.version(), 3);
         assertEq(new SimplexPaymasterHarness().version(), type(uint64).max);
     }
 
@@ -632,7 +676,12 @@ contract SimplexPaymasterTest is Test {
         vm.prank(address(hyperbridgeHost));
         vm.expectRevert(SimplexPaymaster.UnauthorizedRelayer.selector);
         paymaster.onAccept(_request(HYPERBRIDGE_ID, SimplexPaymaster.RequestKind.UnlockStake, "", relayerA));
-        _govern(SimplexPaymaster.RequestKind.UnlockStake, "", relayerB);
+        _govern(
+            SimplexPaymaster.RequestKind.UpdateParams,
+            _paramsPayload(address(nativeOracle), 100, treasury, 86_400),
+            relayerB
+        );
+        assertEq(paymaster.markupBps(), 100);
     }
 
     /// Zero has no recovery value: whoever can deliver it could deliver a real key instead, and
@@ -679,103 +728,263 @@ contract SimplexPaymasterTest is Test {
         assertEq(_implementation(address(paymaster)), before);
     }
 
-    function testUpgradeWithMigrateArmsRelayerAtomically() public {
-        _setVersion(paymaster, 1);
-        _setMarkup(200);
-        address newImpl = address(new SimplexPaymasterHarness());
-
-        vm.expectEmit(true, true, true, true, address(paymaster));
-        emit RelayerUpdated(address(0), relayerA);
-        _govern(SimplexPaymaster.RequestKind.UpgradeContract, _upgradePayload(newImpl, _migrateCall(relayerA)));
-
-        assertEq(_implementation(address(paymaster)), newImpl);
-        assertEq(paymaster.version(), 2);
-        assertEq(paymaster.relayer(), relayerA);
-        assertEq(paymaster.markupBps(), 200);
-        assertEq(paymaster.getRegisteredTokens().length, 2);
-
-        vm.prank(address(hyperbridgeHost));
-        vm.expectRevert(SimplexPaymaster.UnauthorizedRelayer.selector);
-        paymaster.onAccept(_request(HYPERBRIDGE_ID, SimplexPaymaster.RequestKind.UnlockStake, "", relayerB));
-    }
-
-    function testMigrateRejectsEveryoneButHost() public {
-        _setVersion(paymaster, 1);
-        vm.expectRevert(HyperApp.UnauthorizedCall.selector);
-        paymaster.migrate(relayerA);
-        vm.prank(treasury);
-        vm.expectRevert(HyperApp.UnauthorizedCall.selector);
-        paymaster.migrate(relayerA);
-        assertEq(paymaster.relayer(), address(0));
-    }
-
-    function testMigrateRunsOnce() public {
-        _setVersion(paymaster, 1);
-        address newImpl = address(new SimplexPaymasterHarness());
-        _govern(SimplexPaymaster.RequestKind.UpgradeContract, _upgradePayload(newImpl, _migrateCall(relayerA)));
-
-        vm.prank(address(hyperbridgeHost));
-        vm.expectRevert(Initializable.InvalidInitialization.selector);
-        paymaster.onAccept(
-            _request(
-                HYPERBRIDGE_ID,
-                SimplexPaymaster.RequestKind.UpgradeContract,
-                _upgradePayload(newImpl, _migrateCall(relayerB)),
-                relayerA
-            )
-        );
-        assertEq(paymaster.relayer(), relayerA);
-    }
-
-    function testMigrateRejectsZero() public {
-        _setVersion(paymaster, 1);
-        address newImpl = address(new SimplexPaymasterHarness());
-        vm.prank(address(hyperbridgeHost));
-        vm.expectRevert(SimplexPaymaster.ZeroAddress.selector);
-        paymaster.onAccept(
-            _request(
-                HYPERBRIDGE_ID,
-                SimplexPaymaster.RequestKind.UpgradeContract,
-                _upgradePayload(newImpl, _migrateCall(address(0)))
-            )
-        );
-        assertEq(paymaster.version(), 1);
-    }
-
-    /// `reinitializer(2)` alone would let anyone re-run `initialize` with their own host on a
-    /// proxy an upgrade left at version 1; `onlyFresh` is what refuses it.
-    function testInitializeRefusedOnProxyAtVersionOne() public {
-        _setVersion(paymaster, 1);
+    /// `reinitializer(3)` alone would let anyone re-run `initialize` with their own host on a
+    /// proxy an upgrade left at version 2; `onlyFresh` is what refuses it.
+    function testInitializeRefusedOnProxyAtVersionTwo() public {
+        _setVersion(paymaster, 2);
         (SimplexPaymaster.Params memory params, address[] memory tokens, AggregatorV3Interface[] memory oracles) =
             _initArgs(0);
         vm.expectRevert(Initializable.InvalidInitialization.selector);
         paymaster.initialize(address(hyperbridgeHost), params, tokens, oracles, relayerA);
     }
 
-    function testUpgradeWithoutMigrateKeepsGateOpenAndStaysArmable() public {
-        _setVersion(paymaster, 1);
+    // ── EntryPoint migration ─────────────────────────────────────────
+
+    function testEntryPointIsV09AndV08IsRefused() public {
+        assertEq(address(paymaster.entryPoint()), ENTRYPOINT_V09);
+        _fund(1_000e6);
+        PackedUserOperation memory op = _permitOp(5e6, 40_000);
+        address v08 = address(entryPointV08);
+
+        vm.prank(v08);
+        vm.expectRevert(abi.encodeWithSelector(PaymasterCore.PaymasterUnauthorized.selector, v08));
+        paymaster.validatePaymasterUserOp(op, bytes32(0), 1e15);
+
+        vm.prank(v08);
+        vm.expectRevert(abi.encodeWithSelector(PaymasterCore.PaymasterUnauthorized.selector, v08));
+        paymaster.postOp(IPaymaster.PostOpMode.opSucceeded, "", 0, 0);
+
+        _validateFrom(bundlerA, op);
+    }
+
+    function testMigrateMovesDepositAndStake() public {
+        _seedV08(paymaster, 3 ether, 1 ether);
         address newImpl = address(new SimplexPaymasterHarness());
-        _govern(SimplexPaymaster.RequestKind.UpgradeContract, _upgradePayload(newImpl, ""), relayerB);
-        assertEq(paymaster.version(), 1);
-        assertEq(paymaster.relayer(), address(0));
 
-        // Still open, so either arming path works: a plain rotation request...
-        _govern(SimplexPaymaster.RequestKind.SetRelayer, abi.encode(relayerA), makeAddr("anyone"));
-        assertEq(paymaster.relayer(), relayerA);
-        assertEq(paymaster.version(), 1);
+        vm.expectEmit(true, true, true, true, address(paymaster));
+        emit SimplexPaymaster.EntryPointMigrated(3 ether, 1 ether, UNSTAKE_DELAY, 2 ether);
+        _govern(SimplexPaymaster.RequestKind.UpgradeContract, _upgradePayload(newImpl, _migrateCall()));
 
-        // ...or a second upgrade to the same implementation carrying `migrate`.
-        SimplexPaymasterHarness other = _deployPaymaster(0);
-        _setVersion(other, 1);
-        _governOn(other, SimplexPaymaster.RequestKind.UpgradeContract, _upgradePayload(newImpl, ""), relayerB);
-        _governOn(
-            other,
+        assertEq(_implementation(address(paymaster)), newImpl);
+        assertEq(paymaster.version(), 3);
+
+        IStakeManager.DepositInfo memory v08 = entryPointV08.getDepositInfo(address(paymaster));
+        assertEq(v08.deposit, 0);
+        assertFalse(v08.staked);
+        assertEq(v08.stake, 1 ether);
+        assertEq(v08.withdrawTime, block.timestamp + UNSTAKE_DELAY);
+
+        IStakeManager.DepositInfo memory v09 = entryPoint.getDepositInfo(address(paymaster));
+        assertEq(v09.deposit, 2 ether);
+        assertTrue(v09.staked);
+        assertEq(v09.stake, 1 ether);
+        assertEq(v09.unstakeDelaySec, UNSTAKE_DELAY);
+        assertEq(address(paymaster).balance, 0);
+    }
+
+    function testMigrateWithoutStakeDepositsEverything() public {
+        _seedV08(paymaster, 3 ether, 0);
+        vm.deal(address(paymaster), 0.5 ether);
+        address newImpl = address(new SimplexPaymasterHarness());
+
+        vm.expectCall(address(entryPointV08), abi.encodeCall(MockEntryPoint.unlockStake, ()), 0);
+        vm.expectCall(address(entryPoint), abi.encodeWithSelector(MockEntryPoint.addStake.selector), 0);
+        vm.expectEmit(true, true, true, true, address(paymaster));
+        emit SimplexPaymaster.EntryPointMigrated(3 ether, 0, 0, 3.5 ether);
+        _govern(SimplexPaymaster.RequestKind.UpgradeContract, _upgradePayload(newImpl, _migrateCall()));
+
+        assertEq(paymaster.version(), 3);
+        assertEq(entryPointV08.balanceOf(address(paymaster)), 0);
+        IStakeManager.DepositInfo memory v09 = entryPoint.getDepositInfo(address(paymaster));
+        assertEq(v09.deposit, 3.5 ether);
+        assertFalse(v09.staked);
+        assertEq(v09.stake, 0);
+        assertEq(address(paymaster).balance, 0);
+    }
+
+    function testMigrateCopiesStakeAlreadyUnlocking() public {
+        _seedV08(paymaster, 3 ether, 1 ether);
+        vm.prank(address(paymaster));
+        entryPointV08.unlockStake();
+        uint256 withdrawTime = block.timestamp + UNSTAKE_DELAY;
+        vm.warp(block.timestamp + 1 hours);
+
+        _govern(
             SimplexPaymaster.RequestKind.UpgradeContract,
-            _upgradePayload(newImpl, _migrateCall(relayerB)),
+            _upgradePayload(address(new SimplexPaymasterHarness()), _migrateCall())
+        );
+
+        assertEq(paymaster.version(), 3);
+        assertEq(entryPointV08.getDepositInfo(address(paymaster)).withdrawTime, withdrawTime);
+        IStakeManager.DepositInfo memory v09 = entryPoint.getDepositInfo(address(paymaster));
+        assertTrue(v09.staked);
+        assertEq(v09.stake, 1 ether);
+        assertEq(v09.unstakeDelaySec, UNSTAKE_DELAY);
+        assertEq(v09.deposit, 2 ether);
+    }
+
+    /// Short of native for the v0.9 stake, nothing moves and the proxy stays at version 2, so
+    /// governance can deliver the same upgrade again once the proxy is topped up.
+    function testMigrateRevertsWhenStakeExceedsFunds() public {
+        _seedV08(paymaster, 0.5 ether, 1 ether);
+        address before = _implementation(address(paymaster));
+        bytes memory payload = _upgradePayload(address(new SimplexPaymasterHarness()), _migrateCall());
+
+        vm.prank(address(hyperbridgeHost));
+        vm.expectRevert(abi.encodeWithSelector(SimplexPaymaster.InsufficientStakeFunds.selector, 0.5 ether, 1 ether));
+        paymaster.onAccept(_request(HYPERBRIDGE_ID, SimplexPaymaster.RequestKind.UpgradeContract, payload));
+
+        assertEq(paymaster.version(), 2);
+        assertEq(_implementation(address(paymaster)), before);
+        assertEq(entryPointV08.balanceOf(address(paymaster)), 0.5 ether);
+        assertTrue(entryPointV08.getDepositInfo(address(paymaster)).staked);
+
+        (bool sent,) = address(paymaster).call{value: 0.5 ether}("");
+        assertTrue(sent);
+        _govern(SimplexPaymaster.RequestKind.UpgradeContract, payload);
+        assertEq(paymaster.version(), 3);
+        assertEq(entryPoint.stakeOf(address(paymaster)), 1 ether);
+        assertEq(entryPoint.balanceOf(address(paymaster)), 0);
+    }
+
+    function testMigratePreservesState() public {
+        _setBundlers(_addresses(bundlerA), true);
+        _setMarkup(200);
+        _govern(SimplexPaymaster.RequestKind.SetRelayer, abi.encode(relayerA));
+        _seedV08(paymaster, 3 ether, 1 ether);
+
+        _govern(
+            SimplexPaymaster.RequestKind.UpgradeContract,
+            _upgradePayload(address(new SimplexPaymasterHarness()), _migrateCall()),
             relayerA
         );
-        assertEq(other.relayer(), relayerB);
-        assertEq(other.version(), 2);
+
+        assertEq(paymaster.version(), 3);
+        assertEq(paymaster.relayer(), relayerA);
+        assertEq(paymaster.treasury(), treasury);
+        assertEq(paymaster.markupBps(), 200);
+        assertEq(paymaster.getRegisteredTokens().length, 2);
+        assertEq(paymaster.getTokenPrice(address(usdc6)), (6e8 * 10_200) / 10_000);
+        assertEq(paymaster.getBundlers(), _addresses(bundlerA));
+    }
+
+    function testMigrateRejectsEveryoneButHost() public {
+        _seedV08(paymaster, 3 ether, 1 ether);
+        vm.expectRevert(HyperApp.UnauthorizedCall.selector);
+        paymaster.migrate();
+        vm.prank(treasury);
+        vm.expectRevert(HyperApp.UnauthorizedCall.selector);
+        paymaster.migrate();
+        assertEq(paymaster.version(), 2);
+        assertEq(entryPointV08.balanceOf(address(paymaster)), 3 ether);
+    }
+
+    function testMigrateRunsOnce() public {
+        _seedV08(paymaster, 3 ether, 1 ether);
+        address newImpl = address(new SimplexPaymasterHarness());
+        _govern(SimplexPaymaster.RequestKind.UpgradeContract, _upgradePayload(newImpl, _migrateCall()));
+
+        vm.prank(address(hyperbridgeHost));
+        vm.expectRevert(Initializable.InvalidInitialization.selector);
+        paymaster.onAccept(
+            _request(
+                HYPERBRIDGE_ID, SimplexPaymaster.RequestKind.UpgradeContract, _upgradePayload(newImpl, _migrateCall())
+            )
+        );
+        assertEq(paymaster.version(), 3);
+    }
+
+    /// Only a proxy one version behind migrates; an older one would skip a migration.
+    function testMigrateOnlyFromVersionTwo() public {
+        bytes memory payload = _upgradePayload(address(new SimplexPaymasterHarness()), _migrateCall());
+
+        _setVersion(paymaster, 1);
+        vm.prank(address(hyperbridgeHost));
+        vm.expectRevert(Initializable.InvalidInitialization.selector);
+        paymaster.onAccept(_request(HYPERBRIDGE_ID, SimplexPaymaster.RequestKind.UpgradeContract, payload));
+        assertEq(paymaster.version(), 1);
+
+        SimplexPaymasterHarness fresh = _deployPaymaster(0);
+        assertEq(fresh.version(), 3);
+        vm.prank(address(hyperbridgeHost));
+        vm.expectRevert(Initializable.InvalidInitialization.selector);
+        fresh.onAccept(_request(HYPERBRIDGE_ID, SimplexPaymaster.RequestKind.UpgradeContract, payload));
+    }
+
+    function testUpgradeWithoutMigrateStaysMigratable() public {
+        _seedV08(paymaster, 3 ether, 1 ether);
+        address newImpl = address(new SimplexPaymasterHarness());
+        _govern(SimplexPaymaster.RequestKind.UpgradeContract, _upgradePayload(newImpl, ""));
+        assertEq(paymaster.version(), 2);
+        assertEq(entryPointV08.balanceOf(address(paymaster)), 3 ether);
+
+        _govern(SimplexPaymaster.RequestKind.UpgradeContract, _upgradePayload(newImpl, _migrateCall()));
+        assertEq(paymaster.version(), 3);
+        assertEq(entryPointV08.balanceOf(address(paymaster)), 0);
+        assertEq(entryPoint.stakeOf(address(paymaster)), 1 ether);
+        assertEq(entryPoint.balanceOf(address(paymaster)), 2 ether);
+    }
+
+    function testWithdrawStakeV08RevertsBeforeDelay() public {
+        _seedV08(paymaster, 3 ether, 1 ether);
+        vm.expectRevert("must call unlockStake() first");
+        paymaster.withdrawStakeV08();
+
+        _govern(
+            SimplexPaymaster.RequestKind.UpgradeContract,
+            _upgradePayload(address(new SimplexPaymasterHarness()), _migrateCall())
+        );
+        vm.warp(block.timestamp + UNSTAKE_DELAY - 1);
+        vm.expectRevert("Stake withdrawal is not due");
+        paymaster.withdrawStakeV08();
+        assertEq(treasury.balance, 0);
+    }
+
+    function testWithdrawStakeV08PaysTreasuryAfterDelay() public {
+        _seedV08(paymaster, 3 ether, 1 ether);
+        _govern(
+            SimplexPaymaster.RequestKind.UpgradeContract,
+            _upgradePayload(address(new SimplexPaymasterHarness()), _migrateCall())
+        );
+        vm.warp(block.timestamp + UNSTAKE_DELAY);
+
+        vm.prank(makeAddr("anyone"));
+        paymaster.withdrawStakeV08();
+        assertEq(treasury.balance, 1 ether);
+        assertEq(entryPointV08.stakeOf(address(paymaster)), 0);
+        assertEq(entryPoint.stakeOf(address(paymaster)), 1 ether);
+        assertEq(entryPoint.balanceOf(address(paymaster)), 2 ether);
+
+        vm.expectRevert("No stake to withdraw");
+        paymaster.withdrawStakeV08();
+    }
+
+    /// EntryPoint v0.9 may append `paymasterSignature || uint16(len) || magic` to paymasterAndData;
+    /// the exact-length permit layouts refuse it rather than reading past their fields.
+    function testPermitDataWithPaymasterSignatureRejected() public {
+        _fund(1_000e6);
+        PackedUserOperation memory op = _permitOp(5e6, 40_000);
+        bytes memory paymasterAndData = op.paymasterAndData;
+        op.paymasterAndData = _withPaymasterSignature(paymasterAndData);
+
+        vm.prank(address(entryPoint));
+        vm.expectRevert(abi.encodeWithSelector(SimplexPaymaster.InvalidPaymasterData.selector, uint256(225)));
+        paymaster.validatePaymasterUserOp(op, bytes32(0), 1e15);
+        assertEq(usdc6.nonces(sender), 0);
+
+        op.paymasterAndData = paymasterAndData;
+        _validateFrom(bundlerA, op);
+    }
+
+    function testPermit2DataWithPaymasterSignatureRejected() public {
+        PackedUserOperation memory op =
+            _userOpWithPaymasterData(_permit2Data(address(usdc6), 5e6, 7, block.timestamp + 1 hours));
+        paymaster.fetchDetails(op);
+
+        op.paymasterAndData = _withPaymasterSignature(op.paymasterAndData);
+        vm.prank(address(entryPoint));
+        vm.expectRevert(abi.encodeWithSelector(SimplexPaymaster.InvalidPaymasterData.selector, uint256(257)));
+        paymaster.validatePaymasterUserOp(op, bytes32(0), 1e15);
     }
 
     // ── Bundler allowlist ────────────────────────────────────────────
@@ -1035,10 +1244,12 @@ contract SimplexPaymasterTest is Test {
         vm.prank(treasury);
         paymaster.addStake{value: 0.1 ether}(86_400);
         assertEq(entryPoint.stakeOf(address(paymaster)), 0.1 ether);
+        assertEq(entryPointV08.stakeOf(address(paymaster)), 0);
 
         _govern(SimplexPaymaster.RequestKind.UnlockStake, "");
-        assertTrue(entryPoint.unlocked(address(paymaster)));
+        assertFalse(entryPoint.getDepositInfo(address(paymaster)).staked);
 
+        vm.warp(block.timestamp + 86_400);
         _govern(SimplexPaymaster.RequestKind.WithdrawStake, "");
         assertEq(entryPoint.stakeOf(address(paymaster)), 0);
         assertEq(treasury.balance, 1 ether);
@@ -1244,11 +1455,30 @@ contract SimplexPaymasterTest is Test {
         return abi.encode(newImpl, initData);
     }
 
-    function _migrateCall(address relayer_) internal pure returns (bytes memory) {
-        return abi.encodeCall(SimplexPaymaster.migrate, (relayer_));
+    function _migrateCall() internal pure returns (bytes memory) {
+        return abi.encodeCall(SimplexPaymaster.migrate, ());
     }
 
-    /// @dev Rewinds the `Initializable` version to look like a proxy deployed before the gate.
+    /// @dev Puts `target` at version 2 with a v0.8 deposit and, when `stake` is non-zero, a v0.8
+    ///      stake locked for `UNSTAKE_DELAY`, as live proxies hold them.
+    function _seedV08(SimplexPaymasterHarness target, uint256 deposit, uint256 stake) internal {
+        _setVersion(target, 2);
+        vm.deal(address(this), address(this).balance + deposit);
+        entryPointV08.depositTo{value: deposit}(address(target));
+        if (stake > 0) {
+            vm.deal(address(target), address(target).balance + stake);
+            vm.prank(address(target));
+            entryPointV08.addStake{value: stake}(UNSTAKE_DELAY);
+        }
+    }
+
+    /// @dev Appends a 65-byte v0.9 `paymasterSignature` suffix to `paymasterAndData`.
+    function _withPaymasterSignature(bytes memory paymasterAndData) internal pure returns (bytes memory) {
+        bytes memory signature = new bytes(65);
+        return abi.encodePacked(paymasterAndData, signature, uint16(signature.length), PAYMASTER_SIG_MAGIC);
+    }
+
+    /// @dev Rewinds the `Initializable` version to look like a proxy deployed by an earlier implementation.
     function _setVersion(SimplexPaymasterHarness target, uint64 version_) internal {
         vm.store(address(target), INITIALIZABLE_SLOT, bytes32(uint256(version_)));
         assertEq(target.version(), version_);

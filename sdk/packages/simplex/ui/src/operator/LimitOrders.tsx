@@ -127,6 +127,16 @@ export function LimitOrders({ chains, chainLabels, balances }: LimitOrdersProps)
 		setTab(next)
 		setPage(1)
 	}
+	// The list follows a new order to where it landed, or posting from another list would close
+	// the form on nothing. That is Live, unless the orderbook refused it: a refusal is kept under
+	// Cancelled, and is shown ahead of the orders posted alongside it. The newest order leads.
+	const showCreated = (created: LimitOrder[]) => {
+		const order = created.find((entry) => tabOf(entry) !== "live") ?? created[0]
+		if (!order) return
+		setSide(order.side)
+		setTab(tabOf(order))
+		setPage(1)
+	}
 
 	return (
 		<>
@@ -192,7 +202,10 @@ export function LimitOrders({ chains, chainLabels, balances }: LimitOrdersProps)
 					chainLabel={chainLabel}
 					balances={balances}
 					create={create}
-					onCreated={() => setCreating(false)}
+					onCreated={(created) => {
+						setCreating(false)
+						showCreated(created)
+					}}
 					onCancel={() => setCreating(false)}
 				/>
 			</OperatorSheet>
@@ -224,7 +237,8 @@ const EXPLORER_BY_CHAIN = new Map(INIT_CHAINS.map((meta) => [meta.stateMachineId
 
 /**
  * What a row says under its progress: what is left and where it fills while the order is live,
- * and how it ended once it is not. A status with something to explain says that instead.
+ * and how it ended and when once it is not. A status with something to explain says that too. The
+ * date leads a line that carries an explanation, since the row cuts a long one short.
  */
 function describeRow(order: LimitOrder, chainLabel: (id: string) => string): string {
 	const status = statusOf(order)
@@ -238,8 +252,10 @@ function describeRow(order: LimitOrder, chainLabel: (id: string) => string): str
 		parts.push(status.detail ?? `takes ${input} on ${chain}`)
 		return parts.join(" · ")
 	}
-	if (order.status === "filled") return status.detail ?? `closed ${when} · took ${input} on ${chain}`
-	if (order.status === "rejected") return status.detail ?? "refused by the orderbook"
+	if (order.status === "filled") {
+		return status.detail ? `${when} · ${status.detail}` : `closed ${when} · took ${input} on ${chain}`
+	}
+	if (order.status === "rejected") return `refused ${when} · ${status.detail ?? "the orderbook gave no reason"}`
 	return `${fromScaled(order.remaining)} ${output} unfilled · ${status.label.toLowerCase()} ${when}`
 }
 
@@ -255,6 +271,8 @@ function LimitOrderRow(props: { order: LimitOrder; chainLabel: (id: string) => s
 	const progress = progressOf(order)
 	const { input, output } = legs(order)
 	const bar = { "--consumed": `${progress.consumed}%`, "--held": `${progress.held}%` } as CSSProperties
+	// A problem reported against a live order is what its second line then says.
+	const problem = status.tone === "warn" && order.lastError !== null && status.detail === order.lastError
 
 	return (
 		<button
@@ -275,10 +293,8 @@ function LimitOrderRow(props: { order: LimitOrder; chainLabel: (id: string) => s
 					<strong>{describeProgress(order)}</strong>
 					{badge ? <span className={`badge ${badge.tone}`}>{badge.label}</span> : null}
 				</span>
-				{/* Unbadged, an order on the book with a refused posting has only this line to say so. */}
-				<small data-tone={!badge && status.tone === "warn" ? "warn" : undefined}>
-					{describeRow(order, chainLabel)}
-				</small>
+				{/* Unbadged, an order on the book with a problem has only this line to say so. */}
+				<small data-tone={problem ? "warn" : undefined}>{describeRow(order, chainLabel)}</small>
 			</span>
 			<span className="limit-order-item-cap">
 				<small>Cap</small>

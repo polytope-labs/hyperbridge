@@ -86,6 +86,13 @@ describe("what the operator sees at a glance", () => {
 		expect(refused.detail).toContain("TTL_TOO_SHORT")
 	})
 
+	it("does not call an order posted while it has no commitment, whatever the last posting said", () => {
+		// A posting the orderbook could not decide leaves the order open with the reason on it, to
+		// be posted again. Nothing is on the book until one goes through.
+		const failed = statusOf(order({ commitment: null, lastError: "REQUEST_FAILED: fetch failed" }))
+		expect(failed).toEqual({ label: "Posting", tone: "warn", detail: "REQUEST_FAILED: fetch failed" })
+	})
+
 	it("names the terminal states plainly", () => {
 		expect(statusOf(order({ status: "expired" })).label).toBe("Expired")
 		expect(statusOf(order({ status: "cancelled" })).label).toBe("Cancelled")
@@ -169,6 +176,10 @@ describe("a row as a bar of its cap", () => {
 		expect(rowBadge(order())).toBeNull()
 		expect(rowBadge(order({ lastError: "TTL_TOO_SHORT: minimum is 900" }))).toBeNull()
 		expect(rowBadge(order({ commitment: null }))).toEqual({ label: "Posting", tone: "warn" })
+		expect(rowBadge(order({ commitment: null, lastError: "REQUEST_FAILED: fetch failed" }))).toEqual({
+			label: "Posting",
+			tone: "warn",
+		})
 		expect(rowBadge(order({ status: "resizing" }))).toEqual({ label: "Resizing", tone: "warn" })
 		expect(rowBadge(order({ status: "filled", remaining: "0" }))).toEqual({ label: "Filled", tone: "ok" })
 		expect(rowBadge(order({ status: "rejected", lastError: "UNSUPPORTED_PAIR: no such book" }))).toEqual({

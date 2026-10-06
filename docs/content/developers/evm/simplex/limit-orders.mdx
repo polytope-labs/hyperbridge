@@ -121,7 +121,7 @@ Click **Post limit order**. Simplex checks the order before storing it:
 
 If any check fails, the form shows why and nothing is posted. If you are posting to several chains and one fails partway through, the form tells you which chains succeeded and deselects them, so that retrying does not post them again.
 
-The new order appears straight away under **Live**, on the **Buys** or **Sells** tab for its side. It carries a **Posting** badge until the orderbook accepts it. A live order with no badge is on the book.
+When the form closes, the list switches to the new order: the **Buys** or **Sells** tab for its side, under **Live**, from the first page. It carries a **Posting** badge until the orderbook accepts it. A live order with no badge is on the book. If the orderbook refuses the order outright, the list switches to **Cancelled** instead, where the order is kept with a **Refused** badge and the reason.
 
 <figure style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
 
@@ -150,14 +150,14 @@ A live order with no badge is posted and live on the orderbook. A badge marks an
 
 | Badge | Meaning |
 |---|---|
-| **Posting** (amber) | Stored, but the orderbook has not accepted it yet. |
+| **Posting** (amber) | Stored, but not on the orderbook yet. If the last attempt to post it failed, the row shows the reason in amber and Simplex posts it again. |
 | **Resizing** (amber) | A fill is being settled and the order is being reposted at its new size. |
 | **Filled** | Everything has been paid out. If an order is closed with a small amount left, that amount was below the orderbook's dust floor. |
 | **Cancelled** | You cancelled it. |
 | **Expired** | Its TTL ran out. |
 | **Refused** | The orderbook rejected the posting. The reason is shown on the order. |
 
-A live order whose second line is amber is still open, but the last posting or check reported a problem, and the line shows the reason. Simplex retries on its next cycle. A line that reads `UNDER_FUNDED` means your balance no longer covers the order, so the orderbook is advertising less than the order's size. Top up the fill chain or cancel the order. Reposting it would only get it cut down again.
+A live order with no badge whose second line is amber is on the book, but its last repost or check reported a problem, and the line shows the reason. Simplex retries on its next cycle. A line that reads `UNDER_FUNDED` means your balance no longer covers the order, so the orderbook is advertising less than the order's size. Top up the fill chain or cancel the order. Reposting it would only get it cut down again.
 
 ### Opening an order
 

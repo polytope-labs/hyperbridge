@@ -115,7 +115,7 @@ const ON_THE_BOOK = "On the book"
 /**
  * What the operator needs to know at a glance, which is not quite the status
  * column: an order can be `open` and still not be on the book, either because
- * its posting is in flight or because the last one was refused.
+ * its posting is in flight or because the last one failed and is waiting to be made again.
  */
 export function statusOf(order: LimitOrder): { label: string; tone: Tone; detail?: string } {
 	if (order.status === "cancelled") return { label: "Cancelled", tone: "" }
@@ -137,15 +137,17 @@ export function statusOf(order: LimitOrder): { label: string; tone: Tone; detail
 		return { label: "Refused", tone: "err", detail: order.lastError ?? undefined }
 	}
 	if (order.status === "resizing") return { label: "Resizing", tone: "warn", detail: "a fill is being settled" }
+	// Without a commitment nothing is on the book, whatever else the row says. A posting the
+	// orderbook could not decide leaves the order open with the reason on it, to be posted again.
+	if (!order.commitment) return { label: "Posting", tone: "warn", detail: order.lastError ?? "not on the book yet" }
 	if (order.lastError) return { label: ON_THE_BOOK, tone: "warn", detail: order.lastError }
-	if (!order.commitment) return { label: "Posting", tone: "warn", detail: "not on the book yet" }
 	return { label: ON_THE_BOOK, tone: "ok" }
 }
 
 /**
  * The badge a row in the list carries, or none. Being in the live list already says an order is
  * on the book, so a row is badged only for a status the operator has to read. An order on the
- * book whose last posting was refused goes unbadged too, and its row shows the refusal instead.
+ * book with a problem reported against it goes unbadged too, and its row shows the reason instead.
  */
 export function rowBadge(order: LimitOrder): { label: string; tone: Tone } | null {
 	const { label, tone } = statusOf(order)

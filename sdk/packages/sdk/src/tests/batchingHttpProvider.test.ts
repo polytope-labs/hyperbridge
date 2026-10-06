@@ -262,7 +262,8 @@ describe("BatchingHttpProvider", () => {
 		expect(good).toMatchObject({ status: "fulfilled", value: "result-good-2" })
 	})
 
-	// The poll recognises a rate limit by this message shape, so it has to survive the rewrite.
+	// The same `[status]: reason` text the base HttpProvider throws, so a caller that reads the status
+	// out of the message needs no special case for this provider.
 	it("keeps the base provider's message shape for a non-200 response", async () => {
 		const url = await start({ status: { code: 429, message: "Too Many Requests" } })
 		provider = new BatchingHttpProvider(url, {}, openBucket())

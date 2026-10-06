@@ -13,6 +13,7 @@ vi.mock("@/protocols/intents/utils", async (importOriginal) => ({
 
 const COMMITMENT = `0x${"66".repeat(32)}` as HexString
 const GATEWAY = "0x9876543210987654321098765432109876543210" as HexString
+const SOURCE_GATEWAY = "0x0123456789012345678901234567890123456789" as HexString
 const USER = "0xea4f68301acec0dc9bbe10f15730c59fb79d237e" as HexString
 const USER_BYTES32 = `0x${"00".repeat(12)}${USER.slice(2)}` as HexString
 const TOKEN_A = `0x${"00".repeat(12)}${"aa".repeat(20)}` as HexString
@@ -34,12 +35,12 @@ const order: Order = {
 	predispatch: { assets: [], call: "0x" },
 	inputs: [
 		{ token: TOKEN_A, amount: 1000n },
-		{ token: TOKEN_B, amount: 500n },
+		{ token: TOKEN_A, amount: 500n },
 	],
 	output: {
 		beneficiary: USER_BYTES32,
 		assets: [
-			{ token: TOKEN_A, amount: 990n },
+			{ token: TOKEN_B, amount: 990n },
 			{ token: TOKEN_B, amount: 495n },
 		],
 		call: "0x",
@@ -61,20 +62,23 @@ describe("cross-chain cancellation proof", () => {
 
 	it("quotes the GET the source gateway dispatches: one key per leg and its context", async () => {
 		const quoteNative = vi.fn(async (_request: IGetRequest, _fee: bigint) => 10_000n)
+		const getIntentGatewayAddress = (chain: string) => (chain === "EVM-1" ? SOURCE_GATEWAY : GATEWAY)
 		const ctx = {
 			source: {
-				configService: { getIntentGatewayAddress: () => GATEWAY },
+				configService: { getIntentGatewayAddress },
 				getHostNonce: async () => 1n,
 				quoteNative,
 			},
-			dest: { configService: { getIntentGatewayAddress: () => GATEWAY } },
+			dest: { configService: { getIntentGatewayAddress } },
 		}
 
-		await new OrderCanceller(ctx as never).quoteCancelOrder(order)
+		const quote = await new OrderCanceller(ctx as never).quoteCancelOrder(order)
 
+		expect(quote).toEqual({ nativeValue: 10_100n, relayerFee: 1_005n })
+		expect(intentUtils.convertGasToFeeToken).toHaveBeenCalledWith(ctx, 1_000_000n, "source", "EVM-1")
 		const request = quoteNative.mock.calls[0][0]
+		expect(request.from).toBe(SOURCE_GATEWAY)
 		expect(request.keys).toEqual([concatHex([GATEWAY, SLOT_0]), concatHex([GATEWAY, SLOT_1])])
-		expect(request.height).toBe(order.deadline + 1n)
 		const [commitment, user, inputs, totalRequired] = decodeAbiParameters(
 			[
 				{ type: "bytes32" },
@@ -138,7 +142,7 @@ describe("OrderStatusChecker", () => {
 	it("reports credited output per leg for a partially filled order", async () => {
 		const { status } = checker(`0x${"00".repeat(20)}`, [400n, 0n])
 		expect(await status.getFillProgress(order)).toEqual([
-			{ token: TOKEN_A, amount: 400n },
+			{ token: TOKEN_B, amount: 400n },
 			{ token: TOKEN_B, amount: 0n },
 		])
 		expect(await status.isOrderFilled(order)).toBe(false)

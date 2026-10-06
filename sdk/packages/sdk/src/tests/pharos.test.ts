@@ -12,6 +12,7 @@ import { bytesToHex, hexToBytes, pad } from "viem"
 import type { HexString } from "@/types"
 import { PharosChain, type PharosChainParams } from "@/chains/pharos"
 import { PharosStateProof } from "@/utils/pharos"
+import { pharosAtlantic } from "@/configs/chain"
 
 /** Lexicographic comparison of two byte arrays for finding entries by key. */
 function compareBytes(a: number[], b: number[]): number {
@@ -22,7 +23,7 @@ function compareBytes(a: number[], b: number[]): number {
 	return a.length - b.length
 }
 
-const PHAROS_RPC_URL = process.env.PHAROS_ATLANTIC_RPC!
+const PHAROS_RPC_URL = process.env.PHAROS_ATLANTIC_RPC || pharosAtlantic.rpcUrls.default.http[0]
 
 /**
  * Staking contract address on Pharos Atlantic (testnet).
@@ -64,7 +65,7 @@ function addressSlotKey(address: HexString, slot: HexString): HexString {
 	return bytesToHex(combined) as HexString
 }
 
-describe.skip("Pharos proof fetching", () => {
+describe("Pharos proof fetching", () => {
 	let chain: PharosChain
 	let targetBlock: bigint
 
@@ -102,9 +103,7 @@ describe.skip("Pharos proof fetching", () => {
 		console.log(`Storage proof entries: ${storageProofEntries.length}`)
 
 		// Find the entry for our slot
-		const entry = storageProofEntries.find(
-			([k]) => compareBytes(k, slotKeyArr) === 0,
-		)
+		const entry = storageProofEntries.find(([k]) => compareBytes(k, slotKeyArr) === 0)
 		expect(entry).toBeDefined()
 		const [, proofNodes] = entry!
 
@@ -118,9 +117,7 @@ describe.skip("Pharos proof fetching", () => {
 		}
 
 		// Should also have a storage value entry
-		const valueEntry = decoded.storageValues.find(
-			([k]) => compareBytes(k, slotKeyArr) === 0,
-		)
+		const valueEntry = decoded.storageValues.find(([k]) => compareBytes(k, slotKeyArr) === 0)
 		expect(valueEntry).toBeDefined()
 		const [, valueBytes] = valueEntry!
 
@@ -146,24 +143,16 @@ describe.skip("Pharos proof fetching", () => {
 		const epochKeyArr = Array.from(hexToBytes(EPOCH_LENGTH_SLOT))
 
 		// Both slots should have storage proof entries
-		const stakeEntry = decoded.storageProof.find(
-			([k]) => compareBytes(k, stakeKeyArr) === 0,
-		)
-		const epochEntry = decoded.storageProof.find(
-			([k]) => compareBytes(k, epochKeyArr) === 0,
-		)
+		const stakeEntry = decoded.storageProof.find(([k]) => compareBytes(k, stakeKeyArr) === 0)
+		const epochEntry = decoded.storageProof.find(([k]) => compareBytes(k, epochKeyArr) === 0)
 		expect(stakeEntry).toBeDefined()
 		expect(epochEntry).toBeDefined()
 		console.log(`totalStake proof nodes: ${stakeEntry![1].length}`)
 		console.log(`epochLength proof nodes: ${epochEntry![1].length}`)
 
 		// Both should have corresponding values
-		const stakeValue = decoded.storageValues.find(
-			([k]) => compareBytes(k, stakeKeyArr) === 0,
-		)
-		const epochValue = decoded.storageValues.find(
-			([k]) => compareBytes(k, epochKeyArr) === 0,
-		)
+		const stakeValue = decoded.storageValues.find(([k]) => compareBytes(k, stakeKeyArr) === 0)
+		const epochValue = decoded.storageValues.find(([k]) => compareBytes(k, epochKeyArr) === 0)
 		expect(stakeValue).toBeDefined()
 		expect(epochValue).toBeDefined()
 
@@ -186,14 +175,10 @@ describe.skip("Pharos proof fetching", () => {
 		const fakeSlotKeyArr = Array.from(hexToBytes(FAKE_SLOT))
 
 		// The slot should NOT appear in storageProof (it doesn't exist)
-		const existenceEntry = decoded.storageProof.find(
-			([k]) => compareBytes(k, fakeSlotKeyArr) === 0,
-		)
+		const existenceEntry = decoded.storageProof.find(([k]) => compareBytes(k, fakeSlotKeyArr) === 0)
 
 		// It should appear in nonExistenceProofs instead
-		const nonExistenceEntry = decoded.nonExistenceProofs.find(
-			([k]) => compareBytes(k, fakeSlotKeyArr) === 0,
-		)
+		const nonExistenceEntry = decoded.nonExistenceProofs.find(([k]) => compareBytes(k, fakeSlotKeyArr) === 0)
 
 		// At least one of these conditions must hold
 		if (nonExistenceEntry) {
@@ -219,9 +204,7 @@ describe.skip("Pharos proof fetching", () => {
 		const addrKeyArr = Array.from(hexToBytes(STAKING_CONTRACT_ADDRESS))
 
 		// Should have an account proof entry
-		const accountEntry = decoded.accountProofs.find(
-			([k]) => compareBytes(k, addrKeyArr) === 0,
-		)
+		const accountEntry = decoded.accountProofs.find(([k]) => compareBytes(k, addrKeyArr) === 0)
 		expect(accountEntry).toBeDefined()
 
 		const [, accountData] = accountEntry!

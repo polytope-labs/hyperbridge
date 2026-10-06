@@ -412,6 +412,8 @@ Same-chain cancellation has no Hyperbridge dispatch, so both values are `0n`. Cr
 
 The generator automatically quotes the native route and exposes it as `value`. Use `quoteCancelOrder()` before starting when you want to display either amount to the user, prepare a fee-token approval, or decide whether a sponsored cancellation is economical.
 
+When the chain that receives the cancel transaction is a testnet, `quoteCancelOrder()` returns `nativeValue: 0n` and the generator yields `value: 0n`, because testnet hosts have no router to swap native value into the fee token. Use the fee-token rail there: approve `relayerFee` of that host's fee token to that chain's gateway before submitting the cancellation.
+
 ```typescript lineNumbers title="quote-cancel.ts" icon="typescript"
 // GET request fee for source-side cancellation (available only after expiry).
 const sourceQuote = await intentGateway.quoteCancelOrder(order)

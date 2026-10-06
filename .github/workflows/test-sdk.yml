@@ -1,9 +1,5 @@
 name: "@hyperbridge/sdk"
 
-concurrency:
-    group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
-    cancel-in-progress: ${{ github.event_name == 'pull_request' }}
-
 on:
     push:
         branches: [main]
@@ -25,6 +21,9 @@ on:
 jobs:
     test:
         runs-on: ubuntu-latest
+        concurrency:
+            group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+            cancel-in-progress: ${{ github.event_name == 'pull_request' }}
         defaults:
             run:
                 working-directory: sdk
@@ -55,7 +54,6 @@ jobs:
                   HYPERBRIDGE_GARGANTUA=${{ secrets.HYPERBRIDGE_GARGANTUA }}
                   PASEO_RPC_URL=${{ secrets.PASEO_RPC_URL }}
                   BIFROST_PASEO=${{ secrets.BIFROST_PASEO }}
-                  INDEXER_URL=${{ secrets.INDEXER_URL }}
                   PRIVATE_KEY=${{ secrets.PRIVATE_KEY }}
                   SECRET_PHRASE=${{ secrets.SECRET_PHRASE }}
                   ETH_MAINNET=${{ secrets.ETH_MAINNET }}
@@ -66,8 +64,8 @@ jobs:
                   BASE_SEPOLIA=${{ secrets.BASE_SEPOLIA }}
                   POLYGON_AMOY=${{ secrets.POLYGON_AMOY }}
                   SEPOLIA=${{ secrets.SEPOLIA }}
+                  PHAROS_ATLANTIC_RPC=${{ secrets.PHAROS_ATLANTIC_RPC }}
                   BUNDLER_URL=${{ secrets.BUNDLER_URL }}
-                  TOKEN_GATEWAY_ADDRESS: "0xFcDa26cA021d5535C3059547390E6cCd8De7acA6"
                   TURNKEY_ORG_ID=${{ secrets.TURNKEY_ORG_ID }}
                   TURNKEY_API_PUBLIC_KEY=${{ secrets.TURNKEY_API_PUBLIC_KEY }}
                   TURNKEY_API_PRIVATE_KEY=${{ secrets.TURNKEY_API_PRIVATE_KEY }}
@@ -79,53 +77,8 @@ jobs:
               env:
                   ENV: local
 
-            - name: Install Docker Compose
-              run: |
-                  sudo apt-get update
-                  sudo apt-get install -y docker-compose
-                  docker compose version
-
-            - name: Login to Docker Hub
-              uses: docker/login-action@v3
-              with:
-                  username: ${{ secrets.DOCKER_USERNAME }}
-                  password: ${{ secrets.DOCKER_ACCESS_TOKEN }}
-
-            - name: Start local indexer (in background)
-              env:
-                  DB_USER: "postgres"
-                  DB_PASS: "postgres"
-                  DB_DATABASE: "postgres"
-                  DB_HOST: "postgres"
-                  DB_PORT: 5432
-                  DB_PATH: "./.indexer"
-                  LOG_LEVEL: ${{ secrets.ACTIONS_RUNNER_DEBUG == 'true' && 'debug' || 'info' }}
-              run: |
-                  cd packages/indexer
-                  nohup pnpm start:local > indexer_output.log 2>&1 &
-                  echo "Started indexer process in background"
-
-            - name: Wait for GraphQL server to be available
-              run: |
-                  echo "Waiting for GraphQL server to be available on port 3100..."
-                  timeout=300
-                  elapsed=0
-                  interval=5
-                  while ! nc -z localhost 3100; do
-                    if [ "$elapsed" -ge "$timeout" ]; then
-                      echo "Timed out waiting for GraphQL server on port 3100"
-                      cat packages/indexer/indexer_output.log
-                      exit 1
-                    fi
-                    echo "Waiting for GraphQL server (elapsed: ${elapsed}s)..."
-                    sleep $interval
-                    elapsed=$((elapsed + interval))
-                  done
-                  echo "GraphQL server is available!"
-                  sleep 10
-
-            - name: Run SDK test - hyper-fungible-token
-              run: pnpm --filter="@hyperbridge/sdk" test:hyper-fungible-token
+            - name: Type-check SDK
+              run: pnpm --filter="@hyperbridge/sdk" typecheck
 
             - name: Run SDK test - intents-coprocessor
               run: pnpm --filter="@hyperbridge/sdk" test:intents-coprocessor
@@ -136,7 +89,7 @@ jobs:
 
             # Operators' existing bids.db/activity.db files, opened and migrated for real
             # against committed fixtures. Needs no network or secrets and runs in seconds;
-            # test:filler names four specific files and would never reach it.
+            # test:filler names specific files and would never reach it.
             - name: Run simplex data-store tests
               run: pnpm --filter="@hyperbridge/simplex" test:data
 
@@ -150,17 +103,193 @@ jobs:
             - name: Run SDK test - concurrent (non-sequential tests)
               run: pnpm --filter="@hyperbridge/sdk" test:concurrent
 
-            - name: Run SDK test - intent-gateway
-              run: pnpm --filter="@hyperbridge/sdk" test:intent-gateway
+    # Every run spends testnet funds from the shared PRIVATE_KEY wallet, so live jobs from all
+    # branches share one group: they never overlap and a started job is never cancelled. GitHub
+    # keeps only one pending job per group, so a newer run replaces a pending one, which shows as
+    # cancelled.
+    live:
+        needs: test
+        if: >-
+            github.event_name != 'pull_request' ||
+            (github.event.pull_request.head.repo.full_name == github.repository && !github.event.pull_request.draft)
+        runs-on: ubuntu-latest
+        # Indexer setup and readiness take up to 45 minutes; each test step has its own timeout.
+        timeout-minutes: 300
+        concurrency:
+            group: sdk-testnet-live
+            cancel-in-progress: false
+        defaults:
+            run:
+                working-directory: sdk
+        # The DB_* values are job-wide because every compose command, not just the start, fails to
+        # parse the local compose file without DB_PATH.
+        env:
+            GARGANTUA_INDEXER_URL: "http://localhost:3100"
+            DB_USER: "postgres"
+            DB_PASS: "postgres"
+            DB_DATABASE: "postgres"
+            DB_HOST: "postgres"
+            DB_PORT: 5432
+            DB_PATH: "./.indexer"
+        steps:
+            - name: Checkout repository
+              uses: actions/checkout@v4
+              with:
+                  ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+            - name: Setup Node.js
+              uses: actions/setup-node@v4
+              with:
+                  node-version: "22"
+
+            - name: Setup pnpm
+              uses: pnpm/action-setup@v4
+              with:
+                  version: 11
+
+            - name: Install dependencies
+              run: pnpm install
+
+            - name: Set up environment variables
+              run: |
+                  cat > .env.local << EOF
+                  BSC_CHAPEL=${{ secrets.BSC_CHAPEL }}
+                  GNOSIS_CHIADO=${{ secrets.GNOSIS_CHIADO }}
+                  HYPERBRIDGE_GARGANTUA=${{ secrets.HYPERBRIDGE_GARGANTUA }}
+                  PASEO_RPC_URL=${{ secrets.PASEO_RPC_URL }}
+                  BIFROST_PASEO=${{ secrets.BIFROST_PASEO }}
+                  PRIVATE_KEY=${{ secrets.PRIVATE_KEY }}
+                  SECRET_PHRASE=${{ secrets.SECRET_PHRASE }}
+                  ETH_MAINNET=${{ secrets.ETH_MAINNET }}
+                  BSC_MAINNET=${{ secrets.BSC_MAINNET }}
+                  BASE_MAINNET=${{ secrets.BASE_MAINNET }}
+                  POLYGON_MAINNET=${{ secrets.POLYGON_MAINNET }}
+                  ARBITRUM_MAINNET=${{ secrets.ARBITRUM_MAINNET }}
+                  BASE_SEPOLIA=${{ secrets.BASE_SEPOLIA }}
+                  POLYGON_AMOY=${{ secrets.POLYGON_AMOY }}
+                  SEPOLIA=${{ secrets.SEPOLIA }}
+                  PHAROS_ATLANTIC_RPC=${{ secrets.PHAROS_ATLANTIC_RPC }}
+                  BUNDLER_URL=${{ secrets.BUNDLER_URL }}
+                  TURNKEY_ORG_ID=${{ secrets.TURNKEY_ORG_ID }}
+                  TURNKEY_API_PUBLIC_KEY=${{ secrets.TURNKEY_API_PUBLIC_KEY }}
+                  TURNKEY_API_PRIVATE_KEY=${{ secrets.TURNKEY_API_PRIVATE_KEY }}
+                  TURNKEY_SIGN_WITH=${{ secrets.TURNKEY_SIGN_WITH }}
+                  EOF
+
+            # `start:local` shells out to docker-compose (v1), and the readiness wait uses nc.
+            - name: Install Docker Compose and netcat
+              run: |
+                  sudo apt-get update
+                  sudo apt-get install -y docker-compose netcat-openbsd
+                  docker compose version
+
+            # The indexer imports `@hyperbridge/sdk/intents-helpers`, which only exists once the SDK
+            # is built.
+            - name: Build the SDK
+              run: pnpm --filter "@hyperbridge/sdk" build:node
+
+            - name: Login to Docker Hub
+              uses: docker/login-action@v3
+              with:
+                  username: ${{ secrets.DOCKER_USERNAME }}
+                  password: ${{ secrets.DOCKER_ACCESS_TOKEN }}
+
+            # Codegen starts each chain at its current head, read through the RPCs in .env.local.
+            - name: Start local indexer (in background)
+              env:
+                  LOG_LEVEL: ${{ secrets.ACTIONS_RUNNER_DEBUG == 'true' && 'debug' || 'info' }}
+              run: |
+                  cd packages/indexer
+                  nohup pnpm start:local > indexer_output.log 2>&1 &
+                  echo "Started indexer process in background"
+
+            # The query service reads the entity tables once at startup, so it needs a restart to see
+            # ones created later. Chapel makes a block every 0.45s, which sets the allowed lag.
+            - name: Wait for the indexer to be ready
+              id: indexer
+              env:
+                  MAX_LAG: 300
+              run: |
+                  compose() { docker compose -f packages/indexer/docker/docker-compose.local.yml "$@"; }
+
+                  fail() {
+                    echo "$1"
+                    tail -n 200 packages/indexer/indexer_output.log || true
+                    compose logs --tail=200 || true
+                    exit 1
+                  }
+
+                  wait_for() {
+                    local deadline=$((SECONDS + $1))
+                    shift
+                    until "$@"; do
+                      [ "$SECONDS" -ge "$deadline" ] && return 1
+                      sleep 5
+                    done
+                  }
+
+                  gql() {
+                    curl -s -m 10 -X POST -H 'content-type: application/json' \
+                      --data "{\"query\":\"$1\"}" "$GARGANTUA_INDEXER_URL" || true
+                  }
+
+                  port_open() { nc -z localhost 3100; }
+
+                  schema_ready() {
+                    gql '{ stateMachineUpdateEvents(first: 1) { nodes { id } } }' \
+                      | jq -e '.errors == null and .data.stateMachineUpdateEvents != null' > /dev/null 2>&1
+                  }
+
+                  synced() {
+                    local body
+                    body=$(gql '{ _metadatas { nodes { chain lastProcessedHeight targetHeight } } }')
+                    printf '%s' "$body" | jq -c '[.data._metadatas.nodes[]? | {chain, behind: ((.targetHeight // 0) - (.lastProcessedHeight // 0))}]' 2>/dev/null || echo "$body"
+                    printf '%s' "$body" | jq -e --argjson lag "$MAX_LAG" '
+                      (.data._metadatas.nodes // []) as $n
+                      | ($n | length) >= 4
+                        and all($n[]; .lastProcessedHeight != null and .targetHeight != null
+                          and .targetHeight - .lastProcessedHeight <= $lag)' > /dev/null 2>&1
+                  }
+
+                  echo "Waiting for GraphQL server on port 3100..."
+                  wait_for 600 port_open || fail "Timed out waiting for the GraphQL server"
+
+                  echo "Waiting for the entity tables to be queryable..."
+                  if ! wait_for 300 schema_ready; then
+                    echo "::warning::indexer tables missing from the schema; restarting the query service"
+                    compose restart graphql-engine || true
+                    wait_for 120 port_open || fail "The GraphQL server did not come back after the restart"
+                    wait_for 300 schema_ready || fail "Indexer tables are still missing from the GraphQL schema"
+                  fi
+
+                  echo "Waiting for every chain to be within $MAX_LAG blocks of its head..."
+                  wait_for 900 synced || fail "Timed out waiting for the indexer to catch up"
+                  echo "Indexer is ready"
+
+            - name: Run SDK test - intent-gateway-cancel (from source and from destination)
+              timeout-minutes: 170
+              run: pnpm --filter="@hyperbridge/sdk" test:intent-gateway-cancel
+
+            - name: Run SDK test - hyper-fungible-token
+              if: ${{ !cancelled() && steps.indexer.outcome == 'success' }}
+              timeout-minutes: 25
+              run: pnpm --filter="@hyperbridge/sdk" test:hyper-fungible-token
 
             - name: Run SDK test - get request
+              if: ${{ !cancelled() && steps.indexer.outcome == 'success' }}
+              timeout-minutes: 45
               run: pnpm --filter="@hyperbridge/sdk" test:get-request
+
+            - name: Collect indexer logs
+              if: always()
+              run: |
+                  echo "::group::Indexer"
+                  tail -n 500 packages/indexer/indexer_output.log || true
+                  echo "::endgroup::"
+                  echo "::group::Indexer containers"
+                  docker compose -f packages/indexer/docker/docker-compose.local.yml logs --tail=400 || true
+                  echo "::endgroup::"
 
             - name: Clean up
               if: always()
-              run: |
-                  docker compose -f packages/indexer/docker/docker-compose.local.yml down || true
-                  if [ -f packages/indexer/indexer_output.log ]; then
-                    echo "Indexer logs:"
-                    cat packages/indexer/indexer_output.log
-                  fi
+              run: docker compose -f packages/indexer/docker/docker-compose.local.yml down -v || true

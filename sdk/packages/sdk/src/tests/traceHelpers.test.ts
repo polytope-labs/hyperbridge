@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest"
 import { encodeFunctionData, type PublicClient, type Hex } from "viem"
-import { getContractCallInputs, getContractCallInput, type HexString } from "@/utils"
+import { getContractCallInputs, getContractCallInput } from "@/utils"
+import type { HexString } from "@/types"
 import { ABI as IntentGatewayV2ABI } from "@/abis/IntentGatewayV2"
 import { EvmChain } from "@/chains/evm"
 

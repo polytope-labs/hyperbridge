@@ -13,16 +13,17 @@ import { RequestStatus } from "@/types"
 import type { HexString } from "@/types"
 
 /**
- * Live end-to-end test of GET self-delivery, BSC Chapel → Polygon Amoy.
+ * Live end-to-end test of GET self-delivery from BSC Chapel to Polygon Amoy.
  *
  * Uses the deployed `HyperGet` test contract on BSC Chapel to dispatch a GET that reads
  * `WMATIC.balanceOf(reader)` on Polygon Amoy (balance mapping slot 3), then tracks it with
- * `IsmpClient.getRequestStatusStream` and drives it to completion: resolve from the indexer →
- * SOURCE_FINALIZED → self-deliver to Hyperbridge (deliverToHyperbridge logs each proof) →
+ * `IsmpClient.getRequestStatusStream` and drives it to completion: resolve from the indexer,
+ * SOURCE_FINALIZED, self-deliver to Hyperbridge (deliverToHyperbridge logs each proof), then
  * HYPERBRIDGE_FINALIZED, at which point the GetResponse calldata is submitted to the BSC handler,
- * invoking HyperGet.onGetResponse (which RLP-decodes and emits the balance) → DESTINATION.
+ * invoking HyperGet.onGetResponse (which RLP-decodes and emits the balance), then DESTINATION.
  *
- * Requires funds + endpoints from sdk/.env.local; skipped otherwise. Slow (source finalization).
+ * Needs PRIVATE_KEY, BSC_CHAPEL, POLYGON_AMOY and HYPERBRIDGE_GARGANTUA. GARGANTUA_INDEXER_URL
+ * overrides the public gargantua indexer. Slow (source finalization).
  *   npx vitest run --sequence.concurrent=false src/tests/sequential/getRequestBscAmoy.test.ts
  */
 
@@ -58,34 +59,45 @@ const HYPER_GET_ABI = [
 	},
 ] as const
 
-const has = (v?: string) => typeof v === "string" && v.length > 0
-
-// Skipped: state proofs are currently broken on BNB testnet RPCs
-describe.skip("GET self-delivery — BSC Chapel → Polygon Amoy (live)", () => {
-	it.skipIf(!has(process.env.PRIVATE_KEY) || !has(process.env.BSC_CHAPEL))(
+describe("GET self-delivery from BSC Chapel to Polygon Amoy (live)", () => {
+	it(
 		"reads WMATIC.balanceOf on Amoy via GET and drives it to completion on the source (onGetResponse)",
 		async () => {
-			const BSC = process.env.BSC_CHAPEL!.split(",")[0]
-			// The destination needs an ARCHIVE endpoint: by delivery time the GET's (fixed) read
-			// height is a few hundred blocks old, so `eth_getProof` must reach historical state.
-			// The .env.local Alchemy Amoy endpoint returns "root hash mismatch"; non-archive public
-			// nodes prune the state. drpc's Amoy endpoint serves archive proofs.
-			const AMOY = process.env.POLYGON_AMOY_ARCHIVE ?? "https://polygon-amoy.drpc.org"
-			const GARGANTUA = process.env.HYPERBRIDGE_GARGANTUA!
-			// The live gargantua indexer (indexes this testnet + connected chains). Not the CI's
-			// local indexer, so default to the public endpoint; override with GARGANTUA_INDEXER_URL.
-			const INDEXER = process.env.GARGANTUA_INDEXER_URL ?? "https://gargantua.indexer.polytope.technology"
-			const pk = (process.env.PRIVATE_KEY!.startsWith("0x") ? process.env.PRIVATE_KEY! : `0x${process.env.PRIVATE_KEY!}`) as HexString
-			const account = privateKeyToAccount(pk)
+			const env = readEnv()
+			const account = privateKeyToAccount(env.privateKey)
 			const reader = account.address // whose WMATIC balance the GET reads
 
-			const source = EvmChain.fromParams({ chainId: 97, rpcUrl: BSC, host: HOST, consensusStateId: "BSC0" })
-			const dest = EvmChain.fromParams({ chainId: 80002, rpcUrl: AMOY, host: HOST, consensusStateId: "POLY" })
-			const hyperbridge = await SubstrateChain.connect({ consensusStateId: "PAS0", stateMachineId: "KUSAMA-4009", wsUrl: GARGANTUA, hasher: "Keccak" })
-			const client = new IsmpClient({ source, dest, hyperbridge, queryClient: createQueryClient({ url: INDEXER }), pollInterval: 3000 })
+			const source = EvmChain.fromParams({
+				chainId: 97,
+				rpcUrl: env.chapelRpc,
+				host: HOST,
+				consensusStateId: "BSC0",
+			})
+			const dest = EvmChain.fromParams({
+				chainId: 80002,
+				rpcUrl: env.amoyRpc,
+				host: HOST,
+				consensusStateId: "POLY",
+			})
+			const hyperbridge = await SubstrateChain.connect({
+				consensusStateId: "PAS0",
+				stateMachineId: "KUSAMA-4009",
+				wsUrl: env.hyperbridgeWs,
+				hasher: "Keccak",
+			})
+			const client = new IsmpClient({
+				source,
+				dest,
+				hyperbridge,
+				queryClient: createQueryClient({ url: env.indexerUrl }),
+				pollInterval: 3000,
+			})
 
-			// 1. Latest finalized Amoy height on Hyperbridge — the height the GET reads at.
-			const amoyHeight = await hyperbridge.latestStateMachineHeight({ stateId: { Evm: 80002 }, consensusStateId: "POLY" })
+			// 1. Latest finalized Amoy height on Hyperbridge, the height the GET reads at.
+			const amoyHeight = await hyperbridge.latestStateMachineHeight({
+				stateId: { Evm: 80002 },
+				consensusStateId: "POLY",
+			})
 			console.log(`[1] read WMATIC.balanceOf(${reader}) on Amoy @ finalized height ${amoyHeight}`)
 			expect(amoyHeight).toBeGreaterThan(0n)
 
@@ -95,8 +107,8 @@ describe.skip("GET self-delivery — BSC Chapel → Polygon Amoy (live)", () => 
 				functionName: "readBalance",
 				args: [stringToHex("EVM-80002"), WMATIC, reader, WMATIC_BALANCE_SLOT, amoyHeight],
 			})
-			const publicClient = createPublicClient({ chain: bscTestnet, transport: http(BSC) })
-			const walletClient = createWalletClient({ account, chain: bscTestnet, transport: http(BSC) })
+			const publicClient = createPublicClient({ chain: bscTestnet, transport: http(env.chapelRpc) })
+			const walletClient = createWalletClient({ account, chain: bscTestnet, transport: http(env.chapelRpc) })
 			const txHash = await walletClient.sendTransaction({ to: HYPER_GET, data })
 			console.log(`[2] dispatch tx on BSC Chapel: ${txHash}`)
 			const receipt = await publicClient.waitForTransactionReceipt({ hash: txHash })
@@ -108,17 +120,25 @@ describe.skip("GET self-delivery — BSC Chapel → Polygon Amoy (live)", () => 
 			if (!evt) throw new Error("GetRequestEvent not found")
 			const a = evt.args
 			const commitment = getRequestCommitment({
-				source: a.source, dest: a.dest, from: a.from, nonce: a.nonce, height: a.height,
-				keys: [...a.keys], timeoutTimestamp: a.timeoutTimestamp, context: a.context,
+				source: a.source,
+				dest: a.dest,
+				from: a.from,
+				nonce: a.nonce,
+				height: a.height,
+				keys: [...a.keys],
+				timeoutTimestamp: a.timeoutTimestamp,
+				context: a.context,
 			})
-			console.log(`[3] GET: ${a.source} → ${a.dest} nonce=${a.nonce} height=${a.height} commitment=${commitment}`)
+			console.log(
+				`[3] GET: ${a.source} to ${a.dest} nonce=${a.nonce} height=${a.height} commitment=${commitment}`,
+			)
 			expect(a.dest).toBe("EVM-80002")
 
 			// 4. Drive the full round-trip via the real entry point. getRequestStatusStream resolves
 			//    the request from the indexer, waits for SOURCE_FINALIZED, self-delivers it to
 			//    Hyperbridge (deliverToHyperbridge logs each proof), then finalizes the GetResponse.
 			//    At HYPERBRIDGE_FINALIZED we submit the response calldata to the BSC handler, which
-			//    invokes HyperGet.onGetResponse — completing the GET on the source chain.
+			//    invokes HyperGet.onGetResponse, completing the GET on the source chain.
 			const seen: string[] = []
 			let received: { account: HexString; balance: bigint } | undefined
 			for await (const update of client.getRequestStatusStream(commitment)) {
@@ -160,3 +180,18 @@ describe.skip("GET self-delivery — BSC Chapel → Polygon Amoy (live)", () => 
 		40 * 60 * 1000,
 	)
 })
+
+function readEnv() {
+	const required = ["PRIVATE_KEY", "BSC_CHAPEL", "POLYGON_AMOY", "HYPERBRIDGE_GARGANTUA"] as const
+	const missing = required.filter((name) => !process.env[name])
+	if (missing.length > 0) throw new Error(`The live GET request test needs ${missing.join(", ")}`)
+
+	const privateKey = process.env.PRIVATE_KEY as string
+	return {
+		privateKey: (privateKey.startsWith("0x") ? privateKey : `0x${privateKey}`) as HexString,
+		chapelRpc: process.env.BSC_CHAPEL as string,
+		amoyRpc: process.env.POLYGON_AMOY as string,
+		hyperbridgeWs: process.env.HYPERBRIDGE_GARGANTUA as string,
+		indexerUrl: process.env.GARGANTUA_INDEXER_URL || "https://gargantua.indexer.polytope.technology",
+	}
+}

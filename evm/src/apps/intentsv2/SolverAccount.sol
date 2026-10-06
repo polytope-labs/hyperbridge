@@ -116,7 +116,8 @@ contract SolverAccount is Account, ERC7821, IERC1271 {
      * nonce and the solver's gas.
      *
      * A 162-byte signature is `abi.encodePacked(commitment, solverSignature, sessionSignature)`.
-     * The gateway's `select` recovers the session key, and the nonce key must derive from the
+     * The session key signs the commitment and `userOpHash`, so its selection holds for this op
+     * alone. The gateway's `select` recovers that key, and the nonce key must derive from the
      * commitment, that key and the op's calldata, so none of them can be swapped after signing.
      *
      * The calldata is what makes each bid's key its own. A solver bidding several prices on one
@@ -143,10 +144,11 @@ contract SolverAccount is Account, ERC7821, IERC1271 {
         bytes calldata solverSignature = op.signature[32:97];
         bytes calldata sessionSignature = op.signature[97:162];
 
-        // Recovers the session key and stages the selection that `fillOrder` checks. A bad session
-        // signature fails validation instead of reverting it, as ERC-4337 requires.
+        // Recovers the session key and stages the selection that `fillOrder` checks while this op
+        // executes. A bad session signature fails validation instead of reverting it, as ERC-4337
+        // requires.
         SelectOptions memory selectOptions =
-            SelectOptions({commitment: commitment, solver: address(this), signature: sessionSignature});
+            SelectOptions({commitment: commitment, userOpHash: userOpHash, signature: sessionSignature});
         address sessionKey;
         try IIntentGatewayV2(_intentGateway).select(selectOptions) returns (address recovered) {
             sessionKey = recovered;
@@ -184,8 +186,7 @@ contract SolverAccount is Account, ERC7821, IERC1271 {
      * @dev Whether `selector` is a `fillOrder` of this or an earlier gateway release.
      */
     function _isFillOrder(bytes4 selector) private pure returns (bool) {
-        return selector == FILL_ORDER_SELECTOR 
-            || selector == HISTORICAL_FILL_ORDER_SELECTOR
+        return selector == FILL_ORDER_SELECTOR || selector == HISTORICAL_FILL_ORDER_SELECTOR
             || selector == HISTORICAL_FILL_ORDER_NO_EXPIRY_SELECTOR;
     }
 

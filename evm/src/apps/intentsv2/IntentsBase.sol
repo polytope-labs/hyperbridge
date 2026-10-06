@@ -45,6 +45,14 @@ interface IArbSys {
 }
 
 /**
+ * @dev The one ERC-4337 EntryPoint v0.9 view the gateway reads: the hash of the UserOperation
+ * being executed, zero outside an execution.
+ */
+interface IEntryPointV09 {
+    function getCurrentUserOpHash() external view returns (bytes32);
+}
+
+/**
  * @title IntentsBase
  * @author Polytope Labs (hello@polytope.technology)
  *
@@ -56,9 +64,16 @@ abstract contract IntentsBase is EIP712 {
 
     /**
      * @dev EIP-712 typehash for solver selection signatures.
-     * Encodes the struct: SelectSolver(bytes32 commitment, address solver).
+     * Encodes the struct: SelectSolver(bytes32 commitment, bytes32 userOpHash).
      */
-    bytes32 public constant SELECT_SOLVER_TYPEHASH = keccak256("SelectSolver(bytes32 commitment,address solver)");
+    bytes32 public constant SELECT_SOLVER_TYPEHASH = keccak256("SelectSolver(bytes32 commitment,bytes32 userOpHash)");
+
+    /**
+     * @dev ERC-4337 EntryPoint v0.9, which reports the UserOperation a selected fill must run in.
+     * Fixed rather than taken from the caller: anyone may call the gateway, so a caller posing as
+     * an EntryPoint could report whatever hash a selection was signed for.
+     */
+    IEntryPointV09 internal constant ENTRYPOINT_V09 = IEntryPointV09(0x433709009B8330FDa32311DF1C2AFA402eD8D009);
 
     /**
      * @dev Sentinel key under which the Hyperbridge relayer fees are held in `_orders`. The low
@@ -777,22 +792,21 @@ abstract contract IntentsBase is EIP712 {
     }
 
     /**
-     * @dev Recovers the session key that signed the selection and stores `keccak256(sessionKey)` in
-     * transient storage under `keccak256(commitment, solver)`.
+     * @dev Recovers the session key that signed the selection and sets a non-zero marker in
+     * transient storage under `keccak256(commitment, userOpHash, sessionKey)`.
      */
     function _select(SelectOptions calldata options) internal returns (address) {
         if (_filled[options.commitment] != address(0)) revert Filled();
 
-        bytes32 structHash = keccak256(abi.encode(SELECT_SOLVER_TYPEHASH, options.commitment, options.solver));
+        bytes32 structHash = keccak256(abi.encode(SELECT_SOLVER_TYPEHASH, options.commitment, options.userOpHash));
         bytes32 digest = _hashTypedDataV4(structHash);
         address sessionKey = ECDSA.recover(digest, options.signature);
 
-        bytes32 slot = keccak256(abi.encode(options.commitment, options.solver));
-        // Hashed, never the bare key: an untouched slot reads zero, which must not match an order
-        // whose `session` is the zero address.
-        bytes32 selectionHash = keccak256(abi.encode(sessionKey));
+        // Keyed on the signer too: `select` is permissionless, so a selection signed by any other
+        // key lands in its own slot and cannot overwrite the session key's.
+        bytes32 slot = keccak256(abi.encode(options.commitment, options.userOpHash, sessionKey));
         assembly {
-            tstore(slot, selectionHash)
+            tstore(slot, 1)
         }
 
         return sessionKey;

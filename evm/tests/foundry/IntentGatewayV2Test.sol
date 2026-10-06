@@ -35,7 +35,7 @@ import {
     SelectOptions
 } from "@hyperbridge/core/apps/IntentGatewayV2.sol";
 import {deployIntentGatewayImpl, deployIntentModules} from "./IntentGatewayDeploy.sol";
-import {IntentsBase} from "../../src/apps/intentsv2/IntentsBase.sol";
+import {IntentsBase, IEntryPointV09} from "../../src/apps/intentsv2/IntentsBase.sol";
 import {ExtrinsicIntents} from "../../src/apps/intentsv2/ExtrinsicIntents.sol";
 import {HyperApp} from "@hyperbridge/core/apps/HyperApp.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
@@ -81,6 +81,13 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
 
     // EIP-1967 implementation slot: keccak256("eip1967.proxy.implementation") - 1.
     bytes32 internal constant ERC1967_IMPL_SLOT = 0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc;
+
+    // ERC-4337 EntryPoint v0.9, live on the fork. Outside `handleOps` it reports no UserOperation.
+    address internal constant ENTRYPOINT_V09 = 0x433709009B8330FDa32311DF1C2AFA402eD8D009;
+
+    // Stand-ins for the hashes of two solvers' bid UserOperations.
+    bytes32 internal constant BID_USER_OP_HASH = keccak256("bid user operation");
+    bytes32 internal constant OTHER_USER_OP_HASH = keccak256("other user operation");
 
     function setUp() public override {
         super.setUp();
@@ -139,14 +146,14 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
     }
 
     /// @dev Helper function to create EIP-712 signature for solver selection
-    function _createSelectSolverSignature(bytes32 commitment, address solver, uint256 privateKey, address gateway)
+    function _createSelectSolverSignature(bytes32 commitment, bytes32 userOpHash, uint256 privateKey, address gateway)
         internal
         view
         returns (bytes memory)
     {
         // Compute the EIP-712 digest using public constants
         IntentGatewayV2 gatewayContract = IntentGatewayV2(payable(gateway));
-        bytes32 structHash = keccak256(abi.encode(gatewayContract.SELECT_SOLVER_TYPEHASH(), commitment, solver));
+        bytes32 structHash = keccak256(abi.encode(gatewayContract.SELECT_SOLVER_TYPEHASH(), commitment, userOpHash));
 
         bytes32 digest = keccak256(abi.encodePacked("\x19\x01", gatewayContract.DOMAIN_SEPARATOR(), structHash));
 
@@ -1590,17 +1597,19 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
 
         bytes32 commitment = keccak256(abi.encode(order));
 
-        // Create EIP-712 signature from session key
+        // Create EIP-712 signature from session key over the solver's UserOperation
         bytes memory sessionSignature = _createSelectSolverSignature(
             commitment,
-            filler,
+            BID_USER_OP_HASH,
             1, // Session key private key
             address(intentGateway)
         );
 
-        // Solver selects themselves
         vm.prank(filler);
-        intentGateway.select(SelectOptions({commitment: commitment, solver: filler, signature: sessionSignature}));
+        address sessionKey = intentGateway.select(
+            SelectOptions({commitment: commitment, userOpHash: BID_USER_OP_HASH, signature: sessionSignature})
+        );
+        assertEq(sessionKey, vm.addr(1), "select recovers the session key");
     }
 
     function testSelectRevertsOnFinalizedOrder() public {
@@ -1634,7 +1643,8 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         vm.stopPrank();
 
         bytes32 commitment = keccak256(abi.encode(order));
-        bytes memory sessionSignature = _createSelectSolverSignature(commitment, filler, 1, address(intentGateway));
+        bytes memory sessionSignature =
+            _createSelectSolverSignature(commitment, BID_USER_OP_HASH, 1, address(intentGateway));
 
         // The creator's same-chain cancel finalizes the order by writing `_filled`.
         vm.prank(user);
@@ -1643,193 +1653,215 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         // The bid is now stale, so it is refused here rather than in `fillOrder`.
         vm.prank(filler);
         vm.expectRevert(IntentsBase.Filled.selector);
-        intentGateway.select(SelectOptions({commitment: commitment, solver: filler, signature: sessionSignature}));
+        intentGateway.select(
+            SelectOptions({commitment: commitment, userOpHash: BID_USER_OP_HASH, signature: sessionSignature})
+        );
     }
 
     function testFillOrderWithSolverSelection() public {
-        // Enable solver selection
-        Params memory newParams = Params({
-            host: address(host),
-            dispatcher: address(dispatcher),
-            solverSelection: true,
-            surplusShareBps: 10000,
-            protocolFeeBps: 0,
-            priceOracle: address(0)
-        });
+        IntentGatewayV2 gatewayWithSelection = _deploySelectionGateway();
+        Order memory order = _placeSelectionOrder(gatewayWithSelection);
+        _selectUserOp(gatewayWithSelection, order, BID_USER_OP_HASH);
 
-        IntentGatewayV2 gatewayWithSelection = _deployGatewayProxy();
-        gatewayWithSelection.initialize(
-            InitParams({params: newParams, peerChains: new bytes[](0), relayer: address(0), owner: address(this)})
-        );
+        _mockCurrentUserOp(BID_USER_OP_HASH);
+        FillOptions memory options = _fullFillOptions(order);
+        vm.prank(filler);
+        gatewayWithSelection.fillOrder(order, options);
 
-        uint256 inputAmount = 1000 * 1e6;
-
-        TokenInfo[] memory inputs = new TokenInfo[](1);
-        inputs[0] = TokenInfo({token: bytes32(uint256(uint160(address(usdc)))), amount: inputAmount});
-
-        TokenInfo[] memory outputAssets = new TokenInfo[](1);
-        outputAssets[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: 1000 * 1e18});
-
-        PaymentInfo memory output =
-            PaymentInfo({beneficiary: bytes32(uint256(uint160(user))), assets: outputAssets, call: ""});
-
-        Order memory order = Order({
-            user: bytes32(uint256(uint160(user))),
-            source: host.host(),
-            destination: host.host(),
-            deadline: block.number + 1000,
-            nonce: 0,
-            fees: 0,
-            session: vm.addr(1), // Session key
-            predispatch: DispatchInfo({assets: new TokenInfo[](0), call: ""}),
-            inputs: inputs,
-            output: output
-        });
-
-        vm.startPrank(user);
-        usdc.approve(address(gatewayWithSelection), inputAmount);
-        gatewayWithSelection.placeOrder(order, bytes32(0));
-        vm.stopPrank();
-
-        bytes32 commitment = keccak256(abi.encode(order));
-
-        // Create EIP-712 signature from session key
-        bytes memory sessionSignature = _createSelectSolverSignature(
-            commitment,
-            filler,
-            1, // Session key private key
-            address(gatewayWithSelection)
-        );
-
-        // Solver selects themselves
-        vm.startPrank(filler);
-        gatewayWithSelection.select(
-            SelectOptions({commitment: commitment, solver: filler, signature: sessionSignature})
-        );
-
-        // Filler fills order
-        dai.approve(address(gatewayWithSelection), type(uint256).max);
-
-        TokenInfo[] memory solverOutputs = new TokenInfo[](1);
-        solverOutputs[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: 1000 * 1e18});
-
-        gatewayWithSelection.fillOrder(
-            order,
-            FillOptions({
-                relayerFee: 0,
-                nativeDispatchFee: 0,
-                validUntil: 0,
-                outputs: solverOutputs,
-                inputs: IntentQuoteTestUtils.inputs(order, solverOutputs)
-            })
-        );
-        vm.stopPrank();
+        assertEq(gatewayWithSelection._filled(keccak256(abi.encode(order))), filler, "selected op fills the order");
     }
 
     function testSecondSelectionDoesNotClobberTheFirst() public {
-        Params memory newParams = Params({
-            host: address(host),
-            dispatcher: address(dispatcher),
-            solverSelection: true,
-            surplusShareBps: 10000,
-            protocolFeeBps: 0,
-            priceOracle: address(0)
-        });
+        IntentGatewayV2 gatewayWithSelection = _deploySelectionGateway();
+        Order memory order = _placeSelectionOrder(gatewayWithSelection);
 
-        IntentGatewayV2 gatewayWithSelection = _deployGatewayProxy();
-        gatewayWithSelection.initialize(
-            InitParams({params: newParams, peerChains: new bytes[](0), relayer: address(0), owner: address(this)})
-        );
-
-        uint256 inputAmount = 1000 * 1e6;
-
-        TokenInfo[] memory inputs = new TokenInfo[](1);
-        inputs[0] = TokenInfo({token: bytes32(uint256(uint160(address(usdc)))), amount: inputAmount});
-
-        TokenInfo[] memory outputAssets = new TokenInfo[](1);
-        outputAssets[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: 1000 * 1e18});
-
-        PaymentInfo memory output =
-            PaymentInfo({beneficiary: bytes32(uint256(uint160(user))), assets: outputAssets, call: ""});
-
-        Order memory order = Order({
-            user: bytes32(uint256(uint160(user))),
-            source: host.host(),
-            destination: host.host(),
-            deadline: block.number + 1000,
-            nonce: 0,
-            fees: 0,
-            session: vm.addr(1),
-            predispatch: DispatchInfo({assets: new TokenInfo[](0), call: ""}),
-            inputs: inputs,
-            output: output
-        });
-
-        vm.startPrank(user);
-        usdc.approve(address(gatewayWithSelection), inputAmount);
-        gatewayWithSelection.placeOrder(order, bytes32(0));
-        vm.stopPrank();
-
-        bytes32 commitment = keccak256(abi.encode(order));
-        address otherSolver = address(0xB0B);
-
-        // Both solvers hold a selection signed by the same session key. A 4337 bundle stages every
+        // Both bids hold a selection signed by the same session key. A 4337 bundle stages every
         // validation before any execution, so both land before either fill runs.
+        _selectUserOp(gatewayWithSelection, order, BID_USER_OP_HASH);
+        _selectUserOp(gatewayWithSelection, order, OTHER_USER_OP_HASH);
+
+        // The later selection sits in its own slot, so the first bid's fill still authorises.
+        _mockCurrentUserOp(BID_USER_OP_HASH);
+        FillOptions memory options = _fullFillOptions(order);
         vm.prank(filler);
-        gatewayWithSelection.select(
-            SelectOptions({
-                commitment: commitment,
-                solver: filler,
-                signature: _createSelectSolverSignature(commitment, filler, 1, address(gatewayWithSelection))
-            })
-        );
+        gatewayWithSelection.fillOrder(order, options);
 
-        vm.prank(otherSolver);
-        gatewayWithSelection.select(
-            SelectOptions({
-                commitment: commitment,
-                solver: otherSolver,
-                signature: _createSelectSolverSignature(commitment, otherSolver, 1, address(gatewayWithSelection))
-            })
-        );
-
-        // The later selection sits in its own slot, so the first solver's fill still authorises.
-        TokenInfo[] memory solverOutputs = new TokenInfo[](1);
-        solverOutputs[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: 1000 * 1e18});
-
-        vm.startPrank(filler);
-        dai.approve(address(gatewayWithSelection), type(uint256).max);
-        gatewayWithSelection.fillOrder(
-            order,
-            FillOptions({
-                relayerFee: 0,
-                nativeDispatchFee: 0,
-                validUntil: 0,
-                outputs: solverOutputs,
-                inputs: IntentQuoteTestUtils.inputs(order, solverOutputs)
-            })
-        );
-        vm.stopPrank();
-
-        assertEq(gatewayWithSelection._filled(commitment), filler, "first solver fills the order");
+        assertEq(gatewayWithSelection._filled(keccak256(abi.encode(order))), filler, "first bid fills the order");
     }
 
-    function testFillOrderWithWrongSolver() public {
-        // Enable solver selection
-        Params memory newParams = Params({
-            host: address(host),
-            dispatcher: address(dispatcher),
-            solverSelection: true,
-            surplusShareBps: 10000,
-            protocolFeeBps: 0,
-            priceOracle: address(0)
-        });
+    /// @dev `select` is permissionless, so another UserOperation in the bundle can re-select the
+    ///      victim's op before it executes. Neither another key's signature nor a junk one recovering
+    ///      some unrelated key displaces the session key's selection.
+    function testSelectionByAnotherKeyDoesNotClobberTheSessionKey() public {
+        IntentGatewayV2 gatewayWithSelection = _deploySelectionGateway();
+        Order memory order = _placeSelectionOrder(gatewayWithSelection);
+        bytes32 commitment = keccak256(abi.encode(order));
+        _selectUserOp(gatewayWithSelection, order, BID_USER_OP_HASH);
 
-        IntentGatewayV2 gatewayWithSelection = _deployGatewayProxy();
-        gatewayWithSelection.initialize(
-            InitParams({params: newParams, peerChains: new bytes[](0), relayer: address(0), owner: address(this)})
+        address attacker = makeAddr("attacker");
+        vm.prank(attacker);
+        address otherKey = gatewayWithSelection.select(
+            SelectOptions({
+                commitment: commitment,
+                userOpHash: BID_USER_OP_HASH,
+                signature: _createSelectSolverSignature(commitment, BID_USER_OP_HASH, 2, address(gatewayWithSelection))
+            })
         );
+        assertEq(otherKey, vm.addr(2), "another key's selection");
 
+        vm.prank(attacker);
+        address junkKey = gatewayWithSelection.select(
+            SelectOptions({
+                commitment: commitment,
+                userOpHash: BID_USER_OP_HASH,
+                signature: _createSelectSolverSignature(
+                    commitment, OTHER_USER_OP_HASH, 1, address(gatewayWithSelection)
+                )
+            })
+        );
+        assertTrue(junkKey != order.session && junkKey != otherKey, "a junk key");
+
+        _mockCurrentUserOp(BID_USER_OP_HASH);
+        FillOptions memory options = _fullFillOptions(order);
+        vm.prank(filler);
+        gatewayWithSelection.fillOrder(order, options);
+
+        assertEq(gatewayWithSelection._filled(commitment), filler, "selected op still fills the order");
+    }
+
+    /// @dev A direct call runs outside any UserOperation, so the EntryPoint reports zero.
+    function testFillOrderWithSolverSelectionOutsideUserOp() public {
+        IntentGatewayV2 gatewayWithSelection = _deploySelectionGateway();
+        Order memory order = _placeSelectionOrder(gatewayWithSelection);
+        _selectUserOp(gatewayWithSelection, order, BID_USER_OP_HASH);
+
+        assertEq(IEntryPointV09(ENTRYPOINT_V09).getCurrentUserOpHash(), bytes32(0));
+
+        FillOptions memory options = _fullFillOptions(order);
+        vm.prank(filler);
+        vm.expectRevert(IntentsBase.Unauthorized.selector);
+        gatewayWithSelection.fillOrder(order, options);
+    }
+
+    /// @dev The session key's selection of a zero hash sits in the very slot a direct call would
+    ///      read, so only the gateway refusing a zero hash outright keeps the fill out.
+    function testFillOrderOutsideUserOpWithZeroHashSelection() public {
+        IntentGatewayV2 gatewayWithSelection = _deploySelectionGateway();
+        Order memory order = _placeSelectionOrder(gatewayWithSelection);
+        bytes32 commitment = keccak256(abi.encode(order));
+
+        address recovered = gatewayWithSelection.select(
+            SelectOptions({
+                commitment: commitment,
+                userOpHash: bytes32(0),
+                signature: _createSelectSolverSignature(commitment, bytes32(0), 1, address(gatewayWithSelection))
+            })
+        );
+        assertEq(recovered, order.session, "the session key selects the zero hash");
+
+        assertEq(IEntryPointV09(ENTRYPOINT_V09).getCurrentUserOpHash(), bytes32(0));
+
+        FillOptions memory options = _fullFillOptions(order);
+        vm.prank(filler);
+        vm.expectRevert(IntentsBase.Unauthorized.selector);
+        gatewayWithSelection.fillOrder(order, options);
+    }
+
+    function testFillOrderInUnselectedUserOp() public {
+        IntentGatewayV2 gatewayWithSelection = _deploySelectionGateway();
+        Order memory order = _placeSelectionOrder(gatewayWithSelection);
+        _selectUserOp(gatewayWithSelection, order, BID_USER_OP_HASH);
+
+        _mockCurrentUserOp(OTHER_USER_OP_HASH);
+        FillOptions memory options = _fullFillOptions(order);
+        vm.prank(filler);
+        vm.expectRevert(IntentsBase.Unauthorized.selector);
+        gatewayWithSelection.fillOrder(order, options);
+    }
+
+    /// @dev A session signature over one UserOperation does not select another: the gateway
+    ///      recovers some other key from it, which is not the order's session.
+    function testSelectionSignedForAnotherUserOpIsRejected() public {
+        IntentGatewayV2 gatewayWithSelection = _deploySelectionGateway();
+        Order memory order = _placeSelectionOrder(gatewayWithSelection);
+        bytes32 commitment = keccak256(abi.encode(order));
+
+        address recovered = gatewayWithSelection.select(
+            SelectOptions({
+                commitment: commitment,
+                userOpHash: BID_USER_OP_HASH,
+                signature: _createSelectSolverSignature(
+                    commitment, OTHER_USER_OP_HASH, 1, address(gatewayWithSelection)
+                )
+            })
+        );
+        assertTrue(recovered != order.session, "not the session key");
+
+        FillOptions memory options = _fullFillOptions(order);
+
+        _mockCurrentUserOp(BID_USER_OP_HASH);
+        vm.prank(filler);
+        vm.expectRevert(IntentsBase.Unauthorized.selector);
+        gatewayWithSelection.fillOrder(order, options);
+
+        _mockCurrentUserOp(OTHER_USER_OP_HASH);
+        vm.prank(filler);
+        vm.expectRevert(IntentsBase.Unauthorized.selector);
+        gatewayWithSelection.fillOrder(order, options);
+    }
+
+    /// @dev With selection off the gateway never asks the EntryPoint, so a direct fill works even
+    ///      where the EntryPoint would fail.
+    function testFillOrderWithoutSolverSelectionIgnoresEntryPoint() public {
+        Order memory order = _placeSelectionOrder(intentGateway);
+        vm.mockCallRevert(ENTRYPOINT_V09, abi.encodeCall(IEntryPointV09.getCurrentUserOpHash, ()), "no EntryPoint here");
+
+        FillOptions memory options = _fullFillOptions(order);
+        vm.prank(filler);
+        intentGateway.fillOrder(order, options);
+
+        assertEq(intentGateway._filled(keccak256(abi.encode(order))), filler, "filled without a selection");
+    }
+
+    /// @dev On a chain without EntryPoint v0.9 nothing answers the gateway's query for the current
+    ///      UserOperation, so with selection on no fill goes through there.
+    function testFillOrderWithSolverSelectionRevertsWithoutEntryPointV09() public {
+        IntentGatewayV2 gatewayWithSelection = _deploySelectionGateway();
+        Order memory order = _placeSelectionOrder(gatewayWithSelection);
+        _selectUserOp(gatewayWithSelection, order, BID_USER_OP_HASH);
+
+        vm.etch(ENTRYPOINT_V09, "");
+
+        FillOptions memory options = _fullFillOptions(order);
+        vm.prank(filler);
+        // The revert carries no data, but forge fills in a diagnostic when tracing, so any revert.
+        vm.expectRevert();
+        gatewayWithSelection.fillOrder(order, options);
+    }
+
+    /// @dev A fresh gateway with solver selection on.
+    function _deploySelectionGateway() internal returns (IntentGatewayV2 gateway) {
+        gateway = _deployGatewayProxy();
+        gateway.initialize(
+            InitParams({
+                params: Params({
+                    host: address(host),
+                    dispatcher: address(dispatcher),
+                    solverSelection: true,
+                    surplusShareBps: 10000,
+                    protocolFeeBps: 0,
+                    priceOracle: address(0)
+                }),
+                peerChains: new bytes[](0),
+                relayer: address(0),
+                owner: address(this)
+            })
+        );
+    }
+
+    /// @dev Places a same-chain order selling 1,000 USDC for 1,000 DAI whose session is key 1, and
+    ///      approves the filler's DAI to `gateway`.
+    function _placeSelectionOrder(IntentGatewayV2 gateway) internal returns (Order memory order) {
         uint256 inputAmount = 1000 * 1e6;
 
         TokenInfo[] memory inputs = new TokenInfo[](1);
@@ -1838,10 +1870,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         TokenInfo[] memory outputAssets = new TokenInfo[](1);
         outputAssets[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: 1000 * 1e18});
 
-        PaymentInfo memory output =
-            PaymentInfo({beneficiary: bytes32(uint256(uint160(user))), assets: outputAssets, call: ""});
-
-        Order memory order = Order({
+        order = Order({
             user: bytes32(uint256(uint160(user))),
             source: host.host(),
             destination: host.host(),
@@ -1851,53 +1880,46 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
             session: vm.addr(1),
             predispatch: DispatchInfo({assets: new TokenInfo[](0), call: ""}),
             inputs: inputs,
-            output: output
+            output: PaymentInfo({beneficiary: bytes32(uint256(uint160(user))), assets: outputAssets, call: ""})
         });
 
         vm.startPrank(user);
-        usdc.approve(address(gatewayWithSelection), inputAmount);
-        gatewayWithSelection.placeOrder(order, bytes32(0));
+        usdc.approve(address(gateway), inputAmount);
+        gateway.placeOrder(order, bytes32(0));
         vm.stopPrank();
 
-        bytes32 commitment = keccak256(abi.encode(order));
-
-        // Create EIP-712 signature from session key for filler
-        bytes memory sessionSignature = _createSelectSolverSignature(
-            commitment,
-            filler,
-            1, // Session key private key
-            address(gatewayWithSelection)
-        );
-
-        // Solver selects filler
         vm.prank(filler);
-        gatewayWithSelection.select(
-            SelectOptions({commitment: commitment, solver: filler, signature: sessionSignature})
-        );
+        dai.approve(address(gateway), type(uint256).max);
+    }
 
-        // Different address tries to fill - should revert
-        address wrongSolver = address(0x9999);
-        deal(address(dai), wrongSolver, 10000 * 1e18);
-
-        vm.startPrank(wrongSolver);
-        dai.approve(address(gatewayWithSelection), 1000 * 1e18);
-        dai.approve(address(gatewayWithSelection), type(uint256).max);
-
-        TokenInfo[] memory solverOutputs = new TokenInfo[](1);
-        solverOutputs[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: 1000 * 1e18});
-
-        vm.expectRevert(IntentsBase.Unauthorized.selector);
-        gatewayWithSelection.fillOrder(
-            order,
-            FillOptions({
-                relayerFee: 0,
-                nativeDispatchFee: 0,
-                validUntil: 0,
-                outputs: solverOutputs,
-                inputs: IntentQuoteTestUtils.inputs(order, solverOutputs)
+    /// @dev Session key 1 selects the UserOperation `userOpHash` to fill `order`.
+    function _selectUserOp(IntentGatewayV2 gateway, Order memory order, bytes32 userOpHash) internal {
+        bytes32 commitment = keccak256(abi.encode(order));
+        gateway.select(
+            SelectOptions({
+                commitment: commitment,
+                userOpHash: userOpHash,
+                signature: _createSelectSolverSignature(commitment, userOpHash, 1, address(gateway))
             })
         );
-        vm.stopPrank();
+    }
+
+    /// @dev Has the EntryPoint report `userOpHash` as the UserOperation it is executing.
+    function _mockCurrentUserOp(bytes32 userOpHash) internal {
+        vm.mockCall(ENTRYPOINT_V09, abi.encodeCall(IEntryPointV09.getCurrentUserOpHash, ()), abi.encode(userOpHash));
+    }
+
+    /// @dev A quote for all of a `_placeSelectionOrder` order at its own rate.
+    function _fullFillOptions(Order memory order) internal view returns (FillOptions memory) {
+        TokenInfo[] memory solverOutputs = new TokenInfo[](1);
+        solverOutputs[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: 1000 * 1e18});
+        return FillOptions({
+            relayerFee: 0,
+            nativeDispatchFee: 0,
+            validUntil: 0,
+            outputs: solverOutputs,
+            inputs: IntentQuoteTestUtils.inputs(order, solverOutputs)
+        });
     }
 
     // ============================================
@@ -4564,7 +4586,6 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         gateway.migrate(address(this));
         assertEq(gateway.version(), 3);
     }
-
 
     function testMigrateRejectsEveryoneButHost() public {
         IntentGatewayV2 gateway = _legacyGateway();

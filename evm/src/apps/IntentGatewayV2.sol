@@ -401,8 +401,9 @@ contract IntentGatewayV2 is
     }
 
     /**
-     * @dev Records a solver selection signed by the order's session key, for `fillOrder` in the
-     * same transaction. Returns the session key. Reverts `Filled` on a finalized order.
+     * @dev Records the session key's selection of one UserOperation, for the `fillOrder` that
+     * UserOperation runs through EntryPoint v0.9 in the same transaction. Returns the session key.
+     * Reverts `Filled` on a finalized order.
      */
     function select(SelectOptions calldata options) public returns (address) {
         return _select(options);
@@ -430,16 +431,19 @@ contract IntentGatewayV2 is
         if (_filled[commitment] != address(0)) revert Filled();
 
         if (_params.solverSelection) {
-            // The caller's own selection slot, so a second selection on this order in the same
-            // bundle cannot clobber it. See `_select`.
-            bytes32 selectionSlot = keccak256(abi.encode(commitment, msg.sender));
-            bytes32 storedSelectionHash;
-            assembly {
-                storedSelectionHash := tload(selectionSlot)
-            }
+            // Only inside the UserOperation the session key selected. Zero means no UserOperation
+            // is executing, as for a direct call.
+            bytes32 userOpHash = ENTRYPOINT_V09.getCurrentUserOpHash();
+            if (userOpHash == bytes32(0)) revert Unauthorized();
 
-            bytes32 expectedSelectionHash = keccak256(abi.encode(order.session));
-            if (storedSelectionHash != expectedSelectionHash) revert Unauthorized();
+            // Each (UserOperation, signer) pair has its own slot, so no other selection in the same
+            // bundle can clobber the session key's. See `_select`.
+            bytes32 selectionSlot = keccak256(abi.encode(commitment, userOpHash, order.session));
+            uint256 selected;
+            assembly {
+                selected := tload(selectionSlot)
+            }
+            if (selected == 0) revert Unauthorized();
         }
 
         uint256 outputsLen = order.output.assets.length;

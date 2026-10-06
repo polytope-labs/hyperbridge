@@ -15,11 +15,39 @@ Mainnet quotes still carry the native dispatch fee, and same-chain orders still 
 values. The source-route quote builds its GET with `from` set to the source chain's IntentGateway,
 matching the GET that gateway dispatches. Released in `@hyperbridge/sdk` 2.8.24.
 
-## Live cancellation test
+## Live cancellation tests
 
-`test:intent-gateway-cancel` runs `src/tests/sequential/intentGatewayCancel.test.ts`. It places a
-BSC Chapel (`EVM-97`) to Polygon Amoy (`EVM-80002`) order whose output no solver can fill, then
-cancels it from Amoy with `{ from: "destination" }`. It asserts that:
+`test:intent-gateway-cancel` runs `src/tests/sequential/intentGatewayCancel.test.ts`, whose two tests
+share one wallet and run in order. Each places an order whose output no solver can fill (0.01 USDC
+for 1,000,000 USDC) and runs its cancellation to a full refund on the order's source chain. The
+testnet relayer delivers Hyperbridge consensus updates to the EVM hosts but not messages, so each
+test sends the `HYPERBRIDGE_FINALIZED` calldata to the source host's handler itself. When the
+indexer records no Hyperbridge update on the host at the height the message needs, that calldata
+batches the Hyperbridge consensus proofs the host is missing with the message, one per
+authority-set rotation it lacks plus one covering that height, so the handler accepts them all in
+one transaction. The test sends it with the gas estimate plus 2,000,000, capped at 16,777,216,
+Chapel's per-transaction gas cap: the host swallows a failed app callback, so at the estimated limit
+the callback can run out of gas under the 63/64 rule while the transaction still succeeds.
+
+Cancel from source places a Polygon Amoy (`EVM-80002`) to BSC Chapel (`EVM-97`) order with a
+deadline 40 Chapel blocks out and calls `cancelOrder(order, ismpClient, { from: "source" })`. The
+SDK waits for a Chapel height past the deadline and proves the order's leg 0 `_partialFills` slot
+there. The test sends the cancel on Amoy, and the SDK self-delivers the resulting GET to Hyperbridge.
+The test asserts that:
+
+- the cancel transaction targets the Amoy gateway with `value: 0n`, a nonzero `relayerFee` and the
+  proof height, and emits `OrderCancelled` and a `GetRequestEvent` from the Amoy gateway for that
+  Chapel slot at that height;
+- Hyperbridge holds a response receipt for the GET while Amoy still holds the escrow;
+- delivering the calldata, which carries the GetResponse, to the Amoy handler emits
+  `GetRequestHandled` and `EscrowRefunded`, its refund `Transfer`s to `order.user` match the
+  placement's transfers to the gateway per token, the leg escrow reads 0 and `isOrderRefunded` is
+  true;
+- within 5 minutes, the indexer records the GET as `HYPERBRIDGE_DELIVERED` and `DESTINATION` and
+  holds its response.
+
+Cancel from destination places a Chapel to Amoy order and cancels it from Amoy with
+`{ from: "destination" }`. It asserts that:
 
 - the cancel transaction targets the Amoy gateway with `value: 0n`, a nonzero `relayerFee` and
   height 0, and emits `OrderCancelled` and a `PostRequestEvent`;
@@ -27,18 +55,24 @@ cancels it from Amoy with `{ from: "destination" }`. It asserts that:
 - Amoy freezes the order, with `_filled[commitment]` set to the canceller;
 - Hyperbridge holds the refund POST, seen either as `HYPERBRIDGE_DELIVERED` on the status stream or
   through Hyperbridge's request receipt, while Chapel still holds the escrow;
-- within 5 minutes of that receipt, `queryPostRequest` on the indexer returns the refund POST with
-  `HYPERBRIDGE_DELIVERED`, `HYPERBRIDGE_FINALIZED` or `DESTINATION`, so a broken indexer fails the
-  test.
+- delivering the calldata to the Chapel handler emits `EscrowRefunded` with refund `Transfer`s that
+  match the placement per token, the stream reaches `CANCELLATION_COMPLETE` with that delivery
+  within 5 minutes of it and `isOrderRefunded` is true.
 
-The default run ends there. With `CANCEL_FULL_REFUND=true` (or `1`) the test waits for
-`HYPERBRIDGE_FINALIZED`, self-delivers that calldata to the Chapel host's handler, since the testnet
-relayer does not deliver to EVM chains, and asserts `CANCELLATION_COMPLETE` and `isOrderRefunded`.
-That path can take over an hour, because Hyperbridge consensus reaches testnet EVM hosts about
-hourly.
+The cancel stream follows each request's status through the indexer. From source, the stream ends
+at `HYPERBRIDGE_FINALIZED`, before the test delivers the GET response, so the explicit indexer check
+is what fails when the indexer misses that delivery. From destination, every stream event after
+`CANCEL_STARTED` comes from the indexer, so an indexer miss fails as a timeout on the next event:
+`HYPERBRIDGE_FINALIZED` when it misses the Hyperbridge delivery, `CANCELLATION_COMPLETE` when it
+misses the Chapel delivery.
 
-It needs `PRIVATE_KEY`, `BSC_CHAPEL`, `POLYGON_AMOY` and `HYPERBRIDGE_GARGANTUA`. The test
-approves the Chapel input token and both chains' fee tokens to their gateways itself.
+Each test's timeout is the sum of its step budgets: 90 minutes from source (setup 10, Chapel proof
+25, cancel 5, `HYPERBRIDGE_FINALIZED` 40, delivery 5, indexer 5) and 75 minutes from destination
+(setup 10, Hyperbridge delivery 15, `HYPERBRIDGE_FINALIZED` 40, delivery 5,
+`CANCELLATION_COMPLETE` 5).
+
+Both need `PRIVATE_KEY`, `BSC_CHAPEL`, `POLYGON_AMOY` and `HYPERBRIDGE_GARGANTUA`. Each test
+approves its order's input token and the fee tokens it pays to their gateways itself.
 
 The cancel, HFT and GET tests read the indexer at `GARGANTUA_INDEXER_URL`. The `live` job sets it
 to the local indexer at `http://localhost:3100`; when it is unset, they use the hosted
@@ -70,17 +104,17 @@ GraphQL on port 3100, for a `stateMachineUpdateEvents` query to succeed (restart
 and for all four chains to be within 300 blocks of their heads. The job always prints the indexer
 logs and runs `docker compose down -v` at the end.
 
-Its test steps run in order, only once the readiness step succeeds, and each runs even when an
-earlier test fails:
+The job timeout is 300 minutes, covering up to 45 minutes of indexer setup and readiness plus each
+test step's own timeout. Its test steps run in order, only once the readiness step succeeds, and
+each runs even when an earlier test fails:
 
-- `test:intent-gateway-cancel`, with `CANCEL_FULL_REFUND` set from the `cancel_full_refund`
-  workflow_dispatch input;
-- `test:hyper-fungible-token`, which, like the cancel test, waits up to 5 minutes after
+- `test:intent-gateway-cancel`, both cancel tests, with a 170-minute timeout;
+- `test:hyper-fungible-token`, with a 25-minute timeout, which waits up to 5 minutes after
   Hyperbridge's request receipt for `queryPostRequest` to return the request with a delivered
   status;
-- `test:get-request` (`getRequestBscAmoy.test.ts`), on `BSC_CHAPEL` and `POLYGON_AMOY`. It fails
-  at once, naming each of `PRIVATE_KEY`, `BSC_CHAPEL`, `POLYGON_AMOY` and `HYPERBRIDGE_GARGANTUA`
-  that is missing.
+- `test:get-request` (`getRequestBscAmoy.test.ts`), with a 45-minute timeout, on `BSC_CHAPEL` and
+  `POLYGON_AMOY`. It fails at once, naming each of `PRIVATE_KEY`, `BSC_CHAPEL`, `POLYGON_AMOY` and
+  `HYPERBRIDGE_GARGANTUA` that is missing.
 
 This workflow runs no IntentGateway place-and-fill test, and simplex `fx.testnet.test.ts` runs in no
 workflow. The `simplex testnet swaps` workflow (`.github/workflows/test-simplex-e2e.yml`) places and

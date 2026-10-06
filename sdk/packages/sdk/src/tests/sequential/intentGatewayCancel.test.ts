@@ -5,8 +5,10 @@ import { describe, it } from "vitest"
 import {
 	type Account,
 	type Chain,
+	type TransactionReceipt,
 	type Transport,
 	type WalletClient,
+	concatHex,
 	createWalletClient,
 	decodeAbiParameters,
 	decodeFunctionData,
@@ -28,19 +30,28 @@ import { SubstrateChain } from "@/chains/substrate"
 import { IsmpClient } from "@/client"
 import { ChainConfigService } from "@/configs/ChainConfigService"
 import { IntentGateway } from "@/protocols/intents/IntentGateway"
-import { readLegEscrow } from "@/protocols/intents/escrowReads"
+import { partialFillSlot, readLegEscrow } from "@/protocols/intents/escrowReads"
 import { type CancelEvent, DEFAULT_GRAFFITI } from "@/protocols/intents/types"
 import { createQueryClient } from "@/queryClient"
 import { type HexString, type Order, RequestKind, RequestStatus } from "@/types"
-import { ADDRESS_ZERO, bytes20ToBytes32, postRequestCommitment, sleep } from "@/utils"
+import { ADDRESS_ZERO, bytes20ToBytes32, getRequestCommitment, postRequestCommitment, sleep } from "@/utils"
 
 /**
- * Live cancellation of a cross-chain order from its destination: BSC Chapel to Polygon Amoy.
+ * Live cross-chain cancellations between Polygon Amoy and BSC Chapel. Each test places an order no
+ * solver can fill and runs its cancellation until the escrow is refunded on the order's source chain.
  *
- * Places an order no solver will bid on, cancels it on Amoy, which freezes the order there and posts
- * RefundEscrow back to Chapel, and follows that POST until Hyperbridge holds it. With
- * CANCEL_FULL_REFUND set to "true" or "1" it goes on to self-deliver the POST to the Chapel handler,
- * since the testnet relayer does not deliver to EVM chains, and checks the escrow is refunded.
+ * From source: an Amoy to Chapel order expires on Chapel and is cancelled on Amoy. The SDK proves the
+ * order's Chapel fill progress with a GET and delivers it to Hyperbridge; the test delivers the GET
+ * response to the Amoy handler, which refunds the escrow.
+ *
+ * From destination: a Chapel to Amoy order is cancelled on Amoy, which freezes it there and posts
+ * RefundEscrow back to Chapel. The test delivers that POST to the Chapel handler, which refunds the
+ * escrow.
+ *
+ * The testnet relayer delivers Hyperbridge consensus updates to the EVM hosts but not messages, so each
+ * test delivers the HYPERBRIDGE_FINALIZED calldata itself. When the host has not yet seen the Hyperbridge
+ * height the message needs, that calldata batches the Hyperbridge consensus proofs the host is missing
+ * with it. Both tests use the same wallet and run in order.
  *
  * Needs PRIVATE_KEY, BSC_CHAPEL, POLYGON_AMOY and HYPERBRIDGE_GARGANTUA. GARGANTUA_INDEXER_URL
  * overrides the public gargantua indexer.
@@ -48,21 +59,35 @@ import { ADDRESS_ZERO, bytes20ToBytes32, postRequestCommitment, sleep } from "@/
 
 const CHAPEL = "EVM-97"
 const AMOY = "EVM-80002"
-const FULL_REFUND = process.env.CANCEL_FULL_REFUND === "true" || process.env.CANCEL_FULL_REFUND === "1"
 
-const ORDER_LIFETIME_BLOCKS = 43_200n
-const STEP_TIMEOUT_MS = 5 * 60_000
-const DELIVERED_TIMEOUT_MS = 15 * 60_000
-const REFUND_TIMEOUT_MS = 90 * 60_000
+const EXPIRED_ORDER_LIFETIME_BLOCKS = 40n
+const OPEN_ORDER_LIFETIME_BLOCKS = 43_200n
+
 const SETUP_TIMEOUT_MS = 10 * 60_000
+const DESTINATION_PROOF_TIMEOUT_MS = 25 * 60_000
+const CANCEL_TIMEOUT_MS = 5 * 60_000
+const DELIVERED_TIMEOUT_MS = 15 * 60_000
+const FINALIZED_TIMEOUT_MS = 40 * 60_000
+const DELIVERY_TIMEOUT_MS = 5 * 60_000
+const INDEXED_TIMEOUT_MS = 5 * 60_000
+
+const FROM_SOURCE_TIMEOUT_MS =
+	SETUP_TIMEOUT_MS +
+	DESTINATION_PROOF_TIMEOUT_MS +
+	CANCEL_TIMEOUT_MS +
+	FINALIZED_TIMEOUT_MS +
+	DELIVERY_TIMEOUT_MS +
+	INDEXED_TIMEOUT_MS
+const FROM_DESTINATION_TIMEOUT_MS =
+	SETUP_TIMEOUT_MS + DELIVERED_TIMEOUT_MS + FINALIZED_TIMEOUT_MS + DELIVERY_TIMEOUT_MS + INDEXED_TIMEOUT_MS
+
 const RECEIPT_POLL_MS = 15_000
 const INDEXER_POLL_MS = 10_000
-const INDEXED_TIMEOUT_MS = 5 * 60_000
-const DELIVERED_OR_LATER = new Set<string>([
-	RequestStatus.HYPERBRIDGE_DELIVERED,
-	RequestStatus.HYPERBRIDGE_FINALIZED,
-	RequestStatus.DESTINATION,
-])
+
+// The host swallows a failed app callback, so the estimate alone can starve it under the 63/64 rule.
+const DELIVERY_GAS_HEADROOM = 2_000_000n
+// Per-transaction gas cap on Chapel; Amoy allows 2^25.
+const MAX_TX_GAS = 16_777_216n
 
 const WITHDRAWAL_REQUEST = [
 	{
@@ -82,111 +107,183 @@ const WITHDRAWAL_REQUEST = [
 	},
 ] as const
 
-describe("IntentGateway cancel from destination, BSC Chapel to Polygon Amoy (live)", () => {
+describe("IntentGateway cross-chain cancellation between Polygon Amoy and BSC Chapel (live)", () => {
 	it(
-		FULL_REFUND
-			? "cancels an unfillable order on Amoy and refunds its escrow on Chapel"
-			: "cancels an unfillable order on Amoy and delivers the refund to Hyperbridge",
+		"cancels an expired Amoy to Chapel order from its source and refunds its escrow on Amoy",
 		async () => {
 			const env = readEnv()
-			const account = privateKeyToAccount(env.privateKey)
-			const configService = new ChainConfigService()
-			const chapel = liveChain(CHAPEL, bscTestnet, env.chapelRpc, account, configService)
-			const amoy = liveChain(AMOY, polygonAmoy, env.amoyRpc, account, configService)
-			const hyperbridge = await SubstrateChain.connect({
-				wsUrl: env.hyperbridgeWs,
-				consensusStateId: "PAS0",
-				hasher: "Keccak",
-				stateMachineId: "KUSAMA-4009",
-			})
+			const { account, configService, chapel, amoy, hyperbridge, ismpClient } = await connect(env)
+			let stream: CancelStream | undefined
+
+			try {
+				const amoyFeeToken = await amoy.evm.getFeeTokenWithDecimals()
+				await approveGateway(amoy, configService.getUsdcAsset(AMOY))
+				await approveGateway(amoy, amoyFeeToken.address)
+
+				const gateway = await IntentGateway.create(amoy.evm, chapel.evm)
+				const { order: placed, receipt: placement } = await placeOrder(
+					gateway,
+					amoy,
+					unfillableOrder(
+						configService,
+						account,
+						AMOY,
+						CHAPEL,
+						parseUnits("0.01", amoyFeeToken.decimals),
+						(await chapel.evm.client.getBlockNumber()) + EXPIRED_ORDER_LIFETIME_BLOCKS,
+					),
+					amoyFeeToken.address,
+				)
+				const escrowed = await assertOpen(gateway, amoy, placed)
+
+				stream = new CancelStream(gateway.cancelOrder(placed, ismpClient, { from: "source" }))
+
+				const { proof } = await advanceTo(
+					stream,
+					"DESTINATION_FINALIZED",
+					Date.now() + DESTINATION_PROOF_TIMEOUT_MS,
+				)
+				assert.equal(proof.stateMachine, CHAPEL, "The destination proof is not for Chapel")
+				assert(proof.height > placed.deadline, `Proof height ${proof.height} is not past the deadline`)
+
+				const cancelDeadline = Date.now() + CANCEL_TIMEOUT_MS
+				const cancelTx = await advanceTo(stream, "AWAITING_CANCEL_TRANSACTION", cancelDeadline)
+				const cancelOptions = assertCancelTransaction(cancelTx, amoy.gateway)
+				assert.equal(cancelOptions.height, proof.height, "The cancel does not carry the proof height")
+
+				const { receipt } = await advanceTo(
+					stream,
+					"CANCEL_STARTED",
+					cancelDeadline,
+					await signTransaction(amoy, cancelTx),
+				)
+				console.log(`[cancel] cancel tx ${receipt.transactionHash} on Amoy`)
+				assert.equal(receipt.status, "success", "Cancel transaction reverted")
+				assertOrderCancelled(receipt, placed.id, account.address)
+
+				const [dispatched] = parseEventLogs({
+					abi: EVM_HOST.ABI,
+					logs: receipt.logs,
+					eventName: "GetRequestEvent",
+				})
+				assert(dispatched, "GetRequestEvent missing from the cancel receipt")
+				const get = dispatched.args
+				assert.equal(get.source, AMOY)
+				assert.equal(get.dest, CHAPEL)
+				assert.equal(get.from.toLowerCase(), amoy.gateway.toLowerCase())
+				assert.equal(get.height, proof.height)
+				assert.deepEqual(
+					get.keys.map((key) => key.toLowerCase()),
+					[concatHex([chapel.gateway, partialFillSlot(placed.id, 0)]).toLowerCase()],
+					"The GET does not read the Chapel _partialFills slot of leg 0",
+				)
+				assert.equal(get.fee, cancelOptions.relayerFee)
+
+				const getCommitment = getRequestCommitment({
+					source: get.source,
+					dest: get.dest,
+					from: get.from,
+					nonce: get.nonce,
+					height: get.height,
+					keys: [...get.keys],
+					timeoutTimestamp: get.timeoutTimestamp,
+					context: get.context,
+				})
+				console.log(`[cancel] GET ${getCommitment}`)
+
+				const finalized = await advanceTo(stream, "HYPERBRIDGE_FINALIZED", Date.now() + FINALIZED_TIMEOUT_MS)
+				assert(
+					await hyperbridge.queryResponseReceipt(getCommitment),
+					"Hyperbridge holds no response receipt for the GET",
+				)
+				assert.equal(
+					await readLegEscrow(amoy.evm.client, amoy.gateway, placed.id, 0, placed.inputs[0].token),
+					escrowed,
+					"Amoy released the escrow before the GET response reached it",
+				)
+				assert.equal(await gateway.isOrderRefunded(placed), false)
+
+				const delivery = await deliverToHandler(amoy, finalized.metadata.calldata)
+				const handled = parseEventLogs({
+					abi: EVM_HOST.ABI,
+					logs: delivery.logs,
+					eventName: "GetRequestHandled",
+				}).find((log) => log.args.commitment === getCommitment)
+				assert(handled, "GetRequestHandled missing from the delivery; the gateway's onGetResponse failed")
+				assertEscrowRefunded(delivery, placed.id)
+				assertRefundMatchesPlacement(placement, delivery, amoy.gateway, account.address)
+				assert.equal(
+					await readLegEscrow(amoy.evm.client, amoy.gateway, placed.id, 0, placed.inputs[0].token),
+					0n,
+					"Amoy still holds the leg escrow",
+				)
+				assert.equal(await gateway.isOrderRefunded(placed), true, "Amoy does not report the order refunded")
+
+				await awaitIndexed(`cancel GET ${getCommitment} with its response`, env.indexerUrl, async () => {
+					const statuses = indexedStatuses(await ismpClient.queryGetRequest(getCommitment))
+					const response = await ismpClient.queryResponseByRequestId(getCommitment)
+					return {
+						done:
+							statuses.includes(RequestStatus.HYPERBRIDGE_DELIVERED) &&
+							statuses.includes(RequestStatus.DESTINATION) &&
+							response !== undefined,
+						indexed: `statuses ${statuses.join(", ") || "none"}; response ${response?.commitment ?? "none"}`,
+					}
+				})
+			} finally {
+				stream?.close()
+				await hyperbridge.disconnect()
+			}
+		},
+		FROM_SOURCE_TIMEOUT_MS,
+	)
+
+	it(
+		"cancels a Chapel to Amoy order from its destination and refunds its escrow on Chapel",
+		async () => {
+			const env = readEnv()
+			const { account, configService, chapel, amoy, hyperbridge, ismpClient } = await connect(env)
 			let stream: CancelStream | undefined
 
 			try {
 				const chapelFeeToken = await chapel.evm.getFeeTokenWithDecimals()
 				const amoyFeeToken = await amoy.evm.getFeeTokenWithDecimals()
-				const inputToken = configService.getUsdcAsset(CHAPEL)
-				await approveGateway(chapel, inputToken)
+				await approveGateway(chapel, configService.getUsdcAsset(CHAPEL))
 				await approveGateway(chapel, chapelFeeToken.address)
 				await approveGateway(amoy, amoyFeeToken.address)
 
-				const user = bytes20ToBytes32(account.address)
-				const order: Order = {
-					user,
-					source: CHAPEL,
-					destination: AMOY,
-					deadline: (await amoy.evm.client.getBlockNumber()) + ORDER_LIFETIME_BLOCKS,
-					nonce: 0n,
-					fees: parseUnits("0.01", chapelFeeToken.decimals),
-					session: ADDRESS_ZERO,
-					predispatch: { assets: [], call: "0x" },
-					inputs: [
-						{
-							token: bytes20ToBytes32(inputToken),
-							amount: parseUnits("0.01", configService.getUsdcDecimals(CHAPEL)),
-						},
-					],
-					output: {
-						beneficiary: user,
-						assets: [
-							{
-								token: bytes20ToBytes32(configService.getUsdcAsset(AMOY)),
-								amount: parseUnits("1000000", configService.getUsdcDecimals(AMOY)),
-							},
-						],
-						call: "0x",
-					},
-				}
-
 				const gateway = await IntentGateway.create(chapel.evm, amoy.evm)
-				const placed = await placeOrder(gateway, chapel, order, chapelFeeToken.address)
-
-				const escrowed = await readLegEscrow(
-					chapel.evm.client,
-					chapel.gateway,
-					placed.id,
-					0,
-					placed.inputs[0].token,
+				const { order: placed, receipt: placement } = await placeOrder(
+					gateway,
+					chapel,
+					unfillableOrder(
+						configService,
+						account,
+						CHAPEL,
+						AMOY,
+						parseUnits("0.01", chapelFeeToken.decimals),
+						(await amoy.evm.client.getBlockNumber()) + OPEN_ORDER_LIFETIME_BLOCKS,
+					),
+					chapelFeeToken.address,
 				)
-				assert.equal(escrowed, placed.inputs[0].amount, "Chapel escrow differs from the committed input")
-				assert.equal(await gateway.isOrderFilled(placed), false, "A new order already reads as filled")
-				assert.equal(await gateway.isOrderRefunded(placed), false, "A new order already reads as refunded")
+				const escrowed = await assertOpen(gateway, chapel, placed)
 
-				const ismpClient = new IsmpClient({
-					queryClient: createQueryClient({ url: env.indexerUrl }),
-					source: amoy.evm,
-					dest: chapel.evm,
-					hyperbridge,
-					pollInterval: 5_000,
-				})
 				stream = new CancelStream(gateway.cancelOrder(placed, ismpClient, { from: "destination" }))
 
-				const cancelTx = await advanceTo(stream, "AWAITING_CANCEL_TRANSACTION", Date.now() + STEP_TIMEOUT_MS)
-				assert(isAddressEqual(cancelTx.to, amoy.gateway), `Cancel targets ${cancelTx.to}, not the Amoy gateway`)
-				assert.equal(cancelTx.value, 0n, "Testnet hosts have no swap route, so the cancel must carry no value")
-				const call = decodeFunctionData({ abi: IntentGatewayV2ABI, data: cancelTx.data })
-				if (call.functionName !== "cancelOrder") throw new Error(`Cancel calldata calls ${call.functionName}`)
-				const [, cancelOptions] = call.args
-				assert(cancelOptions.relayerFee > 0n, "Cancel carries no relayer fee")
+				const deliveredDeadline = Date.now() + DELIVERED_TIMEOUT_MS
+				const cancelTx = await advanceTo(stream, "AWAITING_CANCEL_TRANSACTION", deliveredDeadline)
+				const cancelOptions = assertCancelTransaction(cancelTx, amoy.gateway)
 				assert.equal(cancelOptions.height, 0n, "A destination cancel needs no proof height")
 
-				const started = await advanceTo(
+				const { receipt } = await advanceTo(
 					stream,
 					"CANCEL_STARTED",
-					Date.now() + STEP_TIMEOUT_MS,
+					deliveredDeadline,
 					await signTransaction(amoy, cancelTx),
 				)
-				const { receipt } = started
 				console.log(`[cancel] cancel tx ${receipt.transactionHash} on Amoy`)
 				assert.equal(receipt.status, "success", "Cancel transaction reverted")
-
-				const [cancelled] = parseEventLogs({
-					abi: IntentGatewayV2ABI,
-					logs: receipt.logs,
-					eventName: "OrderCancelled",
-				})
-				assert(cancelled, "OrderCancelled missing from the cancel receipt")
-				assert.equal(cancelled.args.commitment, placed.id)
-				assert(isAddressEqual(cancelled.args.canceller, account.address))
+				assertOrderCancelled(receipt, placed.id, account.address)
 
 				const [dispatched] = parseEventLogs({
 					abi: EVM_HOST.ABI,
@@ -232,13 +329,12 @@ describe("IntentGateway cancel from destination, BSC Chapel to Polygon Amoy (liv
 					stream,
 					hyperbridge,
 					postCommitment,
-					Date.now() + DELIVERED_TIMEOUT_MS,
+					deliveredDeadline,
 				)
 				assert(
 					await hyperbridge.queryRequestReceipt(postCommitment),
 					"Hyperbridge holds no refund POST receipt",
 				)
-				await awaitIndexedDelivery(ismpClient, postCommitment, env.indexerUrl)
 				assert.equal(
 					await readLegEscrow(chapel.evm.client, chapel.gateway, placed.id, 0, placed.inputs[0].token),
 					escrowed,
@@ -246,46 +342,38 @@ describe("IntentGateway cancel from destination, BSC Chapel to Polygon Amoy (liv
 				)
 				assert.equal(await gateway.isOrderRefunded(placed), false)
 
-				if (!FULL_REFUND) return
-
-				const refundDeadline = Date.now() + REFUND_TIMEOUT_MS
-				const finalized = finalizedEarly ?? (await advanceTo(stream, "HYPERBRIDGE_FINALIZED", refundDeadline))
-				const { handler } = await chapel.evm.client.readContract({
-					address: chapel.host,
-					abi: EVM_HOST.ABI,
-					functionName: "hostParams",
-				})
-				const deliveryHash = await chapel.wallet.sendTransaction({
-					to: handler,
-					data: finalized.metadata.calldata,
-				})
-				console.log(`[cancel] refund delivery tx ${deliveryHash} on Chapel`)
-				const delivery = await chapel.evm.client.waitForTransactionReceipt({ hash: deliveryHash })
-				assert.equal(delivery.status, "success", "Refund delivery reverted on the Chapel handler")
+				const finalized =
+					finalizedEarly ??
+					(await advanceTo(stream, "HYPERBRIDGE_FINALIZED", Date.now() + FINALIZED_TIMEOUT_MS))
+				const delivery = await deliverToHandler(chapel, finalized.metadata.calldata)
 				assert(
 					await chapel.evm.queryRequestReceipt(postCommitment),
 					"The Chapel host did not accept the refund POST; the gateway's onAccept failed",
 				)
+				assertEscrowRefunded(delivery, placed.id)
+				assertRefundMatchesPlacement(placement, delivery, chapel.gateway, account.address)
 
-				const complete = await advanceTo(stream, "CANCELLATION_COMPLETE", refundDeadline)
-				assert.equal(complete.transactionHash.toLowerCase(), deliveryHash.toLowerCase())
+				const complete = await advanceTo(stream, "CANCELLATION_COMPLETE", Date.now() + INDEXED_TIMEOUT_MS)
+				assert.equal(complete.transactionHash.toLowerCase(), delivery.transactionHash.toLowerCase())
 				assert.equal(await gateway.isOrderRefunded(placed), true, "Chapel still holds the escrow")
 			} finally {
 				stream?.close()
 				await hyperbridge.disconnect()
 			}
 		},
-		SETUP_TIMEOUT_MS + DELIVERED_TIMEOUT_MS + INDEXED_TIMEOUT_MS + (FULL_REFUND ? REFUND_TIMEOUT_MS : 0),
+		FROM_DESTINATION_TIMEOUT_MS,
 	)
 })
 
 interface LiveChain {
+	id: string
 	evm: EvmChain
 	wallet: WalletClient<Transport, Chain, Account>
 	gateway: HexString
 	host: HexString
 }
 
+type PlacedOrder = Order & { id: HexString }
 type CancelStatus = CancelEvent["status"]
 type CancelEventOf<S extends CancelStatus> = Extract<CancelEvent, { status: S }>
 
@@ -367,30 +455,36 @@ async function awaitHyperbridgeDelivery(
 }
 
 /**
- * Waits until the indexer records the refund POST as delivered to Hyperbridge. The receipt read in
- * awaitHyperbridgeDelivery passes without the indexer, so this is the step that fails when the indexer
- * misses the request.
+ * Polls the indexer until `probe` reports done. The source cancel stream ends at HYPERBRIDGE_FINALIZED,
+ * before the test delivers the GET response, so this is what checks the indexer records that delivery.
  */
-async function awaitIndexedDelivery(ismpClient: IsmpClient, commitment: HexString, indexerUrl: string): Promise<void> {
+async function awaitIndexed(
+	what: string,
+	indexerUrl: string,
+	probe: () => Promise<{ done: boolean; indexed: string }>,
+): Promise<void> {
 	const deadline = Date.now() + INDEXED_TIMEOUT_MS
 	let indexed = "unknown"
 	let lastError: string | undefined
 	while (true) {
 		try {
-			const request = await ismpClient.queryPostRequest(commitment)
-			const statuses = request?.statuses.map(({ status }) => status) ?? []
-			if (statuses.some((status) => DELIVERED_OR_LATER.has(status))) return
-			indexed = request ? statuses.join(", ") || "none" : "no record"
+			const result = await probe()
+			if (result.done) return
+			indexed = result.indexed
 		} catch (e) {
 			lastError = e instanceof Error ? e.message : String(e)
 		}
 		if (Date.now() >= deadline) {
 			throw new Error(
-				`The indexer at ${indexerUrl} did not record refund POST ${commitment} as delivered to Hyperbridge within ${INDEXED_TIMEOUT_MS / 60_000} minutes (indexed statuses: ${indexed}${lastError ? `; last query error: ${lastError}` : ""})`,
+				`The indexer at ${indexerUrl} did not record ${what} within ${INDEXED_TIMEOUT_MS / 60_000} minutes (indexed: ${indexed}${lastError ? `; last query error: ${lastError}` : ""})`,
 			)
 		}
 		await sleep(INDEXER_POLL_MS)
 	}
+}
+
+function indexedStatuses(request: { statuses: Array<{ status: string }> } | undefined): string[] {
+	return request?.statuses.map(({ status }) => status) ?? []
 }
 
 function readEnv() {
@@ -408,6 +502,28 @@ function readEnv() {
 	}
 }
 
+/** Both flows track requests from Amoy to Chapel: the cancel GET and the refund POST. */
+async function connect(env: ReturnType<typeof readEnv>) {
+	const account = privateKeyToAccount(env.privateKey)
+	const configService = new ChainConfigService()
+	const chapel = liveChain(CHAPEL, bscTestnet, env.chapelRpc, account, configService)
+	const amoy = liveChain(AMOY, polygonAmoy, env.amoyRpc, account, configService)
+	const hyperbridge = await SubstrateChain.connect({
+		wsUrl: env.hyperbridgeWs,
+		consensusStateId: "PAS0",
+		hasher: "Keccak",
+		stateMachineId: "KUSAMA-4009",
+	})
+	const ismpClient = new IsmpClient({
+		queryClient: createQueryClient({ url: env.indexerUrl }),
+		source: amoy.evm,
+		dest: chapel.evm,
+		hyperbridge,
+		pollInterval: 5_000,
+	})
+	return { account, configService, chapel, amoy, hyperbridge, ismpClient }
+}
+
 function liveChain(
 	id: string,
 	chain: Chain,
@@ -417,10 +533,49 @@ function liveChain(
 ): LiveChain {
 	const host = configService.getHostAddress(id)
 	return {
+		id,
 		evm: EvmChain.fromParams({ chainId: chain.id, host, rpcUrl }),
 		wallet: createWalletClient({ account, chain, transport: http(rpcUrl) }),
 		gateway: configService.getIntentGatewayAddress(id),
 		host,
+	}
+}
+
+/** 0.01 USDC on the source for 1,000,000 USDC on the destination, so no solver can fill it. */
+function unfillableOrder(
+	configService: ChainConfigService,
+	account: Account,
+	source: string,
+	destination: string,
+	fees: bigint,
+	deadline: bigint,
+): Order {
+	const user = bytes20ToBytes32(account.address)
+	return {
+		user,
+		source,
+		destination,
+		deadline,
+		nonce: 0n,
+		fees,
+		session: ADDRESS_ZERO,
+		predispatch: { assets: [], call: "0x" },
+		inputs: [
+			{
+				token: bytes20ToBytes32(configService.getUsdcAsset(source)),
+				amount: parseUnits("0.01", configService.getUsdcDecimals(source)),
+			},
+		],
+		output: {
+			beneficiary: user,
+			assets: [
+				{
+					token: bytes20ToBytes32(configService.getUsdcAsset(destination)),
+					amount: parseUnits("1000000", configService.getUsdcDecimals(destination)),
+				},
+			],
+			call: "0x",
+		},
 	}
 }
 
@@ -441,7 +596,7 @@ async function approveGateway(chain: LiveChain, token: HexString): Promise<void>
 	})
 	const receipt = await chain.evm.client.waitForTransactionReceipt({ hash })
 	assert.equal(receipt.status, "success", `Approving ${token} for ${chain.gateway} reverted`)
-	console.log(`[approve] ${token} for ${chain.gateway}`)
+	console.log(`[approve] ${token} for ${chain.gateway} on ${chain.id}`)
 }
 
 async function signTransaction(
@@ -454,10 +609,10 @@ async function signTransaction(
 
 async function placeOrder(
 	gateway: IntentGateway,
-	chapel: LiveChain,
+	chain: LiveChain,
 	order: Order,
 	feeToken: HexString,
-): Promise<Order & { id: HexString }> {
+): Promise<{ order: PlacedOrder; receipt: TransactionReceipt }> {
 	const placement = gateway.execute(order, DEFAULT_GRAFFITI, { auctionTimeMs: 1 })
 	try {
 		const awaiting = await placement.next()
@@ -468,15 +623,100 @@ async function placeOrder(
 		assert.equal(awaiting.value.feeTokenAmount, order.fees)
 		assert(isAddressEqual(awaiting.value.feeTokenAddress, feeToken))
 
-		const placedUpdate = await placement.next(await signTransaction(chapel, awaiting.value))
+		const placedUpdate = await placement.next(await signTransaction(chain, awaiting.value))
 		if (placedUpdate.done || placedUpdate.value.status !== "ORDER_PLACED") {
 			throw new Error("Expected ORDER_PLACED after the placement transaction")
 		}
 		const { order: placed, receipt } = placedUpdate.value
 		assert(placed.id, "ORDER_PLACED carries no order id")
-		console.log(`[place] order ${placed.id} in tx ${receipt.transactionHash} on Chapel`)
-		return { ...placed, id: placed.id as HexString }
+		console.log(`[place] order ${placed.id} in tx ${receipt.transactionHash} on ${chain.id}`)
+		return { order: { ...placed, id: placed.id as HexString }, receipt }
 	} finally {
 		await placement.return(undefined)
 	}
+}
+
+/** Checks a new order is escrowed on its source chain and neither filled nor refunded. */
+async function assertOpen(gateway: IntentGateway, source: LiveChain, placed: PlacedOrder): Promise<bigint> {
+	const escrowed = await readLegEscrow(source.evm.client, source.gateway, placed.id, 0, placed.inputs[0].token)
+	assert.equal(escrowed, placed.inputs[0].amount, `${source.id} escrow differs from the committed input`)
+	assert.equal(await gateway.isOrderFilled(placed), false, "A new order already reads as filled")
+	assert.equal(await gateway.isOrderRefunded(placed), false, "A new order already reads as refunded")
+	return escrowed
+}
+
+function assertCancelTransaction(tx: CancelEventOf<"AWAITING_CANCEL_TRANSACTION">, gateway: HexString) {
+	assert(isAddressEqual(tx.to, gateway), `Cancel targets ${tx.to}, not the gateway ${gateway}`)
+	assert.equal(tx.value, 0n, "Testnet hosts have no swap route, so the cancel must carry no value")
+	const call = decodeFunctionData({ abi: IntentGatewayV2ABI, data: tx.data })
+	if (call.functionName !== "cancelOrder") throw new Error(`Cancel calldata calls ${call.functionName}`)
+	const [, options] = call.args
+	assert(options.relayerFee > 0n, "Cancel carries no relayer fee")
+	return options
+}
+
+function assertOrderCancelled(receipt: TransactionReceipt, orderId: HexString, canceller: HexString): void {
+	const [cancelled] = parseEventLogs({
+		abi: IntentGatewayV2ABI,
+		logs: receipt.logs,
+		eventName: "OrderCancelled",
+	})
+	assert(cancelled, "OrderCancelled missing from the cancel receipt")
+	assert.equal(cancelled.args.commitment, orderId)
+	assert(isAddressEqual(cancelled.args.canceller, canceller))
+}
+
+function assertEscrowRefunded(receipt: TransactionReceipt, orderId: HexString): void {
+	const refunded = parseEventLogs({
+		abi: IntentGatewayV2ABI,
+		logs: receipt.logs,
+		eventName: "EscrowRefunded",
+	}).find((log) => log.args.commitment === orderId)
+	assert(refunded, `EscrowRefunded missing from the delivery for order ${orderId}`)
+}
+
+/**
+ * Per token, the gateway must pay the user back what the user paid it at placement: the escrow, its
+ * protocol fee and the order fees. Transfers are compared rather than balances, since other jobs spend
+ * from the same wallet.
+ */
+function assertRefundMatchesPlacement(
+	placement: TransactionReceipt,
+	refund: TransactionReceipt,
+	gateway: HexString,
+	user: HexString,
+): void {
+	const paid = transferTotals(placement, user, gateway)
+	assert(paid.size > 0, "The placement moved no tokens to the gateway")
+	assert.deepEqual(transferTotals(refund, gateway, user), paid, "The refund differs from what the placement paid")
+}
+
+function transferTotals(receipt: TransactionReceipt, from: HexString, to: HexString): Map<string, bigint> {
+	const totals = new Map<string, bigint>()
+	for (const log of parseEventLogs({ abi: erc20Abi, logs: receipt.logs, eventName: "Transfer" })) {
+		if (!isAddressEqual(log.args.from, from) || !isAddressEqual(log.args.to, to)) continue
+		const token = log.address.toLowerCase()
+		totals.set(token, (totals.get(token) ?? 0n) + log.args.value)
+	}
+	return totals
+}
+
+async function deliverToHandler(chain: LiveChain, calldata: HexString): Promise<TransactionReceipt> {
+	const { handler } = await chain.evm.client.readContract({
+		address: chain.host,
+		abi: EVM_HOST.ABI,
+		functionName: "hostParams",
+	})
+	const estimate = await chain.evm.client.estimateGas({
+		account: chain.wallet.account,
+		to: handler,
+		data: calldata,
+	})
+	const padded = estimate + DELIVERY_GAS_HEADROOM
+	const gas = padded < MAX_TX_GAS ? padded : MAX_TX_GAS
+	const hash = await chain.wallet.sendTransaction({ to: handler, data: calldata, gas })
+	console.log(`[deliver] tx ${hash} to the ${chain.id} handler`)
+	const receipt = await chain.evm.client.waitForTransactionReceipt({ hash })
+	assert.equal(receipt.status, "success", `Delivery to the ${chain.id} handler reverted`)
+	return receipt
 }

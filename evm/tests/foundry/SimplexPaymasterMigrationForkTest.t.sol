@@ -95,13 +95,13 @@ abstract contract SimplexPaymasterMigrationForkTest is Test {
         uint256 markupBps = paymaster.markupBps();
         uint256 maxOracleAge = paymaster.maxOracleAge();
         uint256 swapSlippageBps = paymaster.swapSlippageBps();
-        uint256 deposited = v08Before.deposit + balanceBefore - v08Before.stake;
+        uint256 funds = v08Before.deposit + balanceBefore;
+        uint256 staked = funds >= v08Before.stake ? v08Before.stake : 0;
+        uint256 deposited = funds - staked;
 
         address implementation = address(new SimplexPaymaster());
         vm.expectEmit(true, true, true, true, address(paymaster));
-        emit SimplexPaymaster.EntryPointMigrated(
-            v08Before.deposit, v08Before.stake, v08Before.unstakeDelaySec, deposited
-        );
+        emit SimplexPaymaster.EntryPointMigrated(v08Before.deposit, staked, v08Before.unstakeDelaySec, deposited);
         _migrate(implementation);
 
         assertEq(paymaster.version(), 3);
@@ -117,9 +117,9 @@ abstract contract SimplexPaymasterMigrationForkTest is Test {
         if (v08Before.staked) assertEq(v08.withdrawTime, block.timestamp + v08Before.unstakeDelaySec);
 
         IStakeManager.DepositInfo memory v09 = ENTRY_POINT_V09.getDepositInfo(address(paymaster));
-        assertEq(v09.staked, v08Before.stake > 0);
-        assertEq(v09.stake, v08Before.stake, "v0.9 stake copies v0.8");
-        assertEq(v09.unstakeDelaySec, v08Before.unstakeDelaySec, "v0.9 delay copies v0.8");
+        assertEq(v09.staked, staked > 0);
+        assertEq(v09.stake, staked, "v0.9 stake copies v0.8 when funded");
+        if (staked > 0) assertEq(v09.unstakeDelaySec, v08Before.unstakeDelaySec, "v0.9 delay copies v0.8");
         assertEq(v09.deposit, v09Before.deposit + deposited);
         assertEq(v09.stake + v09.deposit, v09Before.deposit + v08Before.deposit + balanceBefore, "no native lost");
         assertEq(address(paymaster).balance, 0);

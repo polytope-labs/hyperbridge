@@ -275,7 +275,6 @@ contract SimplexPaymaster is Initializable, HyperApp, PaymasterERC20 {
     error LengthMismatch();
     error UnauthorizedRelayer();
     error UnauthorizedBundler(address origin);
-    error InsufficientStakeFunds(uint256 balance, uint256 stake);
 
     constructor() {
         _disableInitializers();
@@ -324,22 +323,23 @@ contract SimplexPaymaster is Initializable, HyperApp, PaymasterERC20 {
     /// @dev Host-only, so reachable only as the init data of an `UpgradeContract` request, which
     ///      delegatecalls it with the host still `msg.sender`; one-shot through the reinitializer.
     ///      The v0.8 stake stays locked for its unstake delay, so the v0.9 stake is funded from the
-    ///      withdrawn deposit and any native held; reverts with {InsufficientStakeFunds} when that
-    ///      falls short, leaving the proxy at its version so governance can retry after a top-up.
-    ///      {withdrawStakeV08} later sweeps the unlocked v0.8 stake to the treasury.
+    ///      withdrawn deposit and any native held. When that falls short the v0.9 stake is skipped,
+    ///      everything is deposited, and the treasury stakes later through {addStake}.
+    ///      {withdrawStakeV08} sweeps the unlocked v0.8 stake to the treasury once its delay passes.
     function migrate() external onlyHost onlyPreviousVersion reinitializer(VERSION) {
         IStakeManager.DepositInfo memory info = IStakeManager(address(ENTRYPOINT_V08)).getDepositInfo(address(this));
         if (info.deposit > 0) ENTRYPOINT_V08.withdrawTo(payable(address(this)), info.deposit);
         if (info.staked) ENTRYPOINT_V08.unlockStake();
 
-        if (info.stake > 0) {
-            if (address(this).balance < info.stake) revert InsufficientStakeFunds(address(this).balance, info.stake);
-            entryPoint().addStake{value: info.stake}(info.unstakeDelaySec);
+        uint256 staked;
+        if (info.stake > 0 && address(this).balance >= info.stake) {
+            staked = info.stake;
+            entryPoint().addStake{value: staked}(info.unstakeDelaySec);
         }
 
         uint256 deposited = address(this).balance;
         if (deposited > 0) entryPoint().depositTo{value: deposited}(address(this));
-        emit EntryPointMigrated(info.deposit, info.stake, info.unstakeDelaySec, deposited);
+        emit EntryPointMigrated(info.deposit, staked, info.unstakeDelaySec, deposited);
     }
 
     /// @notice Sweeps the EntryPoint v0.8 stake that {migrate} unlocked to the treasury.

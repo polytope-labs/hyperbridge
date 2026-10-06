@@ -26,9 +26,8 @@ upgrade transaction it:
 4. deposits the remaining native into v0.9;
 5. emits `EntryPointMigrated(withdrawn, staked, unstakeDelaySec, deposited)`.
 
-If the native balance does not cover the stake, `migrate` reverts `InsufficientStakeFunds(balance,
-stake)` and the proxy stays at version 2. The request can be delivered again after native is sent
-to the proxy.
+If the native balance does not cover the stake, `migrate` skips the v0.9 stake, deposits
+everything, and emits `staked` as 0. The treasury then stakes on v0.9 through `addStake`.
 
 `withdrawStakeV08()` is permissionless. It sends the v0.8 stake to the treasury once the v0.8
 unstake delay has passed (86400 seconds on the live chains). A chain with no v0.8 stake, such as

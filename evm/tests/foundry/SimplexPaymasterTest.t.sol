@@ -823,28 +823,44 @@ contract SimplexPaymasterTest is Test {
         assertEq(v09.deposit, 2 ether);
     }
 
-    /// Short of native for the v0.9 stake, nothing moves and the proxy stays at version 2, so
-    /// governance can deliver the same upgrade again once the proxy is topped up.
-    function testMigrateRevertsWhenStakeExceedsFunds() public {
+    /// Short of native for the v0.9 stake, the migration still lands with everything deposited,
+    /// and the treasury stakes on v0.9 by hand.
+    function testMigrateSkipsStakeWhenFundsFallShort() public {
         _seedV08(paymaster, 0.5 ether, 1 ether);
-        address before = _implementation(address(paymaster));
-        bytes memory payload = _upgradePayload(address(new SimplexPaymasterHarness()), _migrateCall());
+        address newImpl = address(new SimplexPaymasterHarness());
 
-        vm.prank(address(hyperbridgeHost));
-        vm.expectRevert(abi.encodeWithSelector(SimplexPaymaster.InsufficientStakeFunds.selector, 0.5 ether, 1 ether));
-        paymaster.onAccept(_request(HYPERBRIDGE_ID, SimplexPaymaster.RequestKind.UpgradeContract, payload));
+        vm.expectEmit(true, true, true, true, address(paymaster));
+        emit SimplexPaymaster.EntryPointMigrated(0.5 ether, 0, UNSTAKE_DELAY, 0.5 ether);
+        _govern(SimplexPaymaster.RequestKind.UpgradeContract, _upgradePayload(newImpl, _migrateCall()));
 
-        assertEq(paymaster.version(), 2);
-        assertEq(_implementation(address(paymaster)), before);
-        assertEq(entryPointV08.balanceOf(address(paymaster)), 0.5 ether);
-        assertTrue(entryPointV08.getDepositInfo(address(paymaster)).staked);
-
-        (bool sent,) = address(paymaster).call{value: 0.5 ether}("");
-        assertTrue(sent);
-        _govern(SimplexPaymaster.RequestKind.UpgradeContract, payload);
         assertEq(paymaster.version(), 3);
-        assertEq(entryPoint.stakeOf(address(paymaster)), 1 ether);
-        assertEq(entryPoint.balanceOf(address(paymaster)), 0);
+        assertEq(_implementation(address(paymaster)), newImpl);
+
+        IStakeManager.DepositInfo memory v08 = entryPointV08.getDepositInfo(address(paymaster));
+        assertEq(v08.deposit, 0);
+        assertFalse(v08.staked);
+        assertEq(v08.stake, 1 ether);
+        assertEq(v08.withdrawTime, block.timestamp + UNSTAKE_DELAY);
+
+        IStakeManager.DepositInfo memory v09 = entryPoint.getDepositInfo(address(paymaster));
+        assertFalse(v09.staked);
+        assertEq(v09.stake, 0);
+        assertEq(v09.deposit, 0.5 ether);
+        assertEq(address(paymaster).balance, 0);
+
+        vm.warp(block.timestamp + UNSTAKE_DELAY);
+        paymaster.withdrawStakeV08();
+        assertEq(treasury.balance, 1 ether);
+        assertEq(entryPointV08.stakeOf(address(paymaster)), 0);
+
+        vm.prank(treasury);
+        paymaster.addStake{value: 1 ether}(UNSTAKE_DELAY);
+        v09 = entryPoint.getDepositInfo(address(paymaster));
+        assertTrue(v09.staked);
+        assertEq(v09.stake, 1 ether);
+        assertEq(v09.unstakeDelaySec, UNSTAKE_DELAY);
+        assertEq(v09.deposit, 0.5 ether);
+        assertEq(treasury.balance, 0);
     }
 
     function testMigratePreservesState() public {

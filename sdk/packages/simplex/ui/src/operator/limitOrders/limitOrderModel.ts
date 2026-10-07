@@ -35,19 +35,87 @@ export function legs(order: Pick<LimitOrder, "side" | "base" | "quote">): { inpu
 }
 
 /**
- * "1,500 CNGN per USDC" — the rate as the operator stated it. Rounded, not cut: the price is
- * one amount divided by the other, so a rate typed as 1374 can be stored a few 1e-18 under it.
+ * The rate as the operator stated it, in two parts: the figure a row sets large, and what it is a
+ * rate of. Rounded, not cut: the price is one amount divided by the other, so a rate typed as
+ * 1374 can be stored a few 1e-18 under it.
  */
+export function rateParts(order: Pick<LimitOrder, "base" | "quote" | "price">): { figure: string; unit: string } {
+	return { figure: fromScaled(order.price, 6, "nearest"), unit: `${order.quote} per ${order.base}` }
+}
+
+/** "1,500 CNGN per USDC" — the rate on one line. */
 export function describeRate(order: Pick<LimitOrder, "side" | "base" | "quote" | "price">): string {
-	return `${fromScaled(order.price, 6, "nearest")} ${order.quote} per ${order.base}`
+	const { figure, unit } = rateParts(order)
+	return `${figure} ${unit}`
+}
+
+/** The lists a side's orders are kept in. */
+export type OrderTab = "live" | "filled" | "cancelled"
+
+/**
+ * Which list an order belongs in. A `resizing` order is live: its repost is in flight and it goes
+ * straight back on the book. Everything that closed without filling, whether withdrawn, expired
+ * or refused by the orderbook, is kept in one list and told apart by its badge.
+ */
+export function tabOf(order: Pick<LimitOrder, "status">): OrderTab {
+	if (order.status === "open" || order.status === "resizing") return "live"
+	return order.status === "filled" ? "filled" : "cancelled"
+}
+
+/**
+ * How far an order has been worked down, as percentages of its cap: what has been consumed, and
+ * what live bids hold of the rest. Cut to hundredths rather than rounded, so a bar never shows
+ * more consumed than was.
+ *
+ * Bids each hold against what is left without counting one another, so `reserved` can pass
+ * `remaining`. It is capped there, which keeps the two parts inside the cap.
+ */
+export function progressOf(order: Pick<LimitOrder, "size" | "remaining" | "reserved">): {
+	consumed: number
+	held: number
+} {
+	let size: bigint
+	let remaining: bigint
+	let reserved: bigint
+	try {
+		size = BigInt(order.size)
+		remaining = BigInt(order.remaining)
+		reserved = BigInt(order.reserved)
+	} catch {
+		return { consumed: 0, held: 0 }
+	}
+	if (size <= 0n) return { consumed: 0, held: 0 }
+
+	const left = remaining < 0n ? 0n : remaining > size ? size : remaining
+	const held = reserved < 0n ? 0n : reserved > left ? left : reserved
+	const percent = (part: bigint) => Number((part * 10_000n) / size) / 100
+	return { consumed: percent(size - left), held: percent(held) }
+}
+
+/**
+ * "62% filled", and in words at either end, where a figure would say less: an order nothing has
+ * touched, and one that has paid out its whole cap. Whole percents in between, with decimals only
+ * where a whole one would read as 0 or 100.
+ */
+export function describeProgress(order: Pick<LimitOrder, "size" | "remaining" | "reserved" | "status">): string {
+	const { consumed } = progressOf(order)
+	if (consumed >= 100) return "Filled in full"
+	if (consumed >= 1 && consumed < 99) return `${Math.floor(consumed)}% filled`
+	if (consumed >= 0.01) return `${consumed}% filled`
+	// Under a hundredth of a percent is still a fill, and worth telling from none at all.
+	if (order.remaining !== order.size) return "<0.01% filled"
+	return tabOf(order) === "live" ? "Nothing filled yet" : "Nothing filled"
 }
 
 export type Tone = "" | "ok" | "warn" | "err"
 
+/** The label of an order that is live on the orderbook, healthy or not. */
+const ON_THE_BOOK = "On the book"
+
 /**
  * What the operator needs to know at a glance, which is not quite the status
  * column: an order can be `open` and still not be on the book, either because
- * its posting is in flight or because the last one was refused.
+ * its posting is in flight or because the last one failed and is waiting to be made again.
  */
 export function statusOf(order: LimitOrder): { label: string; tone: Tone; detail?: string } {
 	if (order.status === "cancelled") return { label: "Cancelled", tone: "" }
@@ -69,9 +137,21 @@ export function statusOf(order: LimitOrder): { label: string; tone: Tone; detail
 		return { label: "Refused", tone: "err", detail: order.lastError ?? undefined }
 	}
 	if (order.status === "resizing") return { label: "Resizing", tone: "warn", detail: "a fill is being settled" }
-	if (order.lastError) return { label: "On the book", tone: "warn", detail: order.lastError }
-	if (!order.commitment) return { label: "Posting", tone: "warn", detail: "not on the book yet" }
-	return { label: "On the book", tone: "ok" }
+	// Without a commitment nothing is on the book, whatever else the row says. A posting the
+	// orderbook could not decide leaves the order open with the reason on it, to be posted again.
+	if (!order.commitment) return { label: "Posting", tone: "warn", detail: order.lastError ?? "not on the book yet" }
+	if (order.lastError) return { label: ON_THE_BOOK, tone: "warn", detail: order.lastError }
+	return { label: ON_THE_BOOK, tone: "ok" }
+}
+
+/**
+ * The badge a row in the list carries, or none. Being in the live list already says an order is
+ * on the book, so a row is badged only for a status the operator has to read. An order on the
+ * book with a problem reported against it goes unbadged too, and its row shows the reason instead.
+ */
+export function rowBadge(order: LimitOrder): { label: string; tone: Tone } | null {
+	const { label, tone } = statusOf(order)
+	return label === ON_THE_BOOK ? null : { label, tone }
 }
 
 /** Which way round the operator trades the book's base: buying it in, or selling it out. */

@@ -316,21 +316,18 @@ button.limit-order-new-button > span {
 	line-height: 1;
 }
 
-.operator-market-list,
 .operator-tool-list {
 	border-top: 1px solid var(--border);
 }
 
 /*
- * Each of these lists ends its section, and the section draws its own bottom
- * rule, so a last row that draws one too leaves two lines a padding apart.
+ * The list ends its section, and the section draws its own bottom rule, so a
+ * last row that draws one too leaves two lines a padding apart.
  */
-.operator-market-list > *:last-child,
 .operator-tool-list > *:last-child {
 	border-bottom: 0;
 }
 
-button.operator-market-row:last-child,
 button.operator-tool-row:last-child {
 	border-bottom: 0;
 }
@@ -612,7 +609,6 @@ button.operator-tool-row:last-child {
 }
 
 .operator-balance-value,
-.operator-market-copy,
 .operator-tool-row > span {
 	display: grid;
 	gap: 0.18rem;
@@ -631,7 +627,6 @@ button.operator-tool-row:last-child {
 	white-space: nowrap;
 }
 
-button.operator-market-row,
 button.operator-tool-row {
 	display: grid;
 	align-items: center;
@@ -646,31 +641,21 @@ button.operator-tool-row {
 	text-align: left;
 }
 
-/* Pair icons, side, what is left and at what rate, status, chevron. */
-button.operator-market-row {
-	grid-template-columns: 3.25rem 4.25rem minmax(10rem, 1fr) minmax(7rem, auto) 1.2rem;
-	gap: 0.85rem;
-}
-
-button.operator-market-row:hover:not(:disabled),
 button.operator-tool-row:hover:not(:disabled) {
 	background: rgba(255, 255, 255, 0.018);
 }
 
-.operator-market-row > svg,
 .operator-tool-row > svg {
 	width: 1rem;
 	height: 1rem;
 	color: var(--muted);
 }
 
-.operator-market-copy strong,
 .operator-tool-row strong {
 	font-size: 0.875rem;
 	font-weight: 500;
 }
 
-.operator-market-copy small,
 .operator-tool-row small {
 	overflow: hidden;
 	color: var(--muted);
@@ -2397,9 +2382,245 @@ button.operator-runtime-stop:hover:not(:disabled) {
 }
 
 /*
- * Limit orders: the operator's standing offers. The rows reuse the market row,
- * so what is new here is the detail sheet's fact list, the source-chain
- * checkboxes on the create form, and the fills behind a shrunken `remaining`.
+ * Limit orders: the operator's standing offers. The list is tabbed by side and
+ * by status, and each row is a bar of how much of the order has gone out.
+ */
+.limit-order-tabs {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	justify-content: space-between;
+	gap: 0.75rem;
+	margin-bottom: 1rem;
+}
+
+.limit-order-tabs .steps {
+	margin: 0;
+}
+
+/* The create form's buy and sell halves, here sized to their labels and to the status pills beside them. */
+.limit-order-tabs .limit-order-sides {
+	display: inline-grid;
+	border-radius: 0.9rem;
+}
+
+.limit-order-tabs button.limit-order-side {
+	min-height: 2.35rem;
+	padding: 0.45rem 1rem;
+	border-radius: 0.65rem;
+}
+
+.limit-order-list {
+	display: grid;
+	gap: 0.5rem;
+}
+
+/* Pair icons, the rate, how far it has filled, the cap. */
+button.limit-order-item {
+	--consumed: 0%;
+	--held: 0%;
+	--bar-fill: color-mix(in srgb, var(--ok) 12%, transparent);
+	--bar-edge: color-mix(in srgb, var(--ok) 70%, transparent);
+	--bar-held: color-mix(in srgb, var(--ok) 30%, transparent);
+	position: relative;
+	display: grid;
+	grid-template-columns: 3.25rem 11rem minmax(0, 1fr) auto;
+	justify-content: stretch;
+	gap: 1.25rem;
+	width: 100%;
+	min-height: 5.25rem;
+	padding: 0.875rem 1.375rem 0.875rem 1rem;
+	overflow: hidden;
+	background: var(--control);
+	text-align: left;
+}
+
+/* Selling reads red, as it does on the side control. An order that closed unfilled has no side left to it. */
+button.limit-order-item[data-side="ASK"] {
+	--bar-fill: color-mix(in srgb, var(--err) 12%, transparent);
+	--bar-edge: color-mix(in srgb, var(--err) 70%, transparent);
+	--bar-held: color-mix(in srgb, var(--err) 30%, transparent);
+}
+
+button.limit-order-item[data-tab="cancelled"] {
+	--bar-fill: rgba(255, 255, 255, 0.055);
+	--bar-edge: rgba(255, 255, 255, 0.28);
+	--bar-held: transparent;
+}
+
+button.limit-order-item:hover:not(:disabled) {
+	background: var(--control);
+}
+
+/* The base press scale is sized for a button, and would visibly shrink a full-width row. */
+button.limit-order-item:active:not(:disabled) {
+	transform: scale(0.995);
+}
+
+button.limit-order-item::before,
+button.limit-order-item::after {
+	content: "";
+	position: absolute;
+	bottom: 0;
+	pointer-events: none;
+	transition:
+		left 400ms var(--ease-out),
+		width 400ms var(--ease-out);
+}
+
+/*
+ * What has gone out: a wash the height of the row, ruled along the bottom so a thin fill is
+ * still a mark. The rule is along the bottom rather than at the fill's edge, which would cut
+ * through whatever copy it happened to land on.
+ */
+button.limit-order-item::before {
+	top: 0;
+	left: 0;
+	width: var(--consumed);
+	background: var(--bar-fill);
+	box-shadow: inset 0 -3px 0 var(--bar-edge);
+}
+
+/* What live bids are holding of the rest, promised and not yet paid: the rule carried on, fainter. */
+button.limit-order-item::after {
+	left: var(--consumed);
+	width: var(--held);
+	height: 3px;
+	background: var(--bar-held);
+}
+
+/* Above the bar, which is positioned and would otherwise paint over the copy. */
+button.limit-order-item > * {
+	position: relative;
+	z-index: 1;
+}
+
+.limit-order-item-rate,
+.limit-order-item-progress,
+.limit-order-item-cap {
+	display: grid;
+	gap: 0.375rem;
+	min-width: 0;
+}
+
+.limit-order-item-rate strong {
+	font-size: clamp(1.4rem, 2.2vw, 1.65rem);
+	font-weight: 500;
+	letter-spacing: -0.035em;
+	line-height: 1;
+}
+
+.limit-order-item-rate small {
+	color: var(--muted);
+	font-size: 0.6875rem;
+	font-weight: 400;
+}
+
+.limit-order-item-progress > span {
+	display: flex;
+	align-items: center;
+	gap: 0.625rem;
+}
+
+.limit-order-item-progress strong,
+.limit-order-item-cap strong {
+	font-size: 0.875rem;
+	font-weight: 500;
+}
+
+.limit-order-item-progress small {
+	overflow: hidden;
+	color: var(--muted);
+	font-size: 0.75rem;
+	font-weight: 400;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.limit-order-item-progress small[data-tone="warn"] {
+	color: var(--warn);
+}
+
+.limit-order-item-cap {
+	justify-items: end;
+	text-align: right;
+}
+
+.limit-order-item-cap small {
+	color: var(--muted);
+	font-family: var(--font-mono);
+	font-size: 0.625rem;
+	font-weight: 500;
+	letter-spacing: 0.1em;
+	text-transform: uppercase;
+}
+
+.limit-order-item-cap strong {
+	white-space: nowrap;
+}
+
+.limit-order-item-cap strong span {
+	color: var(--muted);
+	font-size: 0.75rem;
+	font-weight: 400;
+}
+
+/* The two controls each take the full width, sized for a thumb. */
+@media (max-width: 40rem) {
+	.limit-order-tabs {
+		display: grid;
+		grid-template-columns: minmax(0, 1fr);
+		gap: 0.5rem;
+	}
+
+	.limit-order-tabs .limit-order-sides {
+		display: grid;
+	}
+
+	.limit-order-tabs .steps {
+		display: grid;
+		grid-template-columns: repeat(3, minmax(0, 1fr));
+	}
+
+	.limit-order-tabs button.limit-order-side,
+	.limit-order-tabs .steps .step {
+		min-height: 2.75rem;
+		padding-inline: 0.5rem;
+	}
+}
+
+/*
+ * Two rows: the pair, its rate and the cap above, how far it has filled below. At the width the
+ * dashboard's other rows fold, since one line would otherwise cut the copy short.
+ */
+@media (max-width: 900px) {
+	button.limit-order-item {
+		grid-template-columns: 3.25rem minmax(0, 1fr) auto;
+		gap: 0.875rem 0.75rem;
+		padding: 0.875rem;
+	}
+
+	.limit-order-item-cap {
+		align-self: start;
+	}
+
+	.limit-order-item-progress {
+		grid-area: 2 / 1 / 3 / -1;
+	}
+
+	.limit-order-item-progress > span {
+		justify-content: space-between;
+	}
+
+	.limit-order-item-progress small {
+		line-height: 1.45;
+		white-space: normal;
+	}
+}
+
+/*
+ * The detail sheet's fact list, the source-chain checkboxes on the create
+ * form, and the fills behind a shrunken `remaining`.
  */
 .limit-order-facts {
 	display: grid;

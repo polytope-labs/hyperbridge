@@ -63,8 +63,9 @@ export function useLimitOrders(options: { status?: LimitOrderStatus | "" } = {})
 
 	const create = useCallback(
 		async (request: CreateLimitOrderRequest) => {
-			await api.post("/api/limit-orders", request)
+			const { order } = await api.post<{ order: LimitOrder }>("/api/limit-orders", request)
 			await load()
+			return order
 		},
 		[load],
 	)

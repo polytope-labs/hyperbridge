@@ -7,9 +7,12 @@ import type {
 	BidInsert,
 	BidStats,
 	BidStore,
+	InventorySnapshot,
+	InventoryStore,
 	LimitOrder,
 	LimitOrderFill,
 	LimitOrderFillInsert,
+	LimitOrderFillRecord,
 	LimitOrderFilter,
 	LimitOrderHold,
 	LimitOrderInsert,
@@ -352,8 +355,19 @@ class MemoryLimitOrderStore implements LimitOrderStore {
 			commitment: fill.commitment,
 			bid: fill.bid ?? null,
 			amount: fill.amount,
+			amountIn: fill.amountIn ?? null,
 			transactionHash: fill.transactionHash ?? null,
 			filledAt: sqliteDatetime(new Date()),
+		})
+	}
+
+	async fillHistory(): Promise<LimitOrderFillRecord[]> {
+		return this.fillRows.flatMap((fill) => {
+			const order = this.orders.get(fill.limitOrderId)
+			if (!order) return []
+			const { id, limitOrderId, amount, amountIn, filledAt } = fill
+			const { book, base, quote, side, price } = order
+			return [{ id, limitOrderId, book, base, quote, side, price, amount, amountIn, filledAt }]
 		})
 	}
 
@@ -505,9 +519,28 @@ class MemoryStateStore implements StateStore {
  * durable store: a lost bid record is a Hyperbridge deposit nobody retracts.
  * Settled rows are evicted past a cap; live bids (deposits still reclaimable) are never dropped.
  */
+class MemoryInventoryStore implements InventoryStore {
+	private rows: InventorySnapshot[] = []
+
+	async record(balances: Record<string, number>): Promise<void> {
+		this.rows.push({ id: this.rows.length + 1, takenAt: sqliteDatetime(new Date()), balances: { ...balances } })
+	}
+
+	async latest(): Promise<InventorySnapshot | null> {
+		const last = this.rows[this.rows.length - 1]
+		return last ? { ...last, balances: { ...last.balances } } : null
+	}
+
+	async since(from: Date): Promise<InventorySnapshot[]> {
+		const cutoff = sqliteDatetime(from)
+		return this.rows.filter((row) => row.takenAt >= cutoff).map((row) => ({ ...row, balances: { ...row.balances } }))
+	}
+}
+
 export class MemoryDataStore implements SimplexDataStore {
 	readonly bids: BidStore = new MemoryBidStore()
 	readonly activity: ActivityStore = new MemoryActivityStore()
 	readonly state: StateStore = new MemoryStateStore()
 	readonly limitOrders: LimitOrderStore = new MemoryLimitOrderStore()
+	readonly inventory: InventoryStore = new MemoryInventoryStore()
 }

@@ -34,6 +34,7 @@ import type {
 } from "@/data/types"
 import { OrderbookRequestError } from "@/orderbook/client"
 import { LimitOrderValidationError, type CreateLimitOrderRequest } from "@/orderbook/limit-orders"
+import { isProfitPeriod } from "@/orderbook/profitability"
 import type { LimitOrderController } from "@/simplex"
 import type { BalanceProvider } from "../BalanceProvider"
 import { getLogger, type LogLevel } from "../Logger"
@@ -181,7 +182,15 @@ export interface OperatorContext {
 	/** The operator's limit orders. Always present: simplex prices from them. */
 	limitOrders: Pick<
 		LimitOrderController,
-		"list" | "get" | "withFills" | "create" | "cancel" | "books" | "orderbookSnapshot" | "orderbookLevelOrders"
+		| "list"
+		| "get"
+		| "withFills"
+		| "create"
+		| "cancel"
+		| "books"
+		| "orderbookSnapshot"
+		| "orderbookLevelOrders"
+		| "profitability"
 	>
 	/** Persists an operator pause so it survives a restart. */
 	setPaused(paused: boolean): Promise<void>
@@ -957,6 +966,21 @@ export class UiServer {
 			if (this.mode !== "operator") return sendJson(res, 409, { error: "Filler is not running" })
 			if (method !== "GET") return sendJson(res, 405, { error: "Method not allowed" })
 			return this.handleLimitOrders(res, () => this.operator!.limitOrders.books())
+		}
+
+		if (path === "/api/analytics/profitability") {
+			if (this.mode !== "operator") return sendJson(res, 409, { error: "Filler is not running" })
+			if (method !== "GET") return sendJson(res, 405, { error: "Method not allowed" })
+			const params = new URL(req.url ?? "/", "http://localhost").searchParams
+			const period = params.get("period") ?? "7d"
+			if (!isProfitPeriod(period)) return sendJson(res, 400, { error: "period must be 7d, 30d, 12w, 12m or all" })
+			// What `getTimezoneOffset` gives on the viewer's clock, so a day is theirs. No zone is
+			// further than fourteen hours from UTC.
+			const tz = Number(params.get("tz") ?? 0)
+			if (!Number.isInteger(tz) || Math.abs(tz) > 14 * 60) {
+				return sendJson(res, 400, { error: "tz must be a whole number of minutes" })
+			}
+			return this.handleLimitOrders(res, () => this.operator!.limitOrders.profitability(period, tz))
 		}
 
 		if (path === "/api/orderbook/snapshot") {

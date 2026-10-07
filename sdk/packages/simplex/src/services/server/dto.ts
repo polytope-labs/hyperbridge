@@ -248,6 +248,17 @@ export interface BidStatsDto {
 	pendingRetraction: number
 }
 
+/** GET /api/analytics/profitability */
+export type {
+	BookProfit,
+	ProfitBucket,
+	ProfitBucketFigures,
+	ProfitFigures,
+	Profitability as ProfitabilityDto,
+	ProfitPeriod,
+	StartingInventory,
+} from "@/orderbook/profitability"
+
 export interface SendTokenOption {
 	symbol: string
 	address: string

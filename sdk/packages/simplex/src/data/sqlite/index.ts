@@ -2,14 +2,23 @@ import { existsSync, mkdirSync } from "node:fs"
 import { join } from "node:path"
 import { DatabaseSync } from "node:sqlite"
 import { defaultLoggerContext, type Logger, type LoggerContext } from "@/services/Logger"
-import type { ActivityStore, BidStore, LimitOrderStore, SimplexDataStore, StateStore } from "@/data/types"
+import type {
+	ActivityStore,
+	BidStore,
+	InventoryStore,
+	LimitOrderStore,
+	SimplexDataStore,
+	StateStore,
+} from "@/data/types"
 import { SqliteActivityStore } from "./activity"
 import { SqliteBidStore } from "./bids"
+import { SqliteInventoryStore } from "./inventory"
 import { SqliteLimitOrderStore } from "./limit-orders"
 import { SqliteStateStore } from "./state"
 
 export { SqliteActivityStore } from "./activity"
 export { SqliteBidStore } from "./bids"
+export { SqliteInventoryStore } from "./inventory"
 export { SqliteLimitOrderStore } from "./limit-orders"
 export { SqliteStateStore } from "./state"
 
@@ -35,6 +44,7 @@ const BUSY_TIMEOUT_MS = 5_000
  * `activity.db`) so an existing data directory written by an earlier version is
  * picked up unchanged. Operator state and limit orders ride in `bids.db` beside
  * the bids; a `runtime-state.json` from before that is imported once and deleted.
+ * Inventory snapshots ride in `activity.db`, which is the history.
  *
  * Built on `node:sqlite`, so there is nothing to install and nothing to
  * compile — the engine ships inside the Node runtime. That is why the package
@@ -46,6 +56,7 @@ export class SqliteDataStore implements SimplexDataStore {
 	readonly activity: ActivityStore
 	readonly state: StateStore
 	readonly limitOrders: LimitOrderStore
+	readonly inventory: InventoryStore
 
 	private databases: DatabaseSync[]
 	private logger: Logger
@@ -65,6 +76,7 @@ export class SqliteDataStore implements SimplexDataStore {
 		this.activity = new SqliteActivityStore(activityDb, loggers)
 		this.state = new SqliteStateStore(bidsDb, dataDir, loggers)
 		this.limitOrders = new SqliteLimitOrderStore(bidsDb, loggers)
+		this.inventory = new SqliteInventoryStore(activityDb)
 
 		this.logger.info({ dataDir }, "SQLite data store opened")
 	}

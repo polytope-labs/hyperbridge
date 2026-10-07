@@ -323,6 +323,56 @@ describe("a bid drawing on several limit orders", () => {
 
 			expect(ctx.settled).toEqual([[LIMIT_ORDER, 500n * 10n ** 18n]])
 		})
+
+		it("records what a fill took in, at 1e18, from the decimals its hold carries", async () => {
+			const ctx = await build()
+			await ctx.limitOrders.reserve(LIMIT_ORDER, (1000n * 10n ** 18n).toString())
+			await ctx.limitOrders.reserve(SECOND_ORDER, (980n * 10n ** 18n).toString())
+			// The first bid's take is counted in a six-decimal token; the second predates fills
+			// keeping what they took in, and says nothing about its take's decimals.
+			await ctx.bids.store({
+				commitment: COMMITMENT,
+				bid: FIRST_BID,
+				success: true,
+				reservations: [
+					{ limitOrderId: LIMIT_ORDER, amount: (1000n * 10n ** 18n).toString(), take: "100000000", takeDecimals: 6 },
+				],
+			})
+			const other = "0xfeed00000000000000000000000000000000000000000000000000000000beef"
+			await ctx.bids.store({
+				commitment: other,
+				bid: SECOND_BID,
+				success: true,
+				reservations: [{ limitOrderId: SECOND_ORDER, amount: (980n * 10n ** 18n).toString(), take: "99" }],
+			})
+			// biome-ignore lint/suspicious/noExplicitAny: narrow stubs for this path
+			;(ctx.filler as any).assetRegistry = { getAddress: () => CNGN }
+			// biome-ignore lint/suspicious/noExplicitAny: narrow stubs for this path
+			;(ctx.filler as any).contractService = { getTokenDecimals: async () => 18 }
+			// biome-ignore lint/suspicious/noExplicitAny: narrow stubs for this path
+			;(ctx.filler as any).limitOrderService = { resize: async () => null }
+
+			// Half the first bid's take is released: 50 of the six-decimal token.
+			// biome-ignore lint/suspicious/noExplicitAny: the settlement path is private
+			await (ctx.filler as any).settleFilledLimitOrder(
+				COMMITMENT,
+				8453,
+				[{ token: CNGN, amount: 500n * 10n ** 18n }],
+				[{ token: OTHER, amount: 50_000_000n }],
+			)
+			// biome-ignore lint/suspicious/noExplicitAny: the settlement path is private
+			await (ctx.filler as any).settleFilledLimitOrder(
+				other,
+				8453,
+				[{ token: CNGN, amount: 980n * 10n ** 18n }],
+				[{ token: OTHER, amount: 99n }],
+			)
+
+			expect((await ctx.limitOrders.fills(LIMIT_ORDER)).map((fill) => [fill.amount, fill.amountIn])).toEqual([
+				[(500n * 10n ** 18n).toString(), (50n * 10n ** 18n).toString()],
+			])
+			expect((await ctx.limitOrders.fills(SECOND_ORDER)).map((fill) => fill.amountIn)).toEqual([null])
+		})
 	})
 
 	it("claims the holds of every bid on the order, so none is left behind", async () => {

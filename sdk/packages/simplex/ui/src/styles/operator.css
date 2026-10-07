@@ -205,15 +205,17 @@ button.operator-nav-item[data-active="true"] {
 	border-bottom: 1px solid var(--border);
 }
 
-.operator-metrics > div {
+.operator-metrics > * {
 	display: grid;
+	/* A cell with a note under its figure is taller, and the others must not spread out to match. */
+	align-content: start;
 	gap: 0.45rem;
 	min-width: 0;
 	padding: 0 1.25rem;
 	border-left: 1px solid var(--border);
 }
 
-.operator-metrics > div:first-child {
+.operator-metrics > *:first-child {
 	padding-left: 0;
 	border-left: 0;
 }

@@ -354,6 +354,24 @@ withFills(id: string): Promise<{
 } | null>
 ```
 
+### profitability(period, tzOffsetMinutes?)
+
+What your fills earned over a period: `"7d"`, `"30d"`, `"12w"`, `"12m"` or `"all"`. Profit is the
+change the period's fills made to what the solver holds, each token valued at its latest rate, and
+it is compared with the inventory the period began with. `tzOffsetMinutes` is what
+`getTimezoneOffset()` returns on the clock the buckets should be cut on, and defaults to UTC.
+
+```typescript lineNumbers
+profitability(period: ProfitPeriod, tzOffsetMinutes?: number): Promise<Profitability>
+```
+
+The result holds `totals`, one `series` entry per bucket, one `books` entry per pair,
+`startInventory`, `estimatedFills` and `unpricedTokens`, as plain numbers in whole tokens and
+dollars. The [profitability route](/developers/evm/simplex/api/limit-orders#get-apianalyticsprofitability)
+describes each field. It reads the data store and the balances already in memory, and asks the
+indexer what moved between the moments it compares. It answers without an orderbook configured,
+and without the indexer, which only costs it the deposits and withdrawals no fill shows.
+
 ### books()
 
 What the orderbook will take: the books it lists, the smallest payout (dust floor, 1e18 scale) it
@@ -393,7 +411,9 @@ use on their own chains.
 | `createdAt`, `updatedAt` | `string` | SQLite-style `"YYYY-MM-DD HH:MM:SS"` in UTC |
 
 `LimitOrderFill`: `id`, `limitOrderId`, `commitment` (the swap it settled), `bid`, `amount` (what
-it drew the order down by, 1e18 in the payout token), `transactionHash`, `filledAt`.
+it drew the order down by, 1e18 in the payout token), `amountIn` (what it took in, 1e18 in the
+token the order takes in, or `null` for a fill recorded before it was kept), `transactionHash`,
+`filledAt`.
 
 ### Over HTTP
 
@@ -409,6 +429,7 @@ unknown id a `404` on `GET` and a `400` on `DELETE`. The
 | `GET /api/limit-orders/:id` | `withFills(id)` | `{ order, fills, bids }` |
 | `DELETE /api/limit-orders/:id` | `cancel(id)` | `{ order, result }` |
 | `GET /api/orderbook/books` | `books()` | `{ books, minOrderSizes, chains }` |
+| `GET /api/analytics/profitability?period=&tz=` | `profitability(period, tz)` | `Profitability` |
 
 ### Lifecycle
 
@@ -728,8 +749,8 @@ const signer = digestSigner({
 
 ## Persistence
 
-Four things survive a restart: the bids submitted, the operator's limit orders, the activity feed,
-and whether the operator paused. They live behind `SimplexDataStore`.
+Five things survive a restart: the bids submitted, the operator's limit orders, the activity feed,
+a daily record of inventory, and whether the operator paused. They live behind `SimplexDataStore`.
 
 ```typescript lineNumbers
 interface SimplexDataStore {
@@ -737,6 +758,7 @@ interface SimplexDataStore {
     activity: ActivityStore
     state: StateStore
     limitOrders: LimitOrderStore
+    inventory: InventoryStore
     close?(): Promise<void>
 }
 ```
@@ -848,8 +870,27 @@ release(id: string, amount: string): Promise<void>
 drawDown(id: string, amount: string): Promise<LimitOrder | null>
 recordFill(fill: LimitOrderFillInsert): Promise<void>
 fills(limitOrderId: string, limit?: number): Promise<LimitOrderFill[]>
+fillHistory(): Promise<LimitOrderFillRecord[]>
 transaction<T>(settle: () => Promise<T>): Promise<T>
 ```
+
+`fillHistory` returns every fill of every order, oldest first, each with its order's `book`, `base`,
+`quote`, `side` and `price`. [`profitability()`](#profitabilityperiod-tzoffsetminutes) is worked
+out from it, so a store that keeps `amountIn` on each fill gets exact figures.
+
+### InventoryStore
+
+```typescript lineNumbers
+record(balances: Record<string, number>): Promise<void>
+latest(): Promise<InventorySnapshot | null>
+since(from: Date): Promise<InventorySnapshot[]>
+```
+
+What the solver held, as whole tokens per symbol, recorded about once a day. Profitability compares
+a period's profit with the inventory it began with, and a snapshot that was never taken cannot be
+recovered from the chain. `InventorySnapshot` is `id`, `takenAt` (SQLite-style UTC) and `balances`.
+`since` returns snapshots oldest first. Losing a row costs a figure on the analytics page and
+nothing else.
 
 <Callout type="warn">
     Correctness-critical, like `BidStore`. `remaining` and `reserved` are inventory: they are what

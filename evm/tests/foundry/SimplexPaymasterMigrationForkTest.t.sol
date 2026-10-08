@@ -138,8 +138,9 @@ abstract contract SimplexPaymasterMigrationForkTest is Test {
         assertEq(paymaster.getBundlers().length, 0, "the allowlist starts empty");
     }
 
-    /// Anyone sweeps the unlocked v0.8 stake, and only to the treasury, once its delay has passed.
-    function testWithdrawStakeV08PaysTreasuryAfterDelay() public onFork {
+    /// Anyone moves the unlocked v0.8 stake, with any native the proxy holds, into the v0.9 deposit
+    /// once its delay has passed.
+    function testWithdrawStakeV08DepositsToV09AfterDelay() public onFork {
         _migrate(address(new SimplexPaymaster()));
         address anyone = makeAddr("anyone");
 
@@ -155,17 +156,23 @@ abstract contract SimplexPaymasterMigrationForkTest is Test {
         paymaster.withdrawStakeV08();
 
         vm.warp(block.timestamp + v08Before.unstakeDelaySec + 1);
+        vm.deal(address(paymaster), 0.1 ether);
         uint256 treasuryBefore = treasury.balance;
         IStakeManager.DepositInfo memory v09 = ENTRY_POINT_V09.getDepositInfo(address(paymaster));
 
         vm.prank(anyone);
         paymaster.withdrawStakeV08();
 
-        assertEq(treasury.balance - treasuryBefore, v08Before.stake, "treasury received the v0.8 stake");
         assertEq(ENTRY_POINT_V08.getDepositInfo(address(paymaster)).stake, 0);
         IStakeManager.DepositInfo memory v09After = ENTRY_POINT_V09.getDepositInfo(address(paymaster));
         assertEq(v09After.stake, v09.stake);
-        assertEq(v09After.deposit, v09.deposit);
+        assertEq(v09After.deposit, v09.deposit + v08Before.stake + 0.1 ether, "v0.8 stake deposited on v0.9");
+        assertEq(address(paymaster).balance, 0);
+        assertEq(treasury.balance, treasuryBefore, "treasury untouched");
+
+        vm.prank(anyone);
+        vm.expectRevert("No stake to withdraw");
+        paymaster.withdrawStakeV08();
     }
 
     /// The inherited stake and deposit entry points stay shut to every privileged identity on the

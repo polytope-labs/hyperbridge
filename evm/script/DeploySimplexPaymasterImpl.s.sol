@@ -21,7 +21,7 @@ contract DeployScript is BaseScript {
 
         console.log("SimplexPaymaster implementation deployed at:", address(implementation));
         console.log("upgrade_paymaster init_data:", vm.toString(abi.encodeCall(SimplexPaymaster.migrate, ())));
-        console.log("After the old stake's unstake delay, call withdrawStakeV08() to sweep it to the treasury.");
+        console.log("After the old stake's unstake delay, call withdrawStakeV08() to move it into the v0.9 deposit.");
 
         config.set("SIMPLEX_PAYMASTER_IMPL", address(implementation));
     }

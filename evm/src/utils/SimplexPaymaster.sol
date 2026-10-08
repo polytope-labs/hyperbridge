@@ -213,7 +213,7 @@ contract SimplexPaymaster is Initializable, HyperApp, PaymasterERC20 {
     /// @dev EntryPoint v0.9, the only one this paymaster serves.
     IEntryPoint private constant ENTRYPOINT_V09 = IEntryPoint(0x433709009B8330FDa32311DF1C2AFA402eD8D009);
 
-    /// @dev EntryPoint v0.8, which {migrate} drains and {withdrawStakeV08} sweeps.
+    /// @dev EntryPoint v0.8, which {migrate} drains and {withdrawStakeV08} unstakes.
     IEntryPoint private constant ENTRYPOINT_V08 = ERC4337Utils.ENTRYPOINT_V08;
 
     /// @notice The local Hyperbridge host; the only address allowed to deliver
@@ -325,7 +325,8 @@ contract SimplexPaymaster is Initializable, HyperApp, PaymasterERC20 {
     ///      delegatecalls it with the host still `msg.sender`; one-shot through the reinitializer.
     ///      v0.9 is left unstaked: the bundlers this paymaster serves run without a paymaster
     ///      stake, and the treasury can stake through {addStake} if a chain needs one.
-    ///      {withdrawStakeV08} sweeps the unlocked v0.8 stake to the treasury once its delay passes.
+    ///      {withdrawStakeV08} moves the unlocked v0.8 stake into the v0.9 deposit once its delay
+    ///      passes.
     function migrate() external onlyHost onlyPreviousVersion reinitializer(VERSION) {
         IStakeManager.DepositInfo memory info = IStakeManager(address(ENTRYPOINT_V08)).getDepositInfo(address(this));
         if (info.deposit > 0) ENTRYPOINT_V08.withdrawTo(payable(address(this)), info.deposit);
@@ -336,11 +337,14 @@ contract SimplexPaymaster is Initializable, HyperApp, PaymasterERC20 {
         emit EntryPointMigrated(info.deposit, deposited);
     }
 
-    /// @notice Sweeps the EntryPoint v0.8 stake that {migrate} unlocked to the treasury.
-    /// @dev Permissionless: the destination is the governance-set treasury, v0.8 enforces the
-    ///      unstake delay and pays out once, and neither ERC-20 prefunds nor the v0.9 deposit move.
+    /// @notice Withdraws the EntryPoint v0.8 stake that {migrate} unlocked and deposits the proxy's
+    ///         entire native balance into v0.9.
+    /// @dev Permissionless: the native only ever lands in this paymaster's own v0.9 deposit, v0.8
+    ///      enforces the unstake delay and pays out once, and ERC-20 prefunds do not move.
     function withdrawStakeV08() external {
-        ENTRYPOINT_V08.withdrawStake(payable(treasury));
+        ENTRYPOINT_V08.withdrawStake(payable(address(this)));
+        uint256 balance = address(this).balance;
+        if (balance > 0) entryPoint().depositTo{value: balance}(address(this));
     }
 
     /// @dev EntryPoint v0.9 in place of OpenZeppelin's v0.8. It gates validation and postOp, and
@@ -554,7 +558,8 @@ contract SimplexPaymaster is Initializable, HyperApp, PaymasterERC20 {
         emit FeesRecycled(token, amountIn, amounts[1], deposited);
     }
 
-    /// @dev Accepts the router's native output in {swapAndDeposit}.
+    /// @dev Accepts the router's native output in {swapAndDeposit} and EntryPoint v0.8 payouts in
+    ///      {migrate} and {withdrawStakeV08}.
     receive() external payable {}
 
     // ── PaymasterERC20 hooks ─────────────────────────────────────────

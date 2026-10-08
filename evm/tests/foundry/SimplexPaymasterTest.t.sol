@@ -825,7 +825,8 @@ contract SimplexPaymasterTest is Test {
         assertEq(v09.deposit, 3 ether);
     }
 
-    /// A chain that needs a paymaster stake gets it from the treasury, funded by the swept v0.8 stake.
+    /// A chain that needs a paymaster stake gets it from the treasury; the v0.8 stake lands in the
+    /// v0.9 deposit.
     function testTreasuryStakesV09AfterMigrate() public {
         _seedV08(paymaster, 0.5 ether, 1 ether);
         _govern(
@@ -835,15 +836,16 @@ contract SimplexPaymasterTest is Test {
 
         vm.warp(block.timestamp + UNSTAKE_DELAY);
         paymaster.withdrawStakeV08();
-        assertEq(treasury.balance, 1 ether);
+        assertEq(entryPoint.balanceOf(address(paymaster)), 1.5 ether);
 
+        vm.deal(treasury, 1 ether);
         vm.prank(treasury);
         paymaster.addStake{value: 1 ether}(UNSTAKE_DELAY);
         IStakeManager.DepositInfo memory v09 = entryPoint.getDepositInfo(address(paymaster));
         assertTrue(v09.staked);
         assertEq(v09.stake, 1 ether);
         assertEq(v09.unstakeDelaySec, UNSTAKE_DELAY);
-        assertEq(v09.deposit, 0.5 ether);
+        assertEq(v09.deposit, 1.5 ether);
         assertEq(treasury.balance, 0);
     }
 
@@ -937,23 +939,27 @@ contract SimplexPaymasterTest is Test {
         vm.warp(block.timestamp + UNSTAKE_DELAY - 1);
         vm.expectRevert("Stake withdrawal is not due");
         paymaster.withdrawStakeV08();
-        assertEq(treasury.balance, 0);
+        assertEq(entryPointV08.stakeOf(address(paymaster)), 1 ether);
+        assertEq(entryPoint.balanceOf(address(paymaster)), 3 ether);
     }
 
-    function testWithdrawStakeV08PaysTreasuryAfterDelay() public {
+    /// Anyone moves the unlocked v0.8 stake, with any native the proxy holds, into the v0.9 deposit.
+    function testWithdrawStakeV08DepositsToV09AfterDelay() public {
         _seedV08(paymaster, 3 ether, 1 ether);
         _govern(
             SimplexPaymaster.RequestKind.UpgradeContract,
             _upgradePayload(address(new SimplexPaymasterHarness()), _migrateCall())
         );
         vm.warp(block.timestamp + UNSTAKE_DELAY);
+        vm.deal(address(paymaster), 0.25 ether);
 
         vm.prank(makeAddr("anyone"));
         paymaster.withdrawStakeV08();
-        assertEq(treasury.balance, 1 ether);
         assertEq(entryPointV08.stakeOf(address(paymaster)), 0);
         assertEq(entryPoint.stakeOf(address(paymaster)), 0);
-        assertEq(entryPoint.balanceOf(address(paymaster)), 3 ether);
+        assertEq(entryPoint.balanceOf(address(paymaster)), 4.25 ether);
+        assertEq(address(paymaster).balance, 0);
+        assertEq(treasury.balance, 0);
 
         vm.expectRevert("No stake to withdraw");
         paymaster.withdrawStakeV08();

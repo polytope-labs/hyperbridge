@@ -30,8 +30,9 @@ with `--unsafe`, which carries sponsored operations without a paymaster stake. I
 the treasury stakes on v0.9 through `addStake`, and governance recovers it with the `UnlockStake`
 and `WithdrawStake` requests.
 
-`withdrawStakeV08()` is permissionless. It sends the v0.8 stake to the treasury once the v0.8
-unstake delay has passed (86400 seconds on the live chains).
+`withdrawStakeV08()` is permissionless. Once the v0.8 unstake delay has passed (86400 seconds on
+the live chains), it withdraws the v0.8 stake to the proxy and deposits the proxy's entire native
+balance into v0.9. A call before the delay, or after the stake is withdrawn, reverts in v0.8.
 
 The EntryPoint addresses are constants, so the move adds no storage. The pallet needs no change,
 because `init_data` is opaque bytes.

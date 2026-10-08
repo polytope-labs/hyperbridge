@@ -129,7 +129,7 @@ interface IStakeManager {
 ///
 ///      Bundler allowlist. Once governance lists bundler wallets, validation
 ///      refuses any op whose `tx.origin` is not listed; an empty list turns the
-///      check off, so spec-enforcing bundlers keep accepting this paymaster.
+///      check off and validation never reads `tx.origin`.
 contract SimplexPaymaster is Initializable, HyperApp, PaymasterERC20 {
     using SafeERC20 for IERC20;
     using ERC4337Utils for PackedUserOperation;
@@ -253,7 +253,7 @@ contract SimplexPaymaster is Initializable, HyperApp, PaymasterERC20 {
     event FeesRecycled(address indexed token, uint256 amountIn, uint256 nativeOut, uint256 deposited);
     event RelayerUpdated(address previous, address current);
     event BundlerUpdated(address indexed bundler, bool allowed);
-    event EntryPointMigrated(uint256 withdrawn, uint256 staked, uint32 unstakeDelaySec, uint256 deposited);
+    event EntryPointMigrated(uint256 withdrawn, uint256 deposited);
 
     error TokenNotRegistered(address token);
     error TokenNotActive(address token);
@@ -319,27 +319,21 @@ contract SimplexPaymaster is Initializable, HyperApp, PaymasterERC20 {
         _setRelayer(relayer_);
     }
 
-    /// @notice Moves the deposit and stake from EntryPoint v0.8 to v0.9 and lands at `VERSION`.
+    /// @notice Moves the deposit from EntryPoint v0.8 to v0.9, unlocks the v0.8 stake and lands
+    ///         at `VERSION`.
     /// @dev Host-only, so reachable only as the init data of an `UpgradeContract` request, which
     ///      delegatecalls it with the host still `msg.sender`; one-shot through the reinitializer.
-    ///      The v0.8 stake stays locked for its unstake delay, so the v0.9 stake is funded from the
-    ///      withdrawn deposit and any native held. When that falls short the v0.9 stake is skipped,
-    ///      everything is deposited, and the treasury stakes later through {addStake}.
+    ///      v0.9 is left unstaked: the bundlers this paymaster serves run without a paymaster
+    ///      stake, and the treasury can stake through {addStake} if a chain needs one.
     ///      {withdrawStakeV08} sweeps the unlocked v0.8 stake to the treasury once its delay passes.
     function migrate() external onlyHost onlyPreviousVersion reinitializer(VERSION) {
         IStakeManager.DepositInfo memory info = IStakeManager(address(ENTRYPOINT_V08)).getDepositInfo(address(this));
         if (info.deposit > 0) ENTRYPOINT_V08.withdrawTo(payable(address(this)), info.deposit);
         if (info.staked) ENTRYPOINT_V08.unlockStake();
 
-        uint256 staked;
-        if (info.stake > 0 && address(this).balance >= info.stake) {
-            staked = info.stake;
-            entryPoint().addStake{value: staked}(info.unstakeDelaySec);
-        }
-
         uint256 deposited = address(this).balance;
         if (deposited > 0) entryPoint().depositTo{value: deposited}(address(this));
-        emit EntryPointMigrated(info.deposit, staked, info.unstakeDelaySec, deposited);
+        emit EntryPointMigrated(info.deposit, deposited);
     }
 
     /// @notice Sweeps the EntryPoint v0.8 stake that {migrate} unlocked to the treasury.
@@ -506,8 +500,8 @@ contract SimplexPaymaster is Initializable, HyperApp, PaymasterERC20 {
         revert UnauthorizedCall();
     }
 
-    /// @notice Stakes native with the EntryPoint, which bundlers require before they will
-    ///         relay operations from this paymaster.
+    /// @notice Stakes native with the EntryPoint, which spec-enforcing bundlers require before
+    ///         they will relay operations from this paymaster.
     /// @dev Treasury-gated. The EntryPoint only ever lets `unstakeDelaySec` grow and resets
     ///      any pending unlock, so leaving this open would let anyone stretch the delay far
     ///      beyond the point where governance could recover the stake.

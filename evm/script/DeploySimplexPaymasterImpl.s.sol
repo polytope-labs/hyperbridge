@@ -10,7 +10,7 @@ import {BaseScript} from "./BaseScript.sol";
 /// @notice Deploys a new SimplexPaymaster implementation only. The live ERC-1967 proxy keeps its
 /// address; Hyperbridge governance points it at this implementation through the
 /// intents-coprocessor pallet's `upgrade_paymaster`, with `migrate()` as the init data so the
-/// proxy's EntryPoint deposit and stake move to v0.9 in the same transaction.
+/// proxy's EntryPoint deposit moves to v0.9 and its v0.8 stake unlocks in the same transaction.
 contract DeployScript is BaseScript {
     using strings for *;
 

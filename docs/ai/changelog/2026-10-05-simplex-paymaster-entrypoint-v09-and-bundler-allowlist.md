@@ -22,16 +22,16 @@ upgrade transaction it:
 
 1. withdraws the whole v0.8 deposit to the proxy;
 2. unlocks the v0.8 stake if it is staked;
-3. stakes the same amount with the same unstake delay on v0.9, paid from the proxy's native balance;
-4. deposits the remaining native into v0.9;
-5. emits `EntryPointMigrated(withdrawn, staked, unstakeDelaySec, deposited)`.
+3. deposits the proxy's entire native balance into v0.9;
+4. emits `EntryPointMigrated(withdrawn, deposited)`.
 
-If the native balance does not cover the stake, `migrate` skips the v0.9 stake, deposits
-everything, and emits `staked` as 0. The treasury then stakes on v0.9 through `addStake`.
+`migrate` does not stake on v0.9, so the paymaster is unstaked there. Our own bundler runs rundler
+with `--unsafe`, which carries sponsored operations without a paymaster stake. If a chain needs one,
+the treasury stakes on v0.9 through `addStake`, and governance recovers it with the `UnlockStake`
+and `WithdrawStake` requests.
 
 `withdrawStakeV08()` is permissionless. It sends the v0.8 stake to the treasury once the v0.8
-unstake delay has passed (86400 seconds on the live chains). A chain with no v0.8 stake, such as
-Base, stays unstaked on v0.9 until the treasury calls `addStake`.
+unstake delay has passed (86400 seconds on the live chains).
 
 The EntryPoint addresses are constants, so the move adds no storage. The pallet needs no change,
 because `init_data` is opaque bytes.
@@ -52,8 +52,7 @@ and `tx.origin` is not on it. The check is its first step, before any permit or 
 
 An empty list turns the check off, so removing the last listed wallet turns it off. ERC-7562 bans
 ORIGIN during validation, so `tx.origin` is read only while the list is non-empty. On a chain with
-the check off, spec-enforcing bundlers keep accepting the paymaster. On a chain with it on, only our
-own bundler (rundler run with `--unsafe`) can carry sponsored operations.
+the check on, only our own bundler (rundler run with `--unsafe`) can carry sponsored operations.
 
 The list is `EnumerableSet.AddressSet _bundlers` at slots 9 and 10, taken out of `__gap`, which
 shrinks to `uint256[46]`. Every other field and the end of the proxy layout keep their slots.

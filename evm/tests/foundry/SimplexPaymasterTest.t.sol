@@ -757,12 +757,14 @@ contract SimplexPaymasterTest is Test {
         _validateFrom(bundlerA, op);
     }
 
-    function testMigrateMovesDepositAndStake() public {
+    function testMigrateMovesDepositAndUnlocksV08Stake() public {
         _seedV08(paymaster, 3 ether, 1 ether);
+        vm.deal(address(paymaster), 0.5 ether);
         address newImpl = address(new SimplexPaymasterHarness());
 
+        vm.expectCall(address(entryPoint), abi.encodeWithSelector(MockEntryPoint.addStake.selector), 0);
         vm.expectEmit(true, true, true, true, address(paymaster));
-        emit SimplexPaymaster.EntryPointMigrated(3 ether, 1 ether, UNSTAKE_DELAY, 2 ether);
+        emit SimplexPaymaster.EntryPointMigrated(3 ether, 3.5 ether);
         _govern(SimplexPaymaster.RequestKind.UpgradeContract, _upgradePayload(newImpl, _migrateCall()));
 
         assertEq(_implementation(address(paymaster)), newImpl);
@@ -775,14 +777,14 @@ contract SimplexPaymasterTest is Test {
         assertEq(v08.withdrawTime, block.timestamp + UNSTAKE_DELAY);
 
         IStakeManager.DepositInfo memory v09 = entryPoint.getDepositInfo(address(paymaster));
-        assertEq(v09.deposit, 2 ether);
-        assertTrue(v09.staked);
-        assertEq(v09.stake, 1 ether);
-        assertEq(v09.unstakeDelaySec, UNSTAKE_DELAY);
+        assertEq(v09.deposit, 3.5 ether);
+        assertFalse(v09.staked);
+        assertEq(v09.stake, 0);
+        assertEq(v09.unstakeDelaySec, 0);
         assertEq(address(paymaster).balance, 0);
     }
 
-    function testMigrateWithoutStakeDepositsEverything() public {
+    function testMigrateWithoutV08StakeSkipsUnlock() public {
         _seedV08(paymaster, 3 ether, 0);
         vm.deal(address(paymaster), 0.5 ether);
         address newImpl = address(new SimplexPaymasterHarness());
@@ -790,7 +792,7 @@ contract SimplexPaymasterTest is Test {
         vm.expectCall(address(entryPointV08), abi.encodeCall(MockEntryPoint.unlockStake, ()), 0);
         vm.expectCall(address(entryPoint), abi.encodeWithSelector(MockEntryPoint.addStake.selector), 0);
         vm.expectEmit(true, true, true, true, address(paymaster));
-        emit SimplexPaymaster.EntryPointMigrated(3 ether, 0, 0, 3.5 ether);
+        emit SimplexPaymaster.EntryPointMigrated(3 ether, 3.5 ether);
         _govern(SimplexPaymaster.RequestKind.UpgradeContract, _upgradePayload(newImpl, _migrateCall()));
 
         assertEq(paymaster.version(), 3);
@@ -802,13 +804,14 @@ contract SimplexPaymasterTest is Test {
         assertEq(address(paymaster).balance, 0);
     }
 
-    function testMigrateCopiesStakeAlreadyUnlocking() public {
+    function testMigrateKeepsV08StakeAlreadyUnlocking() public {
         _seedV08(paymaster, 3 ether, 1 ether);
         vm.prank(address(paymaster));
         entryPointV08.unlockStake();
         uint256 withdrawTime = block.timestamp + UNSTAKE_DELAY;
         vm.warp(block.timestamp + 1 hours);
 
+        vm.expectCall(address(entryPointV08), abi.encodeCall(MockEntryPoint.unlockStake, ()), 0);
         _govern(
             SimplexPaymaster.RequestKind.UpgradeContract,
             _upgradePayload(address(new SimplexPaymasterHarness()), _migrateCall())
@@ -817,45 +820,26 @@ contract SimplexPaymasterTest is Test {
         assertEq(paymaster.version(), 3);
         assertEq(entryPointV08.getDepositInfo(address(paymaster)).withdrawTime, withdrawTime);
         IStakeManager.DepositInfo memory v09 = entryPoint.getDepositInfo(address(paymaster));
-        assertTrue(v09.staked);
-        assertEq(v09.stake, 1 ether);
-        assertEq(v09.unstakeDelaySec, UNSTAKE_DELAY);
-        assertEq(v09.deposit, 2 ether);
-    }
-
-    /// Short of native for the v0.9 stake, the migration still lands with everything deposited,
-    /// and the treasury stakes on v0.9 by hand.
-    function testMigrateSkipsStakeWhenFundsFallShort() public {
-        _seedV08(paymaster, 0.5 ether, 1 ether);
-        address newImpl = address(new SimplexPaymasterHarness());
-
-        vm.expectEmit(true, true, true, true, address(paymaster));
-        emit SimplexPaymaster.EntryPointMigrated(0.5 ether, 0, UNSTAKE_DELAY, 0.5 ether);
-        _govern(SimplexPaymaster.RequestKind.UpgradeContract, _upgradePayload(newImpl, _migrateCall()));
-
-        assertEq(paymaster.version(), 3);
-        assertEq(_implementation(address(paymaster)), newImpl);
-
-        IStakeManager.DepositInfo memory v08 = entryPointV08.getDepositInfo(address(paymaster));
-        assertEq(v08.deposit, 0);
-        assertFalse(v08.staked);
-        assertEq(v08.stake, 1 ether);
-        assertEq(v08.withdrawTime, block.timestamp + UNSTAKE_DELAY);
-
-        IStakeManager.DepositInfo memory v09 = entryPoint.getDepositInfo(address(paymaster));
         assertFalse(v09.staked);
         assertEq(v09.stake, 0);
-        assertEq(v09.deposit, 0.5 ether);
-        assertEq(address(paymaster).balance, 0);
+        assertEq(v09.deposit, 3 ether);
+    }
+
+    /// A chain that needs a paymaster stake gets it from the treasury, funded by the swept v0.8 stake.
+    function testTreasuryStakesV09AfterMigrate() public {
+        _seedV08(paymaster, 0.5 ether, 1 ether);
+        _govern(
+            SimplexPaymaster.RequestKind.UpgradeContract,
+            _upgradePayload(address(new SimplexPaymasterHarness()), _migrateCall())
+        );
 
         vm.warp(block.timestamp + UNSTAKE_DELAY);
         paymaster.withdrawStakeV08();
         assertEq(treasury.balance, 1 ether);
-        assertEq(entryPointV08.stakeOf(address(paymaster)), 0);
 
         vm.prank(treasury);
         paymaster.addStake{value: 1 ether}(UNSTAKE_DELAY);
-        v09 = entryPoint.getDepositInfo(address(paymaster));
+        IStakeManager.DepositInfo memory v09 = entryPoint.getDepositInfo(address(paymaster));
         assertTrue(v09.staked);
         assertEq(v09.stake, 1 ether);
         assertEq(v09.unstakeDelaySec, UNSTAKE_DELAY);
@@ -937,8 +921,8 @@ contract SimplexPaymasterTest is Test {
         _govern(SimplexPaymaster.RequestKind.UpgradeContract, _upgradePayload(newImpl, _migrateCall()));
         assertEq(paymaster.version(), 3);
         assertEq(entryPointV08.balanceOf(address(paymaster)), 0);
-        assertEq(entryPoint.stakeOf(address(paymaster)), 1 ether);
-        assertEq(entryPoint.balanceOf(address(paymaster)), 2 ether);
+        assertEq(entryPoint.stakeOf(address(paymaster)), 0);
+        assertEq(entryPoint.balanceOf(address(paymaster)), 3 ether);
     }
 
     function testWithdrawStakeV08RevertsBeforeDelay() public {
@@ -968,8 +952,8 @@ contract SimplexPaymasterTest is Test {
         paymaster.withdrawStakeV08();
         assertEq(treasury.balance, 1 ether);
         assertEq(entryPointV08.stakeOf(address(paymaster)), 0);
-        assertEq(entryPoint.stakeOf(address(paymaster)), 1 ether);
-        assertEq(entryPoint.balanceOf(address(paymaster)), 2 ether);
+        assertEq(entryPoint.stakeOf(address(paymaster)), 0);
+        assertEq(entryPoint.balanceOf(address(paymaster)), 3 ether);
 
         vm.expectRevert("No stake to withdraw");
         paymaster.withdrawStakeV08();

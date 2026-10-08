@@ -88,20 +88,18 @@ abstract contract SimplexPaymasterMigrationForkTest is Test {
         _;
     }
 
-    function testMigrateMovesDepositAndStakeToV09() public onFork {
+    function testMigrateMovesDepositToV09() public onFork {
         address[] memory tokens = paymaster.getRegisteredTokens();
         SimplexPaymaster.TokenConfig[] memory configs = _tokenConfigs(tokens);
         AggregatorV3Interface nativeOracle = paymaster.nativeOracle();
         uint256 markupBps = paymaster.markupBps();
         uint256 maxOracleAge = paymaster.maxOracleAge();
         uint256 swapSlippageBps = paymaster.swapSlippageBps();
-        uint256 funds = v08Before.deposit + balanceBefore;
-        uint256 staked = funds >= v08Before.stake ? v08Before.stake : 0;
-        uint256 deposited = funds - staked;
+        uint256 deposited = v08Before.deposit + balanceBefore;
 
         address implementation = address(new SimplexPaymaster());
         vm.expectEmit(true, true, true, true, address(paymaster));
-        emit SimplexPaymaster.EntryPointMigrated(v08Before.deposit, staked, v08Before.unstakeDelaySec, deposited);
+        emit SimplexPaymaster.EntryPointMigrated(v08Before.deposit, deposited);
         _migrate(implementation);
 
         assertEq(paymaster.version(), 3);
@@ -117,11 +115,9 @@ abstract contract SimplexPaymasterMigrationForkTest is Test {
         if (v08Before.staked) assertEq(v08.withdrawTime, block.timestamp + v08Before.unstakeDelaySec);
 
         IStakeManager.DepositInfo memory v09 = ENTRY_POINT_V09.getDepositInfo(address(paymaster));
-        assertEq(v09.staked, staked > 0);
-        assertEq(v09.stake, staked, "v0.9 stake copies v0.8 when funded");
-        if (staked > 0) assertEq(v09.unstakeDelaySec, v08Before.unstakeDelaySec, "v0.9 delay copies v0.8");
-        assertEq(v09.deposit, v09Before.deposit + deposited);
-        assertEq(v09.stake + v09.deposit, v09Before.deposit + v08Before.deposit + balanceBefore, "no native lost");
+        assertFalse(v09.staked, "v0.9 stays unstaked");
+        assertEq(v09.stake, 0);
+        assertEq(v09.deposit, v09Before.deposit + deposited, "no native lost");
         assertEq(address(paymaster).balance, 0);
 
         assertEq(paymaster.host(), host);
@@ -173,10 +169,17 @@ abstract contract SimplexPaymasterMigrationForkTest is Test {
     }
 
     /// The inherited stake and deposit entry points stay shut to every privileged identity on the
-    /// migrated proxy; the v0.9 stake moves only through governance, and only to the treasury.
-    function testMigratedStakeMovesOnlyThroughGovernance() public onFork {
+    /// migrated proxy; a v0.9 stake the treasury adds moves only through governance, and only to
+    /// the treasury.
+    function testV09StakeMovesOnlyThroughGovernance() public onFork {
         _migrate(address(new SimplexPaymaster()));
+        uint32 unstakeDelaySec = 1 days;
+        vm.deal(treasury, treasury.balance + 1 ether);
+        vm.prank(treasury);
+        paymaster.addStake{value: 1 ether}(unstakeDelaySec);
         IStakeManager.DepositInfo memory v09 = ENTRY_POINT_V09.getDepositInfo(address(paymaster));
+        assertTrue(v09.staked);
+        assertEq(v09.stake, 1 ether);
 
         address[4] memory callers = [treasury, host, address(ENTRY_POINT_V09), makeAddr("anyone")];
         for (uint256 i = 0; i < callers.length; i++) {
@@ -197,12 +200,10 @@ abstract contract SimplexPaymasterMigrationForkTest is Test {
         assertEq(unchanged.stake, v09.stake);
         assertEq(unchanged.deposit, v09.deposit);
 
-        if (v09.stake == 0) return;
-
         _govern(SimplexPaymaster.RequestKind.UnlockStake, "");
         assertFalse(ENTRY_POINT_V09.getDepositInfo(address(paymaster)).staked);
 
-        vm.warp(block.timestamp + v09.unstakeDelaySec);
+        vm.warp(block.timestamp + unstakeDelaySec);
         uint256 treasuryBefore = treasury.balance;
         _govern(SimplexPaymaster.RequestKind.WithdrawStake, "");
         assertEq(treasury.balance - treasuryBefore, v09.stake);

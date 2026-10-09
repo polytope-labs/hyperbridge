@@ -4,7 +4,6 @@ pragma solidity ^0.8.24;
 import "forge-std/Script.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
-import {ERC4337Utils} from "@openzeppelin/contracts/account/utils/draft-ERC4337Utils.sol";
 
 import {SimplexPaymaster, AggregatorV3Interface} from "../src/utils/SimplexPaymaster.sol";
 import {SolverAccount} from "../src/apps/intentsv2/SolverAccount.sol";
@@ -69,7 +68,7 @@ contract SimplexPaymasterPermit2ProbeScript is Script {
         SimplexPaymaster paymaster =
             SimplexPaymaster(payable(address(new ERC1967Proxy(address(implementation), initData))));
 
-        ERC4337Utils.ENTRYPOINT_V08.depositTo{value: 0.05 ether}(address(paymaster));
+        paymaster.deposit{value: 0.05 ether}();
         paymaster.addStake{value: 0.1 ether}(86_400);
 
         vm.stopBroadcast();

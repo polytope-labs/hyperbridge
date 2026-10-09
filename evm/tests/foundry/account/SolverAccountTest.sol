@@ -35,7 +35,7 @@ contract SolverAccountTest is Test {
     SolverAccount public solverAccount;
     IntentGatewayV2 public intentGateway;
 
-    address public entryPoint = address(ERC4337Utils.ENTRYPOINT_V08); // ERC-4337 v0.8 EntryPoint
+    address public entryPoint = 0x433709009B8330FDa32311DF1C2AFA402eD8D009; // ERC-4337 v0.9 EntryPoint
     address public solver;
     uint256 public solverPrivateKey;
     address public sessionKey;
@@ -136,6 +136,33 @@ contract SolverAccountTest is Test {
         bytes32 typeHash = intentGateway.SELECT_SOLVER_TYPEHASH();
         assertTrue(domainSep != bytes32(0));
         assertTrue(typeHash != bytes32(0));
+    }
+
+    // ============================================
+    // EntryPoint Tests
+    // ============================================
+
+    function test_EntryPoint_IsV09() public view {
+        assertEq(address(solverAccount.entryPoint()), 0x433709009B8330FDa32311DF1C2AFA402eD8D009);
+        assertEq(address(budgetAccount.entryPoint()), 0x433709009B8330FDa32311DF1C2AFA402eD8D009);
+    }
+
+    function test_EntryPointV08_IsRefused() public {
+        address entryPointV08 = address(ERC4337Utils.ENTRYPOINT_V08);
+        bytes32 userOpHash = keccak256("test_userop");
+        PackedUserOperation memory op = _standardOp("", _signUserOpHash(userOpHash));
+        Execution[] memory calls = _budgetBatch(orderId, address(token), 40e18, 40e18, 0, 100e18);
+
+        vm.expectRevert(abi.encodeWithSelector(AccountBase.AccountUnauthorized.selector, entryPointV08));
+        vm.prank(entryPointV08);
+        solverAccount.validateUserOp(op, userOpHash, 0);
+
+        vm.expectRevert(abi.encodeWithSelector(AccountBase.AccountUnauthorized.selector, entryPointV08));
+        vm.prank(entryPointV08);
+        budgetAccount.execute(BATCH_MODE, abi.encode(calls));
+
+        assertEq(budgetAccount.spent(orderId), 0);
+        assertEq(token.balanceOf(beneficiary), 0);
     }
 
     // ============================================
@@ -1018,6 +1045,31 @@ contract SolverAccountTest is Test {
         assertEq(uint256(vm.load(address(budgetAccount), tallySlot)), 40e18);
     }
 
+    /// @dev A wallet delegated to the live v0.8 account keeps its tallies when it re-delegates here.
+    function test_DebitOrder_TallySurvivesRedelegationFromLiveAccount() public {
+        string memory url = vm.envOr("MAINNET_FORK_URL", string(""));
+        if (bytes(url).length == 0) {
+            vm.skip(true);
+            return;
+        }
+        vm.selectFork(vm.createFork(url));
+
+        address liveAccount = 0x77c3394CA5881A74f18139AC87D0c11F8Faa90cC;
+        address liveGateway = 0xAe041F7B0CB581876832830baeB6a2Aa2a3C9716;
+        address wallet = makeAddr("redelegatingSolver");
+        ERC20Token payoutToken = new ERC20Token("Output", "OUT", 18);
+
+        vm.etch(wallet, liveAccount.code);
+        assertEq(address(SolverAccount(payable(wallet)).entryPoint()), address(ERC4337Utils.ENTRYPOINT_V08));
+        vm.prank(wallet);
+        SolverAccount(payable(wallet)).debitOrder(orderId, 100e18, address(payoutToken), 40e18, 0);
+        assertEq(SolverAccount(payable(wallet)).spent(orderId), 40e18);
+
+        vm.etch(wallet, address(new SolverAccount(liveGateway)).code);
+        assertEq(address(SolverAccount(payable(wallet)).entryPoint()), 0x433709009B8330FDa32311DF1C2AFA402eD8D009);
+        assertEq(SolverAccount(payable(wallet)).spent(orderId), 40e18);
+    }
+
     /// @dev A selected bid against the gateway itself: validated, filled and debited in one op.
     function test_DebitOrder_GatewayFill() public {
         uint256 inputAmount = 1000e18;
@@ -1295,7 +1347,7 @@ contract SolverAccountTest is Test {
         return abi.encodePacked(r, s, v);
     }
 
-    /// @notice Solver signature over the plain v0.8 userOpHash (the EIP-712 digest of
+    /// @notice Solver signature over the plain v0.9 userOpHash (the EIP-712 digest of
     ///         the PackedUserOperation).
     function _signUserOpHash(bytes32 userOpHash) internal view returns (bytes memory) {
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(solverPrivateKey, userOpHash);

@@ -69,12 +69,14 @@ contract DeployScript is BaseScript {
 
         vm.stopBroadcast();
         require(paymaster.relayer() == relayer, "relayer not armed");
-        require(paymaster.version() == 2, "unexpected paymaster version");
+        require(paymaster.version() == 3, "unexpected paymaster version");
         config.set("SIMPLEX_PAYMASTER", address(paymaster));
 
         console.log("");
         console.log("=== IMPORTANT: Post-deployment steps ===");
-        console.log("1. Fund the EntryPoint deposit for the paymaster:");
-        console.log("   cast send <ENTRY_POINT> \"depositTo(address)\" ", address(paymaster), " --value 0.01ether");
+        console.log("1. Fund the paymaster's EntryPoint v0.9 deposit (any sender):");
+        console.log("   cast send", address(paymaster), "\"deposit()\" --value 0.01ether");
+        console.log("2. Stake the paymaster on EntryPoint v0.9 from the treasury", treasury);
+        console.log("   cast send", address(paymaster), "\"addStake(uint32)\" 86400 --value <STAKE>");
     }
 }

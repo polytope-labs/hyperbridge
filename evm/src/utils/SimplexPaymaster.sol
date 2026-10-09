@@ -2,6 +2,7 @@
 pragma solidity ^0.8.24;
 
 import {ERC4337Utils, PackedUserOperation} from "@openzeppelin/contracts/account/utils/draft-ERC4337Utils.sol";
+import {IEntryPoint} from "@openzeppelin/contracts/interfaces/draft-IERC4337.sol";
 import {PaymasterERC20} from "@openzeppelin/community-contracts/contracts/account/paymaster/PaymasterERC20.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
@@ -9,6 +10,7 @@ import {IERC20Permit} from "@openzeppelin/contracts/token/ERC20/extensions/IERC2
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {Initializable} from "@openzeppelin/contracts/proxy/utils/Initializable.sol";
 import {ERC1967Utils} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Utils.sol";
+import {EnumerableSet} from "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
 import {HyperApp} from "@hyperbridge/core/apps/HyperApp.sol";
 import {IncomingPostRequest} from "@hyperbridge/core/interfaces/IApp.sol";
 import {IDispatcher} from "@hyperbridge/core/interfaces/IDispatcher.sol";
@@ -50,9 +52,22 @@ interface ISignatureTransfer {
     ) external;
 }
 
+/// @notice The EntryPoint's `getDepositInfo` view, which OpenZeppelin's IEntryPointStake omits.
+interface IStakeManager {
+    struct DepositInfo {
+        uint256 deposit;
+        bool staked;
+        uint112 stake;
+        uint32 unstakeDelaySec;
+        uint48 withdrawTime;
+    }
+
+    function getDepositInfo(address account) external view returns (DepositInfo memory info);
+}
+
 /// @title  SimplexPaymaster
 /// @author Polytope Labs
-/// @notice Fully onchain, permissionless ERC-4337 v0.8 paymaster that accepts
+/// @notice Fully onchain, permissionless ERC-4337 v0.9 paymaster that accepts
 ///         ERC-20 stablecoins (USDC, USDT, or any token with a Chainlink feed)
 ///         for gas payment. Deployed behind an ERC1967Proxy and administered
 ///         exclusively through Hyperbridge governance.
@@ -97,12 +112,11 @@ interface ISignatureTransfer {
 ///      `_relayer` is set, any other submitter is refused before the body is
 ///      read, so a forged consensus proof alone cannot reach this contract.
 ///      The host records the refusal as undelivered and the authorised relayer
-///      can resubmit. While `_relayer` is unset (a proxy upgraded without
-///      {migrate}) every relayer passes, as on the gateway; governance can
-///      never set it to zero afterwards. The relayer must be a plain EOA, not
-///      an account that executes third-party calldata. Losing that key loses
-///      governance over the deposit, stake and surplus for good: there is no
-///      second key.
+///      can resubmit. While `_relayer` is unset every relayer passes, as on
+///      the gateway; governance can never set it to zero afterwards. The
+///      relayer must be a plain EOA, not an account that executes third-party
+///      calldata. Losing that key loses governance over the deposit, stake and
+///      surplus for good: there is no second key.
 ///
 ///      Permit2 signatures name this contract as spender and are single-use,
 ///      so no third party can consume or burn them; only the signed
@@ -112,9 +126,14 @@ interface ISignatureTransfer {
 ///      ERC-7562 note: Permit2's nonce bitmap and the token's Permit2 allowance
 ///      are not sender-associated storage, so spec-enforcing bundlers may reject
 ///      mode 0x02 during validation; only mode 0x00 remains for permit tokens.
+///
+///      Bundler allowlist. Once governance lists bundler wallets, validation
+///      refuses any op whose `tx.origin` is not listed; an empty list turns the
+///      check off and validation never reads `tx.origin`.
 contract SimplexPaymaster is Initializable, HyperApp, PaymasterERC20 {
     using SafeERC20 for IERC20;
     using ERC4337Utils for PackedUserOperation;
+    using EnumerableSet for EnumerableSet.AddressSet;
 
     enum RequestKind {
         /// @dev Points the ERC-1967 proxy at a new implementation, optionally calling it.
@@ -133,7 +152,9 @@ contract SimplexPaymaster is Initializable, HyperApp, PaymasterERC20 {
         /// @dev Sweeps the unlocked EntryPoint stake to the treasury.
         WithdrawStake,
         /// @dev Replaces the only relayer whose governance deliveries are accepted. Never zero.
-        SetRelayer
+        SetRelayer,
+        /// @dev Adds or removes the bundler wallets allowed to submit sponsored ops.
+        SetBundlers
     }
 
     struct Params {
@@ -189,6 +210,12 @@ contract SimplexPaymaster is Initializable, HyperApp, PaymasterERC20 {
     /// @dev mode(1) + token(20) + permitAmount(32) + nonce(32) + deadline(32) + signature(65)
     uint256 internal constant PERMIT2_DATA_LENGTH = 182;
 
+    /// @dev EntryPoint v0.9, the only one this paymaster serves.
+    IEntryPoint private constant ENTRYPOINT_V09 = IEntryPoint(0x433709009B8330FDa32311DF1C2AFA402eD8D009);
+
+    /// @dev EntryPoint v0.8, which {migrate} drains and {withdrawStakeV08} unstakes.
+    IEntryPoint private constant ENTRYPOINT_V08 = ERC4337Utils.ENTRYPOINT_V08;
+
     /// @notice The local Hyperbridge host; the only address allowed to deliver
     ///         governance requests.
     address private _hostAddr;
@@ -209,11 +236,14 @@ contract SimplexPaymaster is Initializable, HyperApp, PaymasterERC20 {
     /// @dev The only relayer whose `onAccept` deliveries are accepted; zero means every relayer.
     address private _relayer;
 
-    uint256[48] private __gap;
+    /// @dev The only `tx.origin`s whose sponsored ops pass validation; empty means every origin.
+    EnumerableSet.AddressSet private _bundlers;
+
+    uint256[46] private __gap;
 
     /// @dev The `Initializable` version this implementation lands a proxy on, through `initialize`
     ///      or `migrate`. Bumped by the next implementation that needs a migration.
-    uint64 private constant VERSION = 2;
+    uint64 private constant VERSION = 3;
 
     event TokenRegistered(address indexed token, address indexed oracle);
     event TokenDeactivated(address indexed token);
@@ -222,6 +252,8 @@ contract SimplexPaymaster is Initializable, HyperApp, PaymasterERC20 {
     event Permit2Executed(address indexed token, address indexed owner, uint256 amount, uint256 nonce);
     event FeesRecycled(address indexed token, uint256 amountIn, uint256 nativeOut, uint256 deposited);
     event RelayerUpdated(address previous, address current);
+    event BundlerUpdated(address indexed bundler, bool allowed);
+    event EntryPointMigrated(uint256 withdrawn, uint256 deposited);
 
     error TokenNotRegistered(address token);
     error TokenNotActive(address token);
@@ -242,6 +274,7 @@ contract SimplexPaymaster is Initializable, HyperApp, PaymasterERC20 {
     error InvalidHost();
     error LengthMismatch();
     error UnauthorizedRelayer();
+    error UnauthorizedBundler(address origin);
 
     constructor() {
         _disableInitializers();
@@ -252,6 +285,12 @@ contract SimplexPaymaster is Initializable, HyperApp, PaymasterERC20 {
     ///      with their own host.
     modifier onlyFresh() {
         if (_getInitializedVersion() != 0) revert InvalidInitialization();
+        _;
+    }
+
+    /// @dev `migrate` only takes a proxy one version behind; an older one would skip a migration.
+    modifier onlyPreviousVersion() {
+        if (_getInitializedVersion() != VERSION - 1) revert InvalidInitialization();
         _;
     }
 
@@ -280,17 +319,43 @@ contract SimplexPaymaster is Initializable, HyperApp, PaymasterERC20 {
         _setRelayer(relayer_);
     }
 
-    /// @notice Migration for a proxy from before the relayer gate: arms it and lands at `VERSION`.
+    /// @notice Moves the deposit from EntryPoint v0.8 to v0.9, unlocks the v0.8 stake and lands
+    ///         at `VERSION`.
     /// @dev Host-only, so reachable only as the init data of an `UpgradeContract` request, which
     ///      delegatecalls it with the host still `msg.sender`; one-shot through the reinitializer.
-    /// @param relayer_ The only relayer whose governance deliveries are accepted from now on
-    function migrate(address relayer_) external onlyHost reinitializer(VERSION) {
-        if (relayer_ == address(0)) revert ZeroAddress();
-        _setRelayer(relayer_);
+    ///      v0.9 is left unstaked: the bundlers this paymaster serves run without a paymaster
+    ///      stake, and the treasury can stake through {addStake} if a chain needs one.
+    ///      {withdrawStakeV08} moves the unlocked v0.8 stake into the v0.9 deposit once its delay
+    ///      passes.
+    function migrate() external onlyHost onlyPreviousVersion reinitializer(VERSION) {
+        IStakeManager.DepositInfo memory info = IStakeManager(address(ENTRYPOINT_V08)).getDepositInfo(address(this));
+        if (info.deposit > 0) ENTRYPOINT_V08.withdrawTo(payable(address(this)), info.deposit);
+        if (info.staked) ENTRYPOINT_V08.unlockStake();
+
+        uint256 deposited = address(this).balance;
+        if (deposited > 0) entryPoint().depositTo{value: deposited}(address(this));
+        emit EntryPointMigrated(info.deposit, deposited);
     }
 
-    /// @notice The `Initializable` version: 1 on a proxy from before the relayer gate, `VERSION`
-    ///         once `initialize` or `migrate` has run.
+    /// @notice Withdraws the EntryPoint v0.8 stake that {migrate} unlocked and deposits the proxy's
+    ///         entire native balance into v0.9.
+    /// @dev Permissionless: the native only ever lands in this paymaster's own v0.9 deposit, v0.8
+    ///      enforces the unstake delay and pays out once, and ERC-20 prefunds do not move.
+    function withdrawStakeV08() external {
+        ENTRYPOINT_V08.withdrawStake(payable(address(this)));
+        uint256 balance = address(this).balance;
+        if (balance > 0) entryPoint().depositTo{value: balance}(address(this));
+    }
+
+    /// @dev EntryPoint v0.9 in place of OpenZeppelin's v0.8. It gates validation and postOp, and
+    ///      receives every deposit, stake and withdrawal call; only {migrate} and
+    ///      {withdrawStakeV08} reach v0.8.
+    function entryPoint() public pure override returns (IEntryPoint) {
+        return ENTRYPOINT_V09;
+    }
+
+    /// @notice The `Initializable` version: 0 on a bare proxy, `VERSION` once `initialize` or
+    ///         `migrate` has run.
     function version() external view returns (uint64) {
         return _getInitializedVersion();
     }
@@ -340,6 +405,9 @@ contract SimplexPaymaster is Initializable, HyperApp, PaymasterERC20 {
             address newRelayer = abi.decode(payload, (address));
             if (newRelayer == address(0)) revert ZeroAddress();
             _setRelayer(newRelayer);
+        } else if (kind == RequestKind.SetBundlers) {
+            (address[] memory bundlers, bool allowed) = abi.decode(payload, (address[], bool));
+            _setBundlers(bundlers, allowed);
         }
     }
 
@@ -352,6 +420,17 @@ contract SimplexPaymaster is Initializable, HyperApp, PaymasterERC20 {
     function _setRelayer(address relayer_) internal {
         emit RelayerUpdated(_relayer, relayer_);
         _relayer = relayer_;
+    }
+
+    /// @dev Adding a listed bundler or removing an unlisted one is a silent no-op.
+    function _setBundlers(address[] memory bundlers, bool allowed) internal {
+        for (uint256 i = 0; i < bundlers.length; i++) {
+            address bundler = bundlers[i];
+            if (bundler == address(0)) revert ZeroAddress();
+            if (allowed ? _bundlers.add(bundler) : _bundlers.remove(bundler)) {
+                emit BundlerUpdated(bundler, allowed);
+            }
+        }
     }
 
     /// @dev Validates and applies pricing/treasury parameters, re-caching the
@@ -425,8 +504,8 @@ contract SimplexPaymaster is Initializable, HyperApp, PaymasterERC20 {
         revert UnauthorizedCall();
     }
 
-    /// @notice Stakes native with the EntryPoint, which bundlers require before they will
-    ///         relay operations from this paymaster.
+    /// @notice Stakes native with the EntryPoint, which spec-enforcing bundlers require before
+    ///         they will relay operations from this paymaster.
     /// @dev Treasury-gated. The EntryPoint only ever lets `unstakeDelaySec` grow and resets
     ///      any pending unlock, so leaving this open would let anyone stretch the delay far
     ///      beyond the point where governance could recover the stake.
@@ -479,7 +558,8 @@ contract SimplexPaymaster is Initializable, HyperApp, PaymasterERC20 {
         emit FeesRecycled(token, amountIn, amounts[1], deposited);
     }
 
-    /// @dev Accepts the router's native output in {swapAndDeposit}.
+    /// @dev Accepts the router's native output in {swapAndDeposit} and EntryPoint v0.8 payouts in
+    ///      {migrate} and {withdrawStakeV08}.
     receive() external payable {}
 
     // ── PaymasterERC20 hooks ─────────────────────────────────────────
@@ -494,6 +574,9 @@ contract SimplexPaymaster is Initializable, HyperApp, PaymasterERC20 {
         override
         returns (bytes memory context, uint256 validationData)
     {
+        // Length first: ORIGIN must not run while the list is empty (ERC-7562 bans it in validation).
+        if (_bundlers.length() != 0 && !_bundlers.contains(tx.origin)) revert UnauthorizedBundler(tx.origin);
+
         uint256 postOpGasLimit = userOp.paymasterPostOpGasLimit();
         if (postOpGasLimit > MAX_POST_OP_GAS_LIMIT || postOpGasLimit < MIN_POST_OP_GAS_LIMIT) {
             revert InvalidPostOpGasLimit(postOpGasLimit, MIN_POST_OP_GAS_LIMIT, MAX_POST_OP_GAS_LIMIT);
@@ -699,5 +782,10 @@ contract SimplexPaymaster is Initializable, HyperApp, PaymasterERC20 {
     /// @notice List all registered tokens.
     function getRegisteredTokens() external view returns (address[] memory) {
         return registeredTokens;
+    }
+
+    /// @notice The bundler wallets allowed to submit sponsored ops.
+    function getBundlers() external view returns (address[] memory) {
+        return _bundlers.values();
     }
 }

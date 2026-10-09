@@ -2,11 +2,14 @@
 pragma solidity ^0.8.24;
 
 import {Test} from "forge-std/Test.sol";
-import {ERC4337Utils, PackedUserOperation} from "@openzeppelin/contracts/account/utils/draft-ERC4337Utils.sol";
+import {PackedUserOperation} from "@openzeppelin/contracts/account/utils/draft-ERC4337Utils.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
+import {IncomingPostRequest} from "@hyperbridge/core/interfaces/IApp.sol";
+import {IDispatcher} from "@hyperbridge/core/interfaces/IDispatcher.sol";
 
 import {SimplexPaymaster, AggregatorV3Interface} from "../../src/utils/SimplexPaymaster.sol";
+import {SolverAccount} from "../../src/apps/intentsv2/SolverAccount.sol";
 import {SimplexPaymasterHarness} from "./SimplexPaymasterTest.t.sol";
 
 interface IPermit2Domain {
@@ -14,6 +17,8 @@ interface IPermit2Domain {
 }
 
 interface IEntryPointGas {
+    error FailedOpWithRevert(uint256 opIndex, string reason, bytes inner);
+
     function handleOps(PackedUserOperation[] calldata ops, address payable beneficiary) external;
 
     function getUserOpHash(PackedUserOperation calldata userOp) external view returns (bytes32);
@@ -29,9 +34,9 @@ interface IEntryPointGas {
 ///         covered by the tokens it charges the user, when the user inflates gas
 ///         limits it does not consume. EntryPoint v0.7+ adds a penalty on the unused
 ///         portion of `callGasLimit + paymasterPostOpGasLimit`; the paymaster only
-///         caps the latter. Runs against the real EntryPoint v0.8 on a fork.
+///         caps the latter. Runs against the real EntryPoint v0.9 on a fork.
 contract SimplexPaymasterGasGriefTest is Test {
-    IEntryPointGas constant ENTRY_POINT = IEntryPointGas(address(ERC4337Utils.ENTRYPOINT_V08));
+    IEntryPointGas constant ENTRY_POINT = IEntryPointGas(0x433709009B8330FDa32311DF1C2AFA402eD8D009);
     IPermit2Domain constant PERMIT2 = IPermit2Domain(0x000000000022D473030F116dDEE9F6B43aC78BA3);
     bytes32 constant TOKEN_PERMISSIONS_TYPEHASH = keccak256("TokenPermissions(address token,uint256 amount)");
     bytes32 constant PERMIT_TRANSFER_FROM_TYPEHASH = keccak256(
@@ -44,11 +49,15 @@ contract SimplexPaymasterGasGriefTest is Test {
     address constant USDT_USD = 0x3E7d1eAB13ad0104d2750B8863b489D65364e32D;
     address constant USDC = 0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48;
     address constant USDC_USD = 0x8fFfFfd4AfB6115b954Bd326cbe7B4BA576818f6;
-    address constant SOLVER_ACCOUNT = 0xfCd233b937D7622AAc63ced3C9A1A12F4a6B64E3;
+    address constant INTENT_GATEWAY = 0xAe041F7B0CB581876832830baeB6a2Aa2a3C9716;
+    // mode(1) + token(20) + permitAmount(32) + nonce(32) + deadline(32) + signature(65)
+    uint256 constant PERMIT2_DATA_LENGTH = 182;
+    bytes8 constant PAYMASTER_SIG_MAGIC = 0x22e325a297439656;
 
     address solver;
     uint256 solverKey;
     address beneficiary = makeAddr("beneficiary");
+    address bundler = makeAddr("bundler");
     SimplexPaymasterHarness paymaster;
 
     function setUp() public {
@@ -57,7 +66,8 @@ contract SimplexPaymasterGasGriefTest is Test {
         vm.selectFork(vm.createFork(url));
 
         (solver, solverKey) = makeAddrAndKey("gas-grief-solver");
-        vm.etch(solver, SOLVER_ACCOUNT.code);
+        // The solver EOA runs the local SolverAccount build, which serves v0.9.
+        vm.etch(solver, address(new SolverAccount(INTENT_GATEWAY)).code);
 
         address[] memory tokens = new address[](2);
         tokens[0] = USDT;
@@ -123,7 +133,7 @@ contract SimplexPaymasterGasGriefTest is Test {
         assertGe(weiCharged, nativeSpent, "paymaster subsidised an inflated-gas op");
     }
 
-    /// EntryPoint v0.8 penalises the unused part of `paymasterPostOpGasLimit` AFTER the value
+    /// EntryPoint v0.9 penalises the unused part of `paymasterPostOpGasLimit` AFTER the value
     /// handed to postOp is fixed, so that penalty is never billed to the user — the paymaster
     /// eats it out of the `_postOpCost()` cushion. The penalty is waived while
     /// `gasLimit <= gasUsed + PENALTY_GAS_THRESHOLD (40k)`, so the SDK sends 40k: the largest
@@ -190,6 +200,62 @@ contract SimplexPaymasterGasGriefTest is Test {
         }
     }
 
+    /// Through the real EntryPoint, only a listed bundler's handleOps reaches the sponsored op;
+    /// any other origin is refused with the paymaster's own reason.
+    function testBundlerAllowlistGatesHandleOps() public onFork {
+        address outsider = makeAddr("outsider");
+        address[] memory bundlers = new address[](1);
+        bundlers[0] = bundler;
+
+        IncomingPostRequest memory incoming;
+        incoming.request.source = IDispatcher(HOST).hyperbridge();
+        incoming.request.body =
+            bytes.concat(bytes1(uint8(SimplexPaymaster.RequestKind.SetBundlers)), abi.encode(bundlers, true));
+        vm.prank(HOST);
+        paymaster.onAccept(incoming);
+
+        PackedUserOperation[] memory ops = new PackedUserOperation[](1);
+        ops[0] = _buildOp(USDT, 60_000, 40_000);
+        uint256 nonce = ops[0].nonce;
+
+        vm.prank(outsider, outsider);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IEntryPointGas.FailedOpWithRevert.selector,
+                uint256(0),
+                "AA33 reverted",
+                abi.encodeWithSelector(SimplexPaymaster.UnauthorizedBundler.selector, outsider)
+            )
+        );
+        ENTRY_POINT.handleOps(ops, payable(beneficiary));
+
+        vm.prank(bundler, bundler);
+        ENTRY_POINT.handleOps(ops, payable(beneficiary));
+        assertEq(ENTRY_POINT.getNonce(solver, 0), nonce + 1);
+    }
+
+    /// EntryPoint v0.9 accepts a `paymasterSignature ‖ uint16 length ‖ magic` suffix on
+    /// `paymasterAndData`, and `paymasterData()` hands it to the paymaster unstripped, so the
+    /// PERMIT2 exact-length parse refuses the op during validation.
+    function testPaymasterSignatureSuffixIsRefused() public onFork {
+        (, uint256 paymasterSignerKey) = makeAddrAndKey("paymaster-signer");
+        PackedUserOperation[] memory ops = new PackedUserOperation[](1);
+        ops[0] = _buildOp(USDT, 60_000, 40_000, paymasterSignerKey);
+        uint256 dataLength = PERMIT2_DATA_LENGTH + 65 + 2 + PAYMASTER_SIG_MAGIC.length;
+        assertEq(ops[0].paymasterAndData.length, 52 + dataLength);
+
+        vm.prank(bundler, bundler);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IEntryPointGas.FailedOpWithRevert.selector,
+                uint256(0),
+                "AA33 reverted",
+                abi.encodeWithSelector(SimplexPaymaster.InvalidPaymasterData.selector, dataLength)
+            )
+        );
+        ENTRY_POINT.handleOps(ops, payable(beneficiary));
+    }
+
     function _run(uint128 callGasLimit) internal returns (uint256 weiCharged, uint256 nativeSpent) {
         return _run(callGasLimit, 40_000);
     }
@@ -214,6 +280,7 @@ contract SimplexPaymasterGasGriefTest is Test {
 
         PackedUserOperation[] memory ops = new PackedUserOperation[](1);
         ops[0] = op;
+        vm.prank(bundler, bundler);
         ENTRY_POINT.handleOps(ops, payable(beneficiary));
 
         uint256 tokensCharged = tokensBefore - IERC20(token).balanceOf(solver);
@@ -223,6 +290,15 @@ contract SimplexPaymasterGasGriefTest is Test {
     }
 
     function _buildOp(address token, uint128 callGasLimit, uint128 postOpGasLimit)
+        internal
+        view
+        returns (PackedUserOperation memory op)
+    {
+        return _buildOp(token, callGasLimit, postOpGasLimit, 0);
+    }
+
+    /// @dev A non-zero `paymasterSignerKey` appends a v0.9 `paymasterSignature` suffix signed by it.
+    function _buildOp(address token, uint128 callGasLimit, uint128 postOpGasLimit, uint256 paymasterSignerKey)
         internal
         view
         returns (PackedUserOperation memory op)
@@ -244,6 +320,11 @@ contract SimplexPaymasterGasGriefTest is Test {
             postOpGasLimit,
             abi.encodePacked(uint8(2), token, uint256(1_000e6), op.nonce, deadline, permitSig)
         );
+        if (paymasterSignerKey != 0) {
+            bytes memory paymasterSig = _sign(paymasterSignerKey, ENTRY_POINT.getUserOpHash(op));
+            op.paymasterAndData =
+                abi.encodePacked(op.paymasterAndData, paymasterSig, uint16(paymasterSig.length), PAYMASTER_SIG_MAGIC);
+        }
         op.signature = _sign(solverKey, ENTRY_POINT.getUserOpHash(op));
     }
 

@@ -256,6 +256,13 @@ pub enum RequestKind {
 		/// The relayer whose deliveries are accepted from now on
 		relayer: H160,
 	},
+	/// Add or remove the bundler wallets whose bundles the paymaster sponsors
+	PaymasterSetBundlers {
+		/// The bundler wallets to update
+		bundlers: Vec<H160>,
+		/// Whether the bundlers are listed or delisted
+		allowed: bool,
+	},
 }
 
 // Solidity type definitions for cross-chain encoding
@@ -414,6 +421,7 @@ enum SimplexPaymasterRequestKind {
 	UnlockStake = 5,
 	WithdrawStake = 6,
 	SetRelayer = 7,
+	SetBundlers = 8,
 }
 
 impl RequestKind {
@@ -549,6 +557,17 @@ impl RequestKind {
 				let mut body = vec![SimplexPaymasterRequestKind::SetRelayer as u8];
 				// Single value: matches `abi.decode(payload, (address))`.
 				body.extend_from_slice(&Address::from_slice(&relayer.0).abi_encode());
+				body
+			},
+			RequestKind::PaymasterSetBundlers { bundlers, allowed } => {
+				use alloy_primitives::Address;
+				let bundlers: Vec<Address> =
+					bundlers.iter().map(|bundler| Address::from_slice(&bundler.0)).collect();
+
+				let mut body = vec![SimplexPaymasterRequestKind::SetBundlers as u8];
+				// Matches `abi.decode(payload, (address[], bool))`; `abi_encode` would wrap the
+				// dynamic tuple in an extra offset word.
+				body.extend_from_slice(&(bundlers, *allowed).abi_encode_params());
 				body
 			},
 		}
@@ -699,6 +718,41 @@ mod request_kind_tests {
 		assert_eq!(body.len(), 1 + 32);
 		assert_eq!(&body[1..13], &[0u8; 12]);
 		assert_eq!(&body[13..], relayer.as_bytes());
+	}
+
+	#[test]
+	fn paymaster_set_bundlers_matches_solidity_address_array_bool_abi() {
+		let bundlers = vec![H160::repeat_byte(0x11), H160::repeat_byte(0x22)];
+		let body = RequestKind::PaymasterSetBundlers { bundlers: bundlers.clone(), allowed: true }
+			.encode_body();
+
+		assert_eq!(body[0], 8, "SimplexPaymaster.RequestKind.SetBundlers == 8");
+
+		// `abi.encode(address[], bool)`: offset to the array tail, the bool, then the array
+		// length and each address left-padded to a word.
+		let word = |value: u8| {
+			let mut word = [0u8; 32];
+			word[31] = value;
+			word
+		};
+		let mut expected = vec![8u8];
+		expected.extend_from_slice(&word(0x40));
+		expected.extend_from_slice(&word(0x01));
+		expected.extend_from_slice(&word(0x02));
+		for bundler in &bundlers {
+			expected.extend_from_slice(&[0u8; 12]);
+			expected.extend_from_slice(bundler.as_bytes());
+		}
+		assert_eq!(body.len(), 161);
+		assert_eq!(body, expected);
+
+		let (decoded, allowed) =
+			<(Vec<Address>, bool)>::abi_decode_params(&body[1..]).expect("(address[], bool)");
+		assert!(allowed);
+		assert_eq!(decoded.len(), bundlers.len());
+		for (decoded, bundler) in decoded.iter().zip(&bundlers) {
+			assert_eq!(decoded.as_slice(), &bundler.0);
+		}
 	}
 
 	/// Both stake requests carry no payload: `onAccept` reads only the kind byte and sends

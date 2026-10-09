@@ -7,6 +7,7 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
 import {SimplexPaymaster, AggregatorV3Interface, ISignatureTransfer} from "../../src/utils/SimplexPaymaster.sol";
+import {SolverAccount} from "../../src/apps/intentsv2/SolverAccount.sol";
 import {SimplexPaymasterHarness} from "./SimplexPaymasterTest.t.sol";
 
 interface IPermit2Test {
@@ -26,7 +27,7 @@ interface IEntryPointTest {
 }
 
 /// @notice Exercises PERMIT2 mode against the real Permit2, real stablecoins,
-///         real Chainlink feeds and the real EntryPoint v0.8 on a mainnet fork.
+///         real Chainlink feeds and the real EntryPoint v0.9 on a mainnet fork.
 ///         Contract correctness only: ERC-7562 bundler acceptance is a bundler
 ///         policy question a fork cannot answer.
 abstract contract SimplexPaymasterPermit2ForkTest is Test {
@@ -41,20 +42,23 @@ abstract contract SimplexPaymasterPermit2ForkTest is Test {
     bytes4 constant INVALID_CONTRACT_SIGNATURE = 0xb0669cbc; // InvalidContractSignature()
 
     ISignatureTransfer constant PERMIT2 = ISignatureTransfer(0x000000000022D473030F116dDEE9F6B43aC78BA3);
-    IEntryPointTest constant ENTRY_POINT = IEntryPointTest(address(ERC4337Utils.ENTRYPOINT_V08));
+    IEntryPointTest constant ENTRY_POINT = IEntryPointTest(0x433709009B8330FDa32311DF1C2AFA402eD8D009);
+    address constant INTENT_GATEWAY = 0xAe041F7B0CB581876832830baeB6a2Aa2a3C9716;
 
     // Per-chain fixtures supplied by the concrete test.
     address host;
     address nativeOracle;
     address stable; // a registered token WITHOUT EIP-2612 on this chain
     address stableOracle;
-    address solverAccountImpl; // live SolverAccount deployment, etched onto the solver EOA
     uint256 stableUnit;
 
     address solver;
     uint256 solverKey;
     address treasury = makeAddr("treasury");
     address beneficiary = makeAddr("beneficiary");
+    address bundler = makeAddr("bundler");
+    // The solver EOA runs the local SolverAccount build, which serves v0.9.
+    bytes solverAccountCode;
 
     SimplexPaymasterHarness paymaster;
 
@@ -72,6 +76,7 @@ abstract contract SimplexPaymasterPermit2ForkTest is Test {
         // Deterministic test addresses can carry a live EIP-7702 delegation on mainnet;
         // the EOA-path tests need a code-less sender.
         vm.etch(solver, "");
+        solverAccountCode = address(new SolverAccount(INTENT_GATEWAY)).code;
 
         SimplexPaymasterHarness implementation = new SimplexPaymasterHarness();
         address[] memory tokens = new address[](1);
@@ -220,7 +225,7 @@ abstract contract SimplexPaymasterPermit2ForkTest is Test {
     // ── Delegated sender (Permit2 ERC-1271 path through SolverAccount) ──
 
     function testPermit2ModeDelegatedSenderValidates() public onFork {
-        vm.etch(solver, solverAccountImpl.code);
+        vm.etch(solver, solverAccountCode);
         PackedUserOperation memory op = _permit2Op(100 * stableUnit, 8, block.timestamp + 1 hours, solverKey);
 
         uint256 gasBefore = gasleft();
@@ -230,7 +235,7 @@ abstract contract SimplexPaymasterPermit2ForkTest is Test {
     }
 
     function testPermit2ModeDelegatedSenderWrongSignerRejected() public onFork {
-        vm.etch(solver, solverAccountImpl.code);
+        vm.etch(solver, solverAccountCode);
         (, uint256 otherKey) = makeAddrAndKey("other");
         PackedUserOperation memory op = _permit2Op(100 * stableUnit, 9, block.timestamp + 1 hours, otherKey);
         vm.expectRevert(
@@ -244,7 +249,7 @@ abstract contract SimplexPaymasterPermit2ForkTest is Test {
     /// Full EntryPoint round trip: validation pulls the prefund through Permit2,
     /// the no-op executes, postOp refunds the unused part to the sender.
     function testHandleOpsPermit2ModeSponsorsAndRefunds() public onFork {
-        vm.etch(solver, solverAccountImpl.code);
+        vm.etch(solver, solverAccountCode);
         vm.deal(address(this), 10 ether);
         ENTRY_POINT.depositTo{value: 1 ether}(address(paymaster));
 
@@ -256,6 +261,7 @@ abstract contract SimplexPaymasterPermit2ForkTest is Test {
 
         PackedUserOperation[] memory ops = new PackedUserOperation[](1);
         ops[0] = op;
+        vm.prank(bundler, bundler);
         ENTRY_POINT.handleOps(ops, payable(beneficiary));
 
         uint256 charged = solverBefore - IERC20(stable).balanceOf(solver);
@@ -372,7 +378,6 @@ contract SimplexPaymasterPermit2EthereumForkTest is SimplexPaymasterPermit2ForkT
         stable = 0xdAC17F958D2ee523a2206206994597C13D831ec7; // USDT, no EIP-2612
         stableOracle = 0x3E7d1eAB13ad0104d2750B8863b489D65364e32D;
         stableUnit = 1e6;
-        solverAccountImpl = 0xfCd233b937D7622AAc63ced3C9A1A12F4a6B64E3;
     }
 }
 
@@ -387,6 +392,5 @@ contract SimplexPaymasterPermit2BscForkTest is SimplexPaymasterPermit2ForkTest {
         stable = 0x55d398326f99059fF775485246999027B3197955; // Binance-Peg USDT, no EIP-2612
         stableOracle = 0xB97Ad0E74fa7d920791E90258A6E2085088b4320;
         stableUnit = 1e18;
-        solverAccountImpl = 0xfCd233b937D7622AAc63ced3C9A1A12F4a6B64E3;
     }
 }

@@ -17,7 +17,7 @@ pragma solidity ^0.8.17;
 import {Account} from "@openzeppelin/contracts/account/Account.sol";
 import {ERC4337Utils} from "@openzeppelin/contracts/account/utils/draft-ERC4337Utils.sol";
 import {ERC7821} from "@openzeppelin/contracts/account/extensions/draft-ERC7821.sol";
-import {PackedUserOperation} from "@openzeppelin/contracts/interfaces/draft-IERC4337.sol";
+import {IEntryPoint, PackedUserOperation} from "@openzeppelin/contracts/interfaces/draft-IERC4337.sol";
 import {Execution} from "@openzeppelin/contracts/interfaces/draft-IERC7579.sol";
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import {IERC1271} from "@openzeppelin/contracts/interfaces/IERC1271.sol";
@@ -59,6 +59,11 @@ contract SolverAccount is Account, ERC7821, IERC1271 {
     bytes32 private constant BUDGETS_STORAGE_SLOT = 0xef37eedb8cd243d7bb1074a6cb5a4fad8c39bd328408761135c4a5a7d5c29900;
 
     /**
+     * @dev ERC-4337 EntryPoint v0.9, the only one this account accepts.
+     */
+    IEntryPoint private constant ENTRYPOINT_V09 = IEntryPoint(0x433709009B8330FDa32311DF1C2AFA402eD8D009);
+
+    /**
      * @dev A plain ECDSA signature: r, s, v.
      */
     uint256 private constant ECDSA_SIGNATURE_LENGTH = 65;
@@ -95,6 +100,14 @@ contract SolverAccount is Account, ERC7821, IERC1271 {
      */
     constructor(address gateway) {
         _intentGateway = gateway;
+    }
+
+    /**
+     * @dev EntryPoint v0.9 in place of OpenZeppelin's v0.8. It gates `validateUserOp`, `getNonce`
+     * and the EntryPoint's right to execute batches.
+     */
+    function entryPoint() public pure override returns (IEntryPoint) {
+        return ENTRYPOINT_V09;
     }
 
     /**

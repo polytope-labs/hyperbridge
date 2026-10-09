@@ -167,11 +167,13 @@ in-flight re-sign rather than posting alongside it.
 
 ### Bid validity
 
-`bidValidUntilBlock` converts `bidValiditySeconds` to blocks at the chain's measured block time, taken
-from the head and the block 1,000 before it and reused per chain for 10 minutes, where it used viem's
-`Chain.blockTime` or 2 seconds. Where the chain declares a block time, the faster of the two is used.
-Chapel (0.45s), Amoy (1s) and BSC (0.45s against a declared 0.75s) were converted at too slow a block
-time, so their bids reverted `FillExpired` early: after about 142 of 600 configured seconds on Chapel.
+`bidValidUntilBlock` converts `bidValiditySeconds` to blocks at the chain's measured block time, where
+it used viem's `Chain.blockTime` or 2 seconds. Each configured chain is measured once, when simplex
+starts, from the head and the block 1,000 before it, and the figure is kept until simplex stops. A
+chain that could not be measured then, or was added later, is measured at its first bid. Where the
+chain declares a block time, the faster of the two is used. Chapel (0.45s), Amoy (1s) and BSC (0.45s
+against a declared 0.75s) were converted at too slow a block time, so their bids reverted
+`FillExpired` early: after about 142 of 600 configured seconds on Chapel.
 
 ## Indexer
 

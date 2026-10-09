@@ -152,47 +152,6 @@
 			}
 		}
 	},
-	"optimism-mainnet": {
-		"type": "evm",
-		"chainId": "10",
-		"startBlock": 152061298,
-		"stateMachineId": "EVM-10",
-		"contracts": {
-			"ethereumHost": "0x620128E2B19193d6Bd244a3AC8D3bBa0541B19c3",
-			"erc6160ext20": "0xDA10009cBd5D07dd0CeCc66161FC93D7c9000da1",
-			"handlerV2": "0x2a18AB35DEa43474882E05A661e2F20fe89c0535",
-			"intentGatewayV3": "0xAe041F7B0CB581876832830baeB6a2Aa2a3C9716",
-			"solverAccount": [
-				"0xd5535d4DeB17F050e52B6efda2fDe00435f39279",
-				"0x77c3394CA5881A74f18139AC87D0c11F8Faa90cC"
-			],
-			"yieldVaults": {
-				"0x0b2c639c533813f4aa9d7837caf62653d097ff85": {
-					"description": "USDC (native Circle) \u2192 stataUSDCn (Aave v3 Optimism)",
-					"vaults": [
-						"0x41B334E9F2C0ED1f30fD7c351874a6071C53a78E"
-					]
-				},
-				"0x94b008aa00579c1307b0ef2c499ad98a8ce58e58": {
-					"description": "USDT \u2192 stataUSDT (Aave v3 Optimism)",
-					"vaults": [
-						"0x927CfF131fD5B43FC992D071929b2c095d6E4b70"
-					]
-				},
-				"0xda10009cbd5d07dd0cecc66161fc93d7c9000da1": {
-					"description": "DAI \u2014 listed so the LP balance sweep tracks the raw ERC-20 balance",
-					"vaults": []
-				}
-			},
-			"tokenSlots": {
-				"0x0b2c639c533813f4aa9d7837caf62653d097ff85": {
-					"description": "USDC native Circle (FiatToken) \u2014 balances at slot 9, allowed at slot 10",
-					"balanceSlot": 9,
-					"allowanceSlot": 10
-				}
-			}
-		}
-	},
 	"base-mainnet": {
 		"type": "evm",
 		"chainId": "8453",
@@ -307,49 +266,6 @@
 					"description": "BSC USDT (BEP-20 TetherUSD) \u2014 balances at slot 1, allowed at slot 2",
 					"balanceSlot": 1,
 					"allowanceSlot": 2
-				}
-			}
-		}
-	},
-	"gnosis-mainnet": {
-		"type": "evm",
-		"chainId": "100",
-		"startBlock": 46357752,
-		"stateMachineId": "EVM-100",
-		"blockConfirmations": 5,
-		"contracts": {
-			"ethereumHost": "0x620128E2B19193d6Bd244a3AC8D3bBa0541B19c3",
-			"erc6160ext20": "0xe91D153E0b41518A2Ce8Dd3D7944Fa863463a97d",
-			"handlerV2": "0x2a18AB35DEa43474882E05A661e2F20fe89c0535",
-			"intentGatewayV3": "0xAe041F7B0CB581876832830baeB6a2Aa2a3C9716",
-			"solverAccount": [
-				"0xd5535d4DeB17F050e52B6efda2fDe00435f39279",
-				"0x77c3394CA5881A74f18139AC87D0c11F8Faa90cC"
-			],
-			"yieldVaults": {
-				"0xe91d153e0b41518a2ce8dd3d7944fa863463a97d": {
-					"description": "WXDAI (carried as DAI) \u2014 listed so the LP balance sweep tracks the raw ERC-20 balance",
-					"vaults": []
-				},
-				"0xddafbb505ad214d7b80b1f830fccc89b60fb7a83": {
-					"description": "USDC \u2014 listed so the LP balance sweep tracks the raw ERC-20 balance",
-					"vaults": []
-				},
-				"0x4ecaba5870353805a9f068101a40e0f32ed605c6": {
-					"description": "USDT \u2014 listed so the LP balance sweep tracks the raw ERC-20 balance",
-					"vaults": []
-				}
-			},
-			"tokenSlots": {
-				"0xddafbb505ad214d7b80b1f830fccc89b60fb7a83": {
-					"description": "USD//C on xDai (PermittableToken, the USDC this config trades on Gnosis) \u2014 balances at slot 3, allowed at slot 5",
-					"balanceSlot": 3,
-					"allowanceSlot": 5
-				},
-				"0x2a22f9c3b484c3629090feed35f17ff8f88f76f0": {
-					"description": "USDC.e / Bridged USDC (Gnosis), a Circle FiatToken \u2014 balances at slot 9, allowed at slot 10. Distinct from the USD//C above, and not referenced anywhere else in this config",
-					"balanceSlot": 9,
-					"allowanceSlot": 10
 				}
 			}
 		}

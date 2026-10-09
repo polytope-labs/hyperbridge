@@ -33,18 +33,29 @@ describe("bidValiditySeconds", () => {
 
 describe("bidValidUntilBlock", () => {
 	const HEAD = 1_000_000n
+	const HEAD_TIMESTAMP = 1_800_000_000n
+	const SAMPLE_BLOCKS = 1_000n
 
 	/**
-	 * `blockTime` is milliseconds in viem (Ethereum 12000, Base 2000, Arbitrum 250), so the
-	 * helper divides by 1000. Passing `undefined` exercises the seconds-denominated fallback.
+	 * `nominalMs` is the block time the chain declares, in milliseconds as viem has it (Ethereum
+	 * 12000, Base 2000, Arbitrum 250), or `undefined` for a chain that declares none.
+	 * `actualSec` is what its recent blocks show and defaults to the declared figure; `null`
+	 * makes the blocks unreadable.
 	 *
 	 * The window is the configured validity plus a 30s discovery allowance, converted once.
 	 */
-	function service(blockTimeMs: number | undefined, bidValiditySeconds?: number) {
+	function setup(nominalMs: number | undefined, bidValiditySeconds?: number, actualSec?: number | null) {
+		const blockTimeSec = actualSec === undefined ? (nominalMs ?? 2000) / 1000 : actualSec
+		const getBlock = vi.fn().mockImplementation(async (args: { blockTag?: string; blockNumber?: bigint }) => {
+			if (blockTimeSec === null) throw new Error("block not available")
+			const number = args.blockNumber ?? HEAD
+			return { number, timestamp: HEAD_TIMESTAMP - BigInt(Math.round(Number(HEAD - number) * blockTimeSec)) }
+		})
 		const clientManager = {
 			getPublicClient: vi.fn().mockReturnValue({
 				getBlockNumber: vi.fn().mockResolvedValue(HEAD),
-				chain: blockTimeMs === undefined ? {} : { blockTime: blockTimeMs },
+				getBlock,
+				chain: nominalMs === undefined ? {} : { blockTime: nominalMs },
 			}),
 		} as any
 		const configService = {
@@ -58,8 +69,12 @@ describe("bidValidUntilBlock", () => {
 			{ address: "0x1111111111111111111111111111111111111111" } as any,
 			{ getTokenDecimals: () => undefined, setTokenDecimals: () => {} } as any,
 		)
-		return (svc as any).bidValidUntilBlock("EVM-8453") as Promise<bigint>
+		const validUntil = (chain = "EVM-8453") => (svc as any).bidValidUntilBlock(chain) as Promise<bigint>
+		return { validUntil, getBlock }
 	}
+
+	const service = (nominalMs: number | undefined, bidValiditySeconds?: number, actualSec?: number | null) =>
+		setup(nominalMs, bidValiditySeconds, actualSec).validUntil()
 
 	it("converts the validity window plus the discovery pad at the chain's block time", async () => {
 		// Base: 2000ms blocks => (300 + 30)s is 165 blocks.
@@ -89,7 +104,60 @@ describe("bidValidUntilBlock", () => {
 		await expect(service(750, 100)).resolves.toBe(HEAD + 174n)
 	})
 
-	it("falls back to a 2-second block time when the chain does not declare one", async () => {
-		await expect(service(undefined)).resolves.toBe(HEAD + 165n)
+	it("uses the measured block time when the chain runs faster than it declares", async () => {
+		// BSC declares 750ms and makes a block every 0.45s: 330s is 733.33 blocks, not 440.
+		await expect(service(750, 300, 0.45)).resolves.toBe(HEAD + 734n)
+	})
+
+	it("measures a chain that declares no block time", async () => {
+		// BSC Chapel at 0.45s and Polygon Amoy at 1s, neither with a declared figure.
+		await expect(service(undefined, 300, 0.45)).resolves.toBe(HEAD + 734n)
+		await expect(service(undefined, 300, 1)).resolves.toBe(HEAD + 330n)
+	})
+
+	it("keeps the declared block time when the sample ran slower", async () => {
+		// A stall in the last 1,000 blocks must not shorten the bid once the chain recovers.
+		await expect(service(2000, 300, 3)).resolves.toBe(HEAD + 165n)
+	})
+
+	it("samples the last 1,000 blocks", async () => {
+		const { validUntil, getBlock } = setup(2000)
+		await validUntil()
+
+		expect(getBlock.mock.calls).toEqual([[{ blockTag: "latest" }], [{ blockNumber: HEAD - SAMPLE_BLOCKS }]])
+	})
+
+	it("measures a chain once and reuses the figure", async () => {
+		const { validUntil, getBlock } = setup(undefined, 300, 0.45)
+
+		await expect(Promise.all([validUntil(), validUntil()])).resolves.toEqual([HEAD + 734n, HEAD + 734n])
+		await validUntil()
+
+		expect(getBlock).toHaveBeenCalledTimes(2)
+	})
+
+	it("measures each chain separately", async () => {
+		const { validUntil, getBlock } = setup(undefined, 300, 0.45)
+
+		await validUntil("EVM-97")
+		await validUntil("EVM-80002")
+
+		expect(getBlock).toHaveBeenCalledTimes(4)
+	})
+
+	it("falls back to the declared block time when the blocks cannot be read", async () => {
+		await expect(service(750, 300, null)).resolves.toBe(HEAD + 440n)
+	})
+
+	it("falls back to a 2-second block time when there is neither a measurement nor a declared figure", async () => {
+		await expect(service(undefined, 300, null)).resolves.toBe(HEAD + 165n)
+	})
+
+	it("measures again after a failed measurement", async () => {
+		const { validUntil, getBlock } = setup(undefined, 300, 0.45)
+		getBlock.mockRejectedValueOnce(new Error("rate limited"))
+
+		await expect(validUntil()).resolves.toBe(HEAD + 165n)
+		await expect(validUntil()).resolves.toBe(HEAD + 734n)
 	})
 })

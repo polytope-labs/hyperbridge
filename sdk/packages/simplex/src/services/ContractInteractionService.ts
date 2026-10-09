@@ -85,12 +85,26 @@ const LIMIT_ORDER_PRE_VERIFICATION_GAS = 50_000n
  */
 const BID_DISCOVERY_PAD_SECONDS = 30
 
+/**
+ * How many blocks back a chain's block time is measured over. Block timestamps are whole
+ * seconds, so the span has to be long enough for one second not to matter: 1,000 blocks is
+ * 250s on Arbitrum.
+ */
+const BLOCK_TIME_SAMPLE_BLOCKS = 1_000n
+
+/** How long a measured block time is reused. It moves when a chain changes how it produces blocks. */
+const BLOCK_TIME_TTL_MS = 10 * 60 * 1000
+
+/** Assumed when a chain declares no block time and its blocks cannot be read. */
+const FALLBACK_BLOCK_TIME_SECONDS = 2
+
 export class ContractInteractionService {
 	private configService: FillerConfigService
 	public cacheService: CacheService
 	private logger: Logger
 
 	private sdkHelperCache: Map<string, IntentGateway> = new Map()
+	private blockTimes: Map<string, { measuredAt: number; seconds: Promise<number> }> = new Map()
 	private solverAccountAddress: HexString
 	private signer: Signer
 
@@ -897,20 +911,60 @@ export class ContractInteractionService {
 	 *
 	 * Operators configure seconds because that is the unit the risk is actually in, but the
 	 * contract compares against block numbers so `order.deadline` and this read the same
-	 * clock. The conversion uses the chain's nominal block time; it is deliberately rounded
-	 * up, since erring long costs a slightly stale quote while erring short silently drops
-	 * winnable bids.
+	 * clock. The conversion uses the chain's block time from {@link blockTimeSeconds}; it is
+	 * deliberately rounded up, since erring long costs a slightly stale quote while erring
+	 * short silently drops winnable bids.
 	 */
 	private async bidValidUntilBlock(chain: string): Promise<bigint> {
 		const client = this.clientManager.getPublicClient(chain)
-		const currentBlock = await client.getBlockNumber()
-		// viem documents `Chain.blockTime` in milliseconds (Ethereum 12000, Base 2000,
-		// Arbitrum 250), hence the conversion; the fallback is already in seconds.
-		const blockTimeMs = client.chain?.blockTime
-		const blockTimeSec = blockTimeMs ? blockTimeMs / 1000 : 2
+		const [currentBlock, blockTimeSec] = await Promise.all([client.getBlockNumber(), this.blockTimeSeconds(chain)])
 		// Converted once, so the rounding happens in one place rather than twice.
 		const windowSec = this.configService.getBidValiditySeconds() + BID_DISCOVERY_PAD_SECONDS
 		return currentBlock + BigInt(Math.ceil(windowSec / blockTimeSec))
+	}
+
+	/**
+	 * Seconds per block on `chain`, measured over its last {@link BLOCK_TIME_SAMPLE_BLOCKS}
+	 * blocks and reused for {@link BLOCK_TIME_TTL_MS}.
+	 *
+	 * The nominal `Chain.blockTime` cannot be relied on alone: it goes stale when a chain
+	 * speeds up (BSC makes a block every 0.45s against a declared 0.75s) and some chains
+	 * declare none. Converting at a slower block time than the chain's ends a bid early.
+	 */
+	private blockTimeSeconds(chain: string): Promise<number> {
+		const cached = this.blockTimes.get(chain)
+		if (cached && Date.now() - cached.measuredAt < BLOCK_TIME_TTL_MS) return cached.seconds
+		const seconds = this.measureBlockTimeSeconds(chain)
+		this.blockTimes.set(chain, { measuredAt: Date.now(), seconds })
+		return seconds
+	}
+
+	/**
+	 * Takes the faster of the measured and the nominal block time, so that a stalled or idle
+	 * stretch in the sample never shortens a bid. Falls back to the nominal figure, then to
+	 * {@link FALLBACK_BLOCK_TIME_SECONDS}, when the blocks cannot be read, and leaves that
+	 * answer uncached so the next bid measures again.
+	 */
+	private async measureBlockTimeSeconds(chain: string): Promise<number> {
+		const client = this.clientManager.getPublicClient(chain)
+		// viem documents `Chain.blockTime` in milliseconds (Ethereum 12000, Base 2000, Arbitrum 250).
+		const nominalMs = client.chain?.blockTime
+		const nominal = nominalMs ? nominalMs / 1000 : undefined
+		try {
+			const head = await client.getBlock({ blockTag: "latest" })
+			const span = head.number < BLOCK_TIME_SAMPLE_BLOCKS ? head.number : BLOCK_TIME_SAMPLE_BLOCKS
+			const tail = await client.getBlock({ blockNumber: head.number - span })
+			const measured = Number(head.timestamp - tail.timestamp) / Number(span)
+			if (!Number.isFinite(measured) || measured <= 0) {
+				throw new Error(`${span} blocks span ${head.timestamp - tail.timestamp}s`)
+			}
+			return nominal ? Math.min(measured, nominal) : measured
+		} catch (err) {
+			this.blockTimes.delete(chain)
+			const seconds = nominal ?? FALLBACK_BLOCK_TIME_SECONDS
+			this.logger.warn({ err, chain, seconds }, "Could not measure the block time; using the nominal one")
+			return seconds
+		}
 	}
 
 	/**

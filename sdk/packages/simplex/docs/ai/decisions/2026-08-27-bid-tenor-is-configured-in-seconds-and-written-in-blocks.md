@@ -10,6 +10,14 @@ mean something different on every chain, and price risk is denominated in time, 
 keeps both sides in their natural unit. Rounding is deliberately up: erring long costs a slightly stale quote, erring
 short silently drops bids we would have won.
 
+The block time is measured: the timestamps of the head and of the block 1,000 before it, reused per chain for 10
+minutes. viem's nominal `Chain.blockTime` is not enough on its own. It goes stale when a chain speeds up (BSC declares
+0.75s and makes a block every 0.45s) and some chains declare none (BSC Chapel at 0.45s and Polygon Amoy at 1s, which
+fell to a 2s guess), and converting at too slow a block time ends the bid early: 600 configured seconds lasted about
+142 on Chapel. Where a chain declares a figure, the faster of the two is used, so a stalled stretch inside the sample
+cannot shorten a bid either. Blocks that cannot be read fall back to the declared figure, then to 2s, and the next bid
+measures again.
+
 300 seconds is chosen to cover the quote-to-fill path and little more: cross-chain confirmation waits reach roughly
 180s on the deepest default policies, so 5 minutes clears the mechanical part of the round trip while keeping the
 window over which the quoted price is a firm commitment short. On a volatile pair that is the number that matters —
@@ -26,7 +34,7 @@ short an option, and the two should not be assumed to move together.
 
 The window carries a 30-second discovery allowance on top of the configured validity, added before the conversion so
 the rounding happens once. The head is read before the bid is built, signed, submitted to Hyperbridge and finally
-discovered and selected, so it is already behind by the time a fill lands, and `Chain.blockTime` is nominal rather
+discovered and selected, so it is already behind by the time a fill lands, and the block time is an average rather
 than exact.
 
 It is denominated in seconds rather than blocks because that lag is wall-clock and does not scale with block time —

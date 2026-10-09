@@ -9,6 +9,9 @@ concurrency:
     group: release-${{ github.ref }}
     cancel-in-progress: true
 
+env:
+    GOPROXY: https://proxy.golang.org,https://raw.githubusercontent.com/polytope-labs/gnark-ignition-verifier/goproxy,direct
+
 jobs:
     build_and_publish:
         runs-on: release-runner

@@ -47,6 +47,7 @@ concurrency:
     cancel-in-progress: true
 
 env:
+    GOPROXY: https://proxy.golang.org,https://raw.githubusercontent.com/polytope-labs/gnark-ignition-verifier/goproxy,direct
     TELEMETRY_SECRET_KEY: ${{ secrets.TELEMETRY_SECRET_KEY }}
 
 jobs:

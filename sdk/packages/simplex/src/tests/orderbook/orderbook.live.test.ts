@@ -5,7 +5,7 @@ import { tmpdir } from "node:os"
 import { fileURLToPath } from "node:url"
 import { join } from "node:path"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
-import type { HexString } from "@hyperbridge/sdk"
+import { ChainConfigService, type HexString } from "@hyperbridge/sdk"
 import { MemoryDataStore } from "@/data/memory"
 import { OrderbookClient } from "@/orderbook/client"
 import { LimitOrderService } from "@/orderbook/limit-orders"
@@ -38,8 +38,7 @@ const RUNNING = process.env.HYPERFX_ORDERBOOK_URL
 const BINARY = process.env.HYPERFX_ORDERBOOK_BIN
 const GATEWAY = "0xAe041F7B0CB581876832830baeB6a2Aa2a3C9716" as HexString
 const CHAIN_ID = 8453
-/** EntryPoint v0.8, which is what the solver account validates against. */
-const ENTRY_POINT = "0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108" as HexString
+const chainConfig = new ChainConfigService()
 const ONE = ORDERBOOK_SCALE
 
 /** Take in 1,500,000 cNGN, pay out 1,000.5 USDC: a cNGN to USDC order at about 1,499. */
@@ -152,7 +151,10 @@ describe.skipIf(!RUNNING && !BINARY)("a limit order on a running orderbook", () 
 			client,
 			contractService,
 			// biome-ignore lint/suspicious/noExplicitAny: the chain and the EntryPoint are all this path reads
-			{ getConfiguredChainIds: () => [CHAIN_ID], getEntryPointAddress: () => ENTRY_POINT } as any,
+			{
+				getConfiguredChainIds: () => [CHAIN_ID],
+				getEntryPointAddress: (chain: string) => chainConfig.getEntryPointAddress(chain),
+			} as any,
 			// biome-ignore lint/suspicious/noExplicitAny: two symbols on one chain
 			baseAssetRegistry() as any,
 			signer,

@@ -567,7 +567,7 @@ export class FillerConfigService {
 	}
 
 	getEntryPointAddress(chain: string): HexString | undefined {
-		return this.chainConfigService.getEntryPointV08Address(chain) as HexString | undefined
+		return this.chainConfigService.getEntryPointAddress(chain)
 	}
 
 	getSolverAccountContractAddress(chain: string): HexString | undefined {

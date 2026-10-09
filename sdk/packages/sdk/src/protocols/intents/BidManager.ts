@@ -48,12 +48,15 @@ export class BidManager {
 	 * Constructs a signed `PackedUserOperation` that a solver can submit to the
 	 * Hyperbridge coprocessor as a bid to fill an order.
 	 *
-	 * The solver signs the operation as EntryPoint v0.8 EIP-712 typed data,
-	 * whose digest is the plain userOpHash. The binding to the order lives in
-	 * the operation itself: the 4337 nonce key must be the lower 192 bits of
-	 * the order commitment (`SolverAccount` enforces this during validation),
-	 * and the callData carries the order. This keeps the signed payload fully
-	 * transparent to signing infrastructure instead of an opaque digest.
+	 * The solver signs the operation as EIP-712 typed data for
+	 * `entryPointAddress`, whose digest is that EntryPoint's userOpHash. It must
+	 * be the EntryPoint the solver's `SolverAccount` accepts: the user's SDK
+	 * recovers it from this signature and executes the bid there. The binding
+	 * to the order lives in the operation itself: the 4337 nonce key must derive
+	 * from the order commitment, the session key and the calldata
+	 * (`SolverAccount` enforces this during validation), and the callData
+	 * carries the order. This keeps the signed payload fully transparent to
+	 * signing infrastructure instead of an opaque digest.
 	 *
 	 * @param options - Parameters describing the solver account, gas limits, fee
 	 *   market values, and pre-built `callData` for the fill operation.
@@ -136,6 +139,11 @@ export class BidManager {
 	 * bids whose calldata cannot be decoded into a valid `fillOrder` call are
 	 * silently dropped with a warning. The returned `Bid` instances are ready to
 	 * be ranked, simulated, and executed by the consumer.
+	 *
+	 * A bid signed for no known EntryPoint, or for one the destination gateway's
+	 * selection format does not pair with, is kept here and fails
+	 * {@link Bid.simulate} and {@link Bid.execute}, so {@link selectAndExecuteBest}
+	 * skips it.
 	 *
 	 * @param order - The placed order the bids are competing to fill.
 	 * @param bids - Raw filler bids fetched from the coprocessor.

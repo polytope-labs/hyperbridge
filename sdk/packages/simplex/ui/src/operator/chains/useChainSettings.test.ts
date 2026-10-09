@@ -12,10 +12,6 @@ let model: Model
 let root: Root
 let container: HTMLDivElement
 let dto: ChainsDto
-let alchemyResponse: {
-	valid: boolean
-	chains: Array<{ chainId: number; rpcUrl: string | null; bundlerUrl: string | null }>
-}
 let savedChains: { chains: Array<Pick<ChainRowDto, "chainId" | "rpcUrls" | "bundlerUrl" | "watchOnly">> } | undefined
 const requests = vi.fn()
 
@@ -58,13 +54,6 @@ beforeEach(() => {
 			},
 		],
 	}
-	alchemyResponse = {
-		valid: true,
-		chains: [
-			{ chainId: 1, rpcUrl: "https://eth.g.alchemy.com/v2/test", bundlerUrl: "https://eth-bundler.example" },
-			{ chainId: 8453, rpcUrl: "https://base.g.alchemy.com/v2/test", bundlerUrl: "https://base-bundler.example" },
-		],
-	}
 	savedChains = undefined
 	requests.mockReset()
 	vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true)
@@ -90,9 +79,7 @@ beforeEach(() => {
 				return new Response(JSON.stringify({ ok: true }))
 			}
 			if (path === "/api/chains") return new Response(JSON.stringify(dto))
-			if (path === "/api/setup/validate-alchemy-key") return new Response(JSON.stringify(alchemyResponse))
 			if (path === "/api/setup/validate-rpc") return new Response(JSON.stringify({ ok: true, results: [] }))
-			if (path === "/api/setup/validate-bundler") return new Response(JSON.stringify({ ok: true }))
 			throw new Error(`Unexpected request: ${path}`)
 		}),
 	)
@@ -107,8 +94,13 @@ afterEach(async () => {
 	vi.unstubAllGlobals()
 })
 
+const HYPERBRIDGE_BUNDLER = {
+	1: "https://bundler.polytope.technology/ethereum",
+	8453: "https://bundler.polytope.technology/base",
+}
+
 describe("operator chain settings", () => {
-	it("shows default fields and saves edits through the rendered Chains panel", async () => {
+	it("shows RPC fields alone and saves edits through the rendered Chains panel", async () => {
 		await act(async () => root.render(createElement(Chains)))
 		const card = Array.from(container.querySelectorAll(".chain-configuration")).find(
 			(card) => card.querySelector("h2")?.textContent === "Ethereum",
@@ -117,26 +109,12 @@ describe("operator chain settings", () => {
 		const toggle = card.querySelector<HTMLInputElement>('input[type="checkbox"]')
 		if (!toggle) throw new Error("Missing enable switch")
 		await act(async () => toggle.click())
-		const rpcs = () => Array.from(card.querySelectorAll<HTMLInputElement>('.row input[type="text"]'))
-		expect(rpcs().map((input) => input.value)).toEqual(dto.catalog[0].defaultRpcUrls)
-		const key = container.querySelector<HTMLInputElement>('input[aria-label="Alchemy API key"]')
-		if (!key) throw new Error("Missing Alchemy key field")
-		await enter(key, "test-key")
-		const prefill = Array.from(container.querySelectorAll("button")).find(
-			(button) => button.textContent === "Validate & prefill",
-		)
-		if (!prefill) throw new Error("Missing prefill button")
-		expect(prefill.disabled).toBe(false)
-		await act(async () => prefill.click())
-		expect(rpcs().map((input) => input.value)).toEqual(dto.catalog[0].defaultRpcUrls)
-		expect(card.textContent).toContain("Bundler via Alchemy")
-		await enter(rpcs()[0], "https://edited.example")
-		expect(card.textContent).toContain("Bundler via Alchemy")
-		const bundler = card.querySelector<HTMLInputElement>('input[placeholder*="pimlico"]')
-		if (!bundler) throw new Error("Missing bundler field")
-		expect(bundler.value).toBe("https://eth-bundler.example")
-		await enter(bundler, "https://custom-bundler.example")
-		expect(card.textContent).not.toContain("Bundler via Alchemy")
+		const fields = () => Array.from(card.querySelectorAll<HTMLInputElement>('input[type="text"]'))
+		// Every text field on the card is an RPC endpoint: there is no bundler to enter.
+		expect(fields().map((input) => input.value)).toEqual(dto.catalog[0].defaultRpcUrls)
+		expect(container.textContent).not.toMatch(/bundler|alchemy/i)
+		expect(container.querySelector('input[type="password"]')).toBeNull()
+		await enter(fields()[0], "https://edited.example")
 		const save = Array.from(container.querySelectorAll("button")).find(
 			(button) => button.textContent === "Save chain settings",
 		)
@@ -147,19 +125,18 @@ describe("operator chain settings", () => {
 				{
 					chainId: 1,
 					rpcUrls: ["https://edited.example", ...(dto.catalog[0].defaultRpcUrls?.slice(1) ?? [])],
-					bundlerUrl: "https://custom-bundler.example",
+					bundlerUrl: HYPERBRIDGE_BUNDLER[1],
 					watchOnly: false,
 				},
 			]),
 		})
-		expect(rpcs().map((input) => input.value)).toEqual([
+		expect(fields().map((input) => input.value)).toEqual([
 			"https://edited.example",
 			...(dto.catalog[0].defaultRpcUrls?.slice(1) ?? []),
 		])
-		expect(bundler.value).toBe("https://custom-bundler.example")
 	})
 
-	it("loads bundled RPCs for every new mainnet chain and preserves saved endpoints", async () => {
+	it("loads bundled RPCs for every new mainnet chain and preserves saved RPC endpoints", async () => {
 		await mount()
 		for (const meta of dto.catalog) {
 			const draft = chain(meta.chainId)
@@ -171,11 +148,22 @@ describe("operator chain settings", () => {
 					running: true,
 				})
 			} else {
-				expect(draft).toMatchObject({ enabled: false, rpcUrls: meta.defaultRpcUrls, bundlerUrl: "" })
+				expect(draft).toMatchObject({ enabled: false, rpcUrls: meta.defaultRpcUrls })
 			}
 		}
 		await act(async () => model.toggleChain(chain(1), true))
 		expect(chain(1)).toMatchObject({ enabled: true, rpcUrls: dto.catalog[0].defaultRpcUrls })
+	})
+
+	it("uses the Hyperbridge bundler for every catalog chain, whatever the config held", async () => {
+		await mount()
+		for (const meta of dto.catalog) {
+			expect(meta.hyperbridgeBundlerUrl, meta.label).toMatch(/^https:\/\/bundler\.polytope\.technology\//)
+			expect(chain(meta.chainId).bundlerUrl).toBe(meta.hyperbridgeBundlerUrl)
+		}
+		// Base was saved with another bundler.
+		expect(dto.chains[0].bundlerUrl).toBe("https://saved-bundler.example")
+		expect(chain(8453).bundlerUrl).toBe(HYPERBRIDGE_BUNDLER[8453])
 	})
 
 	it("keeps one empty RPC field when bundled defaults are missing or empty", async () => {
@@ -188,94 +176,57 @@ describe("operator chain settings", () => {
 		for (const draft of model.chains) expect(draft.rpcUrls).toEqual([""])
 	})
 
-	it("preserves configured chains outside the catalog", async () => {
+	it("preserves configured chains outside the catalog, with the bundler the config names", async () => {
 		const custom = { ...dto.chains[0], chainId: 12345, stateMachineId: "EVM-12345", label: "Custom" }
 		dto.chains.push(custom)
 		await mount()
 		expect(chain(12345)).toMatchObject({ enabled: true, rpcUrls: custom.rpcUrls, bundlerUrl: custom.bundlerUrl })
 	})
 
-	it("fills Alchemy bundlers while preserving public and saved RPC lists", async () => {
-		await mount()
-		await act(async () => model.patch(1, { verificationState: "success", verificationMessage: "Verified" }))
-		await act(async () => model.updateAlchemyKey(" test-key "))
-		await act(async () => model.applyAlchemyKey())
-		expect(chain(1)).toMatchObject({
-			rpcUrls: dto.catalog[0].defaultRpcUrls,
-			bundlerUrl: "https://eth-bundler.example",
-			viaAlchemy: true,
-			verificationState: undefined,
-			verificationMessage: undefined,
-		})
-		expect(chain(8453)).toMatchObject({
-			rpcUrls: dto.chains[0].rpcUrls,
-			bundlerUrl: "https://base-bundler.example",
-		})
-		expect(chain(42161)).toMatchObject({
-			rpcUrls: dto.catalog.find((meta) => meta.chainId === 42161)?.defaultRpcUrls,
-			viaAlchemy: false,
-		})
-		const request = requests.mock.calls.find(([path]) => path === "/api/setup/validate-alchemy-key")
-		expect(JSON.parse(request?.[1].body as string)).toEqual({ apiKey: "test-key", network: "mainnet" })
-	})
-
-	it("uses the Alchemy RPC URL as a bundler fallback without replacing an empty RPC field", async () => {
-		dto.catalog = [{ ...dto.catalog[0], defaultRpcUrls: undefined }]
+	it("will not enable a chain that has neither a Hyperbridge bundler nor one in the config", async () => {
+		dto.catalog = [{ ...dto.catalog[0], hyperbridgeBundlerUrl: undefined }]
 		dto.chains = []
-		alchemyResponse.chains = [{ chainId: 1, rpcUrl: "https://eth.g.alchemy.com/v2/test", bundlerUrl: null }]
+		await act(async () => root.render(createElement(Chains)))
+		const toggle = container.querySelector<HTMLInputElement>('.chain-enable-toggle input[type="checkbox"]')
+		if (!toggle) throw new Error("Missing enable switch")
+		expect(toggle.disabled).toBe(true)
+		expect(container.querySelector(".chain-configuration")?.textContent).toContain("Add in the config file")
+	})
+
+	it("verifies the RPC endpoints alone", async () => {
 		await mount()
-		await act(async () => model.updateAlchemyKey("test-key"))
-		await act(async () => model.applyAlchemyKey())
+		await act(async () => model.toggleChain(chain(1), true))
+		await act(async () => model.verifyChain(chain(1)))
 		expect(chain(1)).toMatchObject({
-			rpcUrls: [""],
-			bundlerUrl: "https://eth.g.alchemy.com/v2/test",
-			viaAlchemy: true,
+			verificationState: "success",
+			verificationMessage: "RPC connection is ready.",
+		})
+		const probes = requests.mock.calls.map(([path]) => path).filter((path) => path.startsWith("/api/setup/"))
+		expect(probes).toEqual(["/api/setup/validate-rpc"])
+		const probe = requests.mock.calls.find(([path]) => path === "/api/setup/validate-rpc")
+		expect(JSON.parse(probe?.[1].body as string)).toEqual({
+			urls: dto.catalog[0].defaultRpcUrls,
+			expectedChainId: 1,
 		})
 	})
 
-	it("leaves endpoints unchanged when the Alchemy key is invalid", async () => {
-		alchemyResponse.valid = false
-		await mount()
-		const before = model.chains
-		await act(async () => model.updateAlchemyKey("bad-key"))
-		await act(async () => model.applyAlchemyKey())
-		expect(model.alchemy.status).toBe("err")
-		expect(model.chains).toEqual(before)
-	})
-
-	it("verifies and saves new defaults with the bundler, then reseeds from the saved config", async () => {
+	it("saves a new chain and a configured one on the Hyperbridge bundler, then reseeds from the saved config", async () => {
 		await mount()
 		const rpcUrls = [...(dto.catalog[0].defaultRpcUrls ?? [])]
 		const savedBaseRpcUrls = [...chain(8453).rpcUrls]
 		await act(async () => model.toggleChain(chain(1), true))
-		await act(async () => model.updateAlchemyKey("test-key"))
-		await act(async () => model.applyAlchemyKey())
-		await act(async () => model.verifyChain(chain(1)))
-		expect(chain(1).verificationState).toBe("success")
-		const probe = requests.mock.calls.find(([path]) => path === "/api/setup/validate-rpc")
-		expect(JSON.parse(probe?.[1].body as string)).toEqual({ urls: rpcUrls, expectedChainId: 1 })
 		await act(async () => model.save())
 		expect(savedChains).toEqual({
 			chains: [
-				{ chainId: 1, rpcUrls, bundlerUrl: "https://eth-bundler.example", watchOnly: false },
-				{
-					chainId: 8453,
-					rpcUrls: savedBaseRpcUrls,
-					bundlerUrl: "https://base-bundler.example",
-					watchOnly: true,
-				},
+				{ chainId: 1, rpcUrls, bundlerUrl: HYPERBRIDGE_BUNDLER[1], watchOnly: false },
+				{ chainId: 8453, rpcUrls: savedBaseRpcUrls, bundlerUrl: HYPERBRIDGE_BUNDLER[8453], watchOnly: true },
 			],
 		})
 		expect(model.saved).toBe(true)
-		expect(chain(1)).toMatchObject({
-			enabled: true,
-			rpcUrls,
-			bundlerUrl: "https://eth-bundler.example",
-			running: false,
-		})
+		expect(chain(1)).toMatchObject({ enabled: true, rpcUrls, bundlerUrl: HYPERBRIDGE_BUNDLER[1], running: false })
 		expect(chain(8453)).toMatchObject({
 			rpcUrls: savedBaseRpcUrls,
-			bundlerUrl: "https://base-bundler.example",
+			bundlerUrl: HYPERBRIDGE_BUNDLER[8453],
 			running: true,
 		})
 		expect(chain(42161).rpcUrls).toEqual(dto.catalog.find((meta) => meta.chainId === 42161)?.defaultRpcUrls)

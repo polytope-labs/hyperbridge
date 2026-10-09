@@ -105,7 +105,7 @@ simplex          # browser wizard: opens automatically when no config exists
 simplex init     # the same flow in the terminal
 ```
 
-Both ask only for the minimum needed to run: chains, RPCs, bundler, signer and Hyperbridge account. They point the `[orderbook]` section at the HyperFX orderbook for your network, and explain each value as they ask for it. They also derive sibling RPC and bundler URLs from a single Alchemy or Pimlico API key, and validate every endpoint live before writing the file. Neither asks for prices. Once the solver is running, you set those by posting [limit orders](/developers/evm/simplex/limit-orders) from the dashboard. The browser wizard can also generate the Substrate account for bids and check its BRIDGE balance; when it finishes, the same process transitions straight into running the solver — no restart. A local web UI (status, pause/resume, balances, limit orders) stays available at `127.0.0.1:8686` while the solver runs (`--no-ui` for headless). Prefer a file-first workflow? Use the reference config below.
+Both ask only for the minimum needed to run: chains, signer and Hyperbridge account. Each mainnet chain starts with a set of public RPC endpoints, which you can replace, and fills through the [Hyperbridge bundler](/developers/evm/simplex/configuration#bundler), which neither wizard asks about. They point the `[orderbook]` section at the HyperFX orderbook for your network, and explain each value as they ask for it. Neither asks for prices. Once the solver is running, you set those by posting [limit orders](/developers/evm/simplex/limit-orders) from the dashboard. The browser wizard can also generate the Substrate account for bids and check its BRIDGE balance; when it finishes, the same process transitions straight into running the solver — no restart. A local web UI (status, pause/resume, balances, limit orders) stays available at `127.0.0.1:8686` while the solver runs (`--no-ui` for headless). Prefer a file-first workflow? Use the reference config below.
 
 <Tabs items={["docker-compose.yml", "config.toml"]}>
 <Tab value="docker-compose.yml">
@@ -179,33 +179,34 @@ url = "https://orderbook.hyperfx.finance/mainnet/graphql"
 
 # rpcUrls is always an array. Listing more than one independent endpoint
 # activates quorum log scanning — see the Confirmations and RPC page.
+# bundlerUrl is the Hyperbridge bundler for the chain — see Configuration.
 [[chains]]  # Ethereum
 rpcUrls = [
     "https://eth-mainnet.g.alchemy.com/v2/YOUR_ALCHEMY_KEY",
     "https://mainnet.infura.io/v3/YOUR_INFURA_KEY",
 ]
-bundlerUrl = "https://eth-mainnet.g.alchemy.com/v2/YOUR_ALCHEMY_KEY"
+bundlerUrl = "https://bundler.polytope.technology/ethereum"
 
 [[chains]]  # Base
 rpcUrls = [
     "https://base-mainnet.g.alchemy.com/v2/YOUR_ALCHEMY_KEY",
     "https://base-mainnet.infura.io/v3/YOUR_INFURA_KEY",
 ]
-bundlerUrl = "https://base-mainnet.g.alchemy.com/v2/YOUR_ALCHEMY_KEY"
+bundlerUrl = "https://bundler.polytope.technology/base"
 
 [[chains]]  # Arbitrum
 rpcUrls = [
     "https://arb-mainnet.g.alchemy.com/v2/YOUR_ALCHEMY_KEY",
     "https://arbitrum-mainnet.infura.io/v3/YOUR_INFURA_KEY",
 ]
-bundlerUrl = "https://arb-mainnet.g.alchemy.com/v2/YOUR_ALCHEMY_KEY"
+bundlerUrl = "https://bundler.polytope.technology/arbitrum"
 
 [[chains]]  # Polygon
 rpcUrls = [
     "https://polygon-mainnet.g.alchemy.com/v2/YOUR_ALCHEMY_KEY",
     "https://polygon-mainnet.infura.io/v3/YOUR_INFURA_KEY",
 ]
-bundlerUrl = "https://polygon-mainnet.g.alchemy.com/v2/YOUR_ALCHEMY_KEY"
+bundlerUrl = "https://bundler.polytope.technology/polygon"
 ```
 </Tab>
 </Tabs>

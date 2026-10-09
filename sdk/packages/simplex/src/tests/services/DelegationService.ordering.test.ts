@@ -264,3 +264,47 @@ describe("setupDelegation ordering", () => {
 		expect(trySendSponsored).toHaveBeenCalledOnce()
 	})
 })
+
+describe("setupDelegation after a SolverAccount upgrade", () => {
+	const OLD_SOLVER_ACCOUNT = "0x00000000000000000000000000000000000000bb" as HexString
+
+	it("re-delegates a wallet still delegated to the old SolverAccount", async () => {
+		vi.mocked(resolvePendingPermit2Approval).mockResolvedValue(null)
+		trySendSponsored.mockResolvedValue({ txHash: "0x" + "cd".repeat(32) })
+		const { service, sendTransaction } = build({ native: 0n, delegatedTo: OLD_SOLVER_ACCOUNT })
+
+		expect(await service.isDelegated(CHAIN)).toBe(false)
+		expect(await service.setupDelegation(CHAIN)).toBe(true)
+
+		expect(sendTransaction).not.toHaveBeenCalled()
+		expect(trySendSponsored).toHaveBeenCalledOnce()
+		const [req] = trySendSponsored.mock.calls[0] as unknown as [
+			{ eip7702Auth?: () => Promise<{ address: HexString }> },
+		]
+		expect(req.eip7702Auth).toBeTypeOf("function")
+		expect((await req.eip7702Auth!()).address).toBe(SOLVER_ACCOUNT)
+	})
+
+	it("re-delegates through a direct tx when the sponsored path is unavailable", async () => {
+		vi.mocked(resolvePendingPermit2Approval).mockResolvedValue(null)
+		trySendSponsored.mockResolvedValue(null)
+		const { service, sendTransaction } = build({ native: DIRECT_TX_COST, delegatedTo: OLD_SOLVER_ACCOUNT })
+
+		expect(await service.setupDelegation(CHAIN)).toBe(true)
+
+		expect(sendTransaction).toHaveBeenCalledOnce()
+		const [tx] = sendTransaction.mock.calls[0] as unknown as [{ authorizationList: { address: HexString }[] }]
+		expect(tx.authorizationList.map((auth) => auth.address)).toEqual([SOLVER_ACCOUNT])
+	})
+
+	it("leaves a wallet already delegated to the new SolverAccount alone", async () => {
+		vi.mocked(resolvePendingPermit2Approval).mockResolvedValue(null)
+		const { service, sendTransaction } = build({ native: DIRECT_TX_COST, delegatedTo: SOLVER_ACCOUNT })
+
+		expect(await service.isDelegated(CHAIN)).toBe(true)
+		expect(await service.setupDelegation(CHAIN)).toBe(true)
+
+		expect(trySendSponsored).not.toHaveBeenCalled()
+		expect(sendTransaction).not.toHaveBeenCalled()
+	})
+})

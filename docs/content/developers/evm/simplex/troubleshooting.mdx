@@ -70,6 +70,12 @@ Switch to a premium RPC provider, reduce `maxConcurrentOrders`, or raise `blockS
 
 ---
 
+## **`Bundler <host> for <chain> does not support EntryPoint <address>`**
+
+Simplex refuses to start, or to add or switch a chain, when a chain's bundler answers `eth_supportedEntryPoints` without the EntryPoint that chain's solver account uses, since every fill UserOperation would be rejected. Point the chain's `bundlerUrl` at a bundler that serves that EntryPoint, such as the [Hyperbridge bundler](/developers/evm/simplex/configuration#bundler), or mark the chain watch-only. A bundler that does not answer, or whose answer cannot be read, is only logged as a warning.
+
+---
+
 ## **Bid submission fails**
 
 - Confirm that `substratePrivateKey`, `hyperbridgeWsUrl`, and each chain's `bundlerUrl` are set, and that your Substrate account holds BRIDGE tokens.

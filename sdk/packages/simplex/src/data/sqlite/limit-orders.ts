@@ -31,6 +31,7 @@ const LIMIT_ORDER_COLUMNS = `
 	status,
 	commitment,
 	order_nonce as orderNonce,
+	entry_point as entryPoint,
 	book_expires_at as bookExpiresAt,
 	book_price as bookPrice,
 	last_error as lastError,
@@ -89,6 +90,7 @@ export class SqliteLimitOrderStore implements LimitOrderStore {
 				status TEXT NOT NULL,
 				commitment TEXT,
 				order_nonce TEXT NOT NULL DEFAULT '0',
+				entry_point TEXT,
 				book_expires_at TEXT,
 				book_price TEXT,
 				last_error TEXT,
@@ -113,6 +115,13 @@ export class SqliteLimitOrderStore implements LimitOrderStore {
 
 			CREATE INDEX IF NOT EXISTS idx_limit_order_fills_order ON limit_order_fills(limit_order_id);
 		`)
+
+		// A database written before postings recorded their EntryPoint gets the
+		// column in place. Its rows read null, which is v0.8.
+		if (!columnNames(this.db, "limit_orders").has("entry_point")) {
+			this.db.exec("ALTER TABLE limit_orders ADD COLUMN entry_point TEXT")
+			this.logger.info({ column: "entry_point" }, "Migrated limit order storage schema")
+		}
 
 		// A database created before fills kept what they took in needs the column added in place.
 		// Its existing rows stay null, and are priced at their order's rate when read. The column
@@ -198,7 +207,7 @@ export class SqliteLimitOrderStore implements LimitOrderStore {
 			.prepare(`
 				UPDATE limit_orders
 				SET commitment = ?, book_expires_at = ?, book_price = ?, order_nonce = ?,
-				    status = ?, last_error = ?, updated_at = datetime('now')
+				    entry_point = ?, status = ?, last_error = ?, updated_at = datetime('now')
 				WHERE id = ?${statusGuard(only)}
 			`)
 			.run(
@@ -206,6 +215,7 @@ export class SqliteLimitOrderStore implements LimitOrderStore {
 				posting.bookExpiresAt,
 				posting.bookPrice,
 				posting.orderNonce,
+				posting.entryPoint,
 				posting.status,
 				posting.lastError,
 				id,

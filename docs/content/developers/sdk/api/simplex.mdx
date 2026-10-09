@@ -46,8 +46,8 @@ static async start(options: SimplexOptions): Promise<Simplex>
 
 **Returns:** `Promise<Simplex>` — a solver that is already scanning
 
-**Throws:** If the config is invalid, a chain's RPCs are unreachable, or EIP-7702 delegation fails on
-every chain. A partially-started solver is never returned, so there is no readiness state to poll.
+**Throws:** If the config is invalid, a chain's RPCs are unreachable, a filling chain's bundler lists
+EntryPoints without the chain's, or EIP-7702 delegation fails on every chain. A partially-started solver is never returned, so there is no readiness state to poll.
 
 **Example:**
 
@@ -436,8 +436,9 @@ unknown id a `404` on `GET` and a `400` on `DELETE`. The
 While the solver runs, a fill draws its order down by what was delivered and reposts the remainder,
 closing it as `filled` once what is left is under the dust floor. The solver heartbeats the
 orderbook while anything is posted, reconciles against the orderbook's copy every
-`orderbook.reconcileIntervalSecs` (default 300) — withdrawing entries no order owns and reposting
-orders whose entry has gone — and sweeps expired orders every 30 seconds.
+`orderbook.reconcileIntervalSecs` (default 300) — withdrawing entries no order owns, reposting
+orders whose entry has gone, and reposting orders signed for an EntryPoint their fill chain no longer
+uses — and sweeps expired orders every 30 seconds.
 
 ## PairController
 
@@ -522,8 +523,9 @@ add(chain: ChainInput): Promise<ChainView>
 | `chain.confirmationPolicy` | `ChainConfirmationPolicy` | Required for chains with no built-in curve (testnets, and anything outside Ethereum, BSC, Polygon, Base, Arbitrum and Unichain) |
 
 **Throws:** If the endpoints are unreachable or answer for a different chain, the chain is already
-configured, no confirmation curve covers it, or delegation fails. The endpoints are probed and the
-chain id read back before anything is mutated, and a failed add rolls itself back.
+configured, no confirmation curve covers it, the bundler's `eth_supportedEntryPoints` lacks the
+chain's EntryPoint (unless the chain is added watch-only), or delegation fails. The endpoints are
+probed and the chain id read back before anything is mutated, and a failed add rolls itself back.
 
 On a scanner you supplied, `add` requires the scanner to already carry the chain — call
 `scanner.addChain(...)` first, then this. On a scanner the solver owns, it is added for you.
@@ -558,6 +560,10 @@ belong to a scanner you supplied — see [Scanner ownership](#scanner-ownership)
 setBundlerUrl(chainId: number, bundlerUrl: string): Promise<void>
 ```
 
+**Throws:** If the URL is empty, the chain is not configured, or, on a chain that is not
+watch-only, the bundler's `eth_supportedEntryPoints` lacks the chain's EntryPoint. A bundler that
+does not answer, or whose answer is not a list of addresses, is only logged as a warning.
+
 ### setWatchOnly(chainId, watchOnly)
 
 Monitor without filling. Takes effect on the next order.
@@ -565,6 +571,9 @@ Monitor without filling. Takes effect on the next order.
 ```typescript lineNumbers
 setWatchOnly(chainId: number, watchOnly: boolean): Promise<void>
 ```
+
+`setWatchOnly(chainId, false)` throws when the chain's bundler lists EntryPoints without the
+chain's.
 
 On a solver started without a `signer`, `setWatchOnly(chainId, false)` throws — and `add` defaults a
 new chain to watch-only, rejecting an explicit `watchOnly: false`. A signerless start runs on a

@@ -79,7 +79,6 @@ function chainRequirements(state: WizardState, defaults: SetupDefaults): string[
 	const issues = enabled.flatMap((chain) => {
 		const missing: string[] = []
 		if (!chain.rpcUrls[0]?.trim()) missing.push(`Enter the RPC endpoint for ${chain.meta.label}.`)
-		if (!chain.bundlerUrl.trim()) missing.push(`Enter the bundler endpoint for ${chain.meta.label}.`)
 		return missing
 	})
 	if (issues.length > 0) return issues
@@ -128,7 +127,7 @@ const STEPS: Array<{
 	{
 		id: "chains",
 		title: "Chains",
-		description: "Select execution networks and verify the RPC and bundler infrastructure behind each one.",
+		description: "Select execution networks and verify the RPC endpoints behind each one.",
 		component: StepChains,
 		requirements: chainRequirements,
 	},

@@ -1,6 +1,8 @@
-import { beforeEach, describe, expect, it, vi } from "vitest"
-import type { CryptoUtils } from "@/protocols/intents/CryptoUtils"
+import { hashTypedData, recoverAddress, slice } from "viem"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { CryptoUtils, LEGACY_SELECT_SOLVER_TYPEHASH, SELECT_SOLVER_TYPEHASH } from "@/protocols/intents/CryptoUtils"
 import type { IntentGatewayContext } from "@/protocols/intents/types"
+import { orderCommitment } from "@/protocols/intents/utils"
 import type { HexString, Order } from "@/types"
 
 // The gateway's release is read from a live node; here it is taken as supported.
@@ -10,6 +12,17 @@ vi.mock("@/protocols/intents/fillOrderCodec", async (importOriginal) => ({
 }))
 
 const { GasEstimator } = await import("@/protocols/intents/GasEstimator")
+
+// The rundler priority fee is fetched outside the mocked bundler calls; this bundler serves none.
+beforeEach(() => {
+	vi.stubGlobal(
+		"fetch",
+		vi.fn(async () => ({
+			json: async () => ({ jsonrpc: "2.0", id: 1, error: { code: -32601, message: "Method not found" } }),
+		})),
+	)
+})
+afterEach(() => vi.unstubAllGlobals())
 
 // A testnet chain, so gas is not priced through a swap quote.
 const CHAIN = "EVM-97"
@@ -31,16 +44,23 @@ const ORDER: Order = {
 	output: { beneficiary: USER, assets: [{ token: TOKEN, amount: 990n }], call: "0x" },
 }
 
-function estimatorWith(bundler: { batch: ReturnType<typeof vi.fn>; single: ReturnType<typeof vi.fn> }) {
+function estimatorWith(
+	bundler: { batch: ReturnType<typeof vi.fn>; single: ReturnType<typeof vi.fn> },
+	{
+		gateway = { address: GATEWAY, typehash: SELECT_SOLVER_TYPEHASH },
+		entryPoint = ENTRY_POINT,
+	}: { gateway?: { address: HexString; typehash: HexString }; entryPoint?: HexString | null } = {},
+) {
 	const chain = {
 		config: { stateMachineId: CHAIN },
 		client: {
 			getGasPrice: vi.fn().mockResolvedValue(1_000_000n),
 			getBlock: vi.fn().mockResolvedValue({ baseFeePerGas: 900_000n }),
+			readContract: vi.fn().mockResolvedValue(gateway.typehash),
 		},
 		configService: {
-			getIntentGatewayAddress: () => GATEWAY,
-			getEntryPointV08Address: () => ENTRY_POINT,
+			getIntentGatewayAddress: () => gateway.address,
+			getEntryPointAddress: () => entryPoint ?? undefined,
 		},
 		getFeeTokenWithDecimals: vi.fn().mockResolvedValue({ address: `0x${TOKEN.slice(26)}`, decimals: 6 }),
 	}
@@ -105,5 +125,103 @@ describe("GasEstimator.estimateFillOrder when the bundler fails to estimate", ()
 		expect(estimate.callGasLimit).toBe(160_000n)
 		expect(estimate.verificationGasLimit).toBe(105_000n)
 		expect(estimate.preVerificationGas).toBe(105_000n)
+	})
+
+	it("throws when the chain has no EntryPoint configured and a bundler estimate is required", async () => {
+		const bundler = rejecting()
+		const estimator = estimatorWith(bundler, { entryPoint: null })
+
+		await expect(estimator.estimateFillOrder({ order: ORDER, requireBundlerEstimate: true })).rejects.toThrow(
+			"Bundler gas estimation failed: No EntryPoint configured for EVM-97",
+		)
+		expect(bundler.batch).not.toHaveBeenCalled()
+	})
+})
+
+describe("GasEstimator.estimateFillOrder session signature", () => {
+	const succeeding = () => ({
+		batch: vi
+			.fn()
+			.mockResolvedValue([{ callGasLimit: "0x1", verificationGasLimit: "0x1", preVerificationGas: "0x1" }]),
+		single: vi.fn(),
+	})
+
+	/** The op the estimate sent, packed again, and the session's selection signature at its end. */
+	function sentOp(batch: ReturnType<typeof vi.fn>) {
+		const [[{ params }]] = batch.mock.calls[0] as [[{ params: [Record<string, HexString>] }]]
+		const op = params[0]
+		return {
+			sender: op.sender,
+			selection: slice(op.signature, 97),
+			userOpHash: CryptoUtils.computeUserOpHash(
+				{
+					sender: op.sender,
+					nonce: BigInt(op.nonce),
+					initCode: "0x",
+					callData: op.callData,
+					accountGasLimits: CryptoUtils.packGasLimits(
+						BigInt(op.verificationGasLimit),
+						BigInt(op.callGasLimit),
+					),
+					preVerificationGas: BigInt(op.preVerificationGas),
+					gasFees: CryptoUtils.packGasFees(BigInt(op.maxPriorityFeePerGas), BigInt(op.maxFeePerGas)),
+					paymasterAndData: "0x",
+					signature: "0x",
+				},
+				ENTRY_POINT,
+				97n,
+			),
+		}
+	}
+
+	const domain = (verifyingContract: HexString) =>
+		({ name: "IntentGateway", version: "2", chainId: 97, verifyingContract }) as const
+
+	it("selects by userOpHash on a gateway that selects by userOpHash", async () => {
+		const gateway = {
+			address: "0x0000000000000000000000000000000000000c01" as HexString,
+			typehash: SELECT_SOLVER_TYPEHASH,
+		}
+		const bundler = succeeding()
+
+		await estimatorWith(bundler, { gateway }).estimateFillOrder({ order: ORDER, requireBundlerEstimate: true })
+
+		const { sender, selection, userOpHash } = sentOp(bundler.batch)
+		const digest = hashTypedData({
+			domain: domain(gateway.address),
+			types: {
+				SelectSolver: [
+					{ name: "commitment", type: "bytes32" },
+					{ name: "userOpHash", type: "bytes32" },
+				],
+			},
+			primaryType: "SelectSolver",
+			message: { commitment: orderCommitment(ORDER) as HexString, userOpHash },
+		})
+		expect(await recoverAddress({ hash: digest, signature: selection })).toBe(sender)
+	})
+
+	it("selects by the solver's address on a gateway that selects by address", async () => {
+		const gateway = {
+			address: "0x0000000000000000000000000000000000000c02" as HexString,
+			typehash: LEGACY_SELECT_SOLVER_TYPEHASH,
+		}
+		const bundler = succeeding()
+
+		await estimatorWith(bundler, { gateway }).estimateFillOrder({ order: ORDER, requireBundlerEstimate: true })
+
+		const { sender, selection } = sentOp(bundler.batch)
+		const digest = hashTypedData({
+			domain: domain(gateway.address),
+			types: {
+				SelectSolver: [
+					{ name: "commitment", type: "bytes32" },
+					{ name: "solver", type: "address" },
+				],
+			},
+			primaryType: "SelectSolver",
+			message: { commitment: orderCommitment(ORDER) as HexString, solver: sender },
+		})
+		expect(await recoverAddress({ hash: digest, signature: selection })).toBe(sender)
 	})
 })

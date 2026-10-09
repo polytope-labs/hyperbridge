@@ -439,7 +439,7 @@ async selectBid(order: Order, bids: FillerBid[], sessionPrivateKey?: HexString):
 
 ### prepareSubmitBid(options)
 
-Solver-side helper: constructs a signed `PackedUserOperation` for a solver to submit as a bid.
+Solver-side helper: constructs a signed `PackedUserOperation` for a solver to submit as a bid. `options.entryPointAddress` must be the EntryPoint the solver's `SolverAccount` validates against, since the user's SDK recovers it from the signature and executes the bid there.
 
 ```typescript lineNumbers
 async prepareSubmitBid(options: SubmitBidOptions): Promise<PackedUserOperation>
@@ -664,6 +664,8 @@ async estimateFillOrder(params: EstimateFillOrderParams): Promise<FillOrderEstim
 
 **Returns:** `Promise<FillOrderEstimate>` — All gas components, EIP-1559 fee values, total cost in wei, and total cost in fee token
 
+The estimate runs against the destination chain's configured EntryPoint. Fees are refined with `pimlico_getUserOperationGasPrice` for Pimlico bundlers and `rundler_maxPriorityFeePerGas` for Alchemy. Any other bundler is asked for `rundler_maxPriorityFeePerGas` too, and when it answers, the priority fee and max fee are raised to at least what it requires.
+
 ---
 
 ### quoteOrderFees(order, options?)
@@ -867,16 +869,18 @@ interface Bid {
   /** Raw UserOperation for advanced consumers (custom batching, paymaster flows). */
   readonly userOp: PackedUserOperation
 
-  /** Runs the batched `select` + `fillOrder` `eth_call` simulation. Throws if it reverts. */
+  /** Runs the bid's `fillOrder` as an `eth_call` with the gateway's solver selection off. Throws if the bid cannot execute or the call reverts. */
   simulate(): Promise<void>
-  /** Signs the `SelectSolver` message, packs the signature, and submits the UserOp to the bundler. */
+  /** Signs the `SelectSolver` message, packs the signature, and submits the UserOp to the bundler on the bid's EntryPoint. */
   execute(): Promise<SelectBidResult>
   /** Prices the bid's outputs in USD. Returns `null` when any output token cannot be priced. */
   outputUsdValue(): Promise<Decimal | null>
 }
 ```
 
-The session-key signature over the `SelectSolver` message is resolved lazily and cached, so it is signed at most once whether you call `simulate()`, `execute()`, or both.
+A bid executes on the EntryPoint its solver signed it for, found by recovering the solver's signature under EntryPoint v0.9 and then v0.8. The destination gateway's `SELECT_SOLVER_TYPEHASH()` decides what the session key signs: `SelectSolver(bytes32 commitment,bytes32 userOpHash)` pairs only with v0.9 bids, and `SelectSolver(bytes32 commitment,address solver)` only with v0.8 bids. The typehash is read once per chain and read again before a bid that does not pair is refused, so an in-place gateway upgrade is picked up. A bid signed for no known EntryPoint, or for one the gateway does not pair with, fails `simulate()` and `execute()`, and the autopilot helpers skip it.
+
+`simulate()` makes a single `eth_call` of the bid's calldata from the solver account, with a state override that clears the `solverSelection` byte in the gateway's params (storage slot 5). No `select` is called and nothing is signed, so the session key's selection is not part of the simulation. The session-key signature is produced by `execute()` and cached.
 
 ---
 

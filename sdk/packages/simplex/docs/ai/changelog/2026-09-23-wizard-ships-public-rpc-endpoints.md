@@ -1,18 +1,14 @@
 # 2026-09-23 — The wizards ship public RPC endpoints
 
-Both setup wizards start each mainnet chain with a working set of public RPC endpoints, so the only
-endpoint an operator has to supply is an ERC-4337 bundler. One Alchemy API key covers that for every
-supported chain.
+Both setup wizards start each mainnet chain with a working set of public RPC endpoints. The bundler
+is not asked for either: every mainnet chain uses Hyperbridge's (see
+`docs/ai/changelog/2026-10-06-entrypoint-v09-end-to-end.md`).
 
 ## What changed for the operator
 
 Before, every chain needed an RPC URL typed or pasted in, and the wizard's own copy told the operator
 that free endpoints would break event scanning. That was true of a single free endpoint. It is not
 true of a quorum of them, which is what the filler has read through since quorum scanning landed.
-
-The Alchemy key now fills in bundlers only. It no longer overwrites the first RPC field, because
-pointing the scan at Alchemy would spend the key's quota on polling and put the chain back on a
-single provider.
 
 ## The endpoint sets
 

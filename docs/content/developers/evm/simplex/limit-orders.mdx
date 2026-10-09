@@ -227,7 +227,7 @@ The log names which check failed: `No profitable strategy found for order` means
 **A pending bid does not block the next one.** Each bid holds its payout against its order until it settles. The next bid is still sized from the order's full remaining amount. So if several pending bids win at once, fills can briefly pay out more than the order's size, up to what the wallet holds.
 
 <Callout type="info">
-    Simplex keeps the orderbook in sync on its own. It sends heartbeats so your postings stay live, withdraws expired orders every 30 seconds, and reconciles against the orderbook every `reconcileIntervalSecs` (5 minutes by default). Reconciliation reposts any order the orderbook has lost and cancels any entry that no longer has an order. If the orderbook is unreachable when Simplex starts, filling still works, because Simplex prices from its local copy of your orders.
+    Simplex keeps the orderbook in sync on its own. It sends heartbeats so your postings stay live, withdraws expired orders every 30 seconds, and reconciles against the orderbook every `reconcileIntervalSecs` (5 minutes by default). Reconciliation reposts any order the orderbook has lost, cancels any entry that no longer has an order, and signs again any posting whose fill chain has moved to a different EntryPoint since it was posted. If the orderbook is unreachable when Simplex starts, filling still works, because Simplex prices from its local copy of your orders.
 </Callout>
 
 ## Example: a two-sided USDC/cNGN market

@@ -7,6 +7,7 @@ import { assertPairSymbolsResolve } from "@/config/pairs"
 import { formatChainKey } from "@/config/interpolated-curve"
 import { AssetRegistry, registrySymbols, USD_STABLE_SYMBOLS } from "@/config/asset-registry"
 import { fetchChainId, validateRpcUrls } from "@/services/FillerConfigService"
+import { describeEntryPoints, servesEntryPoint } from "@/services/bundler-preflight"
 import { normaliseSecretPhrase, secretPhraseSigner, SignerType, validateSignerConfig } from "@/services/wallet"
 import { deriveSubstrateKeyPair, generateSubstrateKey } from "@/services/substrate-key"
 import { ERC20_ABI } from "@/config/abis/ERC20"
@@ -228,6 +229,31 @@ export async function validateBundler(body: Record<string, unknown>, deps: Requi
 			PROBE_TIMEOUT_MS,
 			"Bundler probe",
 		)
+		const chainId = Number(body.chainId)
+		const required = Number.isInteger(chainId)
+			? new ChainConfigService({}).getEntryPointAddress(formatChainKey(chainId))
+			: undefined
+		if (!required) return { ok: true, entryPoints }
+		// Mirrors the boot preflight: only a list of addresses settles which EntryPoints a bundler serves.
+		if (!Array.isArray(entryPoints) || !entryPoints.every((address) => typeof address === "string")) {
+			return {
+				ok: true,
+				entryPoints,
+				warning:
+					`Bundler's eth_supportedEntryPoints answer is not a list of addresses, so it could not be ` +
+					`confirmed to support EntryPoint ${required}, which this chain's solver account uses. ` +
+					`Simplex will use it and warn.`,
+			}
+		}
+		if (!servesEntryPoint(entryPoints, required)) {
+			return {
+				ok: true,
+				entryPoints,
+				warning:
+					`Bundler does not support EntryPoint ${required}, which this chain's solver account uses; ` +
+					`it lists ${describeEntryPoints(entryPoints)}. Simplex will refuse to use it.`,
+			}
+		}
 		return { ok: true, entryPoints }
 	} catch (err) {
 		return {

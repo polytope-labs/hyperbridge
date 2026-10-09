@@ -20,10 +20,14 @@ pair (about a third of its calldata on mainnet) and is bundled below its max fee
 - It is priced at the bundle's price: the latest base fee plus the op's priority fee, capped at
   its `maxFeePerGas`.
 - A state override replaces the solver account's code with `BID_PVG_ESTIMATION_ACCOUNT_CODE`,
-  which answers `isValidSignature` with the ERC-1271 magic value (Permit2 checks the paymaster's
-  permit through it) and every other call with 32 zero bytes. Validation passes and `execute`
-  does nothing, so only the op's bytes are priced; the fill itself cannot pass in simulation
-  without the session's selection, and funding calls do not resolve there.
+  which answers `isValidSignature` with the ERC-1271 magic value and every other call with 32
+  zero bytes. Validation passes and `execute` does nothing, so only the op's bytes are priced;
+  the fill itself cannot pass in simulation without the session's selection, and funding calls
+  do not resolve there.
+- The same override replaces the paymaster's code with `BID_PVG_ESTIMATION_PAYMASTER_CODE`, which
+  accepts every operation with an empty context. A bundler may simulate with its own gas limits
+  in place of the op's, and `SimplexPaymaster` refuses a `paymasterPostOpGasLimit` outside 30,000
+  to 100,000.
 - `BID_PVG_HEADROOM_PERCENT` (10%) is added for L1 prices moving before the bid executes.
 
 If the estimate fails, the bid keeps the fill estimate's `preVerificationGas` and logs a warning.

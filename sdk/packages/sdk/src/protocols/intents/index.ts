@@ -38,7 +38,15 @@ export {
 	fetchSourceProof,
 	orderCommitment,
 } from "./utils"
-export { CryptoUtils, SELECT_SOLVER_TYPEHASH, PACKED_USEROP_TYPEHASH, DOMAIN_TYPEHASH } from "./CryptoUtils"
+export {
+	CryptoUtils,
+	SELECT_SOLVER_TYPEHASH,
+	LEGACY_SELECT_SOLVER_TYPEHASH,
+	PACKED_USEROP_TYPEHASH,
+	DOMAIN_TYPEHASH,
+} from "./CryptoUtils"
+export { readSelectionFormat, type SelectionFormat } from "./selection"
+export { fetchRundlerPriorityFee, applyRundlerPriorityFee } from "./rundlerFees"
 export {
 	encodeFillOrder,
 	decodeFillOrder,

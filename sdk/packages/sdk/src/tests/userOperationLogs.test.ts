@@ -1,11 +1,13 @@
 import { ABI } from "@/abis/IntentGatewayV2"
+import { ENTRY_POINT_V09 } from "@/configs/chain"
 import { BidImpl, userOperationLogs } from "@/protocols/intents/Bid"
-import { CryptoUtils } from "@/protocols/intents/CryptoUtils"
+import { CryptoUtils, SELECT_SOLVER_TYPEHASH } from "@/protocols/intents/CryptoUtils"
 import type { HexString, Order, PackedUserOperation } from "@/types"
-import { encodeAbiParameters, encodeEventTopics, pad, toEventSelector, type Log } from "viem"
+import { concat, encodeAbiParameters, encodeEventTopics, pad, toEventSelector, type Log } from "viem"
+import { privateKeyToAccount } from "viem/accounts"
 import { describe, expect, it, vi } from "vitest"
 
-const ENTRY_POINT = "0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108" as HexString
+const ENTRY_POINT = ENTRY_POINT_V09
 const GATEWAY = "0x6666666666666666666666666666666666666666" as HexString
 const OURS = `0x${"aa".repeat(32)}` as HexString
 const THEIRS = `0x${"bb".repeat(32)}` as HexString
@@ -66,7 +68,8 @@ describe("userOperationLogs", () => {
 })
 
 describe("BidImpl.execute fill attribution", () => {
-	const SOLVER = "0x2222222222222222222222222222222222222222" as HexString
+	const solver = privateKeyToAccount(`0x${"02".repeat(32)}`)
+	const SOLVER = solver.address
 	const TOKEN = pad("0x55", { size: 32 }) as HexString
 	const COMMITMENT = `0x${"66".repeat(32)}` as HexString
 	const userOp: PackedUserOperation = {
@@ -78,7 +81,7 @@ describe("BidImpl.execute fill attribution", () => {
 		preVerificationGas: 1n,
 		gasFees: `0x${"00".repeat(32)}`,
 		paymasterAndData: "0x",
-		signature: "0x12",
+		signature: "0x",
 	}
 	const order: Order = {
 		id: COMMITMENT,
@@ -104,6 +107,10 @@ describe("BidImpl.execute fill attribution", () => {
 	}
 
 	it("credits only the fills its own operation made in the gateway", async () => {
+		userOp.signature = concat([
+			COMMITMENT,
+			await solver.signTypedData(CryptoUtils.packedUserOpTypedData(userOp, ENTRY_POINT, 8453n)),
+		])
 		let userOpHash = "0x" as HexString
 		// Another solver fills the same order earlier in the bundle, and a foreign contract imitates
 		// the gateway's event inside our operation.
@@ -121,9 +128,10 @@ describe("BidImpl.execute fill attribution", () => {
 			sessionKeyStorage: { getSessionKeyByAddress: async () => ({ privateKey: `0x${"01".repeat(32)}` }) },
 			dest: {
 				config: { stateMachineId: "EVM-8453" },
-				configService: { getEntryPointV08Address: () => ENTRY_POINT, getIntentGatewayAddress: () => GATEWAY },
+				configService: { getIntentGatewayAddress: () => GATEWAY },
 				client: {
 					chain: { id: 8453 },
+					readContract: async () => SELECT_SOLVER_TYPEHASH,
 					waitForTransactionReceipt: async () => ({ logs: bundle() }),
 				},
 			},
@@ -145,8 +153,8 @@ describe("BidImpl.execute fill attribution", () => {
 		})
 		vi.spyOn(crypto, "sendBundler").mockImplementation(async (method, params) => {
 			if (method !== "eth_sendUserOperation") return { receipt: { transactionHash: `0x${"77".repeat(32)}` } }
-			const sent = (params as [Record<string, HexString>])[0]
-			userOpHash = CryptoUtils.computeUserOpHash({ ...userOp, signature: sent.signature }, ENTRY_POINT, 8453n)
+			const [sent, entryPoint] = params as [Record<string, HexString>, HexString]
+			userOpHash = CryptoUtils.computeUserOpHash({ ...userOp, signature: sent.signature }, entryPoint, 8453n)
 			return userOpHash as never
 		})
 

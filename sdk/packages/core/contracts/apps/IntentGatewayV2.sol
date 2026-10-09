@@ -189,15 +189,16 @@ struct FillOptions {
 
 /**
  * @notice A struct representing the options for selecting a solver
- * @dev This struct is used to specify various parameters and options
- *      when selecting a solver.
+ * @dev The session key selects one ERC-4337 UserOperation, the solver's bid, rather than a solver
+ *      address. With solver selection on, `fillOrder` succeeds only while EntryPoint v0.9 executes
+ *      that UserOperation.
  */
 struct SelectOptions {
     /// @dev The commitment hash of the order.
     bytes32 commitment;
-    /// @dev The solver address to select.
-    address solver;
-    /// @dev The EIP-712 signature from the session key that signed SelectSolver(commitment, solver)
+    /// @dev The EntryPoint v0.9 hash of the selected UserOperation.
+    bytes32 userOpHash;
+    /// @dev The EIP-712 signature from the session key that signed SelectSolver(commitment, userOpHash)
     bytes signature;
 }
 
@@ -449,7 +450,8 @@ interface IIntentGatewayV2 {
     // ============================================
 
     /**
-     * @notice EIP-712 type hash for SelectSolver message
+     * @notice EIP-712 type hash for the message
+     *         SelectSolver(bytes32 commitment,bytes32 userOpHash)
      */
     function SELECT_SOLVER_TYPEHASH() external view returns (bytes32);
 
@@ -576,8 +578,10 @@ interface IIntentGatewayV2 {
     function placeOrder(Order memory order, bytes32 graffiti) external payable;
 
     /**
-     * @notice Selects a solver for an order (when solver selection is enabled). Reverts `Filled`
-     *         if the order has already been filled, refunded or cancelled.
+     * @notice Selects a solver's UserOperation for an order (when solver selection is enabled).
+     *         The selection lasts for the transaction, and `fillOrder` accepts it only while
+     *         EntryPoint v0.9 executes that UserOperation. Reverts `Filled` if the order has
+     *         already been filled, refunded or cancelled.
      * @param options The options for selecting a solver
      * @return sessionKey The recovered session key address
      */

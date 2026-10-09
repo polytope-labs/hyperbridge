@@ -1,6 +1,6 @@
 ---
 title: Configuration
-description: The [simplex] block, signer backends, the [orderbook] section, EIP-7702 delegation and gas payment, allowlists, and scan intervals.
+description: The [simplex] block, signer backends, the [orderbook] section, bundlers, EIP-7702 delegation and gas payment, allowlists, and scan intervals.
 ---
 
 # Configuration
@@ -136,6 +136,26 @@ signWith         = "0xYourWalletAddress"
 <Callout type="info">
 Create an API keypair in the Turnkey Dashboard under user details. The <code>signWith</code> field is any Ethereum address from your Turnkey wallet. See the <a href="https://docs.turnkey.com">Turnkey documentation</a> for setup instructions.
 </Callout>
+
+## Bundler
+
+Fills execute as ERC-4337 UserOperations, which a bundler submits on chain, so every `[[chains]]` entry needs a `bundlerUrl`. Hyperbridge runs a bundler for each of these chains. They need no API key and serve EntryPoint v0.8 and v0.9:
+
+| Chain | `bundlerUrl` |
+|---|---|
+| Ethereum | `https://bundler.polytope.technology/ethereum` |
+| Base | `https://bundler.polytope.technology/base` |
+| Arbitrum | `https://bundler.polytope.technology/arbitrum` |
+| Polygon | `https://bundler.polytope.technology/polygon` |
+| BNB Chain | `https://bundler.polytope.technology/bsc` |
+
+```toml lineNumbers
+[[chains]]  # Base
+rpcUrls    = ["https://..."]
+bundlerUrl = "https://bundler.polytope.technology/base"
+```
+
+The setup wizards and the dashboard always use these bundlers and have no bundler field. `bundlerUrl` is edited only in `filler-config.toml`. A chain outside this list needs a bundler that serves the EntryPoint its solver account uses, set there; Simplex [refuses one that does not](/developers/evm/simplex/troubleshooting).
 
 ## Delegation & Gas Payment
 

@@ -18,5 +18,5 @@ export function formatSetupStartError(message: string, chainLabels: ReadonlyMap<
 	})
 	const networks = joinLabels(Array.from(new Set(labels)))
 
-	return `Simplex could not activate the filler wallet on ${networks}. Make sure it holds at least 1 USDC or USDT on ${networks}, confirm the RPC and bundler endpoints are reachable, then retry. If you use Docker, restart Simplex with the latest image.`
+	return `Simplex could not activate the filler wallet on ${networks}. Make sure it holds at least 1 USDC or USDT on ${networks}, confirm the RPC endpoints are reachable, then retry. If you use Docker, restart Simplex with the latest image.`
 }

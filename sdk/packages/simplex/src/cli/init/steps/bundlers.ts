@@ -7,6 +7,13 @@ import { WHY } from "../help-text"
 import type { Prefill, WizardState } from "../state"
 
 export async function stepBundlers(state: WizardState, prefill?: Prefill): Promise<void> {
+	// Hyperbridge runs the bundler for these chains, so there is nothing to ask and no other
+	// bundler is offered. The questions below are for the chains it runs none for.
+	for (const chain of state.chains) {
+		if (chain.meta.hyperbridgeBundlerUrl) chain.bundlerUrl = chain.meta.hyperbridgeBundlerUrl
+	}
+	if (state.chains.every((chain) => chain.bundlerUrl)) return
+
 	why(WHY.bundler)
 
 	// Alchemy RPCs double as ERC-4337 bundlers — one confirm covers all of them.

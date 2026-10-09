@@ -37,6 +37,7 @@ concurrency:
     cancel-in-progress: true
 
 env:
+    GOPROXY: https://proxy.golang.org,https://raw.githubusercontent.com/polytope-labs/gnark-ignition-verifier/goproxy,direct
     CARGO_TERM_COLOR: always
     FOUNDRY_PROFILE: default
     BSC_URL: ${{ secrets.BSC_URL }}

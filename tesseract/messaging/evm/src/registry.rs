@@ -97,7 +97,6 @@ pub fn ismp_host_for_chain_id(chain_id: u64) -> Option<H160> {
 pub const SUPPORTED_L2_CHAIN_IDS_MAINNET: &[u64] = &[
 	42161, // Arbitrum
 	8453,  // Base
-	10,    // Optimism
 ];
 
 /// Testnet counterparts of [`SUPPORTED_L2_CHAIN_IDS_MAINNET`]. Listed
@@ -152,7 +151,7 @@ pub fn is_arbitrum_l2(chain_id: u64) -> bool {
 	matches!(chain_id, 42161 | 421614)
 }
 
-/// True for OP-Stack-family L2s (`op_stack` consensus): Base, Optimism, and their testnets.
+/// True for OP-Stack-family L2s (`op_stack` consensus): Base and its testnet.
 pub fn is_opstack_l2(chain_id: u64) -> bool {
 	is_supported_l2(chain_id) && !is_arbitrum_l2(chain_id)
 }

@@ -155,7 +155,7 @@ rpcUrls    = ["https://..."]
 bundlerUrl = "https://bundler.polytope.technology/base"
 ```
 
-On any other chain, use a bundler that serves the EntryPoint the chain's solver account uses. Simplex [refuses one that does not](/developers/evm/simplex/troubleshooting).
+The setup wizards and the dashboard always use these bundlers and have no bundler field. `bundlerUrl` is edited only in `filler-config.toml`. A chain outside this list needs a bundler that serves the EntryPoint its solver account uses, set there; Simplex [refuses one that does not](/developers/evm/simplex/troubleshooting).
 
 ## Delegation & Gas Payment
 

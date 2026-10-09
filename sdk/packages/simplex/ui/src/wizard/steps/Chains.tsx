@@ -1,82 +1,21 @@
-import { useState } from "react"
 import * as Collapsible from "@radix-ui/react-collapsible"
-import { toast } from "sonner"
-import externalLinks from "@/config/external-links.json"
 import { api } from "../../api"
 import { ChainCollapseTrigger, isHeaderControl, useChainPanels } from "../../components/ChainPanel"
 import { ChainLogo } from "../../components/ChainLogo"
 import { EndpointVerificationStatus } from "../../components/EndpointVerificationStatus"
-import { ExternalLinkIcon } from "../../components/InterfaceIcons"
 import { loadOrderbook } from "../orderbook"
 import { patchChain, type ChainDraft } from "../state"
 import type { StepProps } from "../Wizard"
 
-interface AlchemyChainRow {
-	chainId: number
-	rpcUrl: string | null
-	bundlerUrl: string | null
-}
-
 export function StepChains({ state, setState }: StepProps) {
-	const [busy, setBusy] = useState(false)
 	const panels = useChainPanels()
 
 	const patch = (chainId: number, changes: Partial<ChainDraft>) => setState((s) => patchChain(s, chainId, changes))
 
-	const applyAlchemyKey = async () => {
-		if (!state.alchemyKey.trim()) return
-		setBusy(true)
-		try {
-			const res = await api.post<{ valid: boolean; error?: string; chains: AlchemyChainRow[] }>(
-				"/api/setup/validate-alchemy-key",
-				{ apiKey: state.alchemyKey.trim() },
-			)
-			setState((s) => ({
-				...s,
-				alchemyStatus: res.valid ? "ok" : "err",
-				alchemyError: res.error,
-				chains: res.valid
-					? s.chains.map((c) => {
-							const row = res.chains.find((r) => r.chainId === c.meta.chainId)
-							if (!row?.rpcUrl) return c
-							// Bundler only. The scan reads from the public quorum, which
-							// costs nothing and spreads across providers; sending it to
-							// Alchemy instead would burn the key's quota on polling and
-							// leave the chain on a single provider.
-							return {
-								...c,
-								bundlerUrl: row.bundlerUrl ?? row.rpcUrl,
-								viaAlchemy: true,
-								verificationState: undefined,
-								verificationMessage: undefined,
-							}
-						})
-					: s.chains,
-			}))
-			if (res.valid) {
-				toast.success("Bundlers configured", {
-					description: "Every supported chain now submits fills through your Alchemy key.",
-				})
-			} else {
-				toast.error("Alchemy key could not be validated", { description: res.error })
-			}
-		} catch (err) {
-			const message = err instanceof Error ? err.message : String(err)
-			setState((s) => ({
-				...s,
-				alchemyStatus: "err",
-				alchemyError: message,
-			}))
-			toast.error("Alchemy key could not be validated", { description: message })
-		} finally {
-			setBusy(false)
-		}
-	}
-
 	const verifyChain = async (chain: ChainDraft) => {
 		patch(chain.meta.chainId, {
 			verificationState: "checking",
-			verificationMessage: "Checking RPC and bundler endpoints…",
+			verificationMessage: "Checking RPC endpoints…",
 		})
 		const urls = chain.rpcUrls.map((u) => u.trim()).filter(Boolean)
 		try {
@@ -101,66 +40,14 @@ export function StepChains({ state, setState }: StepProps) {
 			return
 		}
 
-		if (chain.bundlerUrl.trim()) {
-			try {
-				const bundler = await api.post<{ ok: boolean; warning?: string }>("/api/setup/validate-bundler", {
-					url: chain.bundlerUrl.trim(),
-					chainId: chain.meta.chainId,
-				})
-				if (bundler.warning) {
-					patch(chain.meta.chainId, {
-						verificationState: "warning",
-						verificationMessage: `RPC verified. Bundler warning: ${bundler.warning}`,
-					})
-					return
-				}
-			} catch (err) {
-				const message = `Bundler check failed: ${err instanceof Error ? err.message : err}`
-				patch(chain.meta.chainId, {
-					verificationState: "error",
-					verificationMessage: message,
-				})
-				return
-			}
-		}
-
 		patch(chain.meta.chainId, {
 			verificationState: "success",
-			verificationMessage: chain.bundlerUrl.trim()
-				? "RPC and bundler connections are ready."
-				: "RPC connection is ready.",
+			verificationMessage: "RPC connection is ready.",
 		})
 	}
 
 	return (
 		<div className="wizard-sections chains-step">
-			<div className="card">
-				<h2>Bundler key</h2>
-				<p className="hint">
-					One{" "}
-					<a className="hint-link" href={externalLinks.alchemyDashboard} target="_blank" rel="noreferrer">
-						Alchemy API key
-						<ExternalLinkIcon aria-hidden="true" />
-					</a>{" "}
-					sets up the bundler on every chain, and the RPC endpoints below are already filled in.
-				</p>
-				<div className="chain-provider-controls">
-					<input
-						type="password"
-						aria-label="Alchemy API key"
-						style={{ maxWidth: "24rem" }}
-						placeholder="Alchemy API key (optional)"
-						value={state.alchemyKey}
-						onChange={(e) =>
-							setState((s) => ({ ...s, alchemyKey: e.target.value, alchemyStatus: undefined }))
-						}
-					/>
-					<button type="button" onClick={applyAlchemyKey} disabled={busy || !state.alchemyKey.trim()}>
-						Validate & prefill
-					</button>
-				</div>
-			</div>
-
 			{state.orderbookError ? (
 				<div className="card">
 					<p className="error">{state.orderbookError}</p>
@@ -189,7 +76,6 @@ export function StepChains({ state, setState }: StepProps) {
 							<ChainLogo label={chain.meta.label} />
 							<div>
 								<h2>{chain.meta.label}</h2>
-								{chain.viaAlchemy && <span className="chain-source">Bundler via Alchemy</span>}
 							</div>
 						</div>
 						<div className="chain-header-controls">
@@ -279,26 +165,6 @@ export function StepChains({ state, setState }: StepProps) {
 									<span>A backup lets Simplex compare providers before it acts on chain data.</span>
 								</p>
 							</div>
-
-							<label className="field">
-								<span className="field-label">
-									Bundler endpoint <span className="field-required">Required</span>
-								</span>
-								<small>Used to submit sponsored fills on this chain.</small>
-								<input
-									type="text"
-									value={chain.bundlerUrl}
-									required
-									onChange={(e) =>
-										patch(chain.meta.chainId, {
-											bundlerUrl: e.target.value,
-											verificationState: undefined,
-											verificationMessage: undefined,
-										})
-									}
-									placeholder="https://api.pimlico.io/v2/<chainId>/rpc?apikey=…"
-								/>
-							</label>
 
 						<div className="chain-configuration-actions">
 							<div className="chain-verification-control">

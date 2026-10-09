@@ -18,6 +18,12 @@ export interface InitChainMeta {
 	 * operator needs no RPC provider account to run. See {@link FREE_RPC_URLS}.
 	 */
 	defaultRpcUrls?: string[]
+	/**
+	 * Hyperbridge's ERC-4337 bundler for the chain. Where there is one, the wizards and
+	 * the Chains panel always use it and never ask for a bundler. See
+	 * {@link HYPERBRIDGE_BUNDLER_URLS}.
+	 */
+	hyperbridgeBundlerUrl?: string
 }
 
 /**
@@ -91,6 +97,18 @@ const FREE_RPC_URLS: Record<number, string[]> = {
 	],
 }
 
+/**
+ * The bundlers Hyperbridge runs, per chain. They need no API key and serve EntryPoint
+ * v0.8 and v0.9. A chain absent here takes its bundler from the config file.
+ */
+const HYPERBRIDGE_BUNDLER_URLS: Record<number, string> = {
+	1: "https://bundler.polytope.technology/ethereum",
+	56: "https://bundler.polytope.technology/bsc",
+	137: "https://bundler.polytope.technology/polygon",
+	8453: "https://bundler.polytope.technology/base",
+	42161: "https://bundler.polytope.technology/arbitrum",
+}
+
 const CHAIN_NATIVE_SYMBOLS: Record<number, string> = {
 	1: "ETH",
 	56: "BNB",
@@ -123,6 +141,7 @@ export const INIT_CHAINS: InitChainMeta[] = [
 		alchemySubdomain: "eth-mainnet",
 		explorerUrl: externalLinks.chainExplorers.ethereum,
 		defaultRpcUrls: FREE_RPC_URLS[1],
+		hyperbridgeBundlerUrl: HYPERBRIDGE_BUNDLER_URLS[1],
 	},
 	{
 		chainId: 42161,
@@ -132,6 +151,7 @@ export const INIT_CHAINS: InitChainMeta[] = [
 		alchemySubdomain: "arb-mainnet",
 		explorerUrl: externalLinks.chainExplorers.arbitrum,
 		defaultRpcUrls: FREE_RPC_URLS[42161],
+		hyperbridgeBundlerUrl: HYPERBRIDGE_BUNDLER_URLS[42161],
 	},
 	{
 		chainId: 8453,
@@ -141,6 +161,7 @@ export const INIT_CHAINS: InitChainMeta[] = [
 		alchemySubdomain: "base-mainnet",
 		explorerUrl: externalLinks.chainExplorers.base,
 		defaultRpcUrls: FREE_RPC_URLS[8453],
+		hyperbridgeBundlerUrl: HYPERBRIDGE_BUNDLER_URLS[8453],
 	},
 	{
 		chainId: 137,
@@ -150,6 +171,7 @@ export const INIT_CHAINS: InitChainMeta[] = [
 		alchemySubdomain: "polygon-mainnet",
 		explorerUrl: externalLinks.chainExplorers.polygon,
 		defaultRpcUrls: FREE_RPC_URLS[137],
+		hyperbridgeBundlerUrl: HYPERBRIDGE_BUNDLER_URLS[137],
 	},
 	{
 		chainId: 56,
@@ -159,6 +181,7 @@ export const INIT_CHAINS: InitChainMeta[] = [
 		alchemySubdomain: "bnb-mainnet",
 		explorerUrl: externalLinks.chainExplorers.bnb,
 		defaultRpcUrls: FREE_RPC_URLS[56],
+		hyperbridgeBundlerUrl: HYPERBRIDGE_BUNDLER_URLS[56],
 	},
 	{
 		chainId: 11155111,

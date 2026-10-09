@@ -165,6 +165,23 @@ claims the order (`open` to `resizing`), withdraws the posting, and posts it aga
 the current EntryPoint. These count in `ReconcileReport.reposted`. A fill's `resize` waits for an
 in-flight re-sign rather than posting alongside it.
 
+### Bundler in the wizards and the Chains panel
+
+The setup wizard, the terminal wizard and the operator's Chains panel have no bundler field and no
+Alchemy key prefill. `InitChainMeta.hyperbridgeBundlerUrl` (`cli/init/chains.ts`) names Hyperbridge's
+bundler, `https://bundler.polytope.technology/<chain>`, for Ethereum, Base, Arbitrum, Polygon and
+BNB Chain, and that is the `bundlerUrl` they write for those chains:
+
+- The web wizard's `assembleConfig` writes it for every enabled chain.
+- The Chains panel sends it on save for every catalog chain, replacing a different bundler the
+  config held. A configured chain outside the catalog keeps the bundler its config names. A chain
+  with neither cannot be enabled from the panel and is added in the config file.
+- `simplex init` sets it without a question and asks for a bundler only on chains that have none.
+
+Both UIs verify RPC endpoints only. `bundlerUrl` is still required in `filler-config.toml` and in
+`PUT /api/chains`, and any bundler serving the chain's EntryPoint is accepted there. The
+`validate-bundler` and `validate-alchemy-key` routes remain, uncalled by the UI.
+
 ### Bid validity
 
 `bidValidUntilBlock` converts `bidValiditySeconds` to blocks at the chain's measured block time, where

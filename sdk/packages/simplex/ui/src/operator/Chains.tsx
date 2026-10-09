@@ -1,56 +1,22 @@
 import * as Collapsible from "@radix-ui/react-collapsible"
-import externalLinks from "@/config/external-links.json"
 import { ChainCollapseTrigger, isHeaderControl, useChainPanels } from "../components/ChainPanel"
 import { ChainLogo } from "../components/ChainLogo"
 import { EndpointVerificationStatus } from "../components/EndpointVerificationStatus"
-import { ExternalLinkIcon } from "../components/InterfaceIcons"
 import { useChainSettings } from "./chains/useChainSettings"
 
 export function Chains() {
 	const model = useChainSettings()
 	const panels = useChainPanels()
-	const {
-		dto,
-		chains,
-		loaded,
-		patch,
-		alchemyKey,
-		updateAlchemyKey,
-		alchemy,
-		saved,
-		message,
-		error,
-		applyAlchemyKey,
-		verifyChain,
-		toggleChain,
-		save,
-	} = model
+	const { dto, chains, loaded, patch, saved, message, error, verifyChain, toggleChain, save } = model
 
 	return (
 		<div className="wizard-sections chains-step operator-chain-settings">
 			<div className="card">
-				<h2>Provider key</h2>
+				<h2>RPC providers</h2>
 				<p className="hint">
-					Use one{" "}
-					<a className="hint-link" href={externalLinks.alchemyDashboard} target="_blank" rel="noreferrer">
-						Alchemy key
-						<ExternalLinkIcon aria-hidden="true" />
-					</a>{" "}
-					to fill supported bundler endpoints, or enter a bundler manually below. New chains start with
-					bundled public RPC endpoints where available. You can edit them or use your own providers.
+					New chains start with bundled public RPC endpoints where available. You can edit them or use your
+					own providers.
 				</p>
-				<div className="chain-provider-controls">
-					<input
-						type="password"
-						aria-label="Alchemy API key"
-						placeholder="Alchemy API key (optional)"
-						value={alchemyKey}
-						onChange={(e) => updateAlchemyKey(e.target.value)}
-					/>
-					<button type="button" onClick={applyAlchemyKey} disabled={alchemy.busy || !alchemyKey.trim()}>
-						{alchemy.busy ? "Checking…" : "Validate & prefill"}
-					</button>
-				</div>
 			</div>
 
 			{chains.map((chain) => (
@@ -72,17 +38,25 @@ export function Chains() {
 							<ChainLogo label={chain.meta.label} />
 							<div>
 								<h2>{chain.meta.label}</h2>
-								{chain.viaAlchemy ? <span className="chain-source">Bundler via Alchemy</span> : null}
 								{chain.enabled && !chain.running ? (
 									<span className="chain-source">Applies after restart</span>
 								) : null}
+								{chain.bundlerUrl ? null : <span className="chain-source">Add in the config file</span>}
 							</div>
 						</div>
 						<div className="chain-header-controls">
-							<label className="chain-enable-toggle">
+							<label
+								className="chain-enable-toggle"
+								title={
+									chain.bundlerUrl
+										? undefined
+										: "Hyperbridge runs no bundler for this chain. Add the chain to the config file with its bundlerUrl."
+								}
+							>
 								<input
 									type="checkbox"
 									checked={chain.enabled}
+									disabled={!chain.enabled && !chain.bundlerUrl}
 									onChange={(e) => {
 										toggleChain(chain, e.target.checked)
 										panels.setOpen(chain.meta.chainId, e.target.checked)
@@ -163,26 +137,6 @@ export function Chains() {
 									<span>A backup lets Simplex compare providers before it acts on chain data.</span>
 								</p>
 							</div>
-							<label className="field">
-								<span className="field-label">
-									Bundler endpoint <span className="field-required">Required</span>
-								</span>
-								<small>Used to submit sponsored fills on this chain.</small>
-								<input
-									type="text"
-									value={chain.bundlerUrl}
-									required
-									onChange={(e) =>
-										patch(chain.meta.chainId, {
-											bundlerUrl: e.target.value,
-											viaAlchemy: false,
-											verificationState: undefined,
-											verificationMessage: undefined,
-										})
-									}
-									placeholder="https://api.pimlico.io/v2/<chainId>/rpc?apikey=…"
-								/>
-							</label>
 							<div className="chain-configuration-actions">
 								<div className="chain-verification-control">
 									<button

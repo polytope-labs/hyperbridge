@@ -84,7 +84,7 @@ The response carries a `warning` when:
 
 ### POST /api/setup/validate-alchemy-key
 
-Checks an Alchemy API key, and derives an RPC URL for each mainnet chain Alchemy serves. Each chain also comes back with a `bundlerUrl`, which is the same Alchemy URL. When you save the chain, set its bundler to the [Hyperbridge bundler](/developers/evm/simplex/configuration#bundler) instead.
+Checks an Alchemy API key, and derives an RPC URL for each mainnet chain Alchemy serves. Each chain also comes back with a `bundlerUrl`, which is the same Alchemy URL. The setup wizard and the dashboard no longer call this route: they use the [Hyperbridge bundler](/developers/evm/simplex/configuration#bundler) for every chain.
 
 ```bash lineNumbers
 curl -s -X POST $SIMPLEX/api/setup/validate-alchemy-key \

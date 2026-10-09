@@ -45,11 +45,7 @@ describe("wizard secret phrase signer", () => {
 				url: DEFAULT_ORDERBOOK_URLS.mainnet,
 				books: [{ id: "USDC-cNGN", base: "USDC", quote: "cNGN" }],
 			},
-			chains: state.chains.map((chain) =>
-				chain.meta.chainId === 8453
-					? { ...chain, enabled: true, bundlerUrl: "https://bundler.example/8453" }
-					: chain,
-			),
+			chains: state.chains.map((chain) => (chain.meta.chainId === 8453 ? { ...chain, enabled: true } : chain)),
 		}
 	}
 

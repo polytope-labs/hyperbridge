@@ -8,8 +8,6 @@ export interface ChainDraft {
 	meta: ChainDefault
 	enabled: boolean
 	rpcUrls: string[]
-	bundlerUrl: string
-	viaAlchemy: boolean
 	watchOnly: boolean
 	verificationState?: EndpointVerificationState
 	verificationMessage?: string
@@ -81,9 +79,6 @@ export interface WizardState {
 	generatedMnemonic?: string
 	hyperbridgeWsUrl: string
 	balanceCheck?: { funded: boolean; free: string; decimals: number }
-	alchemyKey: string
-	alchemyStatus?: "ok" | "err"
-	alchemyError?: string
 	chains: ChainDraft[]
 	/** The orderbook's books, read when the wizard opens; the markets come from these. */
 	orderbook?: SetupOrderbook
@@ -112,15 +107,12 @@ export function initialState(defaults: SetupDefaults): WizardState {
 		turnkey: { organizationId: "", apiPublicKey: "", apiPrivateKey: "", signWith: "" },
 		substrateKey: "",
 		hyperbridgeWsUrl: defaults.hyperbridgeWs.mainnet,
-		alchemyKey: "",
 		chains: defaults.chains.map((meta) => ({
 				meta,
 				enabled: false,
-				// Public endpoints where the registry has them, so the operator only
-				// has to supply a bundler. One empty field otherwise, to type into.
+				// Public endpoints where the registry has them, so the operator has
+				// nothing to supply. One empty field otherwise, to type into.
 				rpcUrls: meta.defaultRpcUrls?.length ? [...meta.defaultRpcUrls] : [""],
-				bundlerUrl: "",
-				viaAlchemy: false,
 				watchOnly: false,
 			})),
 		vaults: [],
@@ -238,7 +230,8 @@ export function assembleConfig(state: WizardState, defaults: SetupDefaults): Fil
 		orderbook: { url: state.orderbook?.url ?? DEFAULT_ORDERBOOK_URLS.mainnet },
 		chains: chains.map((c) => ({
 			rpcUrls: c.rpcUrls.map((u) => u.trim()).filter(Boolean),
-			bundlerUrl: c.bundlerUrl.trim(),
+			// Never asked for: every chain the wizard offers fills through Hyperbridge's bundler.
+			bundlerUrl: c.meta.hyperbridgeBundlerUrl ?? "",
 		})),
 		...(vaults ? { vault: { vaults } } : {}),
 		...(allowlistUsers.length > 0 ? { allowlist: { users: allowlistUsers } } : {}),

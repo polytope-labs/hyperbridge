@@ -184,6 +184,11 @@ upgrade lands, fills on Chapel and Amoy fail with SDK 2.9.0 and simplex 0.17.0. 
 `SolverAccount` calls the new `select`, which the current gateway implementation rejects, and the
 SDK refuses a v0.9 bid on a gateway whose format is `address`.
 
+The testnet swaps run (`.github/workflows/test-simplex-e2e.yml`) sends its UserOperations through
+Pimlico, which serves v0.9 on both chains. Its bundler URLs, `E2E_BSC_TESTNET_BUNDLER_URL` and
+`E2E_POLYGON_AMOY_BUNDLER_URL`, are required and no longer default to the RPC URLs: Alchemy, the
+run's RPC provider, answers a v0.9 operation with `EntryPoint version 0.9 is not currently enabled`.
+
 ## Mainnet rollout
 
 Upgrading a chain's gateway is a hard cutover for that chain:

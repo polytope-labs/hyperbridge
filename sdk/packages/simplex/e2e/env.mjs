@@ -8,6 +8,10 @@ export function readEnv() {
 	const names = {
 		bscRpc: "E2E_BSC_TESTNET_RPC_URL",
 		amoyRpc: "E2E_POLYGON_AMOY_RPC_URL",
+		// Separate from the RPC: a bundler has to serve the chain's EntryPoint, and an RPC
+		// provider's own bundler may not.
+		bscBundler: "E2E_BSC_TESTNET_BUNDLER_URL",
+		amoyBundler: "E2E_POLYGON_AMOY_BUNDLER_URL",
 		orderbook: "E2E_ORDERBOOK_URL",
 		hyperbridge: "E2E_HYPERBRIDGE_WS_URL",
 		solver1Key: "E2E_SOLVER1_PRIVATE_KEY",
@@ -25,9 +29,6 @@ export function readEnv() {
 	// The account that tops the solvers' Hyperbridge balances up. Optional: without it a solver
 	// short of BRIDGE is reported rather than funded.
 	env.substrateFunder = process.env.SECRET_PHRASE
-	// A bundler is optional: Alchemy serves ERC-4337 on the same endpoint as the RPC.
-	env.bscBundler = process.env.E2E_BSC_TESTNET_BUNDLER_URL || env.bscRpc
-	env.amoyBundler = process.env.E2E_POLYGON_AMOY_BUNDLER_URL || env.amoyRpc
 	// Simplex posts to the orderbook URL as given; a deployment's base URL serves GraphQL under it.
 	const orderbook = env.orderbook.replace(/\/+$/, "")
 	env.orderbook = orderbook.endsWith("/graphql") ? orderbook : `${orderbook}/graphql`

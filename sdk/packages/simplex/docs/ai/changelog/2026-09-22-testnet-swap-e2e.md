@@ -92,8 +92,10 @@ by another simplex instance.
 
 | Variable | Value |
 | --- | --- |
-| `E2E_BSC_TESTNET_RPC_URL` | BSC Chapel RPC; also the bundler unless `E2E_BSC_TESTNET_BUNDLER_URL` is set |
-| `E2E_POLYGON_AMOY_RPC_URL` | Polygon Amoy RPC; also the bundler unless `E2E_POLYGON_AMOY_BUNDLER_URL` is set |
+| `E2E_BSC_TESTNET_RPC_URL` | BSC Chapel RPC |
+| `E2E_POLYGON_AMOY_RPC_URL` | Polygon Amoy RPC |
+| `E2E_BSC_TESTNET_BUNDLER_URL` | BSC Chapel ERC-4337 bundler serving the chain's EntryPoint; CI uses Pimlico (`https://api.pimlico.io/v2/97/rpc?apikey=...`) |
+| `E2E_POLYGON_AMOY_BUNDLER_URL` | Polygon Amoy ERC-4337 bundler serving the chain's EntryPoint; CI uses Pimlico (`https://api.pimlico.io/v2/80002/rpc?apikey=...`) |
 | `E2E_ORDERBOOK_URL` | HyperFX orderbook URL; `/graphql` is appended unless it already ends with it |
 | `E2E_HYPERBRIDGE_WS_URL` | Hyperbridge (Gargantua) WebSocket endpoint |
 | `E2E_SOLVER{1,2,3}_PRIVATE_KEY` | solver EVM keys, funded on both chains |

@@ -10,6 +10,7 @@ pub const LOG_TARGET: &str = "consensus-integration-tests";
 //mod l2s;
 mod util;
 //mod pharos;
+mod arc;
 
 // use std::{
 // 	sync::Arc,

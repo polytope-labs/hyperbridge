@@ -84,6 +84,14 @@ same diff, so it no longer needs the call dispatcher address.
 `GasEstimator.estimateFillOrder` estimates against `getEntryPointAddress`. With no EntryPoint
 configured, it takes the bundler-failure path. It signs the selection in the gateway's format.
 
+`GasEstimator.estimateBidPreVerificationGas` overrides the code of the bid's paymaster with
+`BID_PVG_ESTIMATION_PAYMASTER_CODE`, alongside the solver account's. The stub accepts every
+operation with an empty context, so the estimate does not run the paymaster's validation. Pimlico
+simulates an estimate with `paymasterPostOpGasLimit` at 2,000,000, outside the 30,000 to 100,000
+that `SimplexPaymaster` accepts. Without the override the estimate fails there, the bid is signed
+with the fill estimate's smaller `preVerificationGas`, and Pimlico rejects it as
+`preVerificationGas is not enough`.
+
 ### Rundler fee floor
 
 For a bundler URL containing neither `pimlico.io` nor `alchemy.com`, `fetchRundlerPriorityFee` asks

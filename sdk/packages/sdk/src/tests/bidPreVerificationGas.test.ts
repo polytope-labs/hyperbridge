@@ -1,11 +1,16 @@
 import { CryptoUtils } from "@/protocols/intents/CryptoUtils"
-import { BID_PVG_ESTIMATION_ACCOUNT_CODE, GasEstimator } from "@/protocols/intents/GasEstimator"
+import {
+	BID_PVG_ESTIMATION_ACCOUNT_CODE,
+	BID_PVG_ESTIMATION_PAYMASTER_CODE,
+	GasEstimator,
+} from "@/protocols/intents/GasEstimator"
 import { BundlerMethod, type IntentGatewayContext } from "@/protocols/intents/types"
 import type { BidPreVerificationGasParams, HexString } from "@/types"
 import { describe, expect, it, vi } from "vitest"
 
 const SOLVER = "0x21426d68a9e5df153fe75ce0fed20173ebcb80ef" as HexString
 const ENTRY_POINT = "0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108" as HexString
+const PAYMASTER = "0x15b3b03c870c7ef252029c35a12d3b339f5c8d7f" as HexString
 
 const BID: BidPreVerificationGasParams = {
 	solverAccount: SOLVER,
@@ -75,6 +80,19 @@ describe("GasEstimator.estimateBidPreVerificationGas", () => {
 			signature: `0x${"ff".repeat(162)}` as HexString,
 		})
 		expect(userOp).toEqual(expected)
+		expect(stateOverride).toEqual({
+			[SOLVER]: { code: BID_PVG_ESTIMATION_ACCOUNT_CODE },
+			[PAYMASTER]: { code: BID_PVG_ESTIMATION_PAYMASTER_CODE },
+		})
+	})
+
+	it("replaces only the solver account's code when the bid has no paymaster", async () => {
+		const { estimator, sendBundler } = estimatorAt(5_000_000n)
+
+		await estimator.estimateBidPreVerificationGas({ ...BID, paymasterAndData: undefined })
+
+		const [, [userOp, , stateOverride]] = sendBundler.mock.calls[0]
+		expect(userOp.paymaster).toBeUndefined()
 		expect(stateOverride).toEqual({ [SOLVER]: { code: BID_PVG_ESTIMATION_ACCOUNT_CODE } })
 	})
 

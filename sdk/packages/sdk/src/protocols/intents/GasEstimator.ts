@@ -87,14 +87,25 @@ export const NO_BUNDLER_PAYMASTER_POST_OP_GAS = 100_000n
 
 /**
  * Code the bundler runs in place of the solver account while it estimates a bid's
- * `preVerificationGas`. It answers `isValidSignature` with the ERC-1271 magic value, so
- * Permit2 accepts the paymaster's permit, and every other call with 32 zero bytes, so
- * `validateUserOp` succeeds and `execute` does nothing. The estimate then prices the
- * bid's real bytes without running a fill that cannot pass in simulation: the session's
- * selection is missing and funding calls do not resolve there.
+ * `preVerificationGas`. It answers `isValidSignature` with the ERC-1271 magic value and
+ * every other call with 32 zero bytes, so `validateUserOp` succeeds and `execute` does
+ * nothing. The estimate then prices the bid's real bytes without running a fill that
+ * cannot pass in simulation: the session's selection is missing and funding calls do not
+ * resolve there.
  */
 export const BID_PVG_ESTIMATION_ACCOUNT_CODE =
 	"0x60003560e01c631626ba7e1460145760206000f35b631626ba7e60e01b60005260206000f3" as HexString
+
+/**
+ * Code the bundler runs in place of the bid's paymaster during the same estimate. It
+ * answers every call with an empty context and zero validation data, so
+ * `validatePaymasterUserOp` succeeds and the EntryPoint makes no `postOp` call.
+ *
+ * A bundler may simulate an estimate with its own gas limits in place of the op's. Pimlico
+ * sets `paymasterPostOpGasLimit` to 2,000,000, which `SimplexPaymaster` refuses with
+ * `InvalidPostOpGasLimit`, so the real paymaster fails every estimate there.
+ */
+export const BID_PVG_ESTIMATION_PAYMASTER_CODE = "0x604060005260606000f3" as HexString
 
 /**
  * A bid's signature once the user selects it: the order commitment, the solver's signature
@@ -525,7 +536,9 @@ export class GasEstimator {
 	 * `maxFeePerGas`.
 	 *
 	 * The solver account's code is overridden with {@link BID_PVG_ESTIMATION_ACCOUNT_CODE}
-	 * for the call, so only the bytes are priced and the fill itself is not simulated.
+	 * and the paymaster's, if the bid has one, with {@link BID_PVG_ESTIMATION_PAYMASTER_CODE}
+	 * for the call, so only the bytes are priced and neither the fill nor the paymaster's
+	 * validation is simulated.
 	 *
 	 * @param params - The bid's fields as they will be signed.
 	 * @returns The `preVerificationGas` to sign, with {@link BID_PVG_HEADROOM_PERCENT} added.
@@ -554,13 +567,17 @@ export class GasEstimator {
 			signature: `0x${"ff".repeat(SELECTED_BID_SIGNATURE_BYTES)}` as HexString,
 		}
 
+		const stateOverride: Record<string, { code: HexString }> = {
+			[solverAccount]: { code: BID_PVG_ESTIMATION_ACCOUNT_CODE },
+		}
+		// `paymasterAndData` opens with the paymaster's address.
+		if (userOp.paymasterAndData.length >= 42) {
+			stateOverride[userOp.paymasterAndData.slice(0, 42)] = { code: BID_PVG_ESTIMATION_PAYMASTER_CODE }
+		}
+
 		const estimate = await this.crypto.sendBundler<BundlerGasEstimate>(
 			BundlerMethod.ETH_ESTIMATE_USER_OPERATION_GAS,
-			[
-				CryptoUtils.prepareBundlerCall(userOp),
-				params.entryPointAddress,
-				{ [solverAccount]: { code: BID_PVG_ESTIMATION_ACCOUNT_CODE } },
-			],
+			[CryptoUtils.prepareBundlerCall(userOp), params.entryPointAddress, stateOverride],
 		)
 		return (BigInt(estimate.preVerificationGas) * (100n + BID_PVG_HEADROOM_PERCENT)) / 100n
 	}

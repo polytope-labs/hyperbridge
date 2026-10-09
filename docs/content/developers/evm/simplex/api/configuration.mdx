@@ -101,7 +101,7 @@ curl -s -X PUT $SIMPLEX/api/chains \
           "chains": [
             { "chainId": 8453,
               "rpcUrls": ["https://base-mainnet.g.alchemy.com/v2/KEY", "https://base-rpc.publicnode.com"],
-              "bundlerUrl": "https://base-mainnet.g.alchemy.com/v2/KEY",
+              "bundlerUrl": "https://bundler.polytope.technology/base",
               "watchOnly": false }
           ]
         }'
@@ -112,7 +112,7 @@ curl -s -X PUT $SIMPLEX/api/chains \
 |---|---|
 | `chainId` | The chain's numeric ID. |
 | `rpcUrls` | At least one RPC URL, each on a different domain, as the [RPC quorum](/developers/evm/simplex/confirmations#rpc-quorum) needs. |
-| `bundlerUrl` | Required. The bundler that submits fill UserOperations. |
+| `bundlerUrl` | Required. The bundler that submits fill UserOperations, such as the chain's [Hyperbridge bundler](/developers/evm/simplex/configuration#bundler). |
 | `watchOnly` | Optional. Watch this chain without filling on it. |
 
 Chains are wired up when the solver starts, so the new set is saved and takes effect on the next restart. The response always has `applied: false` and `restartNeeded: true`. `removed` lists the chains that were dropped.

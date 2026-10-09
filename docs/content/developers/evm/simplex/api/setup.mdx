@@ -73,7 +73,7 @@ Checks that a bundler answers `eth_supportedEntryPoints` and, when `chainId` is 
 ```bash lineNumbers
 curl -s -X POST $SIMPLEX/api/setup/validate-bundler \
     -H 'Content-Type: application/json' -H 'X-Simplex-UI: 1' \
-    -d '{ "url": "https://api.pimlico.io/v2/8453/rpc?apikey=KEY", "chainId": 8453 }'
+    -d '{ "url": "https://bundler.polytope.technology/base", "chainId": 8453 }'
 # → { "ok": true, "entryPoints": ["0x…"] }
 ```
 
@@ -84,7 +84,7 @@ The response carries a `warning` when:
 
 ### POST /api/setup/validate-alchemy-key
 
-Checks an Alchemy API key, and derives an RPC URL for each mainnet chain Alchemy serves. Alchemy serves bundler methods on the same endpoint, so each chain's `bundlerUrl` is the same URL.
+Checks an Alchemy API key, and derives an RPC URL for each mainnet chain Alchemy serves. Each chain also comes back with a `bundlerUrl`, which is the same Alchemy URL. When you save the chain, set its bundler to the [Hyperbridge bundler](/developers/evm/simplex/configuration#bundler) instead.
 
 ```bash lineNumbers
 curl -s -X POST $SIMPLEX/api/setup/validate-alchemy-key \

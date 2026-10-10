@@ -254,6 +254,10 @@
 				"0xa8aea66b361a8d53e8865c62d142167af28af058": {
 					"description": "cNGN \u2014 listed so the LP balance sweep tracks the raw ERC-20 balance",
 					"vaults": []
+				},
+				"0x5b0c50fdd52ecc0d4c682c441eabad41ffdeabbb": {
+					"description": "BRIDGE \u2014 listed so the LP balance sweep tracks the raw ERC-20 balance",
+					"vaults": []
 				}
 			},
 			"tokenSlots": {
@@ -333,6 +337,10 @@
 				},
 				"0xdc3326e71d45186f113a2f448984ca0e8d201995": {
 					"description": "XSGD \u2014 listed so the LP balance sweep tracks the raw ERC-20 balance",
+					"vaults": []
+				},
+				"0x5b0c50fdd52ecc0d4c682c441eabad41ffdeabbb": {
+					"description": "BRIDGE \u2014 listed so the LP balance sweep tracks the raw ERC-20 balance",
 					"vaults": []
 				}
 			},

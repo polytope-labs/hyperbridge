@@ -185,6 +185,7 @@ export class IntentGateway {
 	 *
 	 * The ERC-4337 bundler URL is read from `dest.bundlerUrl`, set when constructing
 	 * the destination chain via {@link EvmChain.create} or {@link EvmChainParams.bundlerUrl}.
+	 * An `EvmChain` given none uses the bundler Hyperbridge runs for it.
 	 *
 	 * @param source - Source chain for order placement
 	 * @param dest - Destination chain for order fulfillment

@@ -2,6 +2,9 @@
  * The ERC-4337 bundlers Hyperbridge runs, per chain id. They need no API key and serve
  * EntryPoint v0.8 and v0.9. Simplex submits every fill through the one for its chain, and a
  * chain absent here can only be watched.
+ *
+ * The SDK's chain registry carries the same list as `bundlerUrl`. It is repeated here because
+ * the dashboard bundles this module and must not pull in the SDK.
  */
 export const HYPERBRIDGE_BUNDLER_URLS: Readonly<Record<number, string>> = {
 	1: "https://bundler.polytope.technology/ethereum",

@@ -1,3 +1,4 @@
+import { chainConfigs } from "@hyperbridge/sdk"
 import { describe, expect, it } from "vitest"
 import { chainsForNetwork, INIT_CHAINS } from "@/cli/init/chains"
 import { HYPERBRIDGE_BUNDLER_URLS, hyperbridgeBundlerUrl } from "@/config/bundlers"
@@ -18,6 +19,15 @@ describe("Hyperbridge bundlers", () => {
 			80002: "https://bundler.polytope.technology/polygon-amoy",
 		})
 		expect(hyperbridgeBundlerUrl(11155111)).toBeUndefined()
+	})
+
+	it("are the ones the SDK defaults to", () => {
+		const sdk = Object.fromEntries(
+			Object.values(chainConfigs)
+				.filter((config) => config.bundlerUrl)
+				.map((config) => [config.chainId, config.bundlerUrl]),
+		)
+		expect(sdk).toEqual(HYPERBRIDGE_BUNDLER_URLS)
 	})
 
 	it("cover every chain the wizards offer, on both networks", () => {

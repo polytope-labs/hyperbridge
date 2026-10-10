@@ -95,9 +95,10 @@ jobs:
                   E2E_WORKDIR: ${{ runner.temp }}/simplex-e2e
                   E2E_BSC_TESTNET_RPC_URL: ${{ secrets.E2E_BSC_TESTNET_RPC_URL }}
                   E2E_POLYGON_AMOY_RPC_URL: ${{ secrets.E2E_POLYGON_AMOY_RPC_URL }}
-                  # Pimlico. The RPC provider, Alchemy, does not serve EntryPoint v0.9 as a bundler.
-                  E2E_BSC_TESTNET_BUNDLER_URL: ${{ secrets.E2E_BSC_TESTNET_BUNDLER_URL }}
-                  E2E_POLYGON_AMOY_BUNDLER_URL: ${{ secrets.E2E_POLYGON_AMOY_BUNDLER_URL }}
+                  # Hyperbridge's testnet bundlers. The RPC provider, Alchemy, does not serve
+                  # EntryPoint v0.9 as a bundler.
+                  E2E_BSC_TESTNET_BUNDLER_URL: https://bundler.polytope.technology/bsc-chapel
+                  E2E_POLYGON_AMOY_BUNDLER_URL: https://bundler.polytope.technology/polygon-amoy
                   E2E_ORDERBOOK_URL: ${{ secrets.E2E_ORDERBOOK_URL }}
                   E2E_HYPERBRIDGE_WS_URL: ${{ secrets.E2E_HYPERBRIDGE_WS_URL }}
                   E2E_SOLVER1_PRIVATE_KEY: ${{ secrets.E2E_SOLVER1_PRIVATE_KEY }}

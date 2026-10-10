@@ -45,7 +45,7 @@ const ORDER: Order = {
 }
 
 function estimatorWith(
-	bundler: { batch: ReturnType<typeof vi.fn>; single: ReturnType<typeof vi.fn> },
+	bundler: { single: ReturnType<typeof vi.fn> },
 	{
 		gateway = { address: GATEWAY, typehash: SELECT_SOLVER_TYPEHASH },
 		entryPoint = ENTRY_POINT,
@@ -72,7 +72,6 @@ function estimatorWith(
 	} as unknown as IntentGatewayContext
 	const crypto = {
 		encodeERC7821Execute: () => "0x" as HexString,
-		sendBundlerBatch: bundler.batch,
 		sendBundler: bundler.single,
 	} as unknown as CryptoUtils
 
@@ -83,7 +82,6 @@ function estimatorWith(
 }
 
 const rejecting = () => ({
-	batch: vi.fn().mockRejectedValue(new Error("batch unsupported")),
 	single: vi.fn().mockRejectedValue(new Error("AA23 reverted")),
 })
 
@@ -112,12 +110,13 @@ describe("GasEstimator.estimateFillOrder when the bundler fails to estimate", ()
 
 	it("returns the bundler's figures when the estimate succeeds", async () => {
 		const estimator = estimatorWith({
-			batch: vi
+			single: vi
 				.fn()
-				.mockResolvedValue([
-					{ callGasLimit: "0x186a0", verificationGasLimit: "0x186a0", preVerificationGas: "0x186a0" },
-				]),
-			single: vi.fn(),
+				.mockResolvedValue({
+					callGasLimit: "0x186a0",
+					verificationGasLimit: "0x186a0",
+					preVerificationGas: "0x186a0",
+				}),
 		})
 
 		const estimate = await estimator.estimateFillOrder({ order: ORDER, requireBundlerEstimate: true })
@@ -134,22 +133,20 @@ describe("GasEstimator.estimateFillOrder when the bundler fails to estimate", ()
 		await expect(estimator.estimateFillOrder({ order: ORDER, requireBundlerEstimate: true })).rejects.toThrow(
 			"Bundler gas estimation failed: No EntryPoint configured for EVM-97",
 		)
-		expect(bundler.batch).not.toHaveBeenCalled()
+		expect(bundler.single).not.toHaveBeenCalled()
 	})
 })
 
 describe("GasEstimator.estimateFillOrder session signature", () => {
 	const succeeding = () => ({
-		batch: vi
+		single: vi
 			.fn()
-			.mockResolvedValue([{ callGasLimit: "0x1", verificationGasLimit: "0x1", preVerificationGas: "0x1" }]),
-		single: vi.fn(),
+			.mockResolvedValue({ callGasLimit: "0x1", verificationGasLimit: "0x1", preVerificationGas: "0x1" }),
 	})
 
 	/** The op the estimate sent, packed again, and the session's selection signature at its end. */
-	function sentOp(batch: ReturnType<typeof vi.fn>) {
-		const [[{ params }]] = batch.mock.calls[0] as [[{ params: [Record<string, HexString>] }]]
-		const op = params[0]
+	function sentOp(single: ReturnType<typeof vi.fn>) {
+		const [, [op]] = single.mock.calls[0] as [string, [Record<string, HexString>]]
 		return {
 			sender: op.sender,
 			selection: slice(op.signature, 97),
@@ -186,7 +183,7 @@ describe("GasEstimator.estimateFillOrder session signature", () => {
 
 		await estimatorWith(bundler, { gateway }).estimateFillOrder({ order: ORDER, requireBundlerEstimate: true })
 
-		const { sender, selection, userOpHash } = sentOp(bundler.batch)
+		const { sender, selection, userOpHash } = sentOp(bundler.single)
 		const digest = hashTypedData({
 			domain: domain(gateway.address),
 			types: {
@@ -210,7 +207,7 @@ describe("GasEstimator.estimateFillOrder session signature", () => {
 
 		await estimatorWith(bundler, { gateway }).estimateFillOrder({ order: ORDER, requireBundlerEstimate: true })
 
-		const { sender, selection } = sentOp(bundler.batch)
+		const { sender, selection } = sentOp(bundler.single)
 		const digest = hashTypedData({
 			domain: domain(gateway.address),
 			types: {

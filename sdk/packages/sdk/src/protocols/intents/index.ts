@@ -46,7 +46,12 @@ export {
 	DOMAIN_TYPEHASH,
 } from "./CryptoUtils"
 export { readSelectionFormat, type SelectionFormat } from "./selection"
-export { fetchRundlerPriorityFee, applyRundlerPriorityFee } from "./rundlerFees"
+export {
+	fetchRundlerPriorityFee,
+	fetchRundlerSuggestedFees,
+	applyRundlerPriorityFee,
+	rundlerUserOperationFees,
+} from "./rundlerFees"
 export {
 	encodeFillOrder,
 	decodeFillOrder,

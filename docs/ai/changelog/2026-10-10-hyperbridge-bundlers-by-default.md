@@ -15,6 +15,22 @@ passed there still wins. `IntentGateway` reads its bundler from the destination 
 `IntentGateway` on a supported chain now submits fills and estimates fill gas through Hyperbridge's
 bundler with no configuration.
 
+## UserOperation fees
+
+Fees are priced for rundler, which the Hyperbridge bundlers run. Rundler accepts an op paying at
+least half the base fee, but only bundles one whose max fee covers its bundle base fee: the pending
+base fee raised by `BUNDLE_BASE_FEE_OVERHEAD_PERCENT` (27% by default), plus the priority fee it
+requires. An op priced below that is accepted and then skipped in every bundle until it expires.
+
+`rundlerUserOperationFees` in the SDK's `rundlerFees.ts` asks the bundler for
+`rundler_getUserOperationGasPrice` and uses its `suggested` fees, each raised by its bump
+(`maxFeePerGasBumpPercent`, `maxPriorityFeePerGasBumpPercent`). A bundler that does not serve that
+method is asked for `rundler_maxPriorityFeePerGas`, and the chain's gas price is raised to it as
+before. `GasEstimator.estimateFillOrder` and simplex's `UserOpSender` both price this way.
+
+The Pimlico and Alchemy pricing paths are gone, along with `BundlerMethod.PIMLICO_GET_USER_OPERATION_GAS_PRICE`
+and the `PimlicoGasPriceEstimate` type.
+
 ## Simplex
 
 Simplex no longer takes a bundler from its config. It submits every fill through Hyperbridge's

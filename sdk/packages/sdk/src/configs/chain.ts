@@ -149,6 +149,7 @@ export type ConfiguredAssetSymbol =
 	| "XSGD"
 	| "TRYB"
 	| "USDR"
+	| "BRIDGE"
 
 /** A configured asset symbol in its canonical, lowercase, or uppercase form. */
 export type ConfiguredAssetSymbolInput =
@@ -186,6 +187,8 @@ export interface ChainConfigData {
 		XSGD?: string
 		TRYB?: string
 		USDR?: string
+		/** BridgeToken, the EVM representation of the nexus-native BRIDGE. */
+		BRIDGE?: string
 	}
 	tokenDecimals?: {
 		USDC: number
@@ -197,6 +200,7 @@ export interface ChainConfigData {
 		XSGD?: number
 		TRYB?: number
 		USDR?: number
+		BRIDGE?: number
 	}
 	tokenStorageSlots?: {
 		USDT?: { balanceSlot: number; allowanceSlot: number }
@@ -209,6 +213,7 @@ export interface ChainConfigData {
 		XSGD?: { balanceSlot: number; allowanceSlot: number }
 		TRYB?: { balanceSlot: number; allowanceSlot: number }
 		USDR?: { balanceSlot: number; allowanceSlot: number }
+		BRIDGE?: { balanceSlot: number; allowanceSlot: number }
 	}
 	addresses: {
 		IntentGateway?: `0x${string}`
@@ -459,6 +464,7 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 			USDT: "0x55d398326f99059ff775485246999027b3197955",
 			EXT: "0x7C8c11ADb8EF7cd3CFa718008Ea048445C6E7209",
 			cNGN: "0xa8AEA66B361a8d53e8865c62D142167Af28Af058",
+			BRIDGE: "0x5b0c50fDd52ECC0d4c682c441eaBaD41FfDEABBB",
 		},
 		tokenDecimals: {
 			USDC: 18,
@@ -468,6 +474,7 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 			// by this, so the divergence from its neighbours here is load-bearing, not a typo.
 			cNGN: 6,
 			EXT: 18,
+			BRIDGE: 18,
 		},
 		tokenStorageSlots: {
 			USDT: { balanceSlot: 1, allowanceSlot: 2 },
@@ -475,6 +482,7 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 			WETH: { balanceSlot: 3, allowanceSlot: 4 },
 			DAI: { balanceSlot: 0, allowanceSlot: 0 },
 			cNGN: { balanceSlot: 201, allowanceSlot: 202 }, // custom upgradeable layout, as on Base
+			BRIDGE: { balanceSlot: 0, allowanceSlot: 1 },
 		},
 		addresses: {
 			IntentGateway: "0xAe041F7B0CB581876832830baeB6a2Aa2a3C9716",
@@ -662,6 +670,7 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 			ZARP: "0xb755506531786C8aC63B756BaB1ac387bACB0C04",
 			XSGD: "0xDC3326e71D45186F113a2F448984CA0e8D201995",
 			USDR: "0x3B5F2810fB2168FfA9C73160F97BF9f2461fFa5c",
+			BRIDGE: "0x5b0c50fDd52ECC0d4c682c441eaBaD41FfDEABBB",
 		},
 		tokenDecimals: {
 			USDC: 6,
@@ -671,6 +680,7 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 			ZARP: 18,
 			XSGD: 6,
 			USDR: 6,
+			BRIDGE: 18,
 		},
 		tokenStorageSlots: {
 			USDT: { balanceSlot: 0, allowanceSlot: 1 },
@@ -681,6 +691,7 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 			ZARP: { balanceSlot: 51, allowanceSlot: 52 },
 			XSGD: { balanceSlot: 7, allowanceSlot: 8 },
 			USDR: { balanceSlot: 51, allowanceSlot: 52 },
+			BRIDGE: { balanceSlot: 0, allowanceSlot: 1 },
 		},
 		addresses: {
 			IntentGateway: "0xAe041F7B0CB581876832830baeB6a2Aa2a3C9716",

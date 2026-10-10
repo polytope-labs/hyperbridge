@@ -191,7 +191,7 @@ triggerPercentage = 0.5
 # referenced by symbol from Simplex's built-in registry — no address
 # configuration needed. The registry ships USDC, USDT, DAI, CNGN (per-chain via
 # the SDK, testnets included) plus curated mainnet deployments of USDR, ZARP,
-# EURC, XSGD and TRYB, all verified on-chain.
+# EURC, XSGD, TRYB and BRIDGE, all verified on-chain.
 #
 # One orientation per market: declaring both USDC/CNGN and CNGN/USDC is refused.
 # token0 == token1 is the same-asset cross-chain market.

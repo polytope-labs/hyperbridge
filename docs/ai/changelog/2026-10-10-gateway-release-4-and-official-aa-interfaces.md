@@ -36,10 +36,16 @@ The indexer lists the new account first and `0x77c3394CA5881A74f18139AC87D0c11F8
 its five mainnet chains, so solvers keep counting while they re-delegate.
 `0xd5535d4DeB17F050e52B6efda2fDe00435f39279` is no longer listed.
 
-The indexer also tracks solver inventory in BRIDGE (`0x5b0c50fDd52ECC0d4c682c441eaBaD41FfDEABBB`) on
-BSC and Polygon mainnet. It is a `yieldVaults` key with no vaults, so `SolverInventory` holds the
-wallet balance only. A solver already tracked on either chain gets its BRIDGE row at its next daily
-reconciliation.
+BRIDGE (`0x5b0c50fDd52ECC0d4c682c441eaBaD41FfDEABBB`) is a supported token on BSC and Polygon
+mainnet:
+
+- The SDK's chain config lists it under `assets`, with 18 decimals and OpenZeppelin's storage layout
+  (`balanceSlot` 0, `allowanceSlot` 1).
+- Simplex ships `BRIDGE` as a registry symbol, so `[[pairs]]` can name it without an `[assets]`
+  entry and the setup wizard declares any orderbook market in it.
+- The indexer tracks solver inventory in it. It is a `yieldVaults` key with no vaults, so
+  `SolverInventory` holds the wallet balance only. A solver already tracked on either chain gets its
+  BRIDGE row at its next daily reconciliation.
 
 `evm/` now takes interfaces from their official packages instead of declaring its own:
 

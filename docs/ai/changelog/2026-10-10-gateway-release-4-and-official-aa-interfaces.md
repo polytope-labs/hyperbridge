@@ -22,6 +22,17 @@ leg still reverts the whole fill.
 The SDK's `SUPPORTED_INTENTS_VERSION` is 4. An SDK on 3 refuses a gateway once it is upgraded, and
 this SDK refuses one that is not, so the SDK release and the gateway upgrades ship together.
 
+The SDK's mainnet chain config points `SolverAccount` at
+`0xaAd062555800a97Af062795189e32a3CBd045612` on Ethereum, BSC, Arbitrum, Base, Polygon and
+Polkadot Hub. On the first five, `EntryPoint` moves to v0.9
+(`0x433709009B8330FDa32311DF1C2AFA402eD8D009`), the EntryPoint the new account validates against.
+Polkadot Hub has no EntryPoint deployed. Optimism, Gnosis and Soneium keep their previous values,
+since their gateways are not upgraded. Simplex reads both addresses from this config.
+
+The indexer lists the new account first and `0x77c3394CA5881A74f18139AC87D0c11F8Faa90cC` second on
+its five mainnet chains, so solvers keep counting while they re-delegate.
+`0xd5535d4DeB17F050e52B6efda2fDe00435f39279` is no longer listed.
+
 `evm/` now takes interfaces from their official packages instead of declaring its own:
 
 - `@account-abstraction/contracts@0.9.0-rc.1` for the EntryPoint (`IEntryPoint`, `IStakeManager`).

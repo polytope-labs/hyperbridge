@@ -1,4 +1,4 @@
-# 2026-10-10 — 0.18.0: fills always use Hyperbridge's bundlers
+# 2026-10-10 — 0.17.1: fills always use Hyperbridge's bundlers
 
 Simplex no longer takes a bundler from its config. It submits every fill through the ERC-4337
 bundler Hyperbridge runs for the chain. `HYPERBRIDGE_BUNDLER_URLS` in `src/config/bundlers.ts` lists
@@ -23,4 +23,4 @@ The wizards and the Chains panel offer only chains with a Hyperbridge bundler (`
 so the testnet catalog is BSC Chapel and Polygon Amoy. `GET /api/chains` and `chains.list()` still
 report each chain's `bundlerUrl`, now Hyperbridge's, and empty where there is none.
 
-Simplex-desktop moves to 0.18.0 with it.
+Simplex-desktop moves to 0.17.1 with it.

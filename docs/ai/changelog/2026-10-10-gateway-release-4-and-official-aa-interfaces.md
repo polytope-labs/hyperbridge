@@ -20,7 +20,8 @@ The gateway also exposes `entrypoint()`, the EntryPoint v0.9 address whose
 leg still reverts the whole fill.
 
 The SDK's `SUPPORTED_INTENTS_VERSION` is 4. An SDK on 3 refuses a gateway once it is upgraded, and
-this SDK refuses one that is not, so the SDK release and the gateway upgrades ship together.
+this SDK refuses one that is not, so the SDK release and the gateway upgrades ship together. The SDK
+releases as `@hyperbridge/sdk` 3.0.0, a major version because it refuses every release-3 gateway.
 
 The SDK's mainnet chain config points `SolverAccount` at
 `0xaAd062555800a97Af062795189e32a3CBd045612` on Ethereum, BSC, Arbitrum, Base, Polygon and

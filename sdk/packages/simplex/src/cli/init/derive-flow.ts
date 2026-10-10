@@ -2,7 +2,7 @@ import { confirm, select } from "@clack/prompts"
 import { guard } from "./prompt-utils"
 
 /**
- * One provider API key can serve every chain (Alchemy RPCs, Pimlico bundlers).
+ * One provider API key can serve every chain (Alchemy RPCs).
  * Tracks the key detected in the first manually entered URL and, once the user
  * confirms, supplies derived URLs for the remaining chains.
  */

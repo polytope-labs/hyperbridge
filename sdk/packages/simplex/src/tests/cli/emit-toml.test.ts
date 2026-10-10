@@ -27,14 +27,8 @@ const minimalSameAsset: FillerConfigFile = {
 		},
 	],
 	chains: [
-		{
-			rpcUrls: ["https://eth-mainnet.g.alchemy.com/v2/someKey"],
-			bundlerUrl: "https://eth-mainnet.g.alchemy.com/v2/someKey",
-		},
-		{
-			rpcUrls: ["https://base-mainnet.g.alchemy.com/v2/someKey"],
-			bundlerUrl: "https://api.pimlico.io/v2/8453/rpc?apikey=pim_key",
-		},
+		{ rpcUrls: ["https://eth-mainnet.g.alchemy.com/v2/someKey"] },
+		{ rpcUrls: ["https://base-mainnet.g.alchemy.com/v2/someKey"] },
 	],
 }
 
@@ -72,10 +66,7 @@ const crossAssetWithCurves: FillerConfigFile = {
 			],
 		},
 	},
-	chains: [
-		{ rpcUrls: ["https://bsc.example/rpc"], bundlerUrl: "https://api.pimlico.io/v2/56/rpc?apikey=k" },
-		{ rpcUrls: ["https://polygon.example/rpc"], bundlerUrl: "https://api.pimlico.io/v2/137/rpc?apikey=k" },
-	],
+	chains: [{ rpcUrls: ["https://bsc.example/rpc"] }, { rpcUrls: ["https://polygon.example/rpc"] }],
 }
 
 // `side` requires pool pricing with no static curves, so this pair is curve-less
@@ -118,12 +109,7 @@ const kitchenSink: FillerConfigFile = {
 			],
 		},
 	},
-	chains: [
-		{
-			rpcUrls: ["https://eth.example/rpc", "https://eth-two.example/rpc"],
-			bundlerUrl: "https://api.pimlico.io/v2/1/rpc?apikey=k",
-		},
-	],
+	chains: [{ rpcUrls: ["https://eth.example/rpc", "https://eth-two.example/rpc"] }],
 	rebalancing: {
 		triggerPercentage: 0.5,
 		baseBalances: {
@@ -213,6 +199,16 @@ describe("emitFillerToml", () => {
 		const parsed = parse(emitted) as FillerConfigFile
 		const signer = await signerFromToml(parsed.simplex.signer)
 		expect(signer?.address).toBe("0x70997970C51812dc3A010C7d01b50e0d17dc79C8")
+	})
+
+	it("drops a bundlerUrl an older config still carries", () => {
+		const legacy = {
+			...minimalSameAsset,
+			chains: [{ rpcUrls: ["https://eth.example/rpc"], bundlerUrl: "https://bundler.example/rpc?apikey=k" }],
+		}
+		const toml = emitFillerToml(legacy)
+		expect(toml).not.toContain("bundlerUrl")
+		expect(parse(toml).chains).toEqual([{ rpcUrls: ["https://eth.example/rpc"] }])
 	})
 
 	it("renders chain comments above each [[chains]] entry", () => {

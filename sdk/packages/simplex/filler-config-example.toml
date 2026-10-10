@@ -101,7 +101,6 @@ hyperbridgeWsUrl = ""
 # maxOverfillBps = 500          # warn when an offer is 5% above the requested output (default: 500)
 # maxConsecutiveClamps = 3      # accepted, currently unused (default: 3)
 
-
 # Logging level: trace, debug, info, warn, error
 logging = "debug"
 
@@ -240,7 +239,6 @@ url = "https://orderbook.hyperfx.finance/mainnet/graphql"   # testnet: https://o
 # reconcileIntervalSecs = 300   # how often to check the orderbook still matches (default 300)
 # requestTimeoutMs = 10000      # per orderbook request (default 10000)
 
-
 # Remote access from a phone. Off by default. When enabled, simplex keeps an outbound
 # SSH tunnel to a relay so a phone's SSH client can open this UI with a local port
 # forward; the phone's session terminates inside simplex, the relay only sees ciphertext.
@@ -250,10 +248,10 @@ url = "https://orderbook.hyperfx.finance/mainnet/graphql"   # testnet: https://o
 # relay = "simplex.tunnel.polytope.technology:443"   # host[:port], port defaults to 443
 # relayHostKey = "SHA256:..."                          # pin for a self-hosted relay; the hosted one is built in
 
-# Chain configuration - RPC and bundler URLs are required
-# Hyperbridge runs an ERC-4337 bundler for Ethereum, BSC, Arbitrum, Base and Polygon at
-# https://bundler.polytope.technology/<chain>. It needs no API key. On any other chain, use a
-# bundler that serves the EntryPoint the chain's solver account uses.
+# Chain configuration - RPC URLs are required
+# Fills go through the ERC-4337 bundler Hyperbridge runs for each chain, so there is no bundler
+# to configure. Simplex fills on Ethereum, BSC, Arbitrum, Base and Polygon, and on BSC Chapel
+# and Polygon Amoy on testnet. Any other chain can only be watched (see simplex.watchOnly).
 # Chain IDs are resolved automatically from the RPC endpoints.
 # All other chain data (addresses, assets, etc.) comes from the SDK automatically.
 #
@@ -264,26 +262,15 @@ url = "https://orderbook.hyperfx.finance/mainnet/graphql"   # testnet: https://o
 # balance reads always use the first healthy endpoint.
 [[chains]]
 rpcUrls = [""]      # Ethereum Mainnet — add more endpoints to enable quorum
-bundlerUrl = "https://bundler.polytope.technology/ethereum"
 
 [[chains]]
 rpcUrls = [""]      # BSC Mainnet
-bundlerUrl = "https://bundler.polytope.technology/bsc"
 
 [[chains]]
 rpcUrls = [""]      # Arbitrum Mainnet
-bundlerUrl = "https://bundler.polytope.technology/arbitrum"
 
 [[chains]]
 rpcUrls = [""]      # Base Mainnet
-bundlerUrl = "https://bundler.polytope.technology/base"
 
 [[chains]]
 rpcUrls = [""]      # Polygon Mainnet
-bundlerUrl = "https://bundler.polytope.technology/polygon"
-
-[[chains]]
-rpcUrls = [""]      # Unichain Mainnet
-bundlerUrl = ""
-
-

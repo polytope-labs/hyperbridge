@@ -6,7 +6,6 @@ import type { InitChainMeta, InitNetwork } from "./chains"
 export interface WizardChain {
 	meta: InitChainMeta
 	rpcUrls: string[]
-	bundlerUrl?: string
 }
 
 export interface WizardState {

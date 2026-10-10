@@ -325,9 +325,6 @@ export function validateConfig(config: FillerTomlConfig, cliWatchOnly = false): 
 		if (!Array.isArray(chain.rpcUrls) || chain.rpcUrls.length === 0 || chain.rpcUrls.some((u) => !u)) {
 			throw new Error("Each chain configuration must have rpcUrls (a non-empty array of strings)")
 		}
-		if (!chain.bundlerUrl) {
-			throw new Error("Each chain configuration must have bundlerUrl")
-		}
 	}
 
 	// `|| 5` downstream reads 0 as "unset", and p-queue throws a bare TypeError on

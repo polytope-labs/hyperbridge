@@ -11,8 +11,9 @@ import type { FillerRuntime } from "@/core/boot"
 // `add` probes the endpoints for real; these are not endpoints.
 vi.mock("@/services/FillerConfigService", async (importOriginal) => ({
 	...(await importOriginal<typeof import("@/services/FillerConfigService")>()),
-	resolveChainConfigs: async (entries: { rpcUrls: string[]; bundlerUrl?: string }[]) =>
-		entries.map((entry) => ({ chainId: 8453, rpcUrls: entry.rpcUrls, bundlerUrl: entry.bundlerUrl })),
+	// Resolution fills in the chain's bundler from its id; this stands in for Base's.
+	resolveChainConfigs: async (entries: { rpcUrls: string[] }[]) =>
+		entries.map((entry) => ({ chainId: 8453, rpcUrls: entry.rpcUrls, bundlerUrl: "https://bundler.example" })),
 }))
 
 /**
@@ -67,7 +68,6 @@ describe("FillerConfigService chain set", () => {
 	it("rejects endpoint edits for chains it does not know", () => {
 		const service = configService()
 		expect(() => service.setRpcUrls(999, RPC_B)).toThrow(/not configured/)
-		expect(() => service.setBundlerUrl(999, "https://x.example")).toThrow(/not configured/)
 	})
 
 	it("rejects duplicate hosts, on add as well as at construction", () => {
@@ -343,7 +343,7 @@ describe("ChainController.add rollback", () => {
 		const controller = new ChainController(runtime, async () => {}, supplied, false)
 
 		await expect(
-			controller.add({ rpcUrls: ["https://base.example"], bundlerUrl: "https://bundler.example" }),
+			controller.add({ rpcUrls: ["https://base.example"] }),
 		).rejects.toThrow(/not in the order scanner/)
 
 		expect(service.getConfiguredChainIds()).toEqual(before)
@@ -388,7 +388,7 @@ describe("ChainController bundler EntryPoint check", () => {
 			configService: service,
 			config: {
 				simplex: {},
-				chains: resolvedChains.map(({ rpcUrls, bundlerUrl }) => ({ rpcUrls, bundlerUrl })),
+				chains: resolvedChains.map(({ rpcUrls }) => ({ rpcUrls })),
 				confirmationPolicies: {},
 			},
 			intentFiller: {
@@ -412,42 +412,10 @@ describe("ChainController bundler EntryPoint check", () => {
 		const controller = new ChainController(runtimeFor(service), async () => {}, scanner, true)
 
 		await expect(
-			controller.add({ rpcUrls: ["https://base.example"], bundlerUrl: "https://bundler.example" }),
+			controller.add({ rpcUrls: ["https://base.example"] }),
 		).rejects.toThrow(/does not support EntryPoint/)
 		expect(service.getConfiguredChainIds()).toEqual([1])
 		expect(scanner.addChain).not.toHaveBeenCalled()
-	})
-
-	it("refuses to swap in a bundler that lacks the chain's EntryPoint", async () => {
-		stubV07Bundler()
-		const service = new FillerConfigService([
-			{ chainId: 8453, rpcUrls: RPC_A, bundlerUrl: "https://bundler.example" },
-		])
-		const runtime = runtimeFor(service, [{ chainId: 8453, rpcUrls: RPC_A, bundlerUrl: "https://bundler.example" }])
-		const persist = vi.fn()
-		const controller = new ChainController(runtime, persist, emptyScanner(), true)
-
-		await expect(controller.setBundlerUrl(8453, "https://v07-only.example")).rejects.toThrow(
-			/does not support EntryPoint/,
-		)
-		expect(service.getBundlerUrl("EVM-8453")).toBe("https://bundler.example")
-		expect(runtime.resolvedChains[0].bundlerUrl).toBe("https://bundler.example")
-		expect(persist).not.toHaveBeenCalled()
-	})
-
-	it("swaps the bundler on a watch-only chain without asking it", async () => {
-		const fetchSpy = vi.fn()
-		vi.stubGlobal("fetch", fetchSpy)
-		const service = new FillerConfigService([
-			{ chainId: 8453, rpcUrls: RPC_A, bundlerUrl: "https://bundler.example" },
-		])
-		const chains = [{ chainId: 8453, rpcUrls: RPC_A, bundlerUrl: "https://bundler.example" }]
-		const runtime = runtimeFor(service, chains, { 8453: true })
-		const controller = new ChainController(runtime, vi.fn(), emptyScanner(), true)
-
-		await controller.setBundlerUrl(8453, "https://v07-only.example")
-		expect(fetchSpy).not.toHaveBeenCalled()
-		expect(service.getBundlerUrl("EVM-8453")).toBe("https://v07-only.example")
 	})
 
 	it("refuses to take a chain out of watch-only while its bundler lacks the EntryPoint", async () => {
@@ -466,6 +434,20 @@ describe("ChainController bundler EntryPoint check", () => {
 
 		await expect(controller.setWatchOnly(8453, true)).resolves.toBeUndefined()
 		expect(runtime.intentFiller.setWatchOnly).toHaveBeenCalledWith(8453, true)
+	})
+
+	it("keeps a chain Hyperbridge runs no bundler for in watch-only", async () => {
+		const fetchSpy = vi.fn()
+		vi.stubGlobal("fetch", fetchSpy)
+		const service = new FillerConfigService([{ chainId: 8453, rpcUrls: RPC_A }])
+		const runtime = runtimeFor(service, [{ chainId: 8453, rpcUrls: RPC_A }], { 8453: true })
+		const persist = vi.fn()
+		const controller = new ChainController(runtime, persist, emptyScanner(), true)
+
+		await expect(controller.setWatchOnly(8453, false)).rejects.toThrow(/runs no bundler/)
+		expect(fetchSpy).not.toHaveBeenCalled()
+		expect(runtime.intentFiller.setWatchOnly).not.toHaveBeenCalled()
+		expect(persist).not.toHaveBeenCalled()
 	})
 
 	it("takes a chain out of watch-only when its bundler cannot be asked", async () => {
@@ -488,11 +470,7 @@ describe("ChainController bundler EntryPoint check", () => {
 		const runtime = runtimeFor(service)
 		const controller = new ChainController(runtime, vi.fn(), emptyScanner(), true)
 
-		await controller.add({
-			rpcUrls: ["https://base.example"],
-			bundlerUrl: "https://bundler.example",
-			watchOnly: true,
-		})
+		await controller.add({ rpcUrls: ["https://base.example"], watchOnly: true })
 		expect(fetchSpy).not.toHaveBeenCalled()
 		expect(service.getConfiguredChainIds()).toEqual([1, 8453])
 		expect(runtime.intentFiller.setWatchOnly).toHaveBeenCalledWith(8453, true)

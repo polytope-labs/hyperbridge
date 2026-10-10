@@ -6,6 +6,7 @@ import { tmpdir } from "node:os"
 import { resolve as resolvePath } from "node:path"
 import type { Duplex } from "node:stream"
 import { formatChainKey, parseChainKey } from "@/config/interpolated-curve"
+import { hyperbridgeBundlerUrl } from "@/config/bundlers"
 import { AssetRegistry, registrySymbols, validateAssetDefinitions, type AssetDefinition } from "@/config/asset-registry"
 import { assertPairSymbolsResolve, validatePairConfigs, type PairConfig } from "@/config/pairs"
 import { VaultFundingPlanner, type VaultSweepResult } from "@/funding/vault/VaultFundingPlanner"
@@ -58,7 +59,6 @@ import {
 	maskToml,
 	resolveSetupDeps,
 	validateAlchemyKey,
-	validateBundler,
 	validateRpc,
 	validateToken,
 	type SetupDeps,
@@ -272,12 +272,7 @@ export interface SetupContext {
 export type StartState = "idle" | "starting" | "running" | "failed"
 
 /** Setup routes that stay open in operator mode: stateless probes with no wizard state. */
-const OPERATOR_PROBES = [
-	"/api/setup/validate-token",
-	"/api/setup/validate-rpc",
-	"/api/setup/validate-bundler",
-	"/api/setup/validate-alchemy-key",
-]
+const OPERATOR_PROBES = ["/api/setup/validate-token", "/api/setup/validate-rpc", "/api/setup/validate-alchemy-key"]
 
 const LOGS_UNAVAILABLE = "Log capture is not enabled for this filler"
 
@@ -923,9 +918,6 @@ export class UiServer {
 					const body = JSON.parse(await readBody(req)) as Record<string, unknown>
 					if (path === "/api/setup/validate-rpc")
 						return sendJson(res, 200, await validateRpc(body, this.deps))
-					if (path === "/api/setup/validate-bundler") {
-						return sendJson(res, 200, await validateBundler(body, this.deps))
-					}
 					if (path === "/api/setup/validate-alchemy-key") {
 						return sendJson(res, 200, await validateAlchemyKey(body, this.deps))
 					}
@@ -1736,7 +1728,7 @@ export class UiServer {
 				stateMachineId: formatChainKey(chainId),
 				label: chainLabel(chainId),
 				rpcUrls: chain.rpcUrls,
-				bundlerUrl: chain.bundlerUrl,
+				bundlerUrl: hyperbridgeBundlerUrl(chainId) ?? "",
 				watchOnly: globalWatchOnly
 					? (watchOnly as boolean)
 					: Boolean((watchOnly as Record<string, boolean> | undefined)?.[String(chainId)]),
@@ -1778,7 +1770,7 @@ export class UiServer {
 			})
 		}
 
-		const rows: Array<{ chainId: number; rpcUrls: string[]; bundlerUrl: string; watchOnly: boolean }> = []
+		const rows: Array<{ chainId: number; rpcUrls: string[]; watchOnly: boolean }> = []
 		try {
 			for (const row of body.chains) {
 				const chainId = Number(row.chainId)
@@ -1793,11 +1785,12 @@ export class UiServer {
 					.filter(Boolean)
 				// Same non-empty/distinct-host rule boot applies to every chain.
 				validateRpcUrls(rpcUrls)
-				const bundlerUrl = String(row.bundlerUrl ?? "").trim()
-				if (!bundlerUrl) {
-					throw new Error(`${chainLabel(chainId)} needs a bundler URL to submit fill UserOperations`)
+				const watchOnly = row.watchOnly === true
+				// Every fill is a UserOperation submitted through Hyperbridge's bundler.
+				if (!watchOnly && op.config.simplex.watchOnly !== true && !hyperbridgeBundlerUrl(chainId)) {
+					throw new Error(`Hyperbridge runs no bundler for ${chainLabel(chainId)}, so it can only be watched`)
 				}
-				rows.push({ chainId, rpcUrls, bundlerUrl, watchOnly: row.watchOnly === true })
+				rows.push({ chainId, rpcUrls, watchOnly })
 			}
 		} catch (err) {
 			return sendJson(res, 400, { error: err instanceof Error ? err.message : String(err) })
@@ -1839,7 +1832,7 @@ export class UiServer {
 			return sendJson(res, 400, { error: err instanceof Error ? err.message : String(err) })
 		}
 
-		op.config.chains = rows.map(({ rpcUrls, bundlerUrl }) => ({ rpcUrls, bundlerUrl }))
+		op.config.chains = rows.map(({ rpcUrls }) => ({ rpcUrls }))
 		if (Object.keys(confirmationPolicies).length > 0) op.config.confirmationPolicies = confirmationPolicies
 		// A global boolean watchOnly is left as-is: expanding it per chain would
 		// stop validateConfig treating the config as all-watch-only, which is

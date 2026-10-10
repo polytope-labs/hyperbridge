@@ -12,7 +12,7 @@ let model: Model
 let root: Root
 let container: HTMLDivElement
 let dto: ChainsDto
-let savedChains: { chains: Array<Pick<ChainRowDto, "chainId" | "rpcUrls" | "bundlerUrl" | "watchOnly">> } | undefined
+let savedChains: { chains: Array<Pick<ChainRowDto, "chainId" | "rpcUrls" | "watchOnly">> } | undefined
 const requests = vi.fn()
 
 function Harness() {
@@ -48,7 +48,7 @@ beforeEach(() => {
 				stateMachineId: "EVM-8453",
 				label: "Base",
 				rpcUrls: ["https://saved.example", "https://backup.example"],
-				bundlerUrl: "https://saved-bundler.example",
+				bundlerUrl: "https://bundler.polytope.technology/base",
 				watchOnly: true,
 				running: true,
 			},
@@ -70,6 +70,8 @@ beforeEach(() => {
 						const meta = dto.catalog.find((chain) => chain.chainId === row.chainId)
 						return {
 							...row,
+							// The server reports the chain's Hyperbridge bundler; the panel never sends one.
+							bundlerUrl: meta?.hyperbridgeBundlerUrl ?? "",
 							stateMachineId: meta?.stateMachineId ?? previous?.stateMachineId ?? `EVM-${row.chainId}`,
 							label: meta?.label ?? previous?.label ?? String(row.chainId),
 							running: previous?.running ?? false,
@@ -125,7 +127,6 @@ describe("operator chain settings", () => {
 				{
 					chainId: 1,
 					rpcUrls: ["https://edited.example", ...(dto.catalog[0].defaultRpcUrls?.slice(1) ?? [])],
-					bundlerUrl: HYPERBRIDGE_BUNDLER[1],
 					watchOnly: false,
 				},
 			]),
@@ -155,15 +156,12 @@ describe("operator chain settings", () => {
 		expect(chain(1)).toMatchObject({ enabled: true, rpcUrls: dto.catalog[0].defaultRpcUrls })
 	})
 
-	it("uses the Hyperbridge bundler for every catalog chain, whatever the config held", async () => {
+	it("shows the Hyperbridge bundler for every catalog chain", async () => {
 		await mount()
 		for (const meta of dto.catalog) {
 			expect(meta.hyperbridgeBundlerUrl, meta.label).toMatch(/^https:\/\/bundler\.polytope\.technology\//)
 			expect(chain(meta.chainId).bundlerUrl).toBe(meta.hyperbridgeBundlerUrl)
 		}
-		// Base was saved with another bundler.
-		expect(dto.chains[0].bundlerUrl).toBe("https://saved-bundler.example")
-		expect(chain(8453).bundlerUrl).toBe(HYPERBRIDGE_BUNDLER[8453])
 	})
 
 	it("keeps one empty RPC field when bundled defaults are missing or empty", async () => {
@@ -176,21 +174,27 @@ describe("operator chain settings", () => {
 		for (const draft of model.chains) expect(draft.rpcUrls).toEqual([""])
 	})
 
-	it("preserves configured chains outside the catalog, with the bundler the config names", async () => {
-		const custom = { ...dto.chains[0], chainId: 12345, stateMachineId: "EVM-12345", label: "Custom" }
+	it("preserves configured chains outside the catalog, with no bundler", async () => {
+		const custom = {
+			...dto.chains[0],
+			chainId: 12345,
+			stateMachineId: "EVM-12345",
+			label: "Custom",
+			bundlerUrl: "",
+		}
 		dto.chains.push(custom)
 		await mount()
-		expect(chain(12345)).toMatchObject({ enabled: true, rpcUrls: custom.rpcUrls, bundlerUrl: custom.bundlerUrl })
+		expect(chain(12345)).toMatchObject({ enabled: true, rpcUrls: custom.rpcUrls, bundlerUrl: "" })
 	})
 
-	it("will not enable a chain that has neither a Hyperbridge bundler nor one in the config", async () => {
+	it("will not enable a chain Hyperbridge runs no bundler for", async () => {
 		dto.catalog = [{ ...dto.catalog[0], hyperbridgeBundlerUrl: undefined }]
 		dto.chains = []
 		await act(async () => root.render(createElement(Chains)))
 		const toggle = container.querySelector<HTMLInputElement>('.chain-enable-toggle input[type="checkbox"]')
 		if (!toggle) throw new Error("Missing enable switch")
 		expect(toggle.disabled).toBe(true)
-		expect(container.querySelector(".chain-configuration")?.textContent).toContain("Add in the config file")
+		expect(container.querySelector(".chain-configuration")?.textContent).toContain("Watch only")
 	})
 
 	it("verifies the RPC endpoints alone", async () => {
@@ -210,7 +214,7 @@ describe("operator chain settings", () => {
 		})
 	})
 
-	it("saves a new chain and a configured one on the Hyperbridge bundler, then reseeds from the saved config", async () => {
+	it("saves a new chain and a configured one without a bundler, then reseeds from the saved config", async () => {
 		await mount()
 		const rpcUrls = [...(dto.catalog[0].defaultRpcUrls ?? [])]
 		const savedBaseRpcUrls = [...chain(8453).rpcUrls]
@@ -218,8 +222,8 @@ describe("operator chain settings", () => {
 		await act(async () => model.save())
 		expect(savedChains).toEqual({
 			chains: [
-				{ chainId: 1, rpcUrls, bundlerUrl: HYPERBRIDGE_BUNDLER[1], watchOnly: false },
-				{ chainId: 8453, rpcUrls: savedBaseRpcUrls, bundlerUrl: HYPERBRIDGE_BUNDLER[8453], watchOnly: true },
+				{ chainId: 1, rpcUrls, watchOnly: false },
+				{ chainId: 8453, rpcUrls: savedBaseRpcUrls, watchOnly: true },
 			],
 		})
 		expect(model.saved).toBe(true)

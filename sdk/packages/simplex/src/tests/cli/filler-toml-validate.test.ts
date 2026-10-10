@@ -24,7 +24,7 @@ const minimalConfig = (): FillerTomlConfig => ({
 			token1: "USDC",
 		},
 	],
-	chains: [{ rpcUrls: ["https://eth-mainnet.g.alchemy.com/v2/key"], bundlerUrl: "https://bundler.example" }],
+	chains: [{ rpcUrls: ["https://eth-mainnet.g.alchemy.com/v2/key"] }],
 })
 
 describe("validateConfig", () => {
@@ -39,7 +39,6 @@ describe("validateConfig", () => {
 		config.simplex.hyperbridgeWsUrl = "wss://example"
 		for (const chain of config.chains) {
 			chain.rpcUrls = ["https://rpc.example"]
-			chain.bundlerUrl = "https://bundler.example"
 		}
 		expect(() => validateConfig(config)).not.toThrow()
 	})
@@ -78,14 +77,19 @@ describe("validateConfig", () => {
 		expect(() => validateConfig(config)).not.toThrow()
 	})
 
-	it("rejects chains without rpcUrls or bundlerUrl", () => {
+	it("rejects chains without rpcUrls and needs no bundlerUrl", () => {
 		const noRpc = minimalConfig()
-		noRpc.chains = [{ rpcUrls: [""], bundlerUrl: "https://bundler.example" }]
+		noRpc.chains = [{ rpcUrls: [""] }]
 		expect(() => validateConfig(noRpc)).toThrow(/rpcUrls/)
 
 		const noBundler = minimalConfig()
-		noBundler.chains = [{ rpcUrls: ["https://rpc.example"], bundlerUrl: "" }]
-		expect(() => validateConfig(noBundler)).toThrow(/bundlerUrl/)
+		noBundler.chains = [{ rpcUrls: ["https://rpc.example"] }]
+		expect(() => validateConfig(noBundler)).not.toThrow()
+
+		// An older config still naming one loads; the value is not used.
+		const legacy = minimalConfig()
+		legacy.chains = [{ rpcUrls: ["https://rpc.example"], bundlerUrl: "https://bundler.example" }]
+		expect(() => validateConfig(legacy)).not.toThrow()
 	})
 
 	// Pair rules (same-token invariants, crossed books, anchoring, curve

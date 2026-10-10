@@ -228,11 +228,7 @@ export function assembleConfig(state: WizardState, defaults: SetupDefaults): Fil
 		},
 		pairs,
 		orderbook: { url: state.orderbook?.url ?? DEFAULT_ORDERBOOK_URLS.mainnet },
-		chains: chains.map((c) => ({
-			rpcUrls: c.rpcUrls.map((u) => u.trim()).filter(Boolean),
-			// Never asked for: every chain the wizard offers fills through Hyperbridge's bundler.
-			bundlerUrl: c.meta.hyperbridgeBundlerUrl ?? "",
-		})),
+		chains: chains.map((c) => ({ rpcUrls: c.rpcUrls.map((u) => u.trim()).filter(Boolean) })),
 		...(vaults ? { vault: { vaults } } : {}),
 		...(allowlistUsers.length > 0 ? { allowlist: { users: allowlistUsers } } : {}),
 	}

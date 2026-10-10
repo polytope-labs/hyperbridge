@@ -7,7 +7,6 @@ import { assertPairSymbolsResolve } from "@/config/pairs"
 import { formatChainKey } from "@/config/interpolated-curve"
 import { AssetRegistry, registrySymbols, USD_STABLE_SYMBOLS } from "@/config/asset-registry"
 import { fetchChainId, validateRpcUrls } from "@/services/FillerConfigService"
-import { describeEntryPoints, servesEntryPoint } from "@/services/bundler-preflight"
 import { normaliseSecretPhrase, secretPhraseSigner, SignerType, validateSignerConfig } from "@/services/wallet"
 import { deriveSubstrateKeyPair, generateSubstrateKey } from "@/services/substrate-key"
 import { ERC20_ABI } from "@/config/abis/ERC20"
@@ -139,8 +138,6 @@ export async function handleSetupRequest(
 				return sendJson(res, 200, await validateAlchemyKey(body, deps))
 			case "validate-rpc":
 				return sendJson(res, 200, await validateRpc(body, deps))
-			case "validate-bundler":
-				return sendJson(res, 200, await validateBundler(body, deps))
 			case "validate-token":
 				return sendJson(res, 200, await validateToken(body))
 			case "derive-evm-address":
@@ -176,8 +173,6 @@ export async function validateAlchemyKey(body: Record<string, unknown>, deps: Re
 			label: meta.label,
 			note: meta.note,
 			rpcUrl,
-			// Alchemy serves ERC-4337 bundler methods on the same endpoint.
-			bundlerUrl: rpcUrl,
 		}
 	})
 
@@ -217,50 +212,6 @@ export async function validateRpc(body: Record<string, unknown>, deps: Required<
 		}),
 	)
 	return { ok: results.every((r) => !r.error), results }
-}
-
-/** Warning-only: bundler probes never block the wizard. */
-export async function validateBundler(body: Record<string, unknown>, deps: Required<SetupDeps>) {
-	const url = String(body.url ?? "").trim()
-	if (!url) return { ok: false, warning: "Bundler URL is empty" }
-	try {
-		const entryPoints = await withTimeout(
-			deps.rpcRequest(url, "eth_supportedEntryPoints", []),
-			PROBE_TIMEOUT_MS,
-			"Bundler probe",
-		)
-		const chainId = Number(body.chainId)
-		const required = Number.isInteger(chainId)
-			? new ChainConfigService({}).getEntryPointAddress(formatChainKey(chainId))
-			: undefined
-		if (!required) return { ok: true, entryPoints }
-		// Mirrors the boot preflight: only a list of addresses settles which EntryPoints a bundler serves.
-		if (!Array.isArray(entryPoints) || !entryPoints.every((address) => typeof address === "string")) {
-			return {
-				ok: true,
-				entryPoints,
-				warning:
-					`Bundler's eth_supportedEntryPoints answer is not a list of addresses, so it could not be ` +
-					`confirmed to support EntryPoint ${required}, which this chain's solver account uses. ` +
-					`Simplex will use it and warn.`,
-			}
-		}
-		if (!servesEntryPoint(entryPoints, required)) {
-			return {
-				ok: true,
-				entryPoints,
-				warning:
-					`Bundler does not support EntryPoint ${required}, which this chain's solver account uses; ` +
-					`it lists ${describeEntryPoints(entryPoints)}. Simplex will refuse to use it.`,
-			}
-		}
-		return { ok: true, entryPoints }
-	} catch (err) {
-		return {
-			ok: true,
-			warning: `Bundler did not answer eth_supportedEntryPoints: ${err instanceof Error ? err.message : err}`,
-		}
-	}
 }
 
 export async function validateToken(body: Record<string, unknown>) {
@@ -424,7 +375,6 @@ export function maskToml(config: FillerConfigFile, chainLabels?: string[]): stri
 	}
 	for (const chain of masked.chains) {
 		chain.rpcUrls = chain.rpcUrls.map(maskUrlKey)
-		chain.bundlerUrl = maskUrlKey(chain.bundlerUrl)
 	}
 	return emitFillerToml(masked, { chainComments: chainLabels })
 }

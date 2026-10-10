@@ -1,57 +1,48 @@
-import { describe, expect, it, vi } from "vitest"
+import { chainConfigs } from "@hyperbridge/sdk"
+import { describe, expect, it } from "vitest"
 import { chainsForNetwork, INIT_CHAINS } from "@/cli/init/chains"
-import type { WizardState } from "@/cli/init/state"
-import { stepBundlers } from "@/cli/init/steps/bundlers"
-
-vi.mock("@clack/prompts", () => {
-	const asked = () => {
-		throw new Error("the wizard asked a question")
-	}
-	return {
-		confirm: asked,
-		text: asked,
-		password: asked,
-		select: asked,
-		note: asked,
-		log: { info: asked, message: asked },
-	}
-})
+import { HYPERBRIDGE_BUNDLER_URLS, hyperbridgeBundlerUrl } from "@/config/bundlers"
 
 /**
- * The bundler the wizards and the Chains panel use for a chain, never asking the operator for
- * one. Every chain they offer on mainnet has to carry it, or the config they write names no
- * bundler for that chain and does not validate.
+ * Simplex fills through Hyperbridge's bundler for each chain and takes none from its config, so
+ * the wizards and the Chains panel only offer chains that have one.
  */
 describe("Hyperbridge bundlers", () => {
-	const mainnet = chainsForNetwork("mainnet")
-
-	it("covers every mainnet chain the wizards offer", () => {
-		expect(Object.fromEntries(mainnet.map((meta) => [meta.chainId, meta.hyperbridgeBundlerUrl]))).toEqual({
+	it("are the bundlers Hyperbridge runs", () => {
+		expect(HYPERBRIDGE_BUNDLER_URLS).toEqual({
 			1: "https://bundler.polytope.technology/ethereum",
 			56: "https://bundler.polytope.technology/bsc",
+			97: "https://bundler.polytope.technology/bsc-chapel",
 			137: "https://bundler.polytope.technology/polygon",
 			8453: "https://bundler.polytope.technology/base",
 			42161: "https://bundler.polytope.technology/arbitrum",
+			80002: "https://bundler.polytope.technology/polygon-amoy",
 		})
+		expect(hyperbridgeBundlerUrl(11155111)).toBeUndefined()
 	})
 
-	it("names none for testnets, which take their bundler from the config", () => {
-		for (const meta of INIT_CHAINS.filter((chain) => chain.network === "testnet")) {
-			expect(meta.hyperbridgeBundlerUrl, meta.label).toBeUndefined()
+	it("are the ones the SDK defaults to", () => {
+		const sdk = Object.fromEntries(
+			Object.values(chainConfigs)
+				.filter((config) => config.bundlerUrl)
+				.map((config) => [config.chainId, config.bundlerUrl]),
+		)
+		expect(sdk).toEqual(HYPERBRIDGE_BUNDLER_URLS)
+	})
+
+	it("cover every chain the wizards offer, on both networks", () => {
+		for (const network of ["mainnet", "testnet"] as const) {
+			for (const meta of chainsForNetwork(network)) {
+				expect(meta.hyperbridgeBundlerUrl, meta.label).toBe(HYPERBRIDGE_BUNDLER_URLS[meta.chainId])
+			}
 		}
+		expect(chainsForNetwork("testnet").map((meta) => meta.chainId)).toEqual([80002, 97])
 	})
 
-	it("is what the terminal wizard writes, without a question and over an earlier choice", async () => {
-		const state = {
-			chains: mainnet.map((meta, index) => ({
-				meta,
-				rpcUrls: ["https://rpc.example"],
-				bundlerUrl: index === 0 ? "https://another-bundler.example" : undefined,
-			})),
-		} as unknown as WizardState
-
-		await stepBundlers(state)
-
-		expect(state.chains.map((chain) => chain.bundlerUrl)).toEqual(mainnet.map((meta) => meta.hyperbridgeBundlerUrl))
+	it("leave chains without one out of the wizards", () => {
+		const offered = new Set([...chainsForNetwork("mainnet"), ...chainsForNetwork("testnet")].map((m) => m.chainId))
+		for (const meta of INIT_CHAINS.filter((chain) => !chain.hyperbridgeBundlerUrl)) {
+			expect(offered.has(meta.chainId), meta.label).toBe(false)
+		}
 	})
 })

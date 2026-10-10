@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest"
 import { erc20Abi } from "viem"
 import type { HexString } from "@hyperbridge/sdk"
 
+import { hyperbridgeBundlerUrl } from "@/config/bundlers"
 import { DelegationService } from "@/services/DelegationService"
 import { ChainClientManager } from "@/services/ChainClientManager"
 import { FillerConfigService, type ResolvedChainConfig } from "@/services/FillerConfigService"
@@ -15,8 +16,7 @@ import { privateKeySigner } from "@/services/wallet/accounts/privatekey"
  *   - The bundler reconstructs the EIP-7702 authorization hash and recovers the signer; if
  *     our local hash computation drifts from canonical RLP (e.g. encoding integer 0 as
  *     `0x00` instead of empty bytes), the recovered address won't match the UserOp sender
- *     and the bundler rejects the op. The Alchemy and Pimlico variants exercise the two
- *     gas-pricing branches in the service.
+ *     and the bundler rejects the op.
  *
  * Required env (suite skips when missing):
  *   BASE_MAINNET                 — Base mainnet RPC URL
@@ -24,14 +24,9 @@ import { privateKeySigner } from "@/services/wallet/accounts/privatekey"
  *                                  first run also expects EOA nonce = 0 (the path most
  *                                  vulnerable to non-canonical RLP edges); subsequent
  *                                  runs short-circuit via `isDelegated`.
- *   BASE_PIMLICO_BUNDLER_URL     — Pimlico v2 bundler URL for Base
- *                                  (https://api.pimlico.io/v2/8453/rpc?apikey=...)
  *
- * Notes:
- *   - The Alchemy variant reuses `BASE_MAINNET` because Alchemy serves bundler RPC at the
- *     same endpoint as the chain RPC. Override with a dedicated URL if needed.
- *   - Each variant `skipIf`s independently on its bundler URL.
- *   - A successful run spends a small amount of USDC via the Simplex paymaster.
+ * The op goes through Hyperbridge's bundler for Base. A successful run spends a small
+ * amount of USDC via the Simplex paymaster.
  */
 
 const BASE_MAINNET = "EVM-8453"
@@ -39,9 +34,6 @@ const BASE_CHAIN_ID = 8453
 
 const RPC_URL = process.env.BASE_MAINNET
 const PRIVATE_KEY = process.env.PRIVATE_KEY as HexString | undefined
-const PIMLICO_BUNDLER_URL = process.env.BASE_PIMLICO_BUNDLER_URL
-// Alchemy's bundler shares its RPC endpoint; reuse BASE_MAINNET unless a separate URL is needed.
-const ALCHEMY_BUNDLER_URL = RPC_URL
 
 interface SendBundlerRpc {
 	sendBundlerRpc: <T>(bundlerUrl: string, method: string, params: unknown[]) => Promise<T>
@@ -110,25 +102,10 @@ async function logPreconditions(label: string, ctx: ReturnType<typeof build>) {
 const skipSuite = !(RPC_URL && PRIVATE_KEY)
 
 describe.skipIf(skipSuite)("DelegationService — Base mainnet EIP-7702 bundler (live integration)", () => {
-	it.skipIf(!PIMLICO_BUNDLER_URL)(
-		"delegates via Pimlico bundler with the Simplex paymaster",
-		async () => {
-			const ctx = build(PIMLICO_BUNDLER_URL!)
-			await logPreconditions("pimlico", ctx)
-			const success = await ctx.runBundlerDelegation()
-			expect(success).toBe(true)
-		},
-		120_000,
-	)
-
-	it.skipIf(!ALCHEMY_BUNDLER_URL)(
-		"delegates via Alchemy bundler with the Simplex paymaster",
-		async () => {
-			const ctx = build(ALCHEMY_BUNDLER_URL!)
-			await logPreconditions("alchemy", ctx)
-			const success = await ctx.runBundlerDelegation()
-			expect(success).toBe(true)
-		},
-		120_000,
-	)
+	it("delegates via Hyperbridge's bundler with the Simplex paymaster", async () => {
+		const ctx = build(hyperbridgeBundlerUrl(BASE_CHAIN_ID)!)
+		await logPreconditions("hyperbridge", ctx)
+		const success = await ctx.runBundlerDelegation()
+		expect(success).toBe(true)
+	}, 120_000)
 })

@@ -43,10 +43,8 @@ static async create(
 import { EvmChain, IntentsCoprocessor, IntentGateway } from "@hyperbridge/sdk"
 
 const source = await EvmChain.create("https://eth-mainnet.g.alchemy.com/v2/YOUR_KEY")
-const dest = await EvmChain.create(
-  "https://arb-mainnet.g.alchemy.com/v2/YOUR_KEY",
-  "https://bundler.example.com",
-)
+// Fills go through Hyperbridge's bundler for Arbitrum unless a second argument names another.
+const dest = await EvmChain.create("https://arb-mainnet.g.alchemy.com/v2/YOUR_KEY")
 const coprocessor = await IntentsCoprocessor.connect("wss://coprocessor.hyperbridge.network")
 
 const gateway = await IntentGateway.create(source, dest, coprocessor)
@@ -664,7 +662,9 @@ async estimateFillOrder(params: EstimateFillOrderParams): Promise<FillOrderEstim
 
 **Returns:** `Promise<FillOrderEstimate>` — All gas components, EIP-1559 fee values, total cost in wei, and total cost in fee token
 
-The estimate runs against the destination chain's configured EntryPoint. Fees are refined with `pimlico_getUserOperationGasPrice` for Pimlico bundlers and `rundler_maxPriorityFeePerGas` for Alchemy. Any other bundler is asked for `rundler_maxPriorityFeePerGas` too, and when it answers, the priority fee and max fee are raised to at least what it requires.
+The estimate runs against the destination chain's configured EntryPoint. Fees are priced for a rundler bundler, such as the ones Hyperbridge runs. They are the fees the bundler suggests through `rundler_getUserOperationGasPrice`, each raised by its bump. Rundler only bundles an op whose max fee covers its bundle base fee, which runs above the chain's current base fee, so these clear it.
+
+A bundler that does not serve that method is asked for `rundler_maxPriorityFeePerGas` instead. The chain's gas price, raised by the bumps, is then lifted to at least the priority fee it requires.
 
 ---
 

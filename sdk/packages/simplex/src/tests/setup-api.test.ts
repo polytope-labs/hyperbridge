@@ -7,7 +7,6 @@ import { UiServer, type SetupContext } from "@/services/server/UiServer"
 import { validateConfig, type FillerConfigFile } from "@/config/filler-toml"
 import { SignerType, signerFromToml } from "@/services/wallet"
 import { SECRET_PHRASE_MASK } from "@/services/server/setup-api"
-import { FillerConfigService } from "@/services/FillerConfigService"
 import { deriveSubstrateKeyPair } from "@/services/substrate-key"
 import { startMockRpc, type MockRpc } from "./helpers/mock-rpc"
 import { encryptedConfigStore, isEncryptedConfig } from "@/config/storage"
@@ -72,6 +71,7 @@ describe("setup API", () => {
 					token1: "USDC",
 				},
 			],
+			// A bundler an older config named, with a provider key in it: never written back or shown.
 			chains: [{ rpcUrls: [rpcUrl], bundlerUrl: "https://api.pimlico.io/v2/1/rpc?apikey=secretpimlicokey" }],
 			orderbook: { url: "https://orderbook.example/graphql" },
 		}
@@ -116,56 +116,6 @@ describe("setup API", () => {
 		const res = await (await post(base, "validate-rpc", { urls: [rpc.url, rpc.url], expectedChainId: 1 })).json()
 		expect(res.ok).toBe(false)
 		expect(res.error).toContain("different domains")
-	})
-
-	it("probes bundlers as a warning-only check", async () => {
-		rpc = await startMockRpc({})
-		const { base } = await startInitServer()
-
-		const ok = await (await post(base, "validate-bundler", { url: rpc.url })).json()
-		expect(ok.ok).toBe(true)
-		expect(ok.entryPoints).toHaveLength(1)
-
-		const dead = await (await post(base, "validate-bundler", { url: "http://127.0.0.1:1/rpc" })).json()
-		expect(dead.ok).toBe(true)
-		expect(dead.warning).toBeDefined()
-	})
-
-	it("warns when the bundler does not list the chain's EntryPoint", async () => {
-		rpc = await startMockRpc({})
-		const { base } = await startInitServer()
-		const required = new FillerConfigService([]).getEntryPointAddress("EVM-8453")!
-
-		const res = await (await post(base, "validate-bundler", { url: rpc.url, chainId: 8453 })).json()
-		expect(res.ok).toBe(true)
-		expect(res.warning).toContain(required)
-		expect(res.warning).toContain("0x0000000071727De22E5E9d8BAf0edAc6f37da032")
-	})
-
-	it("accepts a bundler listing the chain's EntryPoint in any case, and skips chains without one", async () => {
-		const required = new FillerConfigService([]).getEntryPointAddress("EVM-8453")!
-		const rpcRequest = vi.fn(async () => [required.toLowerCase()])
-		const { base } = await startInitServer({ deps: { rpcRequest } })
-
-		const url = "https://bundler.example"
-		const listed = await (await post(base, "validate-bundler", { url, chainId: 8453 })).json()
-		expect(listed).toEqual({ ok: true, entryPoints: [required.toLowerCase()] })
-		expect(rpcRequest).toHaveBeenCalledWith(url, "eth_supportedEntryPoints", [])
-
-		const unknown = await (await post(base, "validate-bundler", { url, chainId: 31337 })).json()
-		expect(unknown.warning).toBeUndefined()
-	})
-
-	it("warns without promising a refusal when the bundler's answer is not a list of addresses", async () => {
-		const required = new FillerConfigService([]).getEntryPointAddress("EVM-8453")!
-		const rpcRequest = vi.fn(async () => ({ entryPoints: [required] }))
-		const { base } = await startInitServer({ deps: { rpcRequest } })
-
-		const res = await (await post(base, "validate-bundler", { url: "https://bundler.example", chainId: 8453 })).json()
-		expect(res.ok).toBe(true)
-		expect(res.warning).toContain("not a list of addresses")
-		expect(res.warning).toContain(required)
-		expect(res.warning).not.toContain("refuse")
 	})
 
 	it("validates ERC-20 tokens on-chain", async () => {
@@ -403,7 +353,8 @@ describe("setup API", () => {
 		const written = parse(readFileSync(configPath, "utf-8")) as FillerConfigFile
 		expect(() => validateConfig(written)).not.toThrow()
 		expect(written.simplex.signer?.type).toBe("privateKey")
-		expect(JSON.parse(JSON.stringify(written))).toEqual(JSON.parse(JSON.stringify(config)))
+		const expected = { ...config, chains: config.chains.map(({ rpcUrls }) => ({ rpcUrls })) }
+		expect(JSON.parse(JSON.stringify(written))).toEqual(JSON.parse(JSON.stringify(expected)))
 
 		await vi.waitFor(() => expect(onSaveAndStart).toHaveBeenCalledTimes(1))
 		const [bootedConfig, toml, path] = onSaveAndStart.mock.calls[0]

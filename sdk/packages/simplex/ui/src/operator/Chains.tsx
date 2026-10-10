@@ -41,7 +41,7 @@ export function Chains() {
 								{chain.enabled && !chain.running ? (
 									<span className="chain-source">Applies after restart</span>
 								) : null}
-								{chain.bundlerUrl ? null : <span className="chain-source">Add in the config file</span>}
+								{chain.bundlerUrl ? null : <span className="chain-source">Watch only</span>}
 							</div>
 						</div>
 						<div className="chain-header-controls">
@@ -50,7 +50,7 @@ export function Chains() {
 								title={
 									chain.bundlerUrl
 										? undefined
-										: "Hyperbridge runs no bundler for this chain. Add the chain to the config file with its bundlerUrl."
+										: "Hyperbridge runs no bundler for this chain, so it can only be watched."
 								}
 							>
 								<input

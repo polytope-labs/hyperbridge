@@ -185,13 +185,13 @@ export interface ChainView {
 	chainId: number
 	stateMachineId: string
 	rpcUrls: string[]
+	/** Hyperbridge's bundler the chain fills through, empty where it runs none. */
 	bundlerUrl: string
 	watchOnly: boolean
 }
 
 export interface ChainInput {
 	rpcUrls: string[]
-	bundlerUrl: string
 	watchOnly?: boolean
 	/**
 	 * Required for chains with no built-in confirmation curve (testnets and
@@ -525,11 +525,8 @@ export class ChainController {
 	async add(chain: ChainInput): Promise<ChainView> {
 		return this.serialise(async () => {
 			validateRpcUrls(chain.rpcUrls)
-			if (!chain.bundlerUrl?.trim()) {
-				throw new Error("A bundler URL is required to submit fill UserOperations")
-			}
 
-			const [resolved] = await resolveChainConfigs([{ rpcUrls: chain.rpcUrls, bundlerUrl: chain.bundlerUrl }])
+			const [resolved] = await resolveChainConfigs([{ rpcUrls: chain.rpcUrls }])
 			const { chainId } = resolved
 			const { configService, config, intentFiller } = this.runtime
 
@@ -580,7 +577,7 @@ export class ChainController {
 
 			try {
 				if (!inScanner) {
-					await this.scanner.addChain({ rpcUrls: chain.rpcUrls, bundlerUrl: chain.bundlerUrl, chainId })
+					await this.scanner.addChain({ rpcUrls: chain.rpcUrls, chainId })
 				}
 				// Drop anything cached from a previous life of this chain id, or the
 				// clients keep pointing at whatever endpoints it had before.
@@ -608,7 +605,7 @@ export class ChainController {
 			}
 
 			this.runtime.resolvedChains.push(resolved)
-			config.chains = [...config.chains, { rpcUrls: chain.rpcUrls, bundlerUrl: chain.bundlerUrl }]
+			config.chains = [...config.chains, { rpcUrls: chain.rpcUrls }]
 			if (Object.keys(confirmationPolicies).length > 0) config.confirmationPolicies = confirmationPolicies
 			this.syncWatchOnlyToConfig()
 
@@ -663,9 +660,7 @@ export class ChainController {
 
 			// Probe before mutating: an endpoint answering for another chain would
 			// otherwise silently feed this scanner the wrong chain's logs.
-			const [probed] = await resolveChainConfigs([
-				{ rpcUrls, bundlerUrl: this.runtime.resolvedChains[index].bundlerUrl ?? "" },
-			])
+			const [probed] = await resolveChainConfigs([{ rpcUrls }])
 			if (probed.chainId !== chainId) {
 				throw new Error(`Those endpoints answer for chain ${probed.chainId}, not ${chainId}`)
 			}
@@ -688,22 +683,6 @@ export class ChainController {
 
 			this.runtime.resolvedChains[index].rpcUrls = rpcUrls
 			this.runtime.config.chains[index].rpcUrls = rpcUrls
-			await this.persist()
-		})
-	}
-
-	async setBundlerUrl(chainId: number, bundlerUrl: string): Promise<void> {
-		return this.serialise(async () => {
-			if (!bundlerUrl?.trim()) throw new Error("A bundler URL is required")
-			const index = this.runtime.resolvedChains.findIndex((chain) => chain.chainId === chainId)
-			if (index < 0) throw new Error(`Chain ${chainId} is not configured`)
-			await assertBundlersServeEntryPoint([{ chainId, bundlerUrl }], this.runtime.configService, {
-				watchOnly: this.runtime.intentFiller.getWatchOnly(),
-			})
-
-			this.runtime.configService.setBundlerUrl(chainId, bundlerUrl)
-			this.runtime.resolvedChains[index].bundlerUrl = bundlerUrl
-			this.runtime.config.chains[index].bundlerUrl = bundlerUrl
 			await this.persist()
 		})
 	}

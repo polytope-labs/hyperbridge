@@ -139,31 +139,27 @@ Create an API keypair in the Turnkey Dashboard under user details. The <code>sig
 
 ## Bundler
 
-Fills execute as ERC-4337 UserOperations, which a bundler submits on chain, so every `[[chains]]` entry needs a `bundlerUrl`. Hyperbridge runs a bundler for each of these chains. They need no API key and serve EntryPoint v0.8 and v0.9:
+Fills execute as ERC-4337 UserOperations, which a bundler submits on chain. Simplex sends them through the bundler Hyperbridge runs for each chain, so there is nothing to configure. These bundlers need no API key and serve EntryPoint v0.8 and v0.9:
 
-| Chain | `bundlerUrl` |
+| Chain | Bundler |
 |---|---|
 | Ethereum | `https://bundler.polytope.technology/ethereum` |
 | Base | `https://bundler.polytope.technology/base` |
 | Arbitrum | `https://bundler.polytope.technology/arbitrum` |
 | Polygon | `https://bundler.polytope.technology/polygon` |
 | BNB Chain | `https://bundler.polytope.technology/bsc` |
+| BSC Chapel (testnet) | `https://bundler.polytope.technology/bsc-chapel` |
+| Polygon Amoy (testnet) | `https://bundler.polytope.technology/polygon-amoy` |
 
-```toml lineNumbers
-[[chains]]  # Base
-rpcUrls    = ["https://..."]
-bundlerUrl = "https://bundler.polytope.technology/base"
-```
-
-The setup wizards and the dashboard always use these bundlers and have no bundler field. `bundlerUrl` is edited only in `filler-config.toml`. A chain outside this list needs a bundler that serves the EntryPoint its solver account uses, set there; Simplex [refuses one that does not](/developers/evm/simplex/troubleshooting).
+Simplex can only watch any other chain. It [refuses to fill there](/developers/evm/simplex/troubleshooting), so list such a chain under `watchOnly`. An older config's `bundlerUrl` is ignored.
 
 ## Delegation & Gas Payment
 
-Simplex always uses the solver selection path: it submits a signed bid to Hyperbridge via `IntentsCoprocessor` rather than calling `fillOrder` directly. This requires `substratePrivateKey` and `hyperbridgeWsUrl` in `[simplex]`, plus a `bundlerUrl` on each `[[chains]]` entry.
+Simplex always uses the solver selection path: it submits a signed bid to Hyperbridge via `IntentsCoprocessor` rather than calling `fillOrder` directly. This requires `substratePrivateKey` and `hyperbridgeWsUrl` in `[simplex]`.
 
 Solver selection requires each solver's EOA to be delegated to the `SolverAccount` contract. Simplex performs this automatically at startup via EIP-7702:
 
-- **Primary path** — builds a no-op UserOperation with an attached EIP-7702 authorization and submits it through the configured bundler. When a paymaster is deployed on the chain — Circle Paymaster (USDC) preferred, then the `SimplexPaymaster` (USDC or USDT), live on Ethereum, Arbitrum, Base, Polygon and BSC — see [Mainnet Contract Addresses](/developers/evm/contract-addresses/mainnet) — and the solver holds at least one whole token of a supported stablecoin, the paymaster pays gas in that stablecoin so the solver never needs native gas for delegation. Tokens with EIP-2612 are authorized by permit; tokens without it (such as BSC stables) need a one-time funded `approve(Permit2, max)` from the solver EOA, after which every operation carries a per-op Permit2 signature and no native gas is needed again.
+- **Primary path** — builds a no-op UserOperation with an attached EIP-7702 authorization and submits it through Hyperbridge's bundler for the chain. When a paymaster is deployed on the chain — Circle Paymaster (USDC) preferred, then the `SimplexPaymaster` (USDC or USDT), live on Ethereum, Arbitrum, Base, Polygon and BSC — see [Mainnet Contract Addresses](/developers/evm/contract-addresses/mainnet) — and the solver holds at least one whole token of a supported stablecoin, the paymaster pays gas in that stablecoin so the solver never needs native gas for delegation. Tokens with EIP-2612 are authorized by permit; tokens without it (such as BSC stables) need a one-time funded `approve(Permit2, max)` from the solver EOA, after which every operation carries a per-op Permit2 signature and no native gas is needed again.
 - **Fallback** — if the bundler path fails or the chain has no paymaster, Simplex sends a direct type-0x04 delegation tx using the solver's native balance. On paymaster-less chains it also keeps the ERC-4337 EntryPoint deposit topped up to cover `targetGasUnits` (default 3,000,000) at the current gas price.
 
 No manual steps are required — delegation is idempotent and skipped if the EOA is already delegated to the correct contract.

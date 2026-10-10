@@ -502,7 +502,8 @@ remove(index: number): Promise<void>
 list(): ChainView[]
 ```
 
-**Returns:** `{ chainId, stateMachineId, rpcUrls, bundlerUrl, watchOnly }` per chain.
+**Returns:** `{ chainId, stateMachineId, rpcUrls, bundlerUrl, watchOnly }` per chain. `bundlerUrl` is the
+[Hyperbridge bundler](/developers/evm/simplex/configuration#bundler) the chain fills through, empty where there is none.
 
 ### add(chain)
 
@@ -518,13 +519,13 @@ add(chain: ChainInput): Promise<ChainView>
 | Name | Type | Description |
 |------|------|-------------|
 | `chain.rpcUrls` | `string[]` | One or more endpoints. Multiple enables quorum log scanning |
-| `chain.bundlerUrl` | `string` | ERC-4337 bundler, required to submit fill UserOperations |
 | `chain.watchOnly` | `boolean` | Optional. Monitor without filling |
 | `chain.confirmationPolicy` | `ChainConfirmationPolicy` | Required for chains with no built-in curve (testnets, and anything outside Ethereum, BSC, Polygon, Base, Arbitrum and Unichain) |
 
 **Throws:** If the endpoints are unreachable or answer for a different chain, the chain is already
-configured, no confirmation curve covers it, the bundler's `eth_supportedEntryPoints` lacks the
-chain's EntryPoint (unless the chain is added watch-only), or delegation fails. The endpoints are
+configured, no confirmation curve covers it, or delegation fails. Unless the chain is added watch-only,
+it also throws when Hyperbridge runs no bundler for it, or that bundler's `eth_supportedEntryPoints`
+lacks the chain's EntryPoint. The endpoints are
 probed and the chain id read back before anything is mutated, and a failed add rolls itself back.
 
 On a scanner you supplied, `add` requires the scanner to already carry the chain — call
@@ -554,16 +555,6 @@ setRpcUrls(chainId: number, rpcUrls: string[]): Promise<void>
 **Throws:** If the endpoints share a hostname, are unreachable, answer for a different chain, or
 belong to a scanner you supplied — see [Scanner ownership](#scanner-ownership).
 
-### setBundlerUrl(chainId, bundlerUrl)
-
-```typescript lineNumbers
-setBundlerUrl(chainId: number, bundlerUrl: string): Promise<void>
-```
-
-**Throws:** If the URL is empty, the chain is not configured, or, on a chain that is not
-watch-only, the bundler's `eth_supportedEntryPoints` lacks the chain's EntryPoint. A bundler that
-does not answer, or whose answer is not a list of addresses, is only logged as a warning.
-
 ### setWatchOnly(chainId, watchOnly)
 
 Monitor without filling. Takes effect on the next order.
@@ -572,8 +563,8 @@ Monitor without filling. Takes effect on the next order.
 setWatchOnly(chainId: number, watchOnly: boolean): Promise<void>
 ```
 
-`setWatchOnly(chainId, false)` throws when the chain's bundler lists EntryPoints without the
-chain's.
+`setWatchOnly(chainId, false)` throws when Hyperbridge runs no bundler for the chain, or its bundler
+lists EntryPoints without the chain's.
 
 On a solver started without a `signer`, `setWatchOnly(chainId, false)` throws — and `add` defaults a
 new chain to watch-only, rejecting an explicit `watchOnly: false`. A signerless start runs on a

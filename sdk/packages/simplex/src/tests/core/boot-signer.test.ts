@@ -39,7 +39,7 @@ function config(overrides: Partial<FillerTomlConfig["simplex"]> = {}): FillerTom
 		pairs: [
 			{ token0: "USDC", token1: "USDC" },
 		],
-		chains: [{ rpcUrls: [rpc.url], bundlerUrl: "https://bundler.example" }],
+		chains: [{ rpcUrls: [rpc.url] }],
 		orderbook: { url: "https://orderbook.example/graphql" },
 	}
 }
@@ -123,7 +123,6 @@ describe("signerless runtime is watch-only for good", () => {
 		await expect(
 			chains.add({
 				rpcUrls: [rpc.url],
-				bundlerUrl: "https://bundler.example",
 				watchOnly: false,
 				confirmationPolicy: {
 					points: [

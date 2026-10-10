@@ -23,11 +23,11 @@ import type {
 import type { HexString } from "@/types"
 import type { IntentGatewayContext } from "./types"
 import { BundlerMethod } from "./types"
-import type { BundlerGasEstimate, PimlicoGasPriceEstimate } from "./types"
+import type { BundlerGasEstimate } from "./types"
 import { getFeeToken, transformOrderForContract, convertGasToFeeToken, convertFeeTokenToWei } from "./utils"
 import { CryptoUtils } from "./CryptoUtils"
 import { readSelectionFormat, selectionOffStateDiff } from "./selection"
-import { applyRundlerPriorityFee, fetchRundlerPriorityFee } from "./rundlerFees"
+import { rundlerUserOperationFees } from "./rundlerFees"
 
 /**
  * Estimates the gas cost for filling an IntentGatewayV2 order and converts it
@@ -39,12 +39,8 @@ import { applyRundlerPriorityFee, fetchRundlerPriorityFee } from "./rundlerFees"
  * bytecode). Without a bundler, a fixed gas budget
  * ({@link NO_BUNDLER_FILL_GAS_BASE} plus a per-output increment) is used
  * instead of a live estimate.
- * Bundler-specific gas-price refinement is applied automatically:
- * Pimlico (`pimlico_getUserOperationGasPrice`) when the URL contains
- * `pimlico.io`, and Alchemy (`rundler_maxPriorityFeePerGas`) when the
- * URL contains `alchemy.com`. Any other bundler is asked for rundler's
- * required priority fee, which raises the fees when it is above the chain
- * estimate.
+ * Fees are priced for a rundler bundler, such as the ones Hyperbridge runs
+ * (see {@link rundlerUserOperationFees}).
  */
 /**
  * Gas budget assumed for delivering and executing the cross-chain RedeemEscrow
@@ -171,11 +167,9 @@ export class GasEstimator {
 	 * **Bundler path:** constructs a mock `PackedUserOperation` signed by an
 	 * ephemeral keypair, applies state overrides, and calls
 	 * `eth_estimateUserOperationGas`. Gas limits are bumped by 5-10% for
-	 * headroom. If the bundler is Pimlico, gas prices are refined with
-	 * `pimlico_getUserOperationGasPrice`, and if it is Alchemy, with
-	 * `rundler_maxPriorityFeePerGas`. For any other bundler that answers
-	 * `rundler_maxPriorityFeePerGas`, the fees are raised to at least that
-	 * priority fee (see {@link applyRundlerPriorityFee}). If the bundler rejects the estimate,
+	 * headroom. Fees are the rundler bundler's suggested fees raised by the bumps,
+	 * or the chain's gas price raised to the priority fee it requires where it
+	 * suggests none (see {@link rundlerUserOperationFees}). If the bundler rejects the estimate,
 	 * fixed gas limits are returned in its place, or the call throws when
 	 * `params.requireBundlerEstimate` is set.
 	 *
@@ -374,50 +368,20 @@ export class GasEstimator {
 				]) as HexString
 
 				const bundlerUserOp = CryptoUtils.prepareBundlerCall(preliminaryUserOp)
-				const bundlerUrlLower = this.ctx.bundlerUrl.toLowerCase()
-				const isPimlico = bundlerUrlLower.includes("pimlico.io")
-				const isAlchemy = bundlerUrlLower.includes("alchemy.com")
-				const rundlerPriorityFeeRequest =
-					isPimlico || isAlchemy ? Promise.resolve(null) : fetchRundlerPriorityFee(this.ctx.bundlerUrl)
-
-				const bundlerRequests: { method: BundlerMethod; params: unknown[] }[] = [
+				// Started alongside the estimate, which takes longer.
+				const rundlerFeesRequest = rundlerUserOperationFees(
+					this.ctx.bundlerUrl,
+					{ maxFeePerGas, maxPriorityFeePerGas },
 					{
-						method: BundlerMethod.ETH_ESTIMATE_USER_OPERATION_GAS,
-						params: [bundlerUserOp, entryPointAddress, bundlerStateOverrides],
+						baseFeePerGas,
+						priorityFeeBumpPercent: BigInt(priorityFeeBumpPercent),
+						maxFeeBumpPercent: BigInt(maxFeeBumpPercent),
 					},
-				]
-				if (isPimlico) {
-					bundlerRequests.push({
-						method: BundlerMethod.PIMLICO_GET_USER_OPERATION_GAS_PRICE,
-						params: [],
-					})
-				}
-				if (isAlchemy) {
-					bundlerRequests.push({
-						method: BundlerMethod.RUNDLER_MAX_PRIORITY_FEE_PER_GAS,
-						params: [],
-					})
-				}
-
-				let gasEstimate: BundlerGasEstimate
-				let pimlicoGasPrices: PimlicoGasPriceEstimate | null = null
-				let alchemyMaxPriorityFee: HexString | null = null
-
-				try {
-					const batchResults = await this.crypto.sendBundlerBatch<unknown[]>(bundlerRequests)
-					gasEstimate = batchResults[0] as BundlerGasEstimate
-					if (isPimlico && batchResults.length > 1) {
-						pimlicoGasPrices = batchResults[1] as PimlicoGasPriceEstimate
-					}
-					if (isAlchemy && batchResults.length > 1) {
-						alchemyMaxPriorityFee = batchResults[1] as HexString
-					}
-				} catch {
-					gasEstimate = await this.crypto.sendBundler<BundlerGasEstimate>(
-						BundlerMethod.ETH_ESTIMATE_USER_OPERATION_GAS,
-						[bundlerUserOp, entryPointAddress, bundlerStateOverrides],
-					)
-				}
+				)
+				const gasEstimate = await this.crypto.sendBundler<BundlerGasEstimate>(
+					BundlerMethod.ETH_ESTIMATE_USER_OPERATION_GAS,
+					[bundlerUserOp, entryPointAddress, bundlerStateOverrides],
+				)
 
 				callGasLimit = (BigInt(gasEstimate.callGasLimit) * 160n) / 100n
 				verificationGasLimit = (BigInt(gasEstimate.verificationGasLimit) * 105n) / 100n
@@ -430,44 +394,9 @@ export class GasEstimator {
 					paymasterPostOpGasLimit = (BigInt(gasEstimate.paymasterPostOpGasLimit) * 105n) / 100n
 				}
 
-				if (pimlicoGasPrices) {
-					const level = pimlicoGasPrices.fast ?? pimlicoGasPrices.standard ?? pimlicoGasPrices.slow ?? null
-
-					if (level) {
-						const pimMaxFeePerGas = BigInt(level.maxFeePerGas)
-						const pimMaxPriorityFeePerGas = BigInt(level.maxPriorityFeePerGas)
-
-						maxFeePerGas = pimMaxFeePerGas + (pimMaxFeePerGas * BigInt(maxFeeBumpPercent)) / 100n
-						maxPriorityFeePerGas =
-							pimMaxPriorityFeePerGas + (pimMaxPriorityFeePerGas * BigInt(priorityFeeBumpPercent)) / 100n
-					}
-				}
-
-				if (alchemyMaxPriorityFee) {
-					const rundlerPriorityFee = BigInt(alchemyMaxPriorityFee)
-					// Alchemy requires 25% priority fee buffer (0% for Arbitrum)
-					const isArbitrum = chainId === 42161n
-					const alchemyPrioBump = isArbitrum ? 0n : 25n
-					maxPriorityFeePerGas = rundlerPriorityFee + (rundlerPriorityFee * alchemyPrioBump) / 100n
-					// Alchemy recommends 50% base fee buffer
-					const bufferedBaseFee = baseFeePerGas + (baseFeePerGas * 50n) / 100n
-					maxFeePerGas = bufferedBaseFee + maxPriorityFeePerGas
-				}
-
-				const rundlerPriorityFee = await rundlerPriorityFeeRequest
-				if (rundlerPriorityFee !== null) {
-					const rundlerFees = applyRundlerPriorityFee(
-						{ maxFeePerGas, maxPriorityFeePerGas },
-						{
-							rundlerPriorityFee,
-							baseFeePerGas,
-							priorityFeeBumpPercent: BigInt(priorityFeeBumpPercent),
-							maxFeeBumpPercent: BigInt(maxFeeBumpPercent),
-						},
-					)
-					maxFeePerGas = rundlerFees.maxFeePerGas
-					maxPriorityFeePerGas = rundlerFees.maxPriorityFeePerGas
-				}
+				const rundlerFees = await rundlerFeesRequest
+				maxFeePerGas = rundlerFees.maxFeePerGas
+				maxPriorityFeePerGas = rundlerFees.maxPriorityFeePerGas
 			} catch (e) {
 				if (params.requireBundlerEstimate) {
 					throw new Error(`Bundler gas estimation failed: ${e instanceof Error ? e.message : String(e)}`, {

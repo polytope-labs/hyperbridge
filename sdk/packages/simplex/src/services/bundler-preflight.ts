@@ -12,12 +12,13 @@ export interface BundlerPreflightOptions {
 }
 
 /**
- * Refuses any chain whose bundler answers eth_supportedEntryPoints without the
- * EntryPoint that chain's SolverAccount validates against, since that bundler
- * rejects every fill UserOperation. A bundler that cannot be asked, or whose
- * answer cannot be read, is only warned about: that says nothing about which
- * EntryPoints it serves. Watch-only chains, chains without a bundler, and chains
- * without a known EntryPoint are left to the fill path.
+ * Refuses a chain that is not watch-only when Hyperbridge runs no bundler for it,
+ * since every fill is a UserOperation a bundler submits. Also refuses any chain
+ * whose bundler answers eth_supportedEntryPoints without the EntryPoint that
+ * chain's SolverAccount validates against, since that bundler rejects every fill
+ * UserOperation. A bundler that cannot be asked, or whose answer cannot be read,
+ * is only warned about: that says nothing about which EntryPoints it serves.
+ * Watch-only chains and chains without a known EntryPoint are left to the fill path.
  */
 export async function assertBundlersServeEntryPoint(
 	chains: Pick<ResolvedChainConfig, "chainId" | "bundlerUrl">[],
@@ -29,7 +30,9 @@ export async function assertBundlersServeEntryPoint(
 	const failures = await Promise.all(
 		chains.map(async ({ chainId, bundlerUrl }) => {
 			if (options.watchOnly?.[chainId] === true) return undefined
-			if (!bundlerUrl?.trim()) return undefined
+			if (!bundlerUrl?.trim()) {
+				return `Hyperbridge runs no bundler for ${chainName(chainId)}, so simplex cannot fill there; set it watch-only`
+			}
 			const entryPoint = configService.getEntryPointAddress(formatChainKey(chainId))
 			if (!entryPoint) return undefined
 			return checkBundler(chainId, bundlerUrl.trim(), entryPoint, timeoutMs, logger)

@@ -3,7 +3,7 @@ import { chainsForNetwork } from "@/cli/init/chains"
 import type { SetupDefaults } from "../types"
 import { assembleConfig, initialState } from "./state"
 
-/** The wizard has no bundler field: a chain's bundler is Hyperbridge's, written without asking. */
+/** The wizard has no bundler field: simplex fills through Hyperbridge's bundler for each chain. */
 describe("wizard bundlers", () => {
 	const defaults = {
 		chains: chainsForNetwork("mainnet"),
@@ -19,17 +19,14 @@ describe("wizard bundlers", () => {
 		for (const chain of initialState(defaults).chains) expect(chain).not.toHaveProperty("bundlerUrl")
 	})
 
-	it("writes Hyperbridge's bundler for every enabled chain", () => {
+	it("writes no bundler for any enabled chain", () => {
 		const state = initialState(defaults)
 		const enabled = new Set([1, 8453, 56])
 		const config = assembleConfig(
 			{ ...state, chains: state.chains.map((chain) => ({ ...chain, enabled: enabled.has(chain.meta.chainId) })) },
 			defaults,
 		)
-		expect(config.chains.map((chain) => chain.bundlerUrl).sort()).toEqual([
-			"https://bundler.polytope.technology/base",
-			"https://bundler.polytope.technology/bsc",
-			"https://bundler.polytope.technology/ethereum",
-		])
+		expect(config.chains).toHaveLength(3)
+		for (const chain of config.chains) expect(chain).not.toHaveProperty("bundlerUrl")
 	})
 })

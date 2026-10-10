@@ -100,7 +100,7 @@ still `simplex`. Prefer a container? The same binary ships as
 Hub page.
 
 With no config present, `simplex` opens a local browser wizard that walks through the minimum setup
-(chains, RPCs, bundlers, signer, Hyperbridge account), validates every endpoint live,
+(chains, RPCs, signer, Hyperbridge account), validates every endpoint live,
 writes a commented `filler-config.toml` (mode 600) and starts the solver in the same process.
 `simplex init` is the equivalent terminal wizard.
 

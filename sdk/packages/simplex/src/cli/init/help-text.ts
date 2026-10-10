@@ -3,11 +3,9 @@
  * docs/content/developers/evm/simplex/ — keep the two in sync.
  */
 export const WHY = {
-	chains: "Simplex listens for orders and fills only on the chains you pick. Each chain needs its own RPC, an ERC-4337 bundler, and funded balances (native gas + stablecoins).",
+	chains: "Simplex listens for orders and fills only on the chains you pick. Each chain needs its own RPC and funded balances (native gas + stablecoins); fills go through Hyperbridge's bundler.",
 	rpc: "The RPC is used to scan order events, read balances and simulate fills. Use a premium endpoint with archive access (Alchemy, Infura, QuickNode) — free tiers rate-limit and break event scanning.",
 	quorum: "Listing a second, organisationally independent RPC enables quorum log scanning: every event batch must match across providers, so one lying or compromised RPC can't feed you fake orders.",
-	bundler:
-		"Fills execute as ERC-4337 UserOperations; the bundler submits them on-chain. Hyperbridge runs no bundler for these chains, so use a provider such as Pimlico.",
 	signer: "This wallet signs every fill and holds your stablecoin float on each chain. It's the identity of your filler.",
 	secretPhrase:
 		"A secret phrase is a BIP-39 mnemonic of 12 to 24 English words. The filler signs with the wallet at m/44'/60'/0'/0/0 unless you pick another account index. The phrase is written to the config file in plain text, protected only by the file's permissions, the same as a private key.",

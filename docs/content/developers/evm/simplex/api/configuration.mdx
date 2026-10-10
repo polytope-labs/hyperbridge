@@ -46,7 +46,7 @@ curl -s $SIMPLEX/api/config
 | Field | Description |
 |---|---|
 | `configPath` | The config file changes are saved to. Absent when the filler was started from a config object. |
-| `toml` | The running config as TOML. The signer's key and API credentials, the Substrate key, Binance credentials, and API keys inside RPC and bundler URLs are masked. |
+| `toml` | The running config as TOML. The signer's key and API credentials, the Substrate key, Binance credentials, and API keys inside RPC URLs are masked. |
 | `logLevel` | The current log level. |
 | `vaultConfigured` | Whether the solver started with a vault treasury. |
 | `allowlistUsers` | The addresses on the order allowlist. Empty means every address is accepted. |
@@ -68,7 +68,7 @@ curl -s $SIMPLEX/api/chains
   "chains": [
     { "chainId": 8453, "stateMachineId": "EVM-8453", "label": "Base",
       "rpcUrls": ["https://base-mainnet.g.alchemy.com/v2/…", "https://…"],
-      "bundlerUrl": "https://…", "watchOnly": false, "running": true }
+      "bundlerUrl": "https://bundler.polytope.technology/base", "watchOnly": false, "running": true }
   ],
   "catalog": [
     { "chainId": 1, "stateMachineId": "EVM-1", "label": "Ethereum", "network": "mainnet", "…": "…" }
@@ -79,20 +79,20 @@ curl -s $SIMPLEX/api/chains
 ```
 
 <Callout type="warn">
-    Unlike `/api/config`, this route returns RPC and bundler URLs in full, with any API keys in them,
+    Unlike `/api/config`, this route returns RPC URLs in full, with any API keys in them,
     so that the chain editor can send them back unchanged.
 </Callout>
 
 | Field | Description |
 |---|---|
-| `chains` | One entry per `[[chains]]` block in the config. `running` is `false` for a chain added since the solver started. It starts filling after a restart. |
-| `catalog` | Every chain the setup wizard offers on this network, with its label, explorer and default RPC endpoints. |
+| `chains` | One entry per `[[chains]]` block in the config. `bundlerUrl` is the [Hyperbridge bundler](/developers/evm/simplex/configuration#bundler) the chain fills through, empty where there is none. `running` is `false` for a chain added since the solver started. It starts filling after a restart. |
+| `catalog` | Every chain the setup wizard offers on this network, which is every chain with a Hyperbridge bundler, with its label, explorer and default RPC endpoints. |
 | `network` | `mainnet` or `testnet`. A solver runs on one network. |
 | `globalWatchOnly` | `true` when `watchOnly` in `[simplex]` is a single on/off value for every chain. Per-chain `watchOnly` changes are then ignored. |
 
 ## PUT /api/chains
 
-Replaces the chain set: which chains the solver runs on, their RPC endpoints, their bundlers, and which are watch-only. The body lists every chain you want to keep.
+Replaces the chain set: which chains the solver runs on, their RPC endpoints, and which are watch-only. The body lists every chain you want to keep.
 
 ```bash lineNumbers
 curl -s -X PUT $SIMPLEX/api/chains \
@@ -101,7 +101,6 @@ curl -s -X PUT $SIMPLEX/api/chains \
           "chains": [
             { "chainId": 8453,
               "rpcUrls": ["https://base-mainnet.g.alchemy.com/v2/KEY", "https://base-rpc.publicnode.com"],
-              "bundlerUrl": "https://bundler.polytope.technology/base",
               "watchOnly": false }
           ]
         }'
@@ -112,7 +111,6 @@ curl -s -X PUT $SIMPLEX/api/chains \
 |---|---|
 | `chainId` | The chain's numeric ID. |
 | `rpcUrls` | At least one RPC URL, each on a different domain, as the [RPC quorum](/developers/evm/simplex/confirmations#rpc-quorum) needs. |
-| `bundlerUrl` | Required. The bundler that submits fill UserOperations. The dashboard always sends the chain's [Hyperbridge bundler](/developers/evm/simplex/configuration#bundler). |
 | `watchOnly` | Optional. Watch this chain without filling on it. |
 
 Chains are wired up when the solver starts, so the new set is saved and takes effect on the next restart. The response always has `applied: false` and `restartNeeded: true`. `removed` lists the chains that were dropped.
@@ -120,6 +118,7 @@ Chains are wired up when the solver starts, so the new set is saved and takes ef
 Every chain is checked the way a restart would check it, and a failure answers `400` with nothing saved:
 
 - Each RPC URL that is new for its chain must answer, and must report that chain's ID.
+- A chain Hyperbridge runs no [bundler](/developers/evm/simplex/configuration#bundler) for must be watch-only.
 - Each chain needs a confirmation policy. Mainnet chains have built-in ones, and testnet chains get a default.
 - Every market's tokens must still resolve on the new chain set.
 - A chain that still has a vault in the treasury cannot be dropped. Remove the vault first.

@@ -66,25 +66,9 @@ curl -s -X POST $SIMPLEX/api/setup/validate-rpc \
 
 Send `urls`, or a single `url`. `expectedChainId` is optional. The URLs must be valid and each on a different domain. When they are not, `results` is empty and `error` says why. Otherwise `ok` is `true` only when every URL answered for the expected chain, and each failing entry in `results` carries an `error`.
 
-### POST /api/setup/validate-bundler
-
-Checks that a bundler answers `eth_supportedEntryPoints` and, when `chainId` is sent, that it lists the EntryPoint the chain's solver account uses. Every finding is a warning, not a failure, so `ok` is `true` unless the URL is empty.
-
-```bash lineNumbers
-curl -s -X POST $SIMPLEX/api/setup/validate-bundler \
-    -H 'Content-Type: application/json' -H 'X-Simplex-UI: 1' \
-    -d '{ "url": "https://bundler.polytope.technology/base", "chainId": 8453 }'
-# → { "ok": true, "entryPoints": ["0x…"] }
-```
-
-The response carries a `warning` when:
-
-- the bundler does not answer, in which case there are no `entryPoints`, or its answer is not a list of addresses. Simplex runs with this bundler and logs a warning.
-- it lists addresses without the chain's EntryPoint. Simplex refuses this bundler: the solver does not start, and adding the chain, setting this bundler URL or turning watch-only off for the chain fails.
-
 ### POST /api/setup/validate-alchemy-key
 
-Checks an Alchemy API key, and derives an RPC URL for each mainnet chain Alchemy serves. Each chain also comes back with a `bundlerUrl`, which is the same Alchemy URL. The setup wizard and the dashboard no longer call this route: they use the [Hyperbridge bundler](/developers/evm/simplex/configuration#bundler) for every chain.
+Checks an Alchemy API key, and derives an RPC URL for each mainnet chain Alchemy serves. The setup wizard and the dashboard no longer call this route.
 
 ```bash lineNumbers
 curl -s -X POST $SIMPLEX/api/setup/validate-alchemy-key \
@@ -97,8 +81,7 @@ curl -s -X POST $SIMPLEX/api/setup/validate-alchemy-key \
   "valid": true,
   "chains": [
     { "chainId": 8453, "stateMachineId": "EVM-8453", "label": "Base",
-      "rpcUrl": "https://base-mainnet.g.alchemy.com/v2/KEY",
-      "bundlerUrl": "https://base-mainnet.g.alchemy.com/v2/KEY" }
+      "rpcUrl": "https://base-mainnet.g.alchemy.com/v2/KEY" }
   ]
 }
 ```

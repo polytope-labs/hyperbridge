@@ -2,6 +2,7 @@ import type { ChainConfig, HexString } from "@hyperbridge/sdk"
 import { defaultLoggerContext, moduleLogger, type LoggerContext } from "./Logger"
 import { ChainConfigService, bytes32ToBytes20 } from "@hyperbridge/sdk"
 import type { LogLevel } from "./Logger"
+import { hyperbridgeBundlerUrl } from "@/config/bundlers"
 
 /** Block-scanner poll period in seconds when `simplex.blockScanIntervalSeconds` is not set. */
 export const DEFAULT_BLOCK_SCAN_INTERVAL_SECONDS = 3
@@ -15,13 +16,15 @@ export const DEFAULT_MIN_ORDER_SIZE_USD = 20
 export interface UserProvidedChainConfig {
 	/** One or more RPC URLs. When multiple are provided, event scans use quorum consensus. */
 	rpcUrls: string[]
-	bundlerUrl: string
+	/** Accepted and ignored. Simplex fills through Hyperbridge's bundler for the chain. */
+	bundlerUrl?: string
 }
 
 export interface ResolvedChainConfig {
 	chainId: number
 	/** One or more RPC URLs for this chain. When multiple are provided, event scans use quorum consensus. */
 	rpcUrls: string[]
+	/** Hyperbridge's bundler for the chain, or undefined where it runs none. */
 	bundlerUrl?: string
 }
 
@@ -159,7 +162,7 @@ export async function resolveChainConfigs(
 					"RPC endpoint could not report its chainId at startup; keeping it for the quorum to judge per call",
 				)
 			}
-			return { chainId: first.chainId, rpcUrls, bundlerUrl: chain.bundlerUrl }
+			return { chainId: first.chainId, rpcUrls, bundlerUrl: hyperbridgeBundlerUrl(first.chainId) }
 		}),
 	)
 }
@@ -327,13 +330,6 @@ export class FillerConfigService {
 			throw new Error(`Chain ${chainId} is not configured`)
 		}
 		this.rpcOverrides.set(chainId, validateRpcUrls(rpcUrls))
-	}
-
-	setBundlerUrl(chainId: number, bundlerUrl: string): void {
-		if (!this.rpcOverrides.has(chainId)) {
-			throw new Error(`Chain ${chainId} is not configured`)
-		}
-		this.bundlerUrls.set(chainId, bundlerUrl)
 	}
 
 	/** Replaces the rebalancing config at runtime; trigger checks read it live. */

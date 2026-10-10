@@ -179,34 +179,30 @@ url = "https://orderbook.hyperfx.finance/mainnet/graphql"
 
 # rpcUrls is always an array. Listing more than one independent endpoint
 # activates quorum log scanning — see the Confirmations and RPC page.
-# bundlerUrl is the Hyperbridge bundler for the chain — see Configuration.
+# Fills go through Hyperbridge's bundler for each chain, so there is no bundler to set.
 [[chains]]  # Ethereum
 rpcUrls = [
     "https://eth-mainnet.g.alchemy.com/v2/YOUR_ALCHEMY_KEY",
     "https://mainnet.infura.io/v3/YOUR_INFURA_KEY",
 ]
-bundlerUrl = "https://bundler.polytope.technology/ethereum"
 
 [[chains]]  # Base
 rpcUrls = [
     "https://base-mainnet.g.alchemy.com/v2/YOUR_ALCHEMY_KEY",
     "https://base-mainnet.infura.io/v3/YOUR_INFURA_KEY",
 ]
-bundlerUrl = "https://bundler.polytope.technology/base"
 
 [[chains]]  # Arbitrum
 rpcUrls = [
     "https://arb-mainnet.g.alchemy.com/v2/YOUR_ALCHEMY_KEY",
     "https://arbitrum-mainnet.infura.io/v3/YOUR_INFURA_KEY",
 ]
-bundlerUrl = "https://bundler.polytope.technology/arbitrum"
 
 [[chains]]  # Polygon
 rpcUrls = [
     "https://polygon-mainnet.g.alchemy.com/v2/YOUR_ALCHEMY_KEY",
     "https://polygon-mainnet.infura.io/v3/YOUR_INFURA_KEY",
 ]
-bundlerUrl = "https://bundler.polytope.technology/polygon"
 ```
 </Tab>
 </Tabs>

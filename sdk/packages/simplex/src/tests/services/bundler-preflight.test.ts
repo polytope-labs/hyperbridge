@@ -201,17 +201,26 @@ describe("assertBundlersServeEntryPoint", () => {
 		expect(calls.map((call) => call.url)).toEqual(["https://arb.example"])
 	})
 
-	it("skips chains with no bundler or no known EntryPoint", async () => {
+	it("refuses a filling chain Hyperbridge runs no bundler for, and lets it be watched", async () => {
 		const calls = stubBundlers({})
 		await expect(
-			assertBundlersServeEntryPoint(
-				[
-					{ chainId: 8453, bundlerUrl: undefined },
-					{ chainId: 8453, bundlerUrl: "  " },
-					{ chainId: 31337, bundlerUrl: BUNDLER },
-				],
-				configService,
-			),
+			assertBundlersServeEntryPoint([{ chainId: 8453, bundlerUrl: undefined }], configService),
+		).rejects.toThrow(/Hyperbridge runs no bundler for .*EVM-8453.*set it watch-only/)
+		await expect(
+			assertBundlersServeEntryPoint([{ chainId: 8453, bundlerUrl: "  " }], configService),
+		).rejects.toThrow(/runs no bundler/)
+		await expect(
+			assertBundlersServeEntryPoint([{ chainId: 8453, bundlerUrl: undefined }], configService, {
+				watchOnly: { 8453: true },
+			}),
+		).resolves.toBeUndefined()
+		expect(calls).toEqual([])
+	})
+
+	it("skips chains with no known EntryPoint", async () => {
+		const calls = stubBundlers({})
+		await expect(
+			assertBundlersServeEntryPoint([{ chainId: 31337, bundlerUrl: BUNDLER }], configService),
 		).resolves.toBeUndefined()
 		expect(calls).toEqual([])
 	})

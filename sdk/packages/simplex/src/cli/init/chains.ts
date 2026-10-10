@@ -1,4 +1,5 @@
 import externalLinks from "../../config/external-links.json"
+import { HYPERBRIDGE_BUNDLER_URLS } from "@/config/bundlers"
 
 export type InitNetwork = "mainnet" | "testnet"
 
@@ -19,9 +20,8 @@ export interface InitChainMeta {
 	 */
 	defaultRpcUrls?: string[]
 	/**
-	 * Hyperbridge's ERC-4337 bundler for the chain. Where there is one, the wizards and
-	 * the Chains panel always use it and never ask for a bundler. See
-	 * {@link HYPERBRIDGE_BUNDLER_URLS}.
+	 * Hyperbridge's ERC-4337 bundler for the chain, which simplex fills through. A chain
+	 * without one can only be watched. See {@link HYPERBRIDGE_BUNDLER_URLS}.
 	 */
 	hyperbridgeBundlerUrl?: string
 }
@@ -95,18 +95,6 @@ const FREE_RPC_URLS: Record<number, string[]> = {
 		"https://arbitrum-one-public.nodies.app",
 		"https://arb1.arbitrum.io/rpc",
 	],
-}
-
-/**
- * The bundlers Hyperbridge runs, per chain. They need no API key and serve EntryPoint
- * v0.8 and v0.9. A chain absent here takes its bundler from the config file.
- */
-const HYPERBRIDGE_BUNDLER_URLS: Record<number, string> = {
-	1: "https://bundler.polytope.technology/ethereum",
-	56: "https://bundler.polytope.technology/bsc",
-	137: "https://bundler.polytope.technology/polygon",
-	8453: "https://bundler.polytope.technology/base",
-	42161: "https://bundler.polytope.technology/arbitrum",
 }
 
 const CHAIN_NATIVE_SYMBOLS: Record<number, string> = {
@@ -214,6 +202,7 @@ export const INIT_CHAINS: InitChainMeta[] = [
 		network: "testnet",
 		alchemySubdomain: "polygon-amoy",
 		explorerUrl: externalLinks.chainExplorers.polygonAmoy,
+		hyperbridgeBundlerUrl: HYPERBRIDGE_BUNDLER_URLS[80002],
 	},
 	{
 		chainId: 97,
@@ -222,6 +211,7 @@ export const INIT_CHAINS: InitChainMeta[] = [
 		network: "testnet",
 		alchemySubdomain: "bnb-testnet",
 		explorerUrl: externalLinks.chainExplorers.bnbChapel,
+		hyperbridgeBundlerUrl: HYPERBRIDGE_BUNDLER_URLS[97],
 	},
 ]
 
@@ -230,8 +220,9 @@ export const HYPERBRIDGE_WS_DEFAULTS: Record<InitNetwork, string> = {
 	testnet: "wss://gargantua.rpc.polytope.technology",
 }
 
+/** The chains the wizards and the Chains panel offer: those Hyperbridge runs a bundler for. */
 export function chainsForNetwork(network: InitNetwork): InitChainMeta[] {
-	return INIT_CHAINS.filter((chain) => chain.network === network)
+	return INIT_CHAINS.filter((chain) => chain.network === network && chain.hyperbridgeBundlerUrl)
 }
 
 export function chainByChainId(chainId: number): InitChainMeta | undefined {

@@ -11,11 +11,11 @@ vi.mock("@/protocols/intents/fillOrderCodec", async (importOriginal) => ({
 
 vi.mock("@/protocols/intents/rundlerFees", async (importOriginal) => {
 	const actual = await importOriginal<typeof import("@/protocols/intents/rundlerFees")>()
-	return { ...actual, fetchRundlerPriorityFee: vi.fn(actual.fetchRundlerPriorityFee) }
+	return { ...actual, rundlerUserOperationFees: vi.fn(actual.rundlerUserOperationFees) }
 })
 
 const { GasEstimator } = await import("@/protocols/intents/GasEstimator")
-const { fetchRundlerPriorityFee } = await import("@/protocols/intents/rundlerFees")
+const { rundlerUserOperationFees } = await import("@/protocols/intents/rundlerFees")
 
 // A testnet chain, so gas is not priced through a swap quote.
 const CHAIN = "EVM-97"
@@ -44,7 +44,7 @@ const ORDER: Order = {
 
 const GAS_ESTIMATE = { callGasLimit: "0x1", verificationGasLimit: "0x1", preVerificationGas: "0x1" }
 
-function estimatorWith(bundlerUrl: string, batch: ReturnType<typeof vi.fn>) {
+function estimatorWith(bundlerUrl: string) {
 	const chain = {
 		config: { stateMachineId: CHAIN },
 		client: {
@@ -61,8 +61,7 @@ function estimatorWith(bundlerUrl: string, batch: ReturnType<typeof vi.fn>) {
 	const ctx = { source: chain, dest: chain, bundlerUrl, feeTokenCache: new Map() } as unknown as IntentGatewayContext
 	const crypto = {
 		encodeERC7821Execute: () => "0x" as HexString,
-		sendBundlerBatch: batch,
-		sendBundler: vi.fn(),
+		sendBundler: vi.fn().mockResolvedValue(GAS_ESTIMATE),
 	} as unknown as CryptoUtils
 
 	const estimator = new GasEstimator(ctx, crypto)
@@ -71,75 +70,69 @@ function estimatorWith(bundlerUrl: string, batch: ReturnType<typeof vi.fn>) {
 	return estimator
 }
 
-/** Stubs the bundler's `rundler_maxPriorityFeePerGas`, which is fetched outside the estimate batch. */
-function stubRundler(reply: Record<string, unknown>) {
-	const fetch = vi.fn(async () => ({ json: async () => ({ jsonrpc: "2.0", id: 1, ...reply }) }))
+const METHOD_NOT_FOUND = { error: { code: -32601, message: "Method not found" } }
+
+/** Stubs the bundler's rundler fee methods, which are fetched outside the estimate batch. */
+function stubRundler(replies: Record<string, Record<string, unknown>>) {
+	const fetch = vi.fn(async (_url: string, init: { body: string }) => {
+		const { method } = JSON.parse(init.body) as { method: string }
+		return { json: async () => ({ jsonrpc: "2.0", id: 1, ...(replies[method] ?? METHOD_NOT_FOUND) }) }
+	})
 	vi.stubGlobal("fetch", fetch)
 	return fetch
 }
 
-beforeEach(() => vi.mocked(fetchRundlerPriorityFee).mockClear())
+const methodsCalled = (fetch: ReturnType<typeof stubRundler>) =>
+	fetch.mock.calls.map(([, init]) => (JSON.parse(init.body) as { method: string }).method)
+
+beforeEach(() => {
+	vi.mocked(rundlerUserOperationFees).mockClear()
+})
 afterEach(() => vi.unstubAllGlobals())
 
 describe("GasEstimator.estimateFillOrder gas price", () => {
-	it("raises the fees to a rundler bundler's priority fee when it is above the chain estimate", async () => {
-		const fetch = stubRundler({ result: "0x5f5e100" })
-		const estimator = estimatorWith("https://rundler.example", vi.fn().mockResolvedValue([GAS_ESTIMATE]))
+	it("prices a rundler bundler from the fees it suggests, raised by the bumps", async () => {
+		const fetch = stubRundler({
+			rundler_getUserOperationGasPrice: {
+				result: {
+					priorityFee: "0x5f5e100",
+					baseFee: "0xdbba0",
+					blockNumber: "0x1",
+					suggested: { maxPriorityFeePerGas: "0x7bfa480", maxFeePerGas: "0xbebc200" },
+				},
+			},
+		})
+		const estimator = estimatorWith("https://rundler.example")
+
+		const estimate = await estimator.estimateFillOrder({ order: ORDER, requireBundlerEstimate: true })
+
+		// 130M and 200M suggested, with the default 8% priority and 10% max fee bumps.
+		expect(estimate.maxPriorityFeePerGas).toBe(140_400_000n)
+		expect(estimate.maxFeePerGas).toBe(220_000_000n)
+		expect(methodsCalled(fetch)).toEqual(["rundler_getUserOperationGasPrice"])
+		expect(rundlerUserOperationFees).toHaveBeenCalledWith("https://rundler.example", CHAIN_FEES, expect.anything())
+	})
+
+	it("raises the fees to a rundler bundler's priority fee where it suggests none", async () => {
+		const fetch = stubRundler({ rundler_maxPriorityFeePerGas: { result: "0x5f5e100" } })
+		const estimator = estimatorWith("https://older-rundler.example")
 
 		const estimate = await estimator.estimateFillOrder({ order: ORDER, requireBundlerEstimate: true })
 
 		expect(estimate.maxPriorityFeePerGas).toBe(108_000_000n)
 		expect(estimate.maxFeePerGas).toBe(BASE_FEE + BASE_FEE / 10n + 108_000_000n)
-		expect(fetch).toHaveBeenCalledWith("https://rundler.example", expect.anything())
-		expect(fetchRundlerPriorityFee).toHaveBeenCalledWith("https://rundler.example")
+		expect(methodsCalled(fetch)).toEqual(["rundler_getUserOperationGasPrice", "rundler_maxPriorityFeePerGas"])
 	})
 
 	it("keeps the chain estimate and stops asking when the bundler does not serve rundler fees", async () => {
-		const fetch = stubRundler({ error: { code: -32601, message: "Method not found" } })
-		const estimator = estimatorWith("https://other-bundler.example", vi.fn().mockResolvedValue([GAS_ESTIMATE]))
+		const fetch = stubRundler({})
+		const estimator = estimatorWith("https://other-bundler.example")
 
 		const first = await estimator.estimateFillOrder({ order: ORDER, requireBundlerEstimate: true })
 		const second = await estimator.estimateFillOrder({ order: ORDER, requireBundlerEstimate: true })
 
 		expect(first).toMatchObject(CHAIN_FEES)
 		expect(second).toMatchObject(CHAIN_FEES)
-		expect(fetch).toHaveBeenCalledOnce()
-	})
-
-	it("prices a Pimlico bundler from Pimlico's gas price without asking for rundler fees", async () => {
-		const fetch = stubRundler({ result: "0x5f5e100" })
-		const batch = vi
-			.fn()
-			.mockResolvedValue([GAS_ESTIMATE, { fast: { maxFeePerGas: "0x2dc6c0", maxPriorityFeePerGas: "0x1e8480" } }])
-		const estimator = estimatorWith("https://api.pimlico.io/v2/97/rpc?apikey=k", batch)
-
-		const estimate = await estimator.estimateFillOrder({ order: ORDER, requireBundlerEstimate: true })
-
-		expect(estimate.maxFeePerGas).toBe(3_300_000n)
-		expect(estimate.maxPriorityFeePerGas).toBe(2_160_000n)
-		expect(batch.mock.calls[0][0].map((request: { method: string }) => request.method)).toEqual([
-			"eth_estimateUserOperationGas",
-			"pimlico_getUserOperationGasPrice",
-		])
-		expect(fetch).not.toHaveBeenCalled()
-		expect(fetchRundlerPriorityFee).not.toHaveBeenCalled()
-	})
-
-	it("prices an Alchemy bundler with its own buffers without the rundler floor", async () => {
-		const fetch = stubRundler({ result: "0x5f5e100" })
-		const batch = vi.fn().mockResolvedValue([GAS_ESTIMATE, "0x5f5e100"])
-		const estimator = estimatorWith("https://bnb-testnet.g.alchemy.com/v2/k", batch)
-
-		const estimate = await estimator.estimateFillOrder({ order: ORDER, requireBundlerEstimate: true })
-
-		// A 25% priority bump off Arbitrum, and a 50% base fee buffer.
-		expect(estimate.maxPriorityFeePerGas).toBe(125_000_000n)
-		expect(estimate.maxFeePerGas).toBe(BASE_FEE + BASE_FEE / 2n + 125_000_000n)
-		expect(batch.mock.calls[0][0].map((request: { method: string }) => request.method)).toEqual([
-			"eth_estimateUserOperationGas",
-			"rundler_maxPriorityFeePerGas",
-		])
-		expect(fetch).not.toHaveBeenCalled()
-		expect(fetchRundlerPriorityFee).not.toHaveBeenCalled()
+		expect(methodsCalled(fetch)).toEqual(["rundler_getUserOperationGasPrice", "rundler_maxPriorityFeePerGas"])
 	})
 })

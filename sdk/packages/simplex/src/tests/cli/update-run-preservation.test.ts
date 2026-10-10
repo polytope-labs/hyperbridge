@@ -42,7 +42,7 @@ describe("CLI wizard update run", () => {
 				token1: "USDC",
 			},
 		],
-		chains: [{ rpcUrls: ["https://eth.example/rpc"], bundlerUrl: "https://bundler.example" }],
+		chains: [{ rpcUrls: ["https://eth.example/rpc"] }],
 		binance: { apiKey: "bk", apiSecret: "bs", timeout: 9000 },
 		keeper: { intervalMinutes: 45, minSwapUsd: 10 },
 		allowlist: { users: ["0x1111111111111111111111111111111111111111"] },
@@ -70,7 +70,6 @@ describe("CLI wizard update run", () => {
 			{
 				meta: INIT_CHAINS.find((c) => c.chainId === 1)!,
 				rpcUrls: ["https://eth.example/rpc"],
-				bundlerUrl: "https://bundler.example",
 			},
 		]
 		state.signer = config.simplex.signer
@@ -130,7 +129,6 @@ describe("CLI wizard update run", () => {
 			{
 				meta: INIT_CHAINS.find((c) => c.chainId === 1)!,
 				rpcUrls: ["https://eth.example/rpc"],
-				bundlerUrl: "https://bundler.example",
 			},
 		]
 		state.assets = wizardAssets
@@ -177,7 +175,6 @@ describe("CLI wizard update run", () => {
 			{
 				meta: INIT_CHAINS.find((c) => c.chainId === 1)!,
 				rpcUrls: ["https://eth.example/rpc"],
-				bundlerUrl: "https://bundler.example",
 			},
 		]
 		state.signer = existing.simplex.signer
@@ -198,7 +195,6 @@ describe("CLI wizard update run", () => {
 			{
 				meta: INIT_CHAINS.find((c) => c.chainId === 1)!,
 				rpcUrls: ["https://eth.example/rpc"],
-				bundlerUrl: "https://bundler.example",
 			},
 		]
 		state.signer = existing.simplex.signer
@@ -222,7 +218,6 @@ describe("CLI wizard update run", () => {
 			{
 				meta: INIT_CHAINS.find((c) => c.chainId === 97)!,
 				rpcUrls: ["https://bsc.example/rpc"],
-				bundlerUrl: "https://bundler.example",
 			},
 		]
 		state.signer = existing.simplex.signer

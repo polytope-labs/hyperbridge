@@ -8,10 +8,7 @@ export interface ChainDraft {
 	meta: ChainDefault
 	enabled: boolean
 	rpcUrls: string[]
-	/**
-	 * Not editable here. Hyperbridge's bundler where the catalog has one, whatever the config
-	 * held before; otherwise the bundler the config file names, or none for a chain not yet in it.
-	 */
+	/** Not editable. Hyperbridge's bundler the chain fills through, empty where it runs none. */
 	bundlerUrl: string
 	watchOnly: boolean
 	running: boolean
@@ -27,7 +24,7 @@ function seedDrafts(dto: ChainsDto): ChainDraft[] {
 			meta,
 			enabled: Boolean(row),
 			rpcUrls: row ? [...row.rpcUrls] : meta.defaultRpcUrls?.length ? [...meta.defaultRpcUrls] : [""],
-			bundlerUrl: meta.hyperbridgeBundlerUrl ?? row?.bundlerUrl ?? "",
+			bundlerUrl: meta.hyperbridgeBundlerUrl ?? "",
 			watchOnly: row?.watchOnly ?? false,
 			running: row?.running ?? false,
 		}
@@ -125,7 +122,6 @@ export function useChainSettings() {
 					.map((chain) => ({
 						chainId: chain.meta.chainId,
 						rpcUrls: chain.rpcUrls.map((url) => url.trim()).filter(Boolean),
-						bundlerUrl: chain.bundlerUrl.trim(),
 						watchOnly: chain.watchOnly,
 					})),
 			})

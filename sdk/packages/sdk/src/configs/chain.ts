@@ -248,6 +248,8 @@ export interface ChainConfigData {
 	}
 	rpcEnvKey?: string
 	defaultRpcUrl?: string
+	/** ERC-4337 bundler Hyperbridge runs for this chain, which `EvmChain` uses when it is given none */
+	bundlerUrl?: string
 	consensusStateId: string
 	coingeckoId: string
 	popularTokens?: string[]
@@ -297,6 +299,7 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 		},
 		rpcEnvKey: "BSC_CHAPEL",
 		defaultRpcUrl: "https://bnb-testnet.api.onfinality.io/public",
+		bundlerUrl: "https://bundler.polytope.technology/bsc-chapel",
 		consensusStateId: "BSC0",
 		coingeckoId: "binance-smart-chain",
 		popularTokens: [
@@ -438,6 +441,7 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 		},
 		rpcEnvKey: "ETH_MAINNET",
 		defaultRpcUrl: "https://eth-mainnet.g.alchemy.com/v2/demo",
+		bundlerUrl: "https://bundler.polytope.technology/ethereum",
 		consensusStateId: "ETH0",
 		coingeckoId: "ethereum",
 		layerZeroEid: 30101,
@@ -506,6 +510,7 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 		},
 		rpcEnvKey: "BSC_MAINNET",
 		defaultRpcUrl: "https://bsc-rpc.publicnode.com",
+		bundlerUrl: "https://bundler.polytope.technology/bsc",
 		consensusStateId: "BSC0",
 		coingeckoId: "binance-smart-chain",
 		erc4626Vaults: [
@@ -568,6 +573,7 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 		},
 		rpcEnvKey: "ARBITRUM_MAINNET",
 		defaultRpcUrl: "https://arbitrum-one.public.blastapi.io",
+		bundlerUrl: "https://bundler.polytope.technology/arbitrum",
 		consensusStateId: "ETH0",
 		coingeckoId: "arbitrum-one",
 		layerZeroEid: 30110,
@@ -641,6 +647,7 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 		},
 		rpcEnvKey: "BASE_MAINNET",
 		defaultRpcUrl: "https://base-mainnet.public.blastapi.io",
+		bundlerUrl: "https://bundler.polytope.technology/base",
 		consensusStateId: "ETH0",
 		coingeckoId: "base",
 		layerZeroEid: 30184,
@@ -716,6 +723,7 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 		},
 		rpcEnvKey: "POLYGON_MAINNET",
 		defaultRpcUrl: "https://polygon-bor-rpc.publicnode.com",
+		bundlerUrl: "https://bundler.polytope.technology/polygon",
 		consensusStateId: "POLY",
 		coingeckoId: "polygon-pos",
 		layerZeroEid: 30109,
@@ -793,6 +801,7 @@ export const chainConfigs: Record<number, ChainConfigData> = {
 		},
 		rpcEnvKey: "POLYGON_AMOY",
 		defaultRpcUrl: "https://rpc-amoy.polygon.technology",
+		bundlerUrl: "https://bundler.polytope.technology/polygon-amoy",
 		consensusStateId: "POLY",
 		coingeckoId: "polygon-pos",
 	},

@@ -300,7 +300,7 @@ export class GasEstimator {
 		let maxPriorityFeePerGas = gasPrice + (gasPrice * BigInt(priorityFeeBumpPercent)) / 100n
 		let maxFeePerGas = gasPrice + (gasPrice * BigInt(maxFeeBumpPercent)) / 100n
 
-		await assertGatewayRelease(this.ctx.dest.client as any, intentGatewayV2Address)
+		await assertGatewayRelease(this.ctx.dest.client as any, intentGatewayV2Address, destStateMachineId)
 		const fillOrderCalldata = encodeFillOrder(transformOrderForContract(order) as any, fillOptions)
 
 		let callGasLimit: bigint = 500_000n

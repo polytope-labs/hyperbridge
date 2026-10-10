@@ -8,6 +8,10 @@ A gateway without the getter, or on any other release, is refused rather than en
 `supportsRateFills` applies the same check, and a bid is signed or counted only when the destination
 gateway reports the supported release.
 
+Testnet chains (`TESTNET_CHAINS`) also accept release 3. The testnet gateways already run the
+userOpHash solver selection that release 4 brings to mainnet, but still report 3. Both checks take the
+destination's state machine id to tell the two apart. Mainnet accepts 4 only.
+
 `SolverAccount` has no `version()` getter, so the account is not version-checked. Phantom bids still
 require the sender to be delegated to one of the chain's configured `SolverAccount` addresses.
 

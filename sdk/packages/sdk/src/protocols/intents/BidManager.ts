@@ -91,7 +91,7 @@ export class BidManager {
 		}
 		const chain = normalizeStateMachineId(order.destination)
 		const gateway = this.ctx.dest.configService.getIntentGatewayAddress(chain)
-		if (!(await supportsRateFills(this.ctx.dest.client as any, gateway))) {
+		if (!(await supportsRateFills(this.ctx.dest.client as any, gateway, chain))) {
 			throw new Error("Fills are not supported by the destination gateway")
 		}
 

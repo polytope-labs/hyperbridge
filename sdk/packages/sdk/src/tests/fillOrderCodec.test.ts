@@ -12,6 +12,8 @@ import {
 import type { FillOptions, HexString, Order, TokenInfo } from "@/types"
 
 const GATEWAY = "0x1111111111111111111111111111111111111111" as HexString
+const MAINNET = "EVM-8453"
+const TESTNET = "EVM-97"
 const TOKEN = "0x0000000000000000000000000000000000000000000000000000000000000002" as HexString
 
 /** The pre-quote `fillOrder(Order, (relayerFee, nativeDispatchFee, validUntil, outputs))`, selector `0xa5470064`. */
@@ -127,49 +129,80 @@ describe("decodeFillOrder", () => {
 })
 
 describe("assertGatewayRelease", () => {
-	it("accepts release 3", async () => {
-		await expect(assertGatewayRelease(client(vi.fn().mockResolvedValue(3n)), GATEWAY)).resolves.toBeUndefined()
+	it("accepts release 4", async () => {
+		await expect(
+			assertGatewayRelease(client(vi.fn().mockResolvedValue(4n)), GATEWAY, MAINNET),
+		).resolves.toBeUndefined()
 	})
 
-	it.each([0n, 1n, 2n, 4n, 5n, (1n << 64n) - 1n])("rejects release %s", async (release) => {
-		await expect(assertGatewayRelease(client(vi.fn().mockResolvedValue(release)), GATEWAY)).rejects.toThrow(
-			/release 3/,
-		)
+	it.each([0n, 1n, 2n, 3n, 5n, (1n << 64n) - 1n])("rejects release %s", async (release) => {
+		await expect(
+			assertGatewayRelease(client(vi.fn().mockResolvedValue(release)), GATEWAY, MAINNET),
+		).rejects.toThrow(/release 4/)
 	})
 
 	it("rejects a malformed version instead of guessing", async () => {
-		await expect(assertGatewayRelease(client(vi.fn().mockResolvedValue("0x12345678")), GATEWAY)).rejects.toThrow(
-			/release 3/,
-		)
+		await expect(
+			assertGatewayRelease(client(vi.fn().mockResolvedValue("0x12345678")), GATEWAY, MAINNET),
+		).rejects.toThrow(/release 4/)
 	})
 
 	it("is never cached, so an upgrade is seen on the next read", async () => {
-		const c = client(vi.fn().mockResolvedValue(2n))
-		await expect(assertGatewayRelease(c, GATEWAY)).rejects.toThrow(/release 2/)
-		c.readContract.mockResolvedValue(3n)
-		await expect(assertGatewayRelease(c, GATEWAY)).resolves.toBeUndefined()
+		const c = client(vi.fn().mockResolvedValue(3n))
+		await expect(assertGatewayRelease(c, GATEWAY, MAINNET)).rejects.toThrow(/release 3/)
+		c.readContract.mockResolvedValue(4n)
+		await expect(assertGatewayRelease(c, GATEWAY, MAINNET)).resolves.toBeUndefined()
 		expect(c.readContract).toHaveBeenCalledTimes(2)
+	})
+})
+
+describe("testnet gateways", () => {
+	// Testnet runs release-4 code but reports 3, so a testnet chain accepts both.
+	it.each([3n, 4n])("accepts release %s on a testnet chain", async (release) => {
+		await expect(
+			assertGatewayRelease(client(vi.fn().mockResolvedValue(release)), GATEWAY, TESTNET),
+		).resolves.toBeUndefined()
+		await expect(supportsRateFills(client(vi.fn().mockResolvedValue(release)), GATEWAY, TESTNET)).resolves.toBe(
+			true,
+		)
+	})
+
+	it.each([0n, 1n, 2n, 5n])("rejects release %s on a testnet chain", async (release) => {
+		await expect(
+			assertGatewayRelease(client(vi.fn().mockResolvedValue(release)), GATEWAY, TESTNET),
+		).rejects.toThrow(/release 3 or 4/)
+		await expect(supportsRateFills(client(vi.fn().mockResolvedValue(release)), GATEWAY, TESTNET)).resolves.toBe(
+			false,
+		)
+	})
+
+	it("still requires release 4 on mainnet", async () => {
+		await expect(assertGatewayRelease(client(vi.fn().mockResolvedValue(3n)), GATEWAY, MAINNET)).rejects.toThrow(
+			/requires release 4$/,
+		)
 	})
 })
 
 describe("supportsRateFills", () => {
 	it("reads only the gateway release", async () => {
-		const readContract = vi.fn().mockResolvedValue(3n)
-		await expect(supportsRateFills(client(readContract), GATEWAY)).resolves.toBe(true)
+		const readContract = vi.fn().mockResolvedValue(4n)
+		await expect(supportsRateFills(client(readContract), GATEWAY, MAINNET)).resolves.toBe(true)
 		expect(readContract).toHaveBeenCalledTimes(1)
 		expect(readContract.mock.calls[0][0].address).toBe(GATEWAY)
 	})
 
-	it.each([0n, 1n, 2n, 4n, 5n, (1n << 64n) - 1n])("rejects gateway release %s", async (release) => {
-		await expect(supportsRateFills(client(vi.fn().mockResolvedValue(release)), GATEWAY)).resolves.toBe(false)
+	it.each([0n, 1n, 2n, 3n, 5n, (1n << 64n) - 1n])("rejects gateway release %s", async (release) => {
+		await expect(supportsRateFills(client(vi.fn().mockResolvedValue(release)), GATEWAY, MAINNET)).resolves.toBe(
+			false,
+		)
 	})
 
 	it("does not cache capability across calls", async () => {
-		const c = client(vi.fn().mockResolvedValue(3n))
+		const c = client(vi.fn().mockResolvedValue(4n))
 
-		expect(await supportsRateFills(c, GATEWAY)).toBe(true)
-		c.readContract.mockResolvedValue(2n)
-		expect(await supportsRateFills(c, GATEWAY)).toBe(false)
+		expect(await supportsRateFills(c, GATEWAY, MAINNET)).toBe(true)
+		c.readContract.mockResolvedValue(3n)
+		expect(await supportsRateFills(c, GATEWAY, MAINNET)).toBe(false)
 		expect(c.readContract).toHaveBeenCalledTimes(2)
 	})
 })
@@ -194,8 +227,8 @@ describe("version() failures with real viem errors", () => {
 		{ code: -32005, message: "rate limit exceeded" },
 	])("propagates provider failure $code: $message", async (rpcError) => {
 		const c = rpcClient(rpcError)
-		await expect(assertGatewayRelease(c, GATEWAY)).rejects.toThrow(rpcError.message)
-		await expect(supportsRateFills(c, GATEWAY)).rejects.toThrow(rpcError.message)
+		await expect(assertGatewayRelease(c, GATEWAY, MAINNET)).rejects.toThrow(rpcError.message)
+		await expect(supportsRateFills(c, GATEWAY, MAINNET)).rejects.toThrow(rpcError.message)
 	})
 
 	it.each([
@@ -205,13 +238,13 @@ describe("version() failures with real viem errors", () => {
 		{ code: -32000, message: "function selector was not recognized and there's no fallback function" },
 	])("treats a genuine EVM failure $code: $message as a missing getter", async (rpcError) => {
 		const c = rpcClient(rpcError)
-		await expect(assertGatewayRelease(c, GATEWAY)).rejects.toThrow(/no version\(\)/)
-		await expect(supportsRateFills(c, GATEWAY)).resolves.toBe(false)
+		await expect(assertGatewayRelease(c, GATEWAY, MAINNET)).rejects.toThrow(/no version\(\)/)
+		await expect(supportsRateFills(c, GATEWAY, MAINNET)).resolves.toBe(false)
 	})
 
 	it("treats a successful call returning no data as a missing getter", async () => {
 		const c = rpcClient()
-		await expect(assertGatewayRelease(c, GATEWAY)).rejects.toThrow(/no version\(\)/)
-		await expect(supportsRateFills(c, GATEWAY)).resolves.toBe(false)
+		await expect(assertGatewayRelease(c, GATEWAY, MAINNET)).rejects.toThrow(/no version\(\)/)
+		await expect(supportsRateFills(c, GATEWAY, MAINNET)).resolves.toBe(false)
 	})
 })

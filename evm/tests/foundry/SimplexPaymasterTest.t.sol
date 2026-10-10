@@ -6,6 +6,7 @@ import {Vm} from "forge-std/Vm.sol";
 import {ERC4337Utils, PackedUserOperation} from "@openzeppelin/contracts/account/utils/draft-ERC4337Utils.sol";
 import {IPaymaster} from "@openzeppelin/contracts/interfaces/draft-IERC4337.sol";
 import {PaymasterCore} from "@openzeppelin/community-contracts/contracts/account/paymaster/PaymasterCore.sol";
+import {IStakeManager} from "@account-abstraction/contracts/interfaces/IStakeManager.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {ERC20Permit} from "@openzeppelin/contracts/token/ERC20/extensions/ERC20Permit.sol";
@@ -15,7 +16,7 @@ import {Initializable} from "@openzeppelin/contracts/proxy/utils/Initializable.s
 import {HyperApp} from "@hyperbridge/core/apps/HyperApp.sol";
 import {IncomingPostRequest} from "@hyperbridge/core/interfaces/IApp.sol";
 
-import {SimplexPaymaster, AggregatorV3Interface, IStakeManager} from "../../src/utils/SimplexPaymaster.sol";
+import {SimplexPaymaster, AggregatorV3Interface} from "../../src/utils/SimplexPaymaster.sol";
 
 contract MockHost {
     bytes public hyperbridgeId;

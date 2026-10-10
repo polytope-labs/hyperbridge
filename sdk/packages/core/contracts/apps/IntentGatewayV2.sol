@@ -284,7 +284,7 @@ interface IIntentGatewayV2 {
     /// @notice Thrown when an owner-only function is called by anyone but the owner or the host.
     error OwnableUnauthorizedAccount(address account);
 
-    /// @notice Thrown when `initialize` or `migrate` is given a zero owner.
+    /// @notice Thrown when `initialize` is given a zero owner.
     error OwnableInvalidOwner(address owner);
 
     // ============================================
@@ -426,7 +426,7 @@ interface IIntentGatewayV2 {
     event OwnershipTransferStarted(address indexed previousOwner, address indexed newOwner);
 
     /**
-     * @notice Emitted when the owner is set, by `initialize`, `migrate`, `acceptOwnership` or
+     * @notice Emitted when the owner is set, by `initialize`, `acceptOwnership` or
      *         `renounceOwnership`.
      * @param previousOwner The owner before this change
      * @param newOwner The owner from now on
@@ -506,15 +506,6 @@ interface IIntentGatewayV2 {
     function relayer() external view returns (address);
 
     /**
-     * @notice Takes a proxy from an earlier implementation to the current version, where
-     *         `initialize` puts a fresh one. Host-only and one-shot; emits `Initialized`. It is the
-     *         only way up for a proxy already at a version: `initialize` is refused on anything but
-     *         a bare proxy. Moves the relayer from slot 13 offset 1 to offset 0 and sets the owner.
-     * @param owner The owner, who may pause the gateway; must be non-zero
-     */
-    function migrate(address owner) external;
-
-    /**
      * @notice The owner, who may pause and resume the gateway.
      * @return address The owner
      */
@@ -555,9 +546,10 @@ interface IIntentGatewayV2 {
     function unpause() external;
 
     /**
-     * @notice The `Initializable` version: 3 once `initialize` or `migrate` has run on the
-     *         module-split implementation with an owner, 2 on the armed implementation before it, 1
-     *         before the relayer gate. Reverts on implementations that predate the gate.
+     * @notice The `Initializable` version: 4 once `initialize` or `migrate` has run on the
+     *         implementation that binds solver selection to the EntryPoint v0.9 UserOperation, 3 on
+     *         the module-split implementation with an owner, 2 on the armed implementation before
+     *         it, 1 before the relayer gate. Reverts on implementations that predate the gate.
      * @return uint64 The initialized version
      */
     function version() external view returns (uint64);

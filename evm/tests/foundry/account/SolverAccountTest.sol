@@ -4,10 +4,11 @@ pragma solidity ^0.8.17;
 import "forge-std/Test.sol";
 import {SolverAccount} from "../../../src/apps/intentsv2/SolverAccount.sol";
 import {IntentGatewayV2} from "../../../src/apps/IntentGatewayV2.sol";
-import {IntentsBase, IEntryPointV09} from "../../../src/apps/intentsv2/IntentsBase.sol";
+import {IntentsBase} from "../../../src/apps/intentsv2/IntentsBase.sol";
 import {deployIntentGatewayImpl, deployIntentModules} from "../IntentGatewayDeploy.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {IntentQuoteTestUtils} from "../IntentQuoteTestUtils.sol";
+import {toEntryPointOp, toEntryPointOps} from "../EntryPointOps.sol";
 import {ERC20Token} from "../mocks/ERC20Token.sol";
 import {
     SelectOptions,
@@ -26,6 +27,7 @@ import {Account as AccountBase} from "@openzeppelin/contracts/account/Account.so
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {PackedUserOperation} from "@openzeppelin/contracts/interfaces/draft-IERC4337.sol";
+import {IEntryPoint} from "@account-abstraction/contracts/interfaces/IEntryPoint.sol";
 import {Execution} from "@openzeppelin/contracts/interfaces/draft-IERC7579.sol";
 
 import {ERC4337Utils} from "@openzeppelin/contracts/account/utils/draft-ERC4337Utils.sol";
@@ -111,21 +113,9 @@ contract SolverAccountTest is Test {
     // ============================================
 
     function test_ReleaseVersionProtectsCurrentAndHistoricalSelectors() public view {
-        assertEq(intentGateway.version(), 3);
+        assertEq(intentGateway.version(), 4);
         assertNotEq(intentGateway.fillOrder.selector, bytes4(0xa5470064));
         assertNotEq(intentGateway.fillOrder.selector, bytes4(0x5cfb1ea5));
-    }
-
-    function testVersionTwoMigrationShiftsRelayerOnce() public {
-        bytes32 initSlot = 0xf0c57e16840df040f15088dc2f81fe391c3923bec73e23a9662efc9c229c6a00;
-        vm.store(address(intentGateway), initSlot, bytes32(uint256(2)));
-        address relayer = address(0x123456);
-        vm.store(address(intentGateway), bytes32(uint256(13)), bytes32(uint256(uint160(relayer)) << 8));
-        vm.prank(intentGateway.host());
-        intentGateway.migrate(address(0xabc));
-        assertEq(intentGateway.version(), 3);
-        assertEq(intentGateway.owner(), address(0xabc));
-        assertEq(intentGateway.relayer(), relayer);
     }
 
     function test_Constructor_SetsCachedValues() public view {
@@ -1195,7 +1185,7 @@ contract SolverAccountTest is Test {
         (ops[1],) = _handleOpsBid(commitment, callData, sessionKeyPrivateKey);
 
         vm.expectEmit(true, true, false, true, entryPoint);
-        emit IEntryPointHandleOps.UserOperationRevertReason(
+        emit IEntryPoint.UserOperationRevertReason(
             otherHash, address(solverAccount), ops[0].nonce, abi.encodeWithSelector(IntentsBase.Unauthorized.selector)
         );
         _handleOps(ops);
@@ -1388,7 +1378,7 @@ contract SolverAccountTest is Test {
 
     /// @dev Runs a bid's batch as the EntryPoint does while it reports `executing` as the current op.
     function _executeBid(bytes memory callData, bytes32 executing) internal {
-        bytes memory currentUserOpHashCall = abi.encodeCall(IEntryPointV09.getCurrentUserOpHash, ());
+        bytes memory currentUserOpHashCall = abi.encodeCall(IEntryPoint.getCurrentUserOpHash, ());
         vm.mockCall(entryPoint, currentUserOpHashCall, abi.encode(executing));
         vm.prank(entryPoint);
         (bool ok, bytes memory returned) = address(solverAccount).call(callData);
@@ -1412,7 +1402,7 @@ contract SolverAccountTest is Test {
         op.accountGasLimits = bytes32((uint256(300_000) << 128) | uint256(1_000_000));
         op.preVerificationGas = 60_000;
         op.gasFees = bytes32((uint256(1 gwei) << 128) | (block.basefee + 1 gwei));
-        userOpHash = IEntryPointHandleOps(entryPoint).getUserOpHash(op);
+        userOpHash = IEntryPoint(entryPoint).getUserOpHash(toEntryPointOp(op));
         op.signature = abi.encodePacked(
             commitment, _signUserOpHash(userOpHash), _signSelection(commitment, userOpHash, selectorPrivateKey)
         );
@@ -1422,7 +1412,7 @@ contract SolverAccountTest is Test {
     function _handleOps(PackedUserOperation[] memory ops) internal {
         address bundler = makeAddr("bundler");
         vm.prank(bundler, bundler);
-        IEntryPointHandleOps(entryPoint).handleOps(ops, payable(bundler));
+        IEntryPoint(entryPoint).handleOps(toEntryPointOps(ops), payable(bundler));
     }
 
     /// @notice ERC-7821 execute(mode, executionData) calldata for a batch of calls
@@ -1530,17 +1520,6 @@ contract SolverAccountTest is Test {
         return uint256(uint192(uint256(keccak256(abi.encodePacked(commitment, sessionKeyAddr, keccak256(callData))))))
             << 64;
     }
-}
-
-/// @dev The EntryPoint v0.9 calls a bundler makes, and the event an op that reverts in execution emits.
-interface IEntryPointHandleOps {
-    event UserOperationRevertReason(
-        bytes32 indexed userOpHash, address indexed sender, uint256 nonce, bytes revertReason
-    );
-
-    function handleOps(PackedUserOperation[] calldata ops, address payable beneficiary) external;
-
-    function getUserOpHash(PackedUserOperation calldata userOp) external view returns (bytes32);
 }
 
 contract MockContract {

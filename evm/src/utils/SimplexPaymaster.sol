@@ -3,6 +3,7 @@ pragma solidity ^0.8.24;
 
 import {ERC4337Utils, PackedUserOperation} from "@openzeppelin/contracts/account/utils/draft-ERC4337Utils.sol";
 import {IEntryPoint} from "@openzeppelin/contracts/interfaces/draft-IERC4337.sol";
+import {IStakeManager} from "@account-abstraction/contracts/interfaces/IStakeManager.sol";
 import {PaymasterERC20} from "@openzeppelin/community-contracts/contracts/account/paymaster/PaymasterERC20.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
@@ -15,6 +16,7 @@ import {HyperApp} from "@hyperbridge/core/apps/HyperApp.sol";
 import {IncomingPostRequest} from "@hyperbridge/core/interfaces/IApp.sol";
 import {IDispatcher} from "@hyperbridge/core/interfaces/IDispatcher.sol";
 import {IUniswapV2Router02} from "@uniswap/v2-periphery/contracts/interfaces/IUniswapV2Router02.sol";
+import {ISignatureTransfer} from "@uniswap/permit2/src/interfaces/ISignatureTransfer.sol";
 
 /// @notice Minimal Chainlink AggregatorV3 interface — no external dependency needed.
 interface AggregatorV3Interface {
@@ -24,45 +26,6 @@ interface AggregatorV3Interface {
         returns (uint80 roundId, int256 answer, uint256 startedAt, uint256 updatedAt, uint80 answeredInRound);
 
     function decimals() external view returns (uint8);
-}
-
-/// @notice Minimal Permit2 SignatureTransfer interface — no external dependency needed.
-interface ISignatureTransfer {
-    struct TokenPermissions {
-        address token;
-        uint256 amount;
-    }
-
-    struct PermitTransferFrom {
-        TokenPermissions permitted;
-        uint256 nonce;
-        uint256 deadline;
-    }
-
-    struct SignatureTransferDetails {
-        address to;
-        uint256 requestedAmount;
-    }
-
-    function permitTransferFrom(
-        PermitTransferFrom memory permit,
-        SignatureTransferDetails calldata transferDetails,
-        address owner,
-        bytes calldata signature
-    ) external;
-}
-
-/// @notice The EntryPoint's `getDepositInfo` view, which OpenZeppelin's IEntryPointStake omits.
-interface IStakeManager {
-    struct DepositInfo {
-        uint256 deposit;
-        bool staked;
-        uint112 stake;
-        uint32 unstakeDelaySec;
-        uint48 withdrawTime;
-    }
-
-    function getDepositInfo(address account) external view returns (DepositInfo memory info);
 }
 
 /// @title  SimplexPaymaster
@@ -211,10 +174,10 @@ contract SimplexPaymaster is Initializable, HyperApp, PaymasterERC20 {
     uint256 internal constant PERMIT2_DATA_LENGTH = 182;
 
     /// @dev EntryPoint v0.9, the only one this paymaster serves.
-    IEntryPoint private constant ENTRYPOINT_V09 = IEntryPoint(0x433709009B8330FDa32311DF1C2AFA402eD8D009);
+    address private constant ENTRYPOINT_V09 = 0x433709009B8330FDa32311DF1C2AFA402eD8D009;
 
     /// @dev EntryPoint v0.8, which {migrate} drains and {withdrawStakeV08} unstakes.
-    IEntryPoint private constant ENTRYPOINT_V08 = ERC4337Utils.ENTRYPOINT_V08;
+    address private constant ENTRYPOINT_V08 = address(ERC4337Utils.ENTRYPOINT_V08);
 
     /// @notice The local Hyperbridge host; the only address allowed to deliver
     ///         governance requests.
@@ -328,9 +291,9 @@ contract SimplexPaymaster is Initializable, HyperApp, PaymasterERC20 {
     ///      {withdrawStakeV08} moves the unlocked v0.8 stake into the v0.9 deposit once its delay
     ///      passes.
     function migrate() external onlyHost onlyPreviousVersion reinitializer(VERSION) {
-        IStakeManager.DepositInfo memory info = IStakeManager(address(ENTRYPOINT_V08)).getDepositInfo(address(this));
-        if (info.deposit > 0) ENTRYPOINT_V08.withdrawTo(payable(address(this)), info.deposit);
-        if (info.staked) ENTRYPOINT_V08.unlockStake();
+        IStakeManager.DepositInfo memory info = IStakeManager(ENTRYPOINT_V08).getDepositInfo(address(this));
+        if (info.deposit > 0) IEntryPoint(ENTRYPOINT_V08).withdrawTo(payable(address(this)), info.deposit);
+        if (info.staked) IEntryPoint(ENTRYPOINT_V08).unlockStake();
 
         uint256 deposited = address(this).balance;
         if (deposited > 0) entryPoint().depositTo{value: deposited}(address(this));
@@ -342,7 +305,7 @@ contract SimplexPaymaster is Initializable, HyperApp, PaymasterERC20 {
     /// @dev Permissionless: the native only ever lands in this paymaster's own v0.9 deposit, v0.8
     ///      enforces the unstake delay and pays out once, and ERC-20 prefunds do not move.
     function withdrawStakeV08() external {
-        ENTRYPOINT_V08.withdrawStake(payable(address(this)));
+        IEntryPoint(ENTRYPOINT_V08).withdrawStake(payable(address(this)));
         uint256 balance = address(this).balance;
         if (balance > 0) entryPoint().depositTo{value: balance}(address(this));
     }
@@ -351,7 +314,7 @@ contract SimplexPaymaster is Initializable, HyperApp, PaymasterERC20 {
     ///      receives every deposit, stake and withdrawal call; only {migrate} and
     ///      {withdrawStakeV08} reach v0.8.
     function entryPoint() public pure override returns (IEntryPoint) {
-        return ENTRYPOINT_V09;
+        return IEntryPoint(ENTRYPOINT_V09);
     }
 
     /// @notice The `Initializable` version: 0 on a bare proxy, `VERSION` once `initialize` or

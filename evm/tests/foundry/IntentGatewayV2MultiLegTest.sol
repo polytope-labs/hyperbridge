@@ -308,13 +308,14 @@ contract IntentGatewayV2MultiLegTest is MainnetForkBaseTest {
         assertEq(gateway._filled(commitment), solverB);
     }
 
-    function testFill_ValidatesLaterLegBeforeTokenTransfer() public {
+    function testFill_InvalidLaterLegRevertsWholeFill() public {
         (Order memory sameChain, bytes32 commitment) = _place(gateway, _ladder("", host.host()));
         Order memory crossChain = _ladder(bytes("SOURCE_CHAIN"), host.host());
         TokenInfo[] memory takes = _legs([usdcToken, usdcToken], [uint256(1200 * 1e6), 1000 * 1e6]);
         TokenInfo[] memory outputs = _legs([daiToken, daiToken], [uint256(1200 * 1e18), 990 * 1e18]);
         outputs[1].token = usdcToken;
-        vm.mockCallRevert(address(dai), abi.encodeWithSelector(IERC20.transferFrom.selector), hex"deadbeef");
+        uint256 solverDai = dai.balanceOf(solverA);
+        uint256 userDai = dai.balanceOf(user);
 
         vm.expectRevert(IntentsBase.InvalidInput.selector);
         vm.prank(solverA);
@@ -323,10 +324,11 @@ contract IntentGatewayV2MultiLegTest is MainnetForkBaseTest {
         vm.prank(solverA);
         gateway.fillOrder(crossChain, FillOptions(0, 0, 0, outputs, takes));
 
-        vm.clearMockedCalls();
         assertEq(gateway._partialFills(commitment, 0), 0);
         assertEq(gateway._orders(commitment, 0), 1200 * 1e6);
         assertEq(gateway._filled(commitment), address(0));
+        assertEq(dai.balanceOf(solverA), solverDai);
+        assertEq(dai.balanceOf(user), userDai);
     }
 
     function testRate_CompletedAndSkippedLegsStillValidateQuotes() public {

@@ -47,7 +47,7 @@
 			"handlerV2": "0x2a18AB35DEa43474882E05A661e2F20fe89c0535",
 			"intentGatewayV3": "0xAe041F7B0CB581876832830baeB6a2Aa2a3C9716",
 			"solverAccount": [
-				"0xd5535d4DeB17F050e52B6efda2fDe00435f39279",
+				"0xaAd062555800a97Af062795189e32a3CBd045612",
 				"0x77c3394CA5881A74f18139AC87D0c11F8Faa90cC"
 			],
 			"yieldVaults": {
@@ -117,7 +117,7 @@
 			"handlerV2": "0x2a18AB35DEa43474882E05A661e2F20fe89c0535",
 			"intentGatewayV3": "0xAe041F7B0CB581876832830baeB6a2Aa2a3C9716",
 			"solverAccount": [
-				"0xd5535d4DeB17F050e52B6efda2fDe00435f39279",
+				"0xaAd062555800a97Af062795189e32a3CBd045612",
 				"0x77c3394CA5881A74f18139AC87D0c11F8Faa90cC"
 			],
 			"yieldVaults": {
@@ -163,7 +163,7 @@
 			"handlerV2": "0x2a18AB35DEa43474882E05A661e2F20fe89c0535",
 			"intentGatewayV3": "0xAe041F7B0CB581876832830baeB6a2Aa2a3C9716",
 			"solverAccount": [
-				"0xd5535d4DeB17F050e52B6efda2fDe00435f39279",
+				"0xaAd062555800a97Af062795189e32a3CBd045612",
 				"0x77c3394CA5881A74f18139AC87D0c11F8Faa90cC"
 			],
 			"yieldVaults": {
@@ -231,7 +231,7 @@
 			"handlerV2": "0x2a18AB35DEa43474882E05A661e2F20fe89c0535",
 			"intentGatewayV3": "0xAe041F7B0CB581876832830baeB6a2Aa2a3C9716",
 			"solverAccount": [
-				"0xd5535d4DeB17F050e52B6efda2fDe00435f39279",
+				"0xaAd062555800a97Af062795189e32a3CBd045612",
 				"0x77c3394CA5881A74f18139AC87D0c11F8Faa90cC"
 			],
 			"yieldVaults": {
@@ -253,6 +253,10 @@
 				},
 				"0xa8aea66b361a8d53e8865c62d142167af28af058": {
 					"description": "cNGN \u2014 listed so the LP balance sweep tracks the raw ERC-20 balance",
+					"vaults": []
+				},
+				"0x5b0c50fdd52ecc0d4c682c441eabad41ffdeabbb": {
+					"description": "BRIDGE \u2014 listed so the LP balance sweep tracks the raw ERC-20 balance",
 					"vaults": []
 				}
 			},
@@ -299,7 +303,7 @@
 			"handlerV2": "0x2a18AB35DEa43474882E05A661e2F20fe89c0535",
 			"intentGatewayV3": "0xAe041F7B0CB581876832830baeB6a2Aa2a3C9716",
 			"solverAccount": [
-				"0xd5535d4DeB17F050e52B6efda2fDe00435f39279",
+				"0xaAd062555800a97Af062795189e32a3CBd045612",
 				"0x77c3394CA5881A74f18139AC87D0c11F8Faa90cC"
 			],
 			"yieldVaults": {
@@ -333,6 +337,10 @@
 				},
 				"0xdc3326e71d45186f113a2f448984ca0e8d201995": {
 					"description": "XSGD \u2014 listed so the LP balance sweep tracks the raw ERC-20 balance",
+					"vaults": []
+				},
+				"0x5b0c50fdd52ecc0d4c682c441eabad41ffdeabbb": {
+					"description": "BRIDGE \u2014 listed so the LP balance sweep tracks the raw ERC-20 balance",
 					"vaults": []
 				}
 			},

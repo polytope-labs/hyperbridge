@@ -5,26 +5,13 @@ import {Test} from "forge-std/Test.sol";
 import {ERC4337Utils, PackedUserOperation} from "@openzeppelin/contracts/account/utils/draft-ERC4337Utils.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
+import {IEntryPoint} from "@account-abstraction/contracts/interfaces/IEntryPoint.sol";
 
-import {SimplexPaymaster, AggregatorV3Interface, ISignatureTransfer} from "../../src/utils/SimplexPaymaster.sol";
+import {SimplexPaymaster, AggregatorV3Interface} from "../../src/utils/SimplexPaymaster.sol";
+import {ISignatureTransfer} from "@uniswap/permit2/src/interfaces/ISignatureTransfer.sol";
 import {SolverAccount} from "../../src/apps/intentsv2/SolverAccount.sol";
 import {SimplexPaymasterHarness} from "./SimplexPaymasterTest.t.sol";
-
-interface IPermit2Test {
-    function DOMAIN_SEPARATOR() external view returns (bytes32);
-
-    function nonceBitmap(address owner, uint256 word) external view returns (uint256);
-}
-
-interface IEntryPointTest {
-    function handleOps(PackedUserOperation[] calldata ops, address payable beneficiary) external;
-
-    function getUserOpHash(PackedUserOperation calldata userOp) external view returns (bytes32);
-
-    function depositTo(address account) external payable;
-
-    function balanceOf(address account) external view returns (uint256);
-}
+import {toEntryPointOp, toEntryPointOps} from "./EntryPointOps.sol";
 
 /// @notice Exercises PERMIT2 mode against the real Permit2, real stablecoins,
 ///         real Chainlink feeds and the real EntryPoint v0.9 on a mainnet fork.
@@ -42,7 +29,7 @@ abstract contract SimplexPaymasterPermit2ForkTest is Test {
     bytes4 constant INVALID_CONTRACT_SIGNATURE = 0xb0669cbc; // InvalidContractSignature()
 
     ISignatureTransfer constant PERMIT2 = ISignatureTransfer(0x000000000022D473030F116dDEE9F6B43aC78BA3);
-    IEntryPointTest constant ENTRY_POINT = IEntryPointTest(0x433709009B8330FDa32311DF1C2AFA402eD8D009);
+    IEntryPoint constant ENTRY_POINT = IEntryPoint(0x433709009B8330FDa32311DF1C2AFA402eD8D009);
     address constant INTENT_GATEWAY = 0xAe041F7B0CB581876832830baeB6a2Aa2a3C9716;
 
     // Per-chain fixtures supplied by the concrete test.
@@ -125,7 +112,7 @@ abstract contract SimplexPaymasterPermit2ForkTest is Test {
         uint256 pulled = solverBefore - IERC20(stable).balanceOf(solver);
         assertGt(pulled, 0);
         assertEq(IERC20(stable).balanceOf(address(paymaster)), pulled);
-        assertEq(IPermit2Test(address(PERMIT2)).nonceBitmap(solver, 0) & (1 << nonce), 1 << nonce);
+        assertEq(PERMIT2.nonceBitmap(solver, 0) & (1 << nonce), 1 << nonce);
         assertEq(validationData, ERC4337Utils.packValidationData(true, 0, uint48(deadline)));
         // context = userOpHash(32) || token(20) || tokenPrice(32) || prefundAmount(32) || prefunder(20)
         assertEq(context.length, 0x88);
@@ -198,7 +185,7 @@ abstract contract SimplexPaymasterPermit2ForkTest is Test {
             abi.encodeWithSelector(SimplexPaymaster.InsufficientPermitAmount.selector, required - 1, required)
         );
         paymaster.validate(low, maxCost);
-        assertEq(IPermit2Test(address(PERMIT2)).nonceBitmap(solver, 0) & (1 << 7), 0);
+        assertEq(PERMIT2.nonceBitmap(solver, 0) & (1 << 7), 0);
 
         PackedUserOperation memory exact = _permit2Op(required, 7, deadline, solverKey);
         paymaster.validate(exact, maxCost);
@@ -254,7 +241,7 @@ abstract contract SimplexPaymasterPermit2ForkTest is Test {
         ENTRY_POINT.depositTo{value: 1 ether}(address(paymaster));
 
         PackedUserOperation memory op = _permit2Op(100 * stableUnit, 10, block.timestamp + 1 hours, solverKey);
-        op.signature = _sign(solverKey, ENTRY_POINT.getUserOpHash(op));
+        op.signature = _sign(solverKey, ENTRY_POINT.getUserOpHash(toEntryPointOp(op)));
 
         uint256 solverBefore = IERC20(stable).balanceOf(solver);
         uint256 depositBefore = ENTRY_POINT.balanceOf(address(paymaster));
@@ -262,7 +249,7 @@ abstract contract SimplexPaymasterPermit2ForkTest is Test {
         PackedUserOperation[] memory ops = new PackedUserOperation[](1);
         ops[0] = op;
         vm.prank(bundler, bundler);
-        ENTRY_POINT.handleOps(ops, payable(beneficiary));
+        ENTRY_POINT.handleOps(toEntryPointOps(ops), payable(beneficiary));
 
         uint256 charged = solverBefore - IERC20(stable).balanceOf(solver);
         uint256 nativeSpent = depositBefore - ENTRY_POINT.balanceOf(address(paymaster));
@@ -274,7 +261,7 @@ abstract contract SimplexPaymasterPermit2ForkTest is Test {
         (,, uint256 tokenPrice) = paymaster.fetchDetails(op);
         uint256 prefund = ((_maxCost(op) + 30_000 * _maxFeePerGas(op)) * tokenPrice) / 1e18;
         assertLt(charged, prefund);
-        assertEq(IPermit2Test(address(PERMIT2)).nonceBitmap(solver, 0) & (1 << 10), 1 << 10);
+        assertEq(PERMIT2.nonceBitmap(solver, 0) & (1 << 10), 1 << 10);
     }
 
     // ── Helpers ──────────────────────────────────────────────────────
@@ -326,7 +313,7 @@ abstract contract SimplexPaymasterPermit2ForkTest is Test {
             )
         );
         bytes32 digest =
-            keccak256(abi.encodePacked("\x19\x01", IPermit2Test(address(PERMIT2)).DOMAIN_SEPARATOR(), structHash));
+            keccak256(abi.encodePacked("\x19\x01", PERMIT2.DOMAIN_SEPARATOR(), structHash));
         // mode 0x02 lays the signature out as v ‖ r ‖ s (mirroring the EIP-2612 mode 0x00 fields).
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(key, digest);
         return abi.encodePacked(v, r, s);

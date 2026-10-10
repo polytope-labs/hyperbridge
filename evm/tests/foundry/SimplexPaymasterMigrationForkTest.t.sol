@@ -2,7 +2,9 @@
 pragma solidity ^0.8.24;
 
 import {Test} from "forge-std/Test.sol";
-import {PackedUserOperation} from "@openzeppelin/contracts/account/utils/draft-ERC4337Utils.sol";
+import {IEntryPoint} from "@account-abstraction/contracts/interfaces/IEntryPoint.sol";
+import {IStakeManager} from "@account-abstraction/contracts/interfaces/IStakeManager.sol";
+import {PackedUserOperation} from "@account-abstraction/contracts/interfaces/PackedUserOperation.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IERC20Permit} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Permit.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
@@ -11,22 +13,9 @@ import {HyperApp} from "@hyperbridge/core/apps/HyperApp.sol";
 import {IncomingPostRequest} from "@hyperbridge/core/interfaces/IApp.sol";
 import {IDispatcher} from "@hyperbridge/core/interfaces/IDispatcher.sol";
 
-import {SimplexPaymaster, AggregatorV3Interface, IStakeManager} from "../../src/utils/SimplexPaymaster.sol";
+import {SimplexPaymaster, AggregatorV3Interface} from "../../src/utils/SimplexPaymaster.sol";
 import {SolverAccount} from "../../src/apps/intentsv2/SolverAccount.sol";
-
-interface IEntryPointFork {
-    function handleOps(PackedUserOperation[] calldata ops, address payable beneficiary) external;
-
-    function getUserOpHash(PackedUserOperation calldata userOp) external view returns (bytes32);
-
-    function getNonce(address sender, uint192 key) external view returns (uint256);
-
-    function getDepositInfo(address account) external view returns (IStakeManager.DepositInfo memory info);
-}
-
-interface IPermit2Domain {
-    function DOMAIN_SEPARATOR() external view returns (bytes32);
-}
+import {ISignatureTransfer} from "@uniswap/permit2/src/interfaces/ISignatureTransfer.sol";
 
 /// @notice Delivers the EntryPoint v0.9 upgrade to the LIVE paymaster proxies the way governance
 ///         will: the host hands `onAccept` an `UpgradeContract` request from Hyperbridge, submitted
@@ -35,8 +24,8 @@ interface IPermit2Domain {
 abstract contract SimplexPaymasterMigrationForkTest is Test {
     using SafeERC20 for IERC20;
 
-    IEntryPointFork constant ENTRY_POINT_V08 = IEntryPointFork(0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108);
-    IEntryPointFork constant ENTRY_POINT_V09 = IEntryPointFork(0x433709009B8330FDa32311DF1C2AFA402eD8D009);
+    IEntryPoint constant ENTRY_POINT_V08 = IEntryPoint(0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108);
+    IEntryPoint constant ENTRY_POINT_V09 = IEntryPoint(0x433709009B8330FDa32311DF1C2AFA402eD8D009);
     address constant PERMIT2 = 0x000000000022D473030F116dDEE9F6B43aC78BA3;
     address constant INTENT_GATEWAY = 0xAe041F7B0CB581876832830baeB6a2Aa2a3C9716;
     bytes32 constant PERMIT_TYPEHASH =
@@ -240,7 +229,7 @@ abstract contract SimplexPaymasterMigrationForkTest is Test {
             )
         );
         (uint8 v, bytes32 r, bytes32 s) =
-            vm.sign(solverKey, _digest(IPermit2Domain(PERMIT2).DOMAIN_SEPARATOR(), structHash));
+            vm.sign(solverKey, _digest(ISignatureTransfer(PERMIT2).DOMAIN_SEPARATOR(), structHash));
 
         _sponsor(solver, solverKey, token, abi.encodePacked(uint8(2), token, permitAmount, nonce, deadline, v, r, s));
     }

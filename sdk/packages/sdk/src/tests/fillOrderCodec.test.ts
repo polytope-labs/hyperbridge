@@ -127,26 +127,26 @@ describe("decodeFillOrder", () => {
 })
 
 describe("assertGatewayRelease", () => {
-	it("accepts release 3", async () => {
-		await expect(assertGatewayRelease(client(vi.fn().mockResolvedValue(3n)), GATEWAY)).resolves.toBeUndefined()
+	it("accepts release 4", async () => {
+		await expect(assertGatewayRelease(client(vi.fn().mockResolvedValue(4n)), GATEWAY)).resolves.toBeUndefined()
 	})
 
-	it.each([0n, 1n, 2n, 4n, 5n, (1n << 64n) - 1n])("rejects release %s", async (release) => {
+	it.each([0n, 1n, 2n, 3n, 5n, (1n << 64n) - 1n])("rejects release %s", async (release) => {
 		await expect(assertGatewayRelease(client(vi.fn().mockResolvedValue(release)), GATEWAY)).rejects.toThrow(
-			/release 3/,
+			/release 4/,
 		)
 	})
 
 	it("rejects a malformed version instead of guessing", async () => {
 		await expect(assertGatewayRelease(client(vi.fn().mockResolvedValue("0x12345678")), GATEWAY)).rejects.toThrow(
-			/release 3/,
+			/release 4/,
 		)
 	})
 
 	it("is never cached, so an upgrade is seen on the next read", async () => {
-		const c = client(vi.fn().mockResolvedValue(2n))
-		await expect(assertGatewayRelease(c, GATEWAY)).rejects.toThrow(/release 2/)
-		c.readContract.mockResolvedValue(3n)
+		const c = client(vi.fn().mockResolvedValue(3n))
+		await expect(assertGatewayRelease(c, GATEWAY)).rejects.toThrow(/release 3/)
+		c.readContract.mockResolvedValue(4n)
 		await expect(assertGatewayRelease(c, GATEWAY)).resolves.toBeUndefined()
 		expect(c.readContract).toHaveBeenCalledTimes(2)
 	})
@@ -154,21 +154,21 @@ describe("assertGatewayRelease", () => {
 
 describe("supportsRateFills", () => {
 	it("reads only the gateway release", async () => {
-		const readContract = vi.fn().mockResolvedValue(3n)
+		const readContract = vi.fn().mockResolvedValue(4n)
 		await expect(supportsRateFills(client(readContract), GATEWAY)).resolves.toBe(true)
 		expect(readContract).toHaveBeenCalledTimes(1)
 		expect(readContract.mock.calls[0][0].address).toBe(GATEWAY)
 	})
 
-	it.each([0n, 1n, 2n, 4n, 5n, (1n << 64n) - 1n])("rejects gateway release %s", async (release) => {
+	it.each([0n, 1n, 2n, 3n, 5n, (1n << 64n) - 1n])("rejects gateway release %s", async (release) => {
 		await expect(supportsRateFills(client(vi.fn().mockResolvedValue(release)), GATEWAY)).resolves.toBe(false)
 	})
 
 	it("does not cache capability across calls", async () => {
-		const c = client(vi.fn().mockResolvedValue(3n))
+		const c = client(vi.fn().mockResolvedValue(4n))
 
 		expect(await supportsRateFills(c, GATEWAY)).toBe(true)
-		c.readContract.mockResolvedValue(2n)
+		c.readContract.mockResolvedValue(3n)
 		expect(await supportsRateFills(c, GATEWAY)).toBe(false)
 		expect(c.readContract).toHaveBeenCalledTimes(2)
 	})

@@ -61,8 +61,8 @@ action, `Execute` (discriminator 5): `onAccept` delegatecalls the module's own a
 with `body[1:]` as calldata, another hop that keeps the host as `msg.sender` so `onlyHost` passes.
 `setRelayer(next)` as that calldata is a rotation, `upgradeToAndCall(newImpl, initData)` is an
 upgrade, and inside the latter `ERC1967Utils.upgradeToAndCall` delegatecalls `initData` into the
-new implementation, still with the host as `msg.sender`, which is how `migrate(owner)` sets the
-owner and bumps the version in the same transaction as the swap. `setRelayer` and `upgradeToAndCall` exist only on the
+new implementation, still with the host as `msg.sender`, which is how `migrate()` bumps the
+version in the same transaction as the swap. `setRelayer` and `upgradeToAndCall` exist only on the
 module, not on the implementation, so init data cannot rotate the relayer: an upgrade and a
 rotation are two `Execute` messages (`testUpgradeThenRotateAreTwoExecutes`). A revert anywhere
 inside bubbles out of `onAccept`, so the host records the message undelivered. The pallet's
@@ -89,13 +89,16 @@ accepts the host, so governance can pause, resume or propose an owner with an `E
 `upgradeToAndCall(currentImplementation, call)` (`testGovernanceReplacesTheOwnerThroughExecute`,
 `testHostCountsAsOwner`). A fresh proxy is armed by its init data: `initialize` takes an `InitParams`
 struct (`params`, `peerChains`, `relayer`, `owner`), writes the relayer and owner through `_setRelayer` and `__Ownable_init`,
-and lands at `VERSION` (3) under `reinitializer`, emitting `RelayerUpdated`, `OwnershipTransferred`
-then `Initialized(3)`; it is refused on any proxy already at a version. A proxy on the previous
-implementation sits at 2 until the upgrade whose init data is `abi.encodeCall(migrate, (owner))`,
-host-only and under the same `reinitializer(VERSION)`, moves `_relayer` from slot 13 offset 1 to offset 0, sets the owner and takes it to 3; that is the only way up for it, since `initialize` is refused on
-anything but a bare proxy. A `setRelayer` rotation leaves the version alone. A revert from
-`version()` means an implementation from before the gate. `testInitializeArmsTheGate` pins the
-fresh path, `testMigrateMovesTheRelayerToOffsetZero`, `testMigrateSetsTheOwner` and `testMigrateRunsOnce` the
-migration, `testUpgradeFromVersionTwoWithMigrate` (`evm/tests/foundry/IntentGatewayModulesTest.sol`)
-the release's own upgrade from 2, and the live-fork test reads 2 on the mainnet proxy, upgrades it
-with `migrate(owner)` to 3, checks its relayer now reads from offset 0, and shows it refuses `initialize` and a second `migrate`.
+and lands at `VERSION` (4) under `reinitializer`, emitting `RelayerUpdated`, `OwnershipTransferred`
+then `Initialized(4)`; it is refused on any proxy already at a version. A proxy on the previous
+implementation sits at 3 until the upgrade whose init data is `abi.encodeCall(migrate, ())`,
+host-only and under the same `reinitializer(VERSION)`, takes it to 4. Storage is the same at 3 and 4,
+so `migrate` writes nothing else. It runs only on a proxy exactly one version behind, so an older
+proxy cannot skip a migration. It is the only way up, since `initialize` is refused on anything but
+a bare proxy. A `setRelayer` rotation leaves the version alone. A revert from `version()` means an
+implementation from before the gate. `testInitializeArmsTheGate` pins the fresh path,
+`testMigrateOnlyBumpsTheVersion`, `testMigrateRefusesOlderVersions` and `testMigrateRunsOnce` the
+migration, `testUpgradeFromVersionThreeWithMigrate` (`evm/tests/foundry/IntentGatewayModulesTest.sol`)
+the release's own upgrade from 3, and the live-fork test upgrades the mainnet proxy with the init
+data `intentGatewayUpgradeInitialization` builds, checks it lands at `VERSION` with its relayer and
+owner intact, and shows it refuses `initialize` and a second `migrate`.

@@ -3,6 +3,7 @@ pragma solidity ^0.8.24;
 
 import {Test} from "forge-std/Test.sol";
 import {PackedUserOperation} from "@openzeppelin/contracts/account/utils/draft-ERC4337Utils.sol";
+import {IEntryPoint} from "@account-abstraction/contracts/interfaces/IEntryPoint.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {IncomingPostRequest} from "@hyperbridge/core/interfaces/IApp.sol";
@@ -11,24 +12,8 @@ import {IDispatcher} from "@hyperbridge/core/interfaces/IDispatcher.sol";
 import {SimplexPaymaster, AggregatorV3Interface} from "../../src/utils/SimplexPaymaster.sol";
 import {SolverAccount} from "../../src/apps/intentsv2/SolverAccount.sol";
 import {SimplexPaymasterHarness} from "./SimplexPaymasterTest.t.sol";
-
-interface IPermit2Domain {
-    function DOMAIN_SEPARATOR() external view returns (bytes32);
-}
-
-interface IEntryPointGas {
-    error FailedOpWithRevert(uint256 opIndex, string reason, bytes inner);
-
-    function handleOps(PackedUserOperation[] calldata ops, address payable beneficiary) external;
-
-    function getUserOpHash(PackedUserOperation calldata userOp) external view returns (bytes32);
-
-    function depositTo(address account) external payable;
-
-    function balanceOf(address account) external view returns (uint256);
-
-    function getNonce(address sender, uint192 key) external view returns (uint256);
-}
+import {ISignatureTransfer} from "@uniswap/permit2/src/interfaces/ISignatureTransfer.sol";
+import {toEntryPointOp, toEntryPointOps} from "./EntryPointOps.sol";
 
 /// @notice Measures whether the gas the paymaster is charged by the EntryPoint stays
 ///         covered by the tokens it charges the user, when the user inflates gas
@@ -36,8 +21,8 @@ interface IEntryPointGas {
 ///         portion of `callGasLimit + paymasterPostOpGasLimit`; the paymaster only
 ///         caps the latter. Runs against the real EntryPoint v0.9 on a fork.
 contract SimplexPaymasterGasGriefTest is Test {
-    IEntryPointGas constant ENTRY_POINT = IEntryPointGas(0x433709009B8330FDa32311DF1C2AFA402eD8D009);
-    IPermit2Domain constant PERMIT2 = IPermit2Domain(0x000000000022D473030F116dDEE9F6B43aC78BA3);
+    IEntryPoint constant ENTRY_POINT = IEntryPoint(0x433709009B8330FDa32311DF1C2AFA402eD8D009);
+    ISignatureTransfer constant PERMIT2 = ISignatureTransfer(0x000000000022D473030F116dDEE9F6B43aC78BA3);
     bytes32 constant TOKEN_PERMISSIONS_TYPEHASH = keccak256("TokenPermissions(address token,uint256 amount)");
     bytes32 constant PERMIT_TRANSFER_FROM_TYPEHASH = keccak256(
         "PermitTransferFrom(TokenPermissions permitted,address spender,uint256 nonce,uint256 deadline)TokenPermissions(address token,uint256 amount)"
@@ -221,16 +206,16 @@ contract SimplexPaymasterGasGriefTest is Test {
         vm.prank(outsider, outsider);
         vm.expectRevert(
             abi.encodeWithSelector(
-                IEntryPointGas.FailedOpWithRevert.selector,
+                IEntryPoint.FailedOpWithRevert.selector,
                 uint256(0),
                 "AA33 reverted",
                 abi.encodeWithSelector(SimplexPaymaster.UnauthorizedBundler.selector, outsider)
             )
         );
-        ENTRY_POINT.handleOps(ops, payable(beneficiary));
+        ENTRY_POINT.handleOps(toEntryPointOps(ops), payable(beneficiary));
 
         vm.prank(bundler, bundler);
-        ENTRY_POINT.handleOps(ops, payable(beneficiary));
+        ENTRY_POINT.handleOps(toEntryPointOps(ops), payable(beneficiary));
         assertEq(ENTRY_POINT.getNonce(solver, 0), nonce + 1);
     }
 
@@ -247,13 +232,13 @@ contract SimplexPaymasterGasGriefTest is Test {
         vm.prank(bundler, bundler);
         vm.expectRevert(
             abi.encodeWithSelector(
-                IEntryPointGas.FailedOpWithRevert.selector,
+                IEntryPoint.FailedOpWithRevert.selector,
                 uint256(0),
                 "AA33 reverted",
                 abi.encodeWithSelector(SimplexPaymaster.InvalidPaymasterData.selector, dataLength)
             )
         );
-        ENTRY_POINT.handleOps(ops, payable(beneficiary));
+        ENTRY_POINT.handleOps(toEntryPointOps(ops), payable(beneficiary));
     }
 
     function _run(uint128 callGasLimit) internal returns (uint256 weiCharged, uint256 nativeSpent) {
@@ -281,7 +266,7 @@ contract SimplexPaymasterGasGriefTest is Test {
         PackedUserOperation[] memory ops = new PackedUserOperation[](1);
         ops[0] = op;
         vm.prank(bundler, bundler);
-        ENTRY_POINT.handleOps(ops, payable(beneficiary));
+        ENTRY_POINT.handleOps(toEntryPointOps(ops), payable(beneficiary));
 
         uint256 tokensCharged = tokensBefore - IERC20(token).balanceOf(solver);
         nativeSpent = depositBefore - ENTRY_POINT.balanceOf(address(paymaster));
@@ -321,11 +306,11 @@ contract SimplexPaymasterGasGriefTest is Test {
             abi.encodePacked(uint8(2), token, uint256(1_000e6), op.nonce, deadline, permitSig)
         );
         if (paymasterSignerKey != 0) {
-            bytes memory paymasterSig = _sign(paymasterSignerKey, ENTRY_POINT.getUserOpHash(op));
+            bytes memory paymasterSig = _sign(paymasterSignerKey, ENTRY_POINT.getUserOpHash(toEntryPointOp(op)));
             op.paymasterAndData =
                 abi.encodePacked(op.paymasterAndData, paymasterSig, uint16(paymasterSig.length), PAYMASTER_SIG_MAGIC);
         }
-        op.signature = _sign(solverKey, ENTRY_POINT.getUserOpHash(op));
+        op.signature = _sign(solverKey, ENTRY_POINT.getUserOpHash(toEntryPointOp(op)));
     }
 
     /// @dev v ‖ r ‖ s, the layout mode 0x02 expects.

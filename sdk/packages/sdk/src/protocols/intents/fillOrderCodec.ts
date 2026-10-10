@@ -8,7 +8,7 @@ export type DecodedFillOrder = { order: Order; options: FillOptions }
 /** `fillOrder(Order, FillOptions)` selector, pinned by codec tests; avoids import-time hashing in VM2. */
 export const FILL_ORDER_SELECTOR = "0x68ddf058" as const
 /** The gateway release this SDK speaks. SolverAccount carries no version, so only the gateway is read. */
-export const SUPPORTED_INTENTS_VERSION = 3n
+export const SUPPORTED_INTENTS_VERSION = 4n
 export const CONTRACT_VERSION_ABI = [
 	{
 		type: "function",

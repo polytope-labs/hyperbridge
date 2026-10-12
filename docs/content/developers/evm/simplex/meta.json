@@ -9,6 +9,7 @@
         "analytics",
         "treasury",
         "confirmations",
+        "rpc-endpoints",
         "troubleshooting",
         "api"
     ],

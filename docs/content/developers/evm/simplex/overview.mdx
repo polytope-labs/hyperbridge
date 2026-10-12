@@ -17,6 +17,7 @@ The rest of this section, in the order you will need it:
 | [Limit orders](/developers/evm/simplex/limit-orders) | Setting your prices: creating, reading and cancelling limit orders |
 | [Treasury](/developers/evm/simplex/treasury) | ERC-4626 vaults for idle stablecoins, and rebalancing |
 | [Confirmations and RPC](/developers/evm/simplex/confirmations) | How long an order waits, and why quorum reads matter |
+| [Free RPC endpoints](/developers/evm/simplex/rpc-endpoints) | Public endpoints that passed testing, chain by chain |
 | [Troubleshooting](/developers/evm/simplex/troubleshooting) | What the common failures mean |
 | [API reference](/developers/evm/simplex/api/overview) | Every route of the solver's HTTP API, limit orders included |
 
@@ -24,4 +25,4 @@ The rest of this section, in the order you will need it:
 
 You need an EVM wallet (configured via `[simplex.signer]`) funded with native tokens for gas and stablecoins to fill orders with — minimum $10,000 equivalent per chain is a reasonable starting point. To sell a non-USD token, such as cNGN, hold it on each chain you fill on. You also need a Substrate account with BRIDGE tokens for Hyperbridge extrinsic fees. A successful bid also locks a deposit, reclaimed by retracting the bid. Simplex retracts automatically when it sees the order filled, and a periodic sweep retries anything that failed — but **stopping the solver does not sweep**, so a bid still unretracted at shutdown stays locked until the next run picks it up. That is why the bid store must be durable.
 
-RPC endpoints must be from a premium provider (Alchemy Pro, Infura Growth+, QuickNode Pro). Archive node access is required for storage slot queries and gas simulation. Free-tier RPCs will not work reliably. For chains that can source cross-chain orders, configure at least two organisationally independent providers in `rpcUrls` — see [RPC Quorum](/developers/evm/simplex/confirmations#rpc-quorum).
+Each chain needs RPC endpoints that serve `eth_getLogs` every few seconds. The setup wizards start with [free public endpoints](/developers/evm/simplex/rpc-endpoints) that passed testing, and a paid provider gives you more headroom. For chains that can source cross-chain orders, configure at least two organisationally independent providers in `rpcUrls` — see [RPC Quorum](/developers/evm/simplex/confirmations#rpc-quorum).

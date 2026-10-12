@@ -62,6 +62,8 @@ rpcUrls = [
 ]
 ```
 
+Without a provider account, start from the [free RPC endpoints](/developers/evm/simplex/rpc-endpoints) that passed testing. Each chain's list there has one endpoint per operator.
+
 When you configure more than one URL, every quorum-checked read (`eth_getLogs`, `eth_blockNumber`, receipt during confirmation counting) is accepted only when a **BFT quorum** of your endpoints — `floor(2N/3) + 1` of them — agree on the result. If the quorum can't be formed — endpoints down, throttled, or disagreeing — the call fails loudly with a `QuorumError` and the scan cursor does not advance. There is no pausing or ejection state: each call independently queries every endpoint and resolves the moment the quorum is met, so a chronically slow or hung endpoint settles out of band and never stalls the confirmation hot path, let alone shrinks the quorum. A provider that *answers with divergent data* is never special-cased away; it simply fails to join the agreeing group, which is what keeps a lying or reorged endpoint detectable rather than authoritative.
 
 Log agreement compares only the consensus-relevant JSON-RPC fields (`address`, `blockHash`, `blockNumber`, `data`, `logIndex`, `removed`, `topics`, `transactionHash`, `transactionIndex`), sorted by `(blockNumber, logIndex, transactionHash)`; provider-added extras like `blockTimestamp` are dropped so debug metadata can't manufacture a disagreement. `getBlockNumber` returns the highest block that a full quorum has indexed, so the scanner never runs ahead of quorum-supported state.

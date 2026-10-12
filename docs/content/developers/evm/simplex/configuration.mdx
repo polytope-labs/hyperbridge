@@ -1,11 +1,11 @@
 ---
 title: Configuration
-description: The [simplex] block, signer backends, the [orderbook] section, bundlers, EIP-7702 delegation and gas payment, allowlists, and scan intervals.
+description: The [simplex] block, signer backends, the [orderbook] section, [[chains]] and free RPC endpoints, bundlers, EIP-7702 delegation and gas payment, allowlists, and scan intervals.
 ---
 
 # Configuration
 
-Everything here lives in `filler-config.toml`. The `[simplex]` block, its signer and the `[orderbook]` section are required. Everything else tunes behaviour that already has a working default.
+Everything here lives in `filler-config.toml`. The `[simplex]` block, its signer, the `[orderbook]` section and at least one `[[chains]]` entry are required. Everything else tunes behaviour that already has a working default.
 
 ## Where the config lives and what it contains
 
@@ -81,6 +81,92 @@ requestTimeoutMs      = 10000     # per-request timeout for orderbook calls
 
 The limit orders themselves are not in this file. They are inventory you open and close while the filler runs, so they are stored in `bids.db` in the data directory and created from the dashboard or the [API](/developers/evm/simplex/api/limit-orders).
 
+## `[[chains]]`
+
+One entry per chain. `rpcUrls` lists the chain's RPC endpoints, each on a different hostname. With more than one, Simplex reads scans through a [quorum](/developers/evm/simplex/confirmations#rpc-quorum). List your most trusted endpoint first: reads outside the quorum use it.
+
+### Free RPC endpoints
+
+Free, no API key needed, tested September 2026. The setup wizard uses the uncommented ones. Use one endpoint per operator.
+
+```toml lineNumbers
+[[chains]]  # BNB Smart Chain (56)
+rpcUrls = [
+    "https://bsc-rpc.publicnode.com",
+    "https://public-bsc-mainnet.fastnode.io",
+    "https://public-bsc.nownodes.io",
+    "https://bsc.blockrazor.xyz",
+    "https://rpc-bsc.48.club",
+    "https://bsc.api.pocket.network",
+    # Also passed testing, not in the wizard defaults:
+    # "https://56.rpc.thirdweb.com",
+    # "https://rpc-bsc.blockmachine.io",
+    # "https://bsc.rpc.sentio.xyz",
+]
+
+[[chains]]  # Ethereum (1)
+rpcUrls = [
+    "https://mainnet.gateway.tenderly.co",
+    "https://rpc.mevblocker.io",
+    "https://ethereum-rpc.publicnode.com",
+    "https://ethereum.public.blockpi.network/v1/rpc/public",
+    "https://eth.blockrazor.xyz",
+    "https://eth.api.pocket.network",
+    "https://ethereum-public.nodies.app",
+    "https://eth-mainnet.public.blastapi.io",
+    "https://public-eth.nownodes.io",
+    # Also passed testing, not in the wizard defaults:
+    # "https://mainnet.rpc.sentio.xyz",
+    # "https://rpc-eth.blockmachine.io",
+]
+
+[[chains]]  # Arbitrum One (42161)
+rpcUrls = [
+    "https://arbitrum-one-rpc.publicnode.com",
+    "https://arbitrum.gateway.tenderly.co",
+    "https://arbitrum.drpc.org",
+    "https://public-arb-mainnet.fastnode.io",
+    "https://arb-one.api.pocket.network",
+    "https://arbitrum-one-public.nodies.app",
+    "https://arb1.arbitrum.io/rpc",
+    # Also passed testing, not in the wizard defaults:
+    # "https://rpc-arbitrum.blockmachine.io",
+    # "https://42161.rpc.thirdweb.com",
+    # "https://arbitrum-one.rpc.sentio.xyz",
+    # "https://rpc.swiftnodes.io/rpc/arbitrum",
+]
+
+[[chains]]  # Base (8453)
+rpcUrls = [
+    "https://base-rpc.publicnode.com",
+    "https://base.gateway.tenderly.co",
+    "https://base.public.blockpi.network/v1/rpc/public",
+    "https://base.rpc.blxrbdn.com",
+    "https://rpc.baseazul.dev",
+    "https://mainnet.base.org",
+    "https://base-public.nodies.app",
+    # Also passed testing, not in the wizard defaults:
+    # "https://8453.rpc.thirdweb.com",
+    # "https://base.rpc.sentio.xyz",
+    # "https://rpc.swiftnodes.io/rpc/base",
+]
+
+[[chains]]  # Polygon (137)
+rpcUrls = [
+    "https://polygon-bor-rpc.publicnode.com",
+    "https://polygon.drpc.org",
+    "https://polygon.gateway.tenderly.co",
+    "https://rpc.private.mev-x.com/polygon",
+    "https://poly.api.pocket.network",
+    # Also passed testing, not in the wizard defaults:
+    # "https://rpc-polygon.blockmachine.io",
+    # "https://137.rpc.thirdweb.com",
+    # "https://matic.rpc.sentio.xyz",
+]
+```
+
+Avoid `bsc-dataseed*`, `base.drpc.org` and `arbitrum-one.public.blastapi.io`, which don't serve the `eth_getLogs` a scan needs, as well as Tatum, ZAN and any URL with an API key in it.
+
 ## Signer Configuration
 
 The `[simplex.signer]` section defines how the binary signs EVM transactions. Four backends are supported:
@@ -151,7 +237,7 @@ Fills execute as ERC-4337 UserOperations, which a bundler submits on chain. Simp
 | BSC Chapel (testnet) | `https://bundler.polytope.technology/bsc-chapel` |
 | Polygon Amoy (testnet) | `https://bundler.polytope.technology/polygon-amoy` |
 
-Simplex can only watch any other chain. It [refuses to fill there](/developers/evm/simplex/troubleshooting), so list such a chain under `watchOnly`. An older config's `bundlerUrl` is ignored.
+Simplex can only watch any other chain. It [refuses to fill there](/developers/evm/simplex/troubleshooting), so list such a chain under `watchOnly`.
 
 ## Delegation & Gas Payment
 

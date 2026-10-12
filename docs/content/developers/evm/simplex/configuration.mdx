@@ -109,66 +109,66 @@ Use one endpoint per operator. Two URLs from the same provider agree with each o
 
 You don't need a paid provider to start. The endpoints below are free and need no account or API key. The setup wizards and the dashboard's Chains panel start each mainnet chain with the ones marked as defaults. A paid provider gives you more headroom, and you can list it alongside free ones.
 
-Each endpoint scanned its chain alone for 20 minutes, as the only RPC, on 16–18 September 2026. The defaults then ran together in a quorum for 19 hours. The notes come from those runs and a 16-hour run of a live filler on 24–25 September. All of them ran from one IP address. Free endpoints come and go, so watch your own logs.
+Each endpoint scanned its chain alone for 20 minutes, as the only RPC, on 16–18 September 2026. The defaults then ran together in a quorum for 19 hours. All of them ran from one IP address. Free endpoints come and go, so watch your own logs.
 
 When an endpoint rate-limits, Simplex sets it aside for as long as its `Retry-After` header asks, up to 5 minutes. An endpoint that falls behind the others is set aside for 15 seconds. The quorum is worked out over the rest, so one struggling endpoint costs nothing while enough of the others keep up.
 
-| Chain | Endpoint | Default | Notes |
-|---|---|---|---|
-| BNB Smart Chain | `https://bsc-rpc.publicnode.com` | Yes | |
-| BNB Smart Chain | `https://public-bsc-mainnet.fastnode.io` | Yes | |
-| BNB Smart Chain | `https://public-bsc.nownodes.io` | Yes | Missed the odd scan alone |
-| BNB Smart Chain | `https://bsc.blockrazor.xyz` | Yes | |
-| BNB Smart Chain | `https://rpc-bsc.48.club` | Yes | |
-| BNB Smart Chain | `https://bsc.api.pocket.network` | Yes | |
-| BNB Smart Chain | `https://56.rpc.thirdweb.com` | No | Rate-limited often in a quorum |
-| BNB Smart Chain | `https://rpc-bsc.blockmachine.io` | No | Rate-limited often in a quorum |
-| BNB Smart Chain | `https://bsc.rpc.sentio.xyz` | No | Falls behind the others |
-| BNB Smart Chain | `https://0.48.club` | No | Same operator as `rpc-bsc.48.club` |
-| Ethereum | `https://mainnet.gateway.tenderly.co` | Yes | |
-| Ethereum | `https://rpc.mevblocker.io` | Yes | |
-| Ethereum | `https://ethereum-rpc.publicnode.com` | Yes | |
-| Ethereum | `https://ethereum.public.blockpi.network/v1/rpc/public` | Yes | |
-| Ethereum | `https://eth.blockrazor.xyz` | Yes | |
-| Ethereum | `https://eth.api.pocket.network` | Yes | |
-| Ethereum | `https://ethereum-public.nodies.app` | Yes | |
-| Ethereum | `https://eth-mainnet.public.blastapi.io` | Yes | |
-| Ethereum | `https://public-eth.nownodes.io` | Yes | Rate-limited for about two-thirds of the 16-hour run |
-| Ethereum | `https://gateway.tenderly.co/public/mainnet` | No | Same operator as `mainnet.gateway.tenderly.co` |
-| Ethereum | `https://mainnet.rpc.sentio.xyz` | No | Falls behind the others |
-| Ethereum | `https://rpc-eth.blockmachine.io` | No | Falls behind, and rate-limited often in a quorum |
-| Arbitrum One | `https://arbitrum-one-rpc.publicnode.com` | Yes | |
-| Arbitrum One | `https://arbitrum.gateway.tenderly.co` | Yes | |
-| Arbitrum One | `https://arbitrum.drpc.org` | Yes | |
-| Arbitrum One | `https://public-arb-mainnet.fastnode.io` | Yes | |
-| Arbitrum One | `https://arb-one.api.pocket.network` | Yes | Falls behind the others at times |
-| Arbitrum One | `https://arbitrum-one-public.nodies.app` | Yes | Falls behind the others at times |
-| Arbitrum One | `https://arb1.arbitrum.io/rpc` | Yes | Rate-limited at times |
-| Arbitrum One | `https://rpc-arbitrum.blockmachine.io` | No | Rate-limited often in a quorum |
-| Arbitrum One | `https://42161.rpc.thirdweb.com` | No | Rate-limited often in a quorum |
-| Arbitrum One | `https://arbitrum-one.rpc.sentio.xyz` | No | Falls behind the others |
-| Arbitrum One | `https://rpc.swiftnodes.io/rpc/arbitrum` | No | Missed scans alone, and rate-limited often in a quorum |
-| Base | `https://base-rpc.publicnode.com` | Yes | |
-| Base | `https://base.gateway.tenderly.co` | Yes | |
-| Base | `https://base.public.blockpi.network/v1/rpc/public` | Yes | |
-| Base | `https://base.rpc.blxrbdn.com` | Yes | |
-| Base | `https://rpc.baseazul.dev` | Yes | |
-| Base | `https://mainnet.base.org` | Yes | Rate-limits the token-decimal reads at startup. Scanning is unaffected. |
-| Base | `https://base-public.nodies.app` | Yes | |
-| Base | `https://8453.rpc.thirdweb.com` | No | Rate-limited often in a quorum |
-| Base | `https://base.rpc.sentio.xyz` | No | Falls behind the others |
-| Base | `https://rpc.swiftnodes.io/rpc/base` | No | Fell up to 16 seconds behind alone |
-| Base | `https://gateway.tenderly.co/public/base` | No | Same operator as `base.gateway.tenderly.co` |
-| Base | `https://developer-access-mainnet.base.org` | No | Same operator as `mainnet.base.org` |
-| Polygon | `https://polygon-bor-rpc.publicnode.com` | Yes | |
-| Polygon | `https://polygon.drpc.org` | Yes | |
-| Polygon | `https://polygon.gateway.tenderly.co` | Yes | |
-| Polygon | `https://rpc.private.mev-x.com/polygon` | Yes | |
-| Polygon | `https://poly.api.pocket.network` | Yes | Falls behind the others at times |
-| Polygon | `https://rpc-polygon.blockmachine.io` | No | Rate-limited often in a quorum |
-| Polygon | `https://137.rpc.thirdweb.com` | No | Rate-limited often in a quorum |
-| Polygon | `https://matic.rpc.sentio.xyz` | No | Falls behind the others |
-| Polygon | `https://gateway.tenderly.co/public/polygon` | No | Same operator as `polygon.gateway.tenderly.co` |
+| Chain | Endpoint | Default |
+|---|---|---|
+| BNB Smart Chain | `https://bsc-rpc.publicnode.com` | Yes |
+| BNB Smart Chain | `https://public-bsc-mainnet.fastnode.io` | Yes |
+| BNB Smart Chain | `https://public-bsc.nownodes.io` | Yes |
+| BNB Smart Chain | `https://bsc.blockrazor.xyz` | Yes |
+| BNB Smart Chain | `https://rpc-bsc.48.club` | Yes |
+| BNB Smart Chain | `https://bsc.api.pocket.network` | Yes |
+| BNB Smart Chain | `https://56.rpc.thirdweb.com` | No |
+| BNB Smart Chain | `https://rpc-bsc.blockmachine.io` | No |
+| BNB Smart Chain | `https://bsc.rpc.sentio.xyz` | No |
+| BNB Smart Chain | `https://0.48.club` | No |
+| Ethereum | `https://mainnet.gateway.tenderly.co` | Yes |
+| Ethereum | `https://rpc.mevblocker.io` | Yes |
+| Ethereum | `https://ethereum-rpc.publicnode.com` | Yes |
+| Ethereum | `https://ethereum.public.blockpi.network/v1/rpc/public` | Yes |
+| Ethereum | `https://eth.blockrazor.xyz` | Yes |
+| Ethereum | `https://eth.api.pocket.network` | Yes |
+| Ethereum | `https://ethereum-public.nodies.app` | Yes |
+| Ethereum | `https://eth-mainnet.public.blastapi.io` | Yes |
+| Ethereum | `https://public-eth.nownodes.io` | Yes |
+| Ethereum | `https://gateway.tenderly.co/public/mainnet` | No |
+| Ethereum | `https://mainnet.rpc.sentio.xyz` | No |
+| Ethereum | `https://rpc-eth.blockmachine.io` | No |
+| Arbitrum One | `https://arbitrum-one-rpc.publicnode.com` | Yes |
+| Arbitrum One | `https://arbitrum.gateway.tenderly.co` | Yes |
+| Arbitrum One | `https://arbitrum.drpc.org` | Yes |
+| Arbitrum One | `https://public-arb-mainnet.fastnode.io` | Yes |
+| Arbitrum One | `https://arb-one.api.pocket.network` | Yes |
+| Arbitrum One | `https://arbitrum-one-public.nodies.app` | Yes |
+| Arbitrum One | `https://arb1.arbitrum.io/rpc` | Yes |
+| Arbitrum One | `https://rpc-arbitrum.blockmachine.io` | No |
+| Arbitrum One | `https://42161.rpc.thirdweb.com` | No |
+| Arbitrum One | `https://arbitrum-one.rpc.sentio.xyz` | No |
+| Arbitrum One | `https://rpc.swiftnodes.io/rpc/arbitrum` | No |
+| Base | `https://base-rpc.publicnode.com` | Yes |
+| Base | `https://base.gateway.tenderly.co` | Yes |
+| Base | `https://base.public.blockpi.network/v1/rpc/public` | Yes |
+| Base | `https://base.rpc.blxrbdn.com` | Yes |
+| Base | `https://rpc.baseazul.dev` | Yes |
+| Base | `https://mainnet.base.org` | Yes |
+| Base | `https://base-public.nodies.app` | Yes |
+| Base | `https://8453.rpc.thirdweb.com` | No |
+| Base | `https://base.rpc.sentio.xyz` | No |
+| Base | `https://rpc.swiftnodes.io/rpc/base` | No |
+| Base | `https://gateway.tenderly.co/public/base` | No |
+| Base | `https://developer-access-mainnet.base.org` | No |
+| Polygon | `https://polygon-bor-rpc.publicnode.com` | Yes |
+| Polygon | `https://polygon.drpc.org` | Yes |
+| Polygon | `https://polygon.gateway.tenderly.co` | Yes |
+| Polygon | `https://rpc.private.mev-x.com/polygon` | Yes |
+| Polygon | `https://poly.api.pocket.network` | Yes |
+| Polygon | `https://rpc-polygon.blockmachine.io` | No |
+| Polygon | `https://137.rpc.thirdweb.com` | No |
+| Polygon | `https://matic.rpc.sentio.xyz` | No |
+| Polygon | `https://gateway.tenderly.co/public/polygon` | No |
 
 Some free endpoints fail outright, so leave them out:
 

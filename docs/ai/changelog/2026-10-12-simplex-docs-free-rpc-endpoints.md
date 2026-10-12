@@ -10,8 +10,8 @@ The Simplex configuration page (`docs/content/developers/evm/simplex/configurati
 - Its "Free RPC endpoints" table lists, for BNB Smart Chain, Ethereum, Arbitrum One, Base and
   Polygon, every endpoint that passed testing. The rows marked as defaults are `FREE_RPC_URLS` in
   `sdk/packages/simplex/src/cli/init/chains.ts`, which the setup wizards and the Chains panel use.
-  The other rows say why each was left out of the defaults. Endpoints whose URL carries an API key
-  are not listed.
+  The other rows passed the solo test but were left out of the defaults. Endpoints whose URL
+  carries an API key are not listed.
 - It says how the endpoints were tested, how the quorum sets aside one that rate-limits (its
   `Retry-After`, up to 5 minutes) or lags (15 seconds), and which free endpoints fail outright.
 

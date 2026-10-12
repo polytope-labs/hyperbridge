@@ -474,7 +474,7 @@ test("a login launch requires unlock before starting a solver and gates the API"
 test(
 	"passkeys register, cancel, unlock after relaunch and recover through the desktop UI",
 	{
-		skip: !process.env.SIMPLEX_PASSKEY_BROWSER || !["darwin", "win32"].includes(process.platform),
+		skip: !process.env.SIMPLEX_PASSKEY_BROWSER || process.platform !== "win32",
 	},
 	async (t) => {
 		const userDataDir = await temporaryUserData("passkey")

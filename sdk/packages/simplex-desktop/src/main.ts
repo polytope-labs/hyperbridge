@@ -9,6 +9,7 @@ import {
 	nativeImage,
 	Notification,
 	powerSaveBlocker,
+	powerMonitor,
 	protocol,
 	session,
 	shell,
@@ -25,6 +26,7 @@ import { handleSimplexProtocol } from "./protocol"
 import { DesktopVault } from "./security/vault"
 import { deviceKeyStore } from "./security/device-key-store"
 import { BrowserPasskeys } from "./security/passkeys"
+import { loadMacNativePasskeys } from "./security/mac-native-passkeys"
 import { SIMPLEX_UPDATE_FEED } from "./release-provider"
 import {
 	holdsMachineAwake,
@@ -378,7 +380,11 @@ async function createWindow(notificationPath?: string): Promise<void> {
 		webPreferences: rendererWebPreferences(app.isPackaged),
 	})
 	mainWindow = window
+	const invalidateMacAccess = () => {
+		if (process.platform === "darwin") vault?.cancelPendingAccess()
+	}
 	window.on("close", (event) => {
+		invalidateMacAccess()
 		if (quitting || installingUpdate) return
 		event.preventDefault()
 		window.hide()
@@ -386,6 +392,11 @@ async function createWindow(notificationPath?: string): Promise<void> {
 	window.once("closed", () => {
 		if (mainWindow === window) mainWindow = undefined
 	})
+	window.on("hide", invalidateMacAccess)
+	window.webContents.on("did-start-navigation", (_event, _url, isSameDocument, isMainFrame) => {
+		if (isMainFrame && !isSameDocument) invalidateMacAccess()
+	})
+	window.webContents.on("render-process-gone", invalidateMacAccess)
 	window.once("ready-to-show", () => window.show())
 	refreshNativeUi()
 	await window.loadURL(notificationPath ? desktopNotificationUrl(notificationPath) : "simplex://local/")
@@ -442,7 +453,21 @@ async function prepareDesktop(): Promise<void> {
 	daemonLaunch = { nodePath: resources.node, solverPath: resources.solver, socketPath, dataDir: dataDirectory }
 	vault = new DesktopVault({
 		dataDir: dataDirectory,
-		passkeys: new BrowserPasskeys({ openBrowser: (url) => shell.openExternal(url) }),
+		passkeys:
+			process.platform === "darwin"
+				? loadMacNativePasskeys({
+						isPackaged: app.isPackaged,
+						resourcesPath: process.resourcesPath,
+						packageRoot,
+						windowHandle: () => {
+							if (!mainWindow || mainWindow.isDestroyed())
+								throw new Error("Open Simplex before using a passkey.")
+							mainWindow.show()
+							mainWindow.focus()
+							return mainWindow.getNativeWindowHandle()
+						},
+					})
+				: new BrowserPasskeys({ openBrowser: (url) => shell.openExternal(url) }),
 		deviceKeyStore,
 		needsRestart: async () => {
 			// A slow or foreign listener must not hide the login screen; prepare()
@@ -481,6 +506,12 @@ async function prepareDesktop(): Promise<void> {
 			refreshNativeUi()
 		},
 	})
+	if (process.platform === "darwin") {
+		const cancelPasskey = () => vault?.cancelPendingAccess()
+		powerMonitor.on("suspend", cancelPasskey)
+		powerMonitor.on("lock-screen", cancelPasskey)
+		powerMonitor.on("user-did-resign-active", cancelPasskey)
+	}
 
 	await protocol.handle("simplex", (request) =>
 		handleSimplexProtocol(request, {

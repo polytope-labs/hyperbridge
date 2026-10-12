@@ -17,12 +17,19 @@ export interface PasskeyCredential {
 	transports?: string[]
 	/** WebAuthn user handle; reusing it lets the authenticator replace this profile's passkey. */
 	userId?: string
+	rpId?: string
+	mechanism?: "native-macos"
 }
 export interface PasskeyUnlock {
 	available(): boolean
-	register(userId?: string): Promise<PasskeyCredential>
+	register(userId?: string, context?: { profileId: string }): Promise<PasskeyCredential>
 	authenticate(credential: PasskeyCredential): Promise<PasskeyCredential>
 	cancel(): void
+	mechanism?: "native-macos"
+	supports?(credential: PasskeyCredential): boolean
+	capability?(): { available: boolean; reason?: string }
+	status?(): { mechanism: string; state: string; operationId?: string }
+	resetStatus?(): void
 }
 
 const TRANSPORTS = ["ble", "cable", "hybrid", "internal", "nfc", "smart-card", "usb"]
@@ -38,6 +45,12 @@ export function isPasskeyCredential(value: unknown): value is PasskeyCredential 
 		/^[A-Za-z0-9_-]{1,4096}$/.test(credential.publicKey) &&
 		Number.isSafeInteger(credential.counter) &&
 		credential.counter >= 0 &&
+		(credential.mechanism === undefined ||
+			(credential.mechanism === "native-macos" &&
+				typeof credential.rpId === "string" &&
+				isPasskeyRpId(credential.rpId) &&
+				typeof credential.userId === "string")) &&
+		(credential.rpId === undefined || credential.mechanism === "native-macos") &&
 		(credential.userId === undefined ||
 			(typeof credential.userId === "string" && /^[A-Za-z0-9_-]{1,86}$/.test(credential.userId))) &&
 		(credential.transports === undefined ||
@@ -114,6 +127,9 @@ export class BrowserPasskeys implements PasskeyUnlock {
 	available(): boolean {
 		return ["darwin", "win32"].includes(this.options.platform ?? process.platform)
 	}
+	supports(credential: PasskeyCredential): boolean {
+		return credential.mechanism === undefined && credential.rpId === undefined
+	}
 	cancel(): void {
 		this.generation++
 		this.abort?.()
@@ -160,6 +176,10 @@ export class BrowserPasskeys implements PasskeyUnlock {
 		})
 	}
 	async authenticate(credential: PasskeyCredential): Promise<PasskeyCredential> {
+		if (credential.mechanism === "native-macos")
+			throw new Error(
+				"This profile uses a native Mac passkey. Use your password or recovery code on this device.",
+			)
 		const generation = this.generation
 		const options = await generateAuthenticationOptions({
 			rpID: "localhost",
@@ -282,4 +302,14 @@ export class BrowserPasskeys implements PasskeyUnlock {
 			this.abort = undefined
 		}
 	}
+}
+
+export function isPasskeyRpId(value: string): boolean {
+	return (
+		value.length <= 253 &&
+		value === value.toLowerCase() &&
+		value.includes(".") &&
+		value.split(".").every((label) => /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(label)) &&
+		!/^\d+(\.\d+){3}$/.test(value)
+	)
 }

@@ -2,6 +2,11 @@ import { spawnSync } from "node:child_process"
 import { readdir } from "node:fs/promises"
 import { join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
+import { createRequire } from "node:module"
+
+const require = createRequire(import.meta.url)
+const passkeyConfiguration = require("../resources/passkeys.json")
+const { readProvisioningProfile, validateMacPasskeyProfile } = require("./mac-passkey-signing.cjs")
 
 const REQUIRED_ENTITLEMENTS = [
 	"com.apple.security.cs.allow-jit",
@@ -35,11 +40,35 @@ function verifyTeam(path, expectedTeamId) {
 	}
 }
 
-function verifyIdentity(path, expectedTeamId) {
+function verifyIdentity(path, expectedTeamId, identity) {
 	verifyTeam(path, expectedTeamId)
 	const entitlements = entitlementKeys(run("codesign", ["--display", "--entitlements", ":-", path]))
-	if (JSON.stringify(entitlements) !== JSON.stringify([...REQUIRED_ENTITLEMENTS].sort())) {
+	const expected = identity
+		? [
+				...REQUIRED_ENTITLEMENTS,
+				"com.apple.application-identifier",
+				"com.apple.developer.team-identifier",
+				"com.apple.developer.associated-domains",
+			]
+		: REQUIRED_ENTITLEMENTS
+	if (JSON.stringify(entitlements) !== JSON.stringify([...expected].sort())) {
 		throw new Error(`${path} has unexpected entitlements: ${entitlements.join(", ") || "none"}`)
+	}
+	if (identity) {
+		const xml = run("codesign", ["--display", "--entitlements", ":-", path])
+		const parsed = spawnSync("plutil", ["-convert", "json", "-o", "-", "-"], {
+			input: xml.slice(xml.indexOf("<?xml")),
+			encoding: "utf8",
+		})
+		if (parsed.status !== 0) throw new Error("Could not parse main application entitlements")
+		const values = JSON.parse(parsed.stdout)
+		if (
+			values["com.apple.application-identifier"] !== identity.applicationIdentifier ||
+			values["com.apple.developer.team-identifier"] !== expectedTeamId ||
+			JSON.stringify(values["com.apple.developer.associated-domains"]) !==
+				JSON.stringify([`webcredentials:${identity.rpId}`])
+		)
+			throw new Error("Main application passkey identity/domain entitlements do not match release configuration")
 	}
 }
 
@@ -87,9 +116,20 @@ export async function verifyMacSignatures(root, expectedTeamId) {
 	run("codesign", ["--verify", "--deep", "--strict", "--verbose=4", app])
 	run("codesign", ["--verify", "--strict", "--verbose=4", runtime])
 	run("codesign", ["--verify", "--strict", "--verbose=4", dmg])
-	verifyIdentity(app, expectedTeamId)
+	const rpId = process.env.SIMPLEX_PASSKEY_RP_ID || passkeyConfiguration.rpId
+	const applicationIdentifier = validateMacPasskeyProfile(
+		readProvisioningProfile(join(app, "Contents", "embedded.provisionprofile")),
+		{ rpId, teamId: expectedTeamId },
+	)
+	verifyIdentity(app, expectedTeamId, { rpId, applicationIdentifier })
 	for (const helper of helpers) verifyIdentity(helper, expectedTeamId)
 	verifyIdentity(runtime, expectedTeamId)
+	const native = join(app, "Contents", "Resources", "desktop", "native", "mac-passkeys.node")
+	run("codesign", ["--verify", "--strict", "--verbose=4", native])
+	verifyTeam(native, expectedTeamId)
+	const nativeEntitlements = entitlementKeys(run("codesign", ["--display", "--entitlements", ":-", native]))
+	if (nativeEntitlements.some((key) => !REQUIRED_ENTITLEMENTS.includes(key)))
+		throw new Error("Native library contains unexpected app identity entitlements")
 	verifyTeam(dmg, expectedTeamId)
 	run("spctl", ["--assess", "--type", "execute", "--verbose=4", app])
 	run("spctl", ["--assess", "--type", "open", "--context", "context:primary-signature", "--verbose=4", dmg])

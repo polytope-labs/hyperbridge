@@ -8,6 +8,10 @@ type AccessState = {
 	mode: "create" | "unlock" | "reset-password" | "save-recovery" | "unlocked"
 	passkeyAvailable: boolean
 	passkeyEnabled: boolean
+	passkeyMechanism?: string
+	passkeyUnavailableReason?: string
+	passkeyMigrationRequired?: boolean
+	passkeyEnrollmentAvailable?: boolean
 	passwordEnabled: boolean
 	recoveryEnabled: boolean
 	backgroundResumeAvailable: boolean
@@ -19,7 +23,10 @@ type Perform = (route: string, body?: Record<string, unknown>) => Promise<void>
 type AccessMethod = "password" | "passkey"
 
 function preferredAccessMethod(access: AccessState): AccessMethod {
-	return access.passkeyEnabled || (access.mode === "create" && access.passkeyAvailable) ? "passkey" : "password"
+	return (access.passkeyEnabled && (!access.passkeyMigrationRequired || !access.passwordEnabled)) ||
+		(access.mode === "create" && access.passkeyAvailable)
+		? "passkey"
+		: "password"
 }
 
 /** Requests that may open a browser ceremony; the host reports when one is actually open. */
@@ -147,10 +154,15 @@ function NativeAccess({ children }: { children: ReactNode }) {
 						{passkeyPending && (
 							<div className="desktop-unlock-panel desktop-passkey-waiting">
 								<span className="desktop-passkey-spinner" aria-hidden="true" />
-								<h1>Continue in your browser</h1>
+								<h1>
+									{access.passkeyMechanism === "native-macos"
+										? "Confirm with your Mac"
+										: "Continue in your browser"}
+								</h1>
 								<p className="hint" role="status">
-									We opened a browser tab to confirm your passkey. Finish there and Simplex continues
-									automatically.
+									{access.passkeyMechanism === "native-macos"
+										? "Approve the Mac passkey prompt to continue in Simplex."
+										: "We opened a browser tab to confirm your passkey. Finish there and Simplex continues automatically."}
 								</p>
 								<button
 									type="button"
@@ -237,6 +249,16 @@ function RestartConsent({
 	) : null
 }
 
+function MacEnrollmentNotice({ access }: { access: AccessState }) {
+	if (access.passkeyMechanism !== "native-macos") return null
+	return (
+		<p className="hint" role="note">
+			Your Mac will ask you to create the passkey, then confirm it in a second prompt. After setup, use this
+			version of Simplex or newer. Older versions cannot open this profile.
+		</p>
+	)
+}
+
 function Login({ access, perform, forgot }: { access: AccessState; perform: Perform; forgot(): void }) {
 	const creating = access.mode === "create"
 	const [password, setPassword] = useState("")
@@ -274,6 +296,11 @@ function Login({ access, perform, forgot }: { access: AccessState; perform: Perf
 					? "Keep your settings and wallet details safe on this device."
 					: "Enter your password to continue."}
 			</p>
+			{access.passkeyMechanism === "native-macos" && access.passkeyUnavailableReason && (
+				<p className="hint" role="note">
+					{access.passkeyUnavailableReason}
+				</p>
+			)}
 			{!access.secureDeviceStorageAvailable && (
 				<p className="hint" role="note">
 					Secure key storage is unavailable. After a reboot or update, sign in to resume filling.
@@ -285,16 +312,19 @@ function Login({ access, perform, forgot }: { access: AccessState; perform: Perf
 				</p>
 			)}
 			<PasswordFields {...{ creating, password, confirmation, setPassword, setConfirmation }} />
-			{!creating && access.passkeyAvailable && !access.passkeyEnabled && (
-				<label className="desktop-unlock-choice">
-					<input
-						type="checkbox"
-						checked={usePasskey}
-						onChange={(event) => setUsePasskey(event.target.checked)}
-					/>
-					Create a passkey for future logins
-				</label>
-			)}
+			{!creating &&
+				(access.passkeyEnrollmentAvailable ?? access.passkeyAvailable) &&
+				(!access.passkeyEnabled || access.passkeyMigrationRequired) && (
+					<label className="desktop-unlock-choice">
+						<input
+							type="checkbox"
+							checked={usePasskey}
+							onChange={(event) => setUsePasskey(event.target.checked)}
+						/>
+						Create a passkey for future logins
+					</label>
+				)}
+			{usePasskey && <MacEnrollmentNotice access={access} />}
 			<RestartConsent required={access.needsRestart} checked={restartSolver} onChange={setRestartSolver} />
 			<button type="submit" className="primary" disabled={access.needsRestart && !restartSolver}>
 				{creating ? "Continue" : "Unlock"}
@@ -338,11 +368,18 @@ function PasskeyLogin({
 	return (
 		<div className="desktop-unlock-panel">
 			<h1>{creating ? "Create a passkey" : "Unlock Simplex"}</h1>
-			{creating && <p className="hint">Sign in with Touch ID or Windows Hello.</p>}
+			{creating && (
+				<p className="hint">
+					{access.passkeyMechanism === "native-macos"
+						? "Use a passkey with your Mac’s native verification prompt."
+						: "Sign in with Touch ID or Windows Hello."}
+				</p>
+			)}
+			{creating && <MacEnrollmentNotice access={access} />}
 			{!access.passkeyAvailable && (
 				<p className="hint" role="note">
-					Passkey or secure key storage is unavailable on this device. Use your recovery code or another
-					sign-in method.
+					{access.passkeyUnavailableReason ??
+						"Passkey or secure key storage is unavailable on this device. Use your recovery code or another sign-in method."}
 				</p>
 			)}
 			<RestartConsent required={access.needsRestart} checked={restartSolver} onChange={setRestartSolver} />
@@ -433,6 +470,7 @@ function NewPassword({ access, perform, cancel }: { access: AccessState; perform
 			<div className="desktop-unlock-panel">
 				<h1>Create a replacement passkey</h1>
 				<p className="hint">This replaces your current passkey.</p>
+				<MacEnrollmentNotice access={access} />
 				<RestartConsent required={access.needsRestart} checked={restartSolver} onChange={setRestartSolver} />
 				<div className="desktop-unlock-actions">
 					<button

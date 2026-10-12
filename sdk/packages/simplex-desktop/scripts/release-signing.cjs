@@ -1,6 +1,7 @@
 const { existsSync, readFileSync } = require("node:fs")
 const { resolve } = require("node:path")
 const { parse } = require("yaml")
+const { prepareMacPasskeySigning } = require("./mac-passkey-signing.cjs")
 
 const packageRoot = resolve(__dirname, "..")
 const ENTITLEMENTS_PATH = "resources/entitlements.mac.plist"
@@ -49,13 +50,7 @@ function assertReleaseSigningEnvironment(platform = process.platform, env = proc
 	if (platform === "darwin") {
 		requireEnvironment(
 			env,
-			[
-				"CSC_KEYCHAIN",
-				"APPLE_API_KEY",
-				"APPLE_API_KEY_ID",
-				"APPLE_API_ISSUER",
-				"APPLE_TEAM_ID",
-			],
+			["CSC_KEYCHAIN", "APPLE_API_KEY", "APPLE_API_KEY_ID", "APPLE_API_ISSUER", "APPLE_TEAM_ID"],
 			"macOS",
 		)
 		// electron-builder's own CSC_LINK import cannot unlock its keychain on
@@ -98,7 +93,7 @@ function assertReleaseSigningEnvironment(platform = process.platform, env = proc
 	throw new Error(`Unsupported desktop signing platform: ${platform}`)
 }
 
-function loadBuilderConfig(env = process.env, platform = process.platform) {
+function loadBuilderConfig(env = process.env, platform = process.platform, passkeySigningOptions) {
 	const config = parse(readFileSync(resolve(packageRoot, "electron-builder.yml"), "utf8"))
 	const signing = assertReleaseSigningEnvironment(platform, env)
 
@@ -109,21 +104,28 @@ function loadBuilderConfig(env = process.env, platform = process.platform) {
 	}
 
 	if (platform === "darwin") {
+		const passkeys = prepareMacPasskeySigning(env, passkeySigningOptions)
 		config.forceCodeSigning = true
 		config.dmg = { ...config.dmg, sign: true }
 		// This public identifier is sealed inside app.asar. The runtime updater
 		// uses it to require the same Team ID that signed the release artifact.
-		config.extraMetadata = { ...config.extraMetadata, simplexMacTeamId: signing.teamId }
+		config.extraMetadata = {
+			...config.extraMetadata,
+			simplexMacTeamId: signing.teamId,
+			simplexPasskeyRpId: passkeys.rpId,
+			simplexApplicationIdentifier: passkeys.applicationIdentifier,
+		}
 		config.mac = {
 			...config.mac,
 			// Matches the identity whose name ends in "(TEAMID)".
 			identity: signing.teamId,
 			hardenedRuntime: true,
-			entitlements: ENTITLEMENTS_PATH,
+			entitlements: passkeys.entitlementsPath,
+			provisioningProfile: passkeys.profilePath,
 			entitlementsInherit: ENTITLEMENTS_PATH,
 			preAutoEntitlements: false,
 			strictVerify: true,
-			binaries: [MAC_RUNTIME_PATH],
+			binaries: [MAC_RUNTIME_PATH, "Contents/Resources/desktop/native/mac-passkeys.node"],
 			notarize: true,
 		}
 	}

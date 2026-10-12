@@ -35,9 +35,9 @@ Run `pnpm stage:node` again only when the pinned runtime or the host target chan
 
 ## First run and configuration
 
-On macOS and Windows, first launch offers **Create passkey**. The system browser opens a temporary
-local page; select **Create passkey** and approve the device prompt (Touch ID or Windows Hello).
-Return to Simplex, save the recovery code, and confirm it before completing the setup wizard.
+On configured, signed macOS builds, first launch offers **Create passkey** through Apple’s native
+credential sheet inside the Simplex flow. Windows opens a temporary system-browser page for
+Windows Hello. Save the recovery code and confirm it before completing the setup wizard.
 **Use a password instead** remains available; Linux uses passwords (at least 12 characters).
 The wizard writes an encrypted `filler-config.toml` under Electron's `app.getPath("userData")`.
 Every fresh Electron launch locks the dashboard until authentication succeeds. Closing and reopening
@@ -58,8 +58,9 @@ Without a working sign-in or recovery method, the app does not delete or reset t
 Old metadata backups and their corresponding password/recovery code may still decrypt the config;
 a restored older backup also still accepts the passkey it recorded, so replacement does not revoke it.
 
-Passkeys require secure OS storage and a browser with platform WebAuthn support. If the browser or
-device prompt is unavailable or cancelled, retry or choose another sign-in method. A request expires
+Passkeys require secure OS storage. Mac native passkeys also require Apple signing, a provisioning
+profile, and the configured associated domain; Windows requires browser platform WebAuthn support.
+If the device prompt is unavailable or cancelled, retry or choose another sign-in method. A request expires
 after two minutes and can also be cancelled from Simplex. Linux passkey integration is not
 implemented.
 
@@ -173,18 +174,29 @@ software already running as the same OS user remains inside the trust boundary.
 
 Desktop encrypts `filler-config.toml` with AES-256-GCM using a random 256-bit key.
 Password profiles retain version 2 `desktop-vault.json` records with a scrypt password wrapper.
-Passkey enrollment writes version 3 metadata: the credential ID, COSE public key (base64url), signature
+Windows passkey enrollment writes version 3 metadata: the credential ID, COSE public key (base64url), signature
 counter, optional transports, and an OS-protected key wrapper. An existing password wrapper is
 retained during enrollment; new passkey profiles have no password wrapper. Both versions retain the
-recovery wrapper and optional `deviceKey` for background solver restarts.
+recovery wrapper and optional `deviceKey` for background solver restarts. Native Mac enrollment
+writes version 4, adding a stable profile ID and explicit passkey mechanism/RP ID.
 
-WebAuthn uses RP ID `localhost` and a temporary HTTP listener bound only to `127.0.0.1` on a random
+On Windows, WebAuthn uses RP ID `localhost` and a temporary HTTP listener bound only to `127.0.0.1` on a random
 port. The browser receives a per-request capability in the URL fragment, removes it from the address
 bar, and sends it only in authorized same-origin requests. The host verifies the exact origin,
 challenge, RP ID, signature and required user verification. Challenges are consumed on verification;
 the listener closes on success, failure, cancellation or timeout. This listener exposes only passkey
 ceremonies, never the dashboard, solver API, config or encryption key. No external authentication
 service is required. Platform prompts are provided by the system browser.
+
+Mac uses AuthenticationServices inside the app with RP ID `passkeys.hyperfx.finance`.
+The host verifies the native challenge, origin, signature, RP ID, and user verification
+before releasing the configuration key. Apple signing and an HTTPS association file authorize
+the app/domain relationship; old `localhost` credentials require password or recovery migration.
+
+Native Mac enrollment requires two prompts: create the credential, then verify it.
+After enrollment, use this Simplex version or newer. Older versions cannot read the native
+profile, even with its password or recovery code; reinstall a compatible version to recover.
+Automatic updates do not downgrade the app.
 
 The passkey authenticates app access; Electron's `safeStorage` protects the config-key wrapper at
 rest. It is an app-level gate, not passkey-derived encryption. A synced passkey alone cannot restore
@@ -444,11 +456,16 @@ loopback endpoints for the first-run write and does not start a real filler.
 ### Passkey browser E2E
 
 `pnpm test:e2e` includes a passkey flow when `SIMPLEX_PASSKEY_BROWSER` is set to a Chromium browser
-executable on macOS or Windows. It uses a virtual platform authenticator and disposable profile,
-while exercising production WebAuthn verification and the desktop UI. For example on macOS:
+executable on Windows. It uses a virtual platform authenticator and disposable profile,
+while exercising production WebAuthn verification and the desktop UI. For example in PowerShell:
 
-```sh
-SIMPLEX_PASSKEY_BROWSER="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" pnpm test:e2e
+```powershell
+$env:SIMPLEX_PASSKEY_BROWSER="C:\Program Files\Google\Chrome\Application\chrome.exe"
+pnpm test:e2e
 ```
 
-Real Touch ID and Windows Hello prompts still need a manual run on each platform.
+The browser harness covers the remaining browser mechanism and does not certify Mac AuthenticationServices.
+Real native Mac and Windows Hello prompts still need manual signed-build acceptance.
+
+For Mac signing/domain setup and legacy-profile migration, see
+[macOS native passkeys](../../../docs/ai/changelog/2026-10-12-simplex-macos-native-passkeys.md).

@@ -58,6 +58,11 @@ available, or Node-API headers from the installed Node distribution. Set
 target slice explicitly; arm64, x64, and universal outputs use macOS 13 as the
 deployment target. The module resides outside ASAR and needs no runtime download.
 
+The SDK test job validates pull requests using GitHub's proposed merge commit.
+Its checkout therefore includes the current `main` package scripts referenced by
+the workflow, even when a feature branch predates them. Push and manual runs use
+the triggering commit.
+
 Unsigned or improperly provisioned builds expose a reason and retain password and
 recovery access. Native availability is structural readiness, not proof that a
 provider contains a matching credential. The actual Mac OS/provider matrix and

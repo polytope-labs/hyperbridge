@@ -190,6 +190,7 @@ services:
             timeout: 5s
             retries: 10
 
+    # The substrate node owns the schema DDL, and the query service reads the tables only at startup.
     graphql-engine:
         image: polytopelabs/omnihedron:latest
         restart: always
@@ -201,6 +202,11 @@ services:
             DB_DATABASE: ${DB_DATABASE}
             DB_HOST: ${DB_HOST}
             DB_PORT: ${DB_PORT}
+        depends_on:
+            postgres:
+                condition: service_healthy
+            subquery-node-hyperbridge-gargantua-local:
+                condition: service_healthy
         command:
             - --name=app
             - --playground

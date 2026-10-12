@@ -30,6 +30,7 @@ import {PausableUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/Pau
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {IUniswapV2Router02} from "@uniswap/v2-periphery/contracts/interfaces/IUniswapV2Router02.sol";
+import {IEntryPoint} from "@account-abstraction/contracts/interfaces/IEntryPoint.sol";
 import {
     TokenInfo,
     Order,
@@ -69,8 +70,9 @@ contract IntentGatewayV2 is
     address public immutable extrinsicModule;
 
     /// @dev The `Initializable` version this implementation lands a proxy on, through `initialize`
-    /// or `migrate`. 3 is the module split, the owner and solver quotes, which land together.
-    uint64 private constant VERSION = 3;
+    /// or `migrate`. 3 is the module split, the owner and solver quotes, which land together. 4 binds
+    /// solver selection to the EntryPoint v0.9 UserOperation; its storage is unchanged.
+    uint64 private constant VERSION = 4;
 
     /**
      * @dev Records the modules and locks this implementation against initialization. Modules must
@@ -126,6 +128,14 @@ contract IntentGatewayV2 is
     }
 
     /**
+     * @dev `migrate` only takes a proxy one version behind; an older one would skip a migration.
+     */
+    modifier onlyPreviousVersion() {
+        if (_getInitializedVersion() != VERSION - 1) revert InvalidInitialization();
+        _;
+    }
+
+    /**
      * @dev Initializes a bare proxy with its peers, params, relayer and owner.
      */
     function initialize(InitParams memory init) public onlyFresh reinitializer(VERSION) {
@@ -143,17 +153,10 @@ contract IntentGatewayV2 is
     }
 
     /**
-     * @dev Takes a version-2 proxy to `VERSION`, as the init data of its upgrade. Moves `_relayer`
-     * from slot 13 offset 1 to offset 0, dropping the removed `_paused` byte, and sets the owner.
+     * @dev Takes a version-3 proxy to `VERSION`, as the init data of its upgrade. Storage is
+     * unchanged, so it only records the version.
      */
-    function migrate(address owner_) external onlyHost reinitializer(VERSION) {
-        assembly ("memory-safe") {
-            sstore(_relayer.slot, shr(8, sload(_relayer.slot)))
-        }
-        __Ownable_init(owner_);
-        __Ownable2Step_init();
-        __Pausable_init();
-    }
+    function migrate() external onlyHost onlyPreviousVersion reinitializer(VERSION) {}
 
     /**
      * @dev Also accepts the host, so governance can pause, resume or replace the owner through
@@ -401,8 +404,9 @@ contract IntentGatewayV2 is
     }
 
     /**
-     * @dev Records a solver selection signed by the order's session key, for `fillOrder` in the
-     * same transaction. Returns the session key. Reverts `Filled` on a finalized order.
+     * @dev Records the session key's selection of one UserOperation, for the `fillOrder` that
+     * UserOperation runs through EntryPoint v0.9 in the same transaction. Returns the session key.
+     * Reverts `Filled` on a finalized order.
      */
     function select(SelectOptions calldata options) public returns (address) {
         return _select(options);
@@ -430,16 +434,19 @@ contract IntentGatewayV2 is
         if (_filled[commitment] != address(0)) revert Filled();
 
         if (_params.solverSelection) {
-            // The caller's own selection slot, so a second selection on this order in the same
-            // bundle cannot clobber it. See `_select`.
-            bytes32 selectionSlot = keccak256(abi.encode(commitment, msg.sender));
-            bytes32 storedSelectionHash;
-            assembly {
-                storedSelectionHash := tload(selectionSlot)
-            }
+            // Only inside the UserOperation the session key selected. Zero means no UserOperation
+            // is executing, as for a direct call.
+            bytes32 userOpHash = IEntryPoint(entrypoint()).getCurrentUserOpHash();
+            if (userOpHash == bytes32(0)) revert Unauthorized();
 
-            bytes32 expectedSelectionHash = keccak256(abi.encode(order.session));
-            if (storedSelectionHash != expectedSelectionHash) revert Unauthorized();
+            // Each (UserOperation, signer) pair has its own slot, so no other selection in the same
+            // bundle can clobber the session key's. See `_select`.
+            bytes32 selectionSlot = keccak256(abi.encode(commitment, userOpHash, order.session));
+            uint256 selected;
+            assembly {
+                selected := tload(selectionSlot)
+            }
+            if (selected == 0) revert Unauthorized();
         }
 
         uint256 outputsLen = order.output.assets.length;

@@ -5,6 +5,7 @@ import type { BidManager } from "./BidManager"
 import { CryptoUtils } from "./CryptoUtils"
 import type { IntentGatewayContext } from "./types"
 import { ABI as IntentGatewayV2ABI } from "@/abis/IntentGatewayV2"
+import { ENTRY_POINT_V08 } from "@/configs/chain"
 import { readLegPartialFill } from "./escrowReads"
 
 const USED_USEROPS_STORAGE_KEY = (commitment: HexString) => `used-userops:${commitment.toLowerCase()}`
@@ -138,18 +139,14 @@ export class OrderExecutor {
 
 	/**
 	 * Creates a closure that computes the deduplication hash key for a
-	 * UserOperation, pre-bound to the order's destination chain and entry point.
+	 * UserOperation, pre-bound to the destination chain.
 	 */
-	private createUserOpHasher(order: {
-		destination: string
-	}): (userOp: SelectBidResult["userOp"] | FillerBid["userOp"]) => string {
-		const entryPointAddress = this.ctx.dest.configService.getEntryPointV08Address(
-			normalizeStateMachineId(order.destination),
-		)
+	private createUserOpHasher(): (userOp: SelectBidResult["userOp"] | FillerBid["userOp"]) => string {
 		const chainId = BigInt(
 			this.ctx.dest.client.chain?.id ?? Number.parseInt(this.ctx.dest.config.stateMachineId.split("-")[1]),
 		)
-		return (userOp) => CryptoUtils.computeUserOpHash(userOp, entryPointAddress, chainId)
+		// Pinned so keys persisted per order stay valid when the chain's EntryPoint changes
+		return (userOp) => CryptoUtils.computeUserOpHash(userOp, ENTRY_POINT_V08, chainId)
 	}
 
 	/**
@@ -305,7 +302,7 @@ export class OrderExecutor {
 		}
 
 		const usedUserOps = await this.loadUsedUserOps(commitment)
-		const userOpHashKey = this.createUserOpHasher(order)
+		const userOpHashKey = this.createUserOpHasher()
 
 		const targetAssets = order.output.assets.map((a) => ({ token: a.token, amount: a.amount }))
 		let initial: Awaited<ReturnType<OrderExecutor["syncWithDestination"]>>

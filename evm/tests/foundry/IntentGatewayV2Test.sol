@@ -35,7 +35,9 @@ import {
     SelectOptions
 } from "@hyperbridge/core/apps/IntentGatewayV2.sol";
 import {deployIntentGatewayImpl, deployIntentModules} from "./IntentGatewayDeploy.sol";
+import {intentGatewayUpgradeInitialization} from "../../script/IntentGatewayScript.sol";
 import {IntentsBase} from "../../src/apps/intentsv2/IntentsBase.sol";
+import {IEntryPoint} from "@account-abstraction/contracts/interfaces/IEntryPoint.sol";
 import {ExtrinsicIntents} from "../../src/apps/intentsv2/ExtrinsicIntents.sol";
 import {HyperApp} from "@hyperbridge/core/apps/HyperApp.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
@@ -81,6 +83,13 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
 
     // EIP-1967 implementation slot: keccak256("eip1967.proxy.implementation") - 1.
     bytes32 internal constant ERC1967_IMPL_SLOT = 0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc;
+
+    // ERC-4337 EntryPoint v0.9, live on the fork. Outside `handleOps` it reports no UserOperation.
+    address internal constant ENTRYPOINT_V09 = 0x433709009B8330FDa32311DF1C2AFA402eD8D009;
+
+    // Stand-ins for the hashes of two solvers' bid UserOperations.
+    bytes32 internal constant BID_USER_OP_HASH = keccak256("bid user operation");
+    bytes32 internal constant OTHER_USER_OP_HASH = keccak256("other user operation");
 
     function setUp() public override {
         super.setUp();
@@ -139,14 +148,14 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
     }
 
     /// @dev Helper function to create EIP-712 signature for solver selection
-    function _createSelectSolverSignature(bytes32 commitment, address solver, uint256 privateKey, address gateway)
+    function _createSelectSolverSignature(bytes32 commitment, bytes32 userOpHash, uint256 privateKey, address gateway)
         internal
         view
         returns (bytes memory)
     {
         // Compute the EIP-712 digest using public constants
         IntentGatewayV2 gatewayContract = IntentGatewayV2(payable(gateway));
-        bytes32 structHash = keccak256(abi.encode(gatewayContract.SELECT_SOLVER_TYPEHASH(), commitment, solver));
+        bytes32 structHash = keccak256(abi.encode(gatewayContract.SELECT_SOLVER_TYPEHASH(), commitment, userOpHash));
 
         bytes32 digest = keccak256(abi.encodePacked("\x19\x01", gatewayContract.DOMAIN_SEPARATOR(), structHash));
 
@@ -1590,17 +1599,19 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
 
         bytes32 commitment = keccak256(abi.encode(order));
 
-        // Create EIP-712 signature from session key
+        // Create EIP-712 signature from session key over the solver's UserOperation
         bytes memory sessionSignature = _createSelectSolverSignature(
             commitment,
-            filler,
+            BID_USER_OP_HASH,
             1, // Session key private key
             address(intentGateway)
         );
 
-        // Solver selects themselves
         vm.prank(filler);
-        intentGateway.select(SelectOptions({commitment: commitment, solver: filler, signature: sessionSignature}));
+        address sessionKey = intentGateway.select(
+            SelectOptions({commitment: commitment, userOpHash: BID_USER_OP_HASH, signature: sessionSignature})
+        );
+        assertEq(sessionKey, vm.addr(1), "select recovers the session key");
     }
 
     function testSelectRevertsOnFinalizedOrder() public {
@@ -1634,7 +1645,8 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         vm.stopPrank();
 
         bytes32 commitment = keccak256(abi.encode(order));
-        bytes memory sessionSignature = _createSelectSolverSignature(commitment, filler, 1, address(intentGateway));
+        bytes memory sessionSignature =
+            _createSelectSolverSignature(commitment, BID_USER_OP_HASH, 1, address(intentGateway));
 
         // The creator's same-chain cancel finalizes the order by writing `_filled`.
         vm.prank(user);
@@ -1643,193 +1655,216 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         // The bid is now stale, so it is refused here rather than in `fillOrder`.
         vm.prank(filler);
         vm.expectRevert(IntentsBase.Filled.selector);
-        intentGateway.select(SelectOptions({commitment: commitment, solver: filler, signature: sessionSignature}));
+        intentGateway.select(
+            SelectOptions({commitment: commitment, userOpHash: BID_USER_OP_HASH, signature: sessionSignature})
+        );
     }
 
     function testFillOrderWithSolverSelection() public {
-        // Enable solver selection
-        Params memory newParams = Params({
-            host: address(host),
-            dispatcher: address(dispatcher),
-            solverSelection: true,
-            surplusShareBps: 10000,
-            protocolFeeBps: 0,
-            priceOracle: address(0)
-        });
+        IntentGatewayV2 gatewayWithSelection = _deploySelectionGateway();
+        Order memory order = _placeSelectionOrder(gatewayWithSelection);
+        _selectUserOp(gatewayWithSelection, order, BID_USER_OP_HASH);
 
-        IntentGatewayV2 gatewayWithSelection = _deployGatewayProxy();
-        gatewayWithSelection.initialize(
-            InitParams({params: newParams, peerChains: new bytes[](0), relayer: address(0), owner: address(this)})
-        );
+        _mockCurrentUserOp(BID_USER_OP_HASH);
+        FillOptions memory options = _fullFillOptions(order);
+        vm.prank(filler);
+        gatewayWithSelection.fillOrder(order, options);
 
-        uint256 inputAmount = 1000 * 1e6;
-
-        TokenInfo[] memory inputs = new TokenInfo[](1);
-        inputs[0] = TokenInfo({token: bytes32(uint256(uint160(address(usdc)))), amount: inputAmount});
-
-        TokenInfo[] memory outputAssets = new TokenInfo[](1);
-        outputAssets[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: 1000 * 1e18});
-
-        PaymentInfo memory output =
-            PaymentInfo({beneficiary: bytes32(uint256(uint160(user))), assets: outputAssets, call: ""});
-
-        Order memory order = Order({
-            user: bytes32(uint256(uint160(user))),
-            source: host.host(),
-            destination: host.host(),
-            deadline: block.number + 1000,
-            nonce: 0,
-            fees: 0,
-            session: vm.addr(1), // Session key
-            predispatch: DispatchInfo({assets: new TokenInfo[](0), call: ""}),
-            inputs: inputs,
-            output: output
-        });
-
-        vm.startPrank(user);
-        usdc.approve(address(gatewayWithSelection), inputAmount);
-        gatewayWithSelection.placeOrder(order, bytes32(0));
-        vm.stopPrank();
-
-        bytes32 commitment = keccak256(abi.encode(order));
-
-        // Create EIP-712 signature from session key
-        bytes memory sessionSignature = _createSelectSolverSignature(
-            commitment,
-            filler,
-            1, // Session key private key
-            address(gatewayWithSelection)
-        );
-
-        // Solver selects themselves
-        vm.startPrank(filler);
-        gatewayWithSelection.select(
-            SelectOptions({commitment: commitment, solver: filler, signature: sessionSignature})
-        );
-
-        // Filler fills order
-        dai.approve(address(gatewayWithSelection), type(uint256).max);
-
-        TokenInfo[] memory solverOutputs = new TokenInfo[](1);
-        solverOutputs[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: 1000 * 1e18});
-
-        gatewayWithSelection.fillOrder(
-            order,
-            FillOptions({
-                relayerFee: 0,
-                nativeDispatchFee: 0,
-                validUntil: 0,
-                outputs: solverOutputs,
-                inputs: IntentQuoteTestUtils.inputs(order, solverOutputs)
-            })
-        );
-        vm.stopPrank();
+        assertEq(gatewayWithSelection._filled(keccak256(abi.encode(order))), filler, "selected op fills the order");
     }
 
     function testSecondSelectionDoesNotClobberTheFirst() public {
-        Params memory newParams = Params({
-            host: address(host),
-            dispatcher: address(dispatcher),
-            solverSelection: true,
-            surplusShareBps: 10000,
-            protocolFeeBps: 0,
-            priceOracle: address(0)
-        });
+        IntentGatewayV2 gatewayWithSelection = _deploySelectionGateway();
+        Order memory order = _placeSelectionOrder(gatewayWithSelection);
 
-        IntentGatewayV2 gatewayWithSelection = _deployGatewayProxy();
-        gatewayWithSelection.initialize(
-            InitParams({params: newParams, peerChains: new bytes[](0), relayer: address(0), owner: address(this)})
-        );
-
-        uint256 inputAmount = 1000 * 1e6;
-
-        TokenInfo[] memory inputs = new TokenInfo[](1);
-        inputs[0] = TokenInfo({token: bytes32(uint256(uint160(address(usdc)))), amount: inputAmount});
-
-        TokenInfo[] memory outputAssets = new TokenInfo[](1);
-        outputAssets[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: 1000 * 1e18});
-
-        PaymentInfo memory output =
-            PaymentInfo({beneficiary: bytes32(uint256(uint160(user))), assets: outputAssets, call: ""});
-
-        Order memory order = Order({
-            user: bytes32(uint256(uint160(user))),
-            source: host.host(),
-            destination: host.host(),
-            deadline: block.number + 1000,
-            nonce: 0,
-            fees: 0,
-            session: vm.addr(1),
-            predispatch: DispatchInfo({assets: new TokenInfo[](0), call: ""}),
-            inputs: inputs,
-            output: output
-        });
-
-        vm.startPrank(user);
-        usdc.approve(address(gatewayWithSelection), inputAmount);
-        gatewayWithSelection.placeOrder(order, bytes32(0));
-        vm.stopPrank();
-
-        bytes32 commitment = keccak256(abi.encode(order));
-        address otherSolver = address(0xB0B);
-
-        // Both solvers hold a selection signed by the same session key. A 4337 bundle stages every
+        // Both bids hold a selection signed by the same session key. A 4337 bundle stages every
         // validation before any execution, so both land before either fill runs.
+        _selectUserOp(gatewayWithSelection, order, BID_USER_OP_HASH);
+        _selectUserOp(gatewayWithSelection, order, OTHER_USER_OP_HASH);
+
+        // The later selection sits in its own slot, so the first bid's fill still authorises.
+        _mockCurrentUserOp(BID_USER_OP_HASH);
+        FillOptions memory options = _fullFillOptions(order);
         vm.prank(filler);
-        gatewayWithSelection.select(
-            SelectOptions({
-                commitment: commitment,
-                solver: filler,
-                signature: _createSelectSolverSignature(commitment, filler, 1, address(gatewayWithSelection))
-            })
-        );
+        gatewayWithSelection.fillOrder(order, options);
 
-        vm.prank(otherSolver);
-        gatewayWithSelection.select(
-            SelectOptions({
-                commitment: commitment,
-                solver: otherSolver,
-                signature: _createSelectSolverSignature(commitment, otherSolver, 1, address(gatewayWithSelection))
-            })
-        );
-
-        // The later selection sits in its own slot, so the first solver's fill still authorises.
-        TokenInfo[] memory solverOutputs = new TokenInfo[](1);
-        solverOutputs[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: 1000 * 1e18});
-
-        vm.startPrank(filler);
-        dai.approve(address(gatewayWithSelection), type(uint256).max);
-        gatewayWithSelection.fillOrder(
-            order,
-            FillOptions({
-                relayerFee: 0,
-                nativeDispatchFee: 0,
-                validUntil: 0,
-                outputs: solverOutputs,
-                inputs: IntentQuoteTestUtils.inputs(order, solverOutputs)
-            })
-        );
-        vm.stopPrank();
-
-        assertEq(gatewayWithSelection._filled(commitment), filler, "first solver fills the order");
+        assertEq(gatewayWithSelection._filled(keccak256(abi.encode(order))), filler, "first bid fills the order");
     }
 
-    function testFillOrderWithWrongSolver() public {
-        // Enable solver selection
-        Params memory newParams = Params({
-            host: address(host),
-            dispatcher: address(dispatcher),
-            solverSelection: true,
-            surplusShareBps: 10000,
-            protocolFeeBps: 0,
-            priceOracle: address(0)
-        });
+    /// @dev `select` is permissionless, so another UserOperation in the bundle can re-select the
+    ///      victim's op before it executes. Neither another key's signature nor a junk one recovering
+    ///      some unrelated key displaces the session key's selection.
+    function testSelectionByAnotherKeyDoesNotClobberTheSessionKey() public {
+        IntentGatewayV2 gatewayWithSelection = _deploySelectionGateway();
+        Order memory order = _placeSelectionOrder(gatewayWithSelection);
+        bytes32 commitment = keccak256(abi.encode(order));
+        _selectUserOp(gatewayWithSelection, order, BID_USER_OP_HASH);
 
-        IntentGatewayV2 gatewayWithSelection = _deployGatewayProxy();
-        gatewayWithSelection.initialize(
-            InitParams({params: newParams, peerChains: new bytes[](0), relayer: address(0), owner: address(this)})
+        address attacker = makeAddr("attacker");
+        vm.prank(attacker);
+        address otherKey = gatewayWithSelection.select(
+            SelectOptions({
+                commitment: commitment,
+                userOpHash: BID_USER_OP_HASH,
+                signature: _createSelectSolverSignature(commitment, BID_USER_OP_HASH, 2, address(gatewayWithSelection))
+            })
         );
+        assertEq(otherKey, vm.addr(2), "another key's selection");
 
+        vm.prank(attacker);
+        address junkKey = gatewayWithSelection.select(
+            SelectOptions({
+                commitment: commitment,
+                userOpHash: BID_USER_OP_HASH,
+                signature: _createSelectSolverSignature(
+                    commitment, OTHER_USER_OP_HASH, 1, address(gatewayWithSelection)
+                )
+            })
+        );
+        assertTrue(junkKey != order.session && junkKey != otherKey, "a junk key");
+
+        _mockCurrentUserOp(BID_USER_OP_HASH);
+        FillOptions memory options = _fullFillOptions(order);
+        vm.prank(filler);
+        gatewayWithSelection.fillOrder(order, options);
+
+        assertEq(gatewayWithSelection._filled(commitment), filler, "selected op still fills the order");
+    }
+
+    /// @dev A direct call runs outside any UserOperation, so the EntryPoint reports zero.
+    function testFillOrderWithSolverSelectionOutsideUserOp() public {
+        IntentGatewayV2 gatewayWithSelection = _deploySelectionGateway();
+        Order memory order = _placeSelectionOrder(gatewayWithSelection);
+        _selectUserOp(gatewayWithSelection, order, BID_USER_OP_HASH);
+
+        assertEq(gatewayWithSelection.entrypoint(), ENTRYPOINT_V09);
+        assertEq(IEntryPoint(ENTRYPOINT_V09).getCurrentUserOpHash(), bytes32(0));
+
+        FillOptions memory options = _fullFillOptions(order);
+        vm.prank(filler);
+        vm.expectRevert(IntentsBase.Unauthorized.selector);
+        gatewayWithSelection.fillOrder(order, options);
+    }
+
+    /// @dev The session key's selection of a zero hash sits in the very slot a direct call would
+    ///      read, so only the gateway refusing a zero hash outright keeps the fill out.
+    function testFillOrderOutsideUserOpWithZeroHashSelection() public {
+        IntentGatewayV2 gatewayWithSelection = _deploySelectionGateway();
+        Order memory order = _placeSelectionOrder(gatewayWithSelection);
+        bytes32 commitment = keccak256(abi.encode(order));
+
+        address recovered = gatewayWithSelection.select(
+            SelectOptions({
+                commitment: commitment,
+                userOpHash: bytes32(0),
+                signature: _createSelectSolverSignature(commitment, bytes32(0), 1, address(gatewayWithSelection))
+            })
+        );
+        assertEq(recovered, order.session, "the session key selects the zero hash");
+
+        assertEq(IEntryPoint(ENTRYPOINT_V09).getCurrentUserOpHash(), bytes32(0));
+
+        FillOptions memory options = _fullFillOptions(order);
+        vm.prank(filler);
+        vm.expectRevert(IntentsBase.Unauthorized.selector);
+        gatewayWithSelection.fillOrder(order, options);
+    }
+
+    function testFillOrderInUnselectedUserOp() public {
+        IntentGatewayV2 gatewayWithSelection = _deploySelectionGateway();
+        Order memory order = _placeSelectionOrder(gatewayWithSelection);
+        _selectUserOp(gatewayWithSelection, order, BID_USER_OP_HASH);
+
+        _mockCurrentUserOp(OTHER_USER_OP_HASH);
+        FillOptions memory options = _fullFillOptions(order);
+        vm.prank(filler);
+        vm.expectRevert(IntentsBase.Unauthorized.selector);
+        gatewayWithSelection.fillOrder(order, options);
+    }
+
+    /// @dev A session signature over one UserOperation does not select another: the gateway
+    ///      recovers some other key from it, which is not the order's session.
+    function testSelectionSignedForAnotherUserOpIsRejected() public {
+        IntentGatewayV2 gatewayWithSelection = _deploySelectionGateway();
+        Order memory order = _placeSelectionOrder(gatewayWithSelection);
+        bytes32 commitment = keccak256(abi.encode(order));
+
+        address recovered = gatewayWithSelection.select(
+            SelectOptions({
+                commitment: commitment,
+                userOpHash: BID_USER_OP_HASH,
+                signature: _createSelectSolverSignature(
+                    commitment, OTHER_USER_OP_HASH, 1, address(gatewayWithSelection)
+                )
+            })
+        );
+        assertTrue(recovered != order.session, "not the session key");
+
+        FillOptions memory options = _fullFillOptions(order);
+
+        _mockCurrentUserOp(BID_USER_OP_HASH);
+        vm.prank(filler);
+        vm.expectRevert(IntentsBase.Unauthorized.selector);
+        gatewayWithSelection.fillOrder(order, options);
+
+        _mockCurrentUserOp(OTHER_USER_OP_HASH);
+        vm.prank(filler);
+        vm.expectRevert(IntentsBase.Unauthorized.selector);
+        gatewayWithSelection.fillOrder(order, options);
+    }
+
+    /// @dev With selection off the gateway never asks the EntryPoint, so a direct fill works even
+    ///      where the EntryPoint would fail.
+    function testFillOrderWithoutSolverSelectionIgnoresEntryPoint() public {
+        Order memory order = _placeSelectionOrder(intentGateway);
+        vm.mockCallRevert(ENTRYPOINT_V09, abi.encodeCall(IEntryPoint.getCurrentUserOpHash, ()), "no EntryPoint here");
+
+        FillOptions memory options = _fullFillOptions(order);
+        vm.prank(filler);
+        intentGateway.fillOrder(order, options);
+
+        assertEq(intentGateway._filled(keccak256(abi.encode(order))), filler, "filled without a selection");
+    }
+
+    /// @dev On a chain without EntryPoint v0.9 nothing answers the gateway's query for the current
+    ///      UserOperation, so with selection on no fill goes through there.
+    function testFillOrderWithSolverSelectionRevertsWithoutEntryPointV09() public {
+        IntentGatewayV2 gatewayWithSelection = _deploySelectionGateway();
+        Order memory order = _placeSelectionOrder(gatewayWithSelection);
+        _selectUserOp(gatewayWithSelection, order, BID_USER_OP_HASH);
+
+        vm.etch(ENTRYPOINT_V09, "");
+
+        FillOptions memory options = _fullFillOptions(order);
+        vm.prank(filler);
+        // The revert carries no data, but forge fills in a diagnostic when tracing, so any revert.
+        vm.expectRevert();
+        gatewayWithSelection.fillOrder(order, options);
+    }
+
+    /// @dev A fresh gateway with solver selection on.
+    function _deploySelectionGateway() internal returns (IntentGatewayV2 gateway) {
+        gateway = _deployGatewayProxy();
+        gateway.initialize(
+            InitParams({
+                params: Params({
+                    host: address(host),
+                    dispatcher: address(dispatcher),
+                    solverSelection: true,
+                    surplusShareBps: 10000,
+                    protocolFeeBps: 0,
+                    priceOracle: address(0)
+                }),
+                peerChains: new bytes[](0),
+                relayer: address(0),
+                owner: address(this)
+            })
+        );
+    }
+
+    /// @dev Places a same-chain order selling 1,000 USDC for 1,000 DAI whose session is key 1, and
+    ///      approves the filler's DAI to `gateway`.
+    function _placeSelectionOrder(IntentGatewayV2 gateway) internal returns (Order memory order) {
         uint256 inputAmount = 1000 * 1e6;
 
         TokenInfo[] memory inputs = new TokenInfo[](1);
@@ -1838,10 +1873,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         TokenInfo[] memory outputAssets = new TokenInfo[](1);
         outputAssets[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: 1000 * 1e18});
 
-        PaymentInfo memory output =
-            PaymentInfo({beneficiary: bytes32(uint256(uint160(user))), assets: outputAssets, call: ""});
-
-        Order memory order = Order({
+        order = Order({
             user: bytes32(uint256(uint160(user))),
             source: host.host(),
             destination: host.host(),
@@ -1851,53 +1883,46 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
             session: vm.addr(1),
             predispatch: DispatchInfo({assets: new TokenInfo[](0), call: ""}),
             inputs: inputs,
-            output: output
+            output: PaymentInfo({beneficiary: bytes32(uint256(uint160(user))), assets: outputAssets, call: ""})
         });
 
         vm.startPrank(user);
-        usdc.approve(address(gatewayWithSelection), inputAmount);
-        gatewayWithSelection.placeOrder(order, bytes32(0));
+        usdc.approve(address(gateway), inputAmount);
+        gateway.placeOrder(order, bytes32(0));
         vm.stopPrank();
 
-        bytes32 commitment = keccak256(abi.encode(order));
-
-        // Create EIP-712 signature from session key for filler
-        bytes memory sessionSignature = _createSelectSolverSignature(
-            commitment,
-            filler,
-            1, // Session key private key
-            address(gatewayWithSelection)
-        );
-
-        // Solver selects filler
         vm.prank(filler);
-        gatewayWithSelection.select(
-            SelectOptions({commitment: commitment, solver: filler, signature: sessionSignature})
-        );
+        dai.approve(address(gateway), type(uint256).max);
+    }
 
-        // Different address tries to fill - should revert
-        address wrongSolver = address(0x9999);
-        deal(address(dai), wrongSolver, 10000 * 1e18);
-
-        vm.startPrank(wrongSolver);
-        dai.approve(address(gatewayWithSelection), 1000 * 1e18);
-        dai.approve(address(gatewayWithSelection), type(uint256).max);
-
-        TokenInfo[] memory solverOutputs = new TokenInfo[](1);
-        solverOutputs[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: 1000 * 1e18});
-
-        vm.expectRevert(IntentsBase.Unauthorized.selector);
-        gatewayWithSelection.fillOrder(
-            order,
-            FillOptions({
-                relayerFee: 0,
-                nativeDispatchFee: 0,
-                validUntil: 0,
-                outputs: solverOutputs,
-                inputs: IntentQuoteTestUtils.inputs(order, solverOutputs)
+    /// @dev Session key 1 selects the UserOperation `userOpHash` to fill `order`.
+    function _selectUserOp(IntentGatewayV2 gateway, Order memory order, bytes32 userOpHash) internal {
+        bytes32 commitment = keccak256(abi.encode(order));
+        gateway.select(
+            SelectOptions({
+                commitment: commitment,
+                userOpHash: userOpHash,
+                signature: _createSelectSolverSignature(commitment, userOpHash, 1, address(gateway))
             })
         );
-        vm.stopPrank();
+    }
+
+    /// @dev Has the EntryPoint report `userOpHash` as the UserOperation it is executing.
+    function _mockCurrentUserOp(bytes32 userOpHash) internal {
+        vm.mockCall(ENTRYPOINT_V09, abi.encodeCall(IEntryPoint.getCurrentUserOpHash, ()), abi.encode(userOpHash));
+    }
+
+    /// @dev A quote for all of a `_placeSelectionOrder` order at its own rate.
+    function _fullFillOptions(Order memory order) internal view returns (FillOptions memory) {
+        TokenInfo[] memory solverOutputs = new TokenInfo[](1);
+        solverOutputs[0] = TokenInfo({token: bytes32(uint256(uint160(address(dai)))), amount: 1000 * 1e18});
+        return FillOptions({
+            relayerFee: 0,
+            nativeDispatchFee: 0,
+            validUntil: 0,
+            outputs: solverOutputs,
+            inputs: IntentQuoteTestUtils.inputs(order, solverOutputs)
+        });
     }
 
     // ============================================
@@ -4192,7 +4217,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         intentGateway.onAccept(IncomingPostRequest({relayer: relayer, request: request}));
 
         assertEq(intentGateway.relayer(), next);
-        assertEq(intentGateway.version(), 3, "no migration ran");
+        assertEq(intentGateway.version(), 4, "no migration ran");
         assertEq(_implementationOf(address(intentGateway)), implBefore, "implementation unchanged");
     }
 
@@ -4209,7 +4234,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
     /// Here `migrate` on a proxy already at `VERSION`, three delegatecalls deep.
     function testExecuteBubblesReverts() public {
         PostRequest memory request = _upgradeRequest(
-            host.hyperbridge(), address(_upgradedImpl()), abi.encodeCall(IntentGatewayV2.migrate, (address(this)))
+            host.hyperbridge(), address(_upgradedImpl()), abi.encodeCall(IntentGatewayV2.migrate, ())
         );
         vm.prank(address(host));
         vm.expectRevert(Initializable.InvalidInitialization.selector);
@@ -4303,7 +4328,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         assertEq(gateway.params().host, address(host), "params set via atomic init");
         assertEq(gateway.instance(bytes("SOURCE_CHAIN")), address(gateway), "peer bound to address(this)");
         assertEq(gateway.relayer(), relayer, "relayer armed from the init data");
-        assertEq(gateway.version(), 3, "at VERSION from the init data");
+        assertEq(gateway.version(), 4, "at VERSION from the init data");
 
         vm.expectRevert();
         gateway.initialize(
@@ -4472,17 +4497,11 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         return bytes32(uint256(uint160(r)));
     }
 
-    /// @dev Slot 13 as earlier implementations left it: an unset `bool _paused` at offset 0 and
-    /// `_relayer` packed behind it at offset 1.
-    function _legacyRelayerSlot(address r) internal pure returns (bytes32) {
-        return bytes32(uint256(uint160(r)) << 8);
-    }
-
     /// 0 on a bare proxy, 2 after `initialize`; the raw implementation is locked at the maximum.
     function testVersionTracksInitialization() public {
         IntentGatewayV2 bare = _deployGatewayProxy();
         assertEq(bare.version(), 0, "bare proxy");
-        assertEq(intentGateway.version(), 3, "initialized");
+        assertEq(intentGateway.version(), 4, "initialized");
         address impl = _implementationOf(address(intentGateway));
         assertEq(IntentGatewayV2(payable(impl)).version(), type(uint64).max, "raw implementation is locked");
     }
@@ -4526,7 +4545,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         vm.prank(address(host));
         intentGateway.onAccept(IncomingPostRequest({relayer: relayer, request: rotate}));
         assertEq(intentGateway.relayer(), next);
-        assertEq(intentGateway.version(), 3, "a rotation is not a migration");
+        assertEq(intentGateway.version(), 4, "a rotation is not a migration");
 
         // The previous relayer is locked out immediately.
         vm.prank(address(host));
@@ -4543,8 +4562,8 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
     function testMigrateRunsOnce() public {
         vm.prank(address(host));
         vm.expectRevert(Initializable.InvalidInitialization.selector);
-        intentGateway.migrate(address(this));
-        assertEq(intentGateway.version(), 3, "version unchanged");
+        intentGateway.migrate();
+        assertEq(intentGateway.version(), 4, "version unchanged");
     }
 
     /// A proxy an upgrade left at an earlier version cannot be re-initialized by anyone; only the
@@ -4558,43 +4577,51 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         vm.prank(user);
         vm.expectRevert(Initializable.InvalidInitialization.selector);
         gateway.initialize(InitParams({params: p, peerChains: new bytes[](0), relayer: user, owner: address(this)}));
-        assertEq(gateway.version(), 2, "still at version 2");
+        assertEq(gateway.version(), 3, "still at version 3");
 
         vm.prank(address(host));
-        gateway.migrate(address(this));
-        assertEq(gateway.version(), 3);
+        gateway.migrate();
+        assertEq(gateway.version(), 4);
     }
-
 
     function testMigrateRejectsEveryoneButHost() public {
         IntentGatewayV2 gateway = _legacyGateway();
 
         vm.expectRevert(HyperApp.UnauthorizedCall.selector);
-        gateway.migrate(address(this));
+        gateway.migrate();
 
         vm.prank(user);
         vm.expectRevert(HyperApp.UnauthorizedCall.selector);
-        gateway.migrate(address(this));
+        gateway.migrate();
 
-        assertEq(gateway.version(), 2, "still at version 2");
+        assertEq(gateway.version(), 3, "still at version 3");
     }
 
-    /// `migrate` moves the relayer from slot 13 offset 1 to offset 0, dropping the removed `_paused`
-    /// byte ahead of it, and bumps the version. The relayer keeps its value, so the gate is unchanged.
-    function testMigrateMovesTheRelayerToOffsetZero() public {
+    /// `migrate` only bumps the version: the relayer slot and the owner are as the proxy had them.
+    function testMigrateOnlyBumpsTheVersion() public {
         IntentGatewayV2 gateway = _legacyGateway();
-        // As an earlier implementation left it, with the old `_paused` byte set to show it is dropped.
-        vm.store(address(gateway), bytes32(uint256(13)), bytes32(uint256(_legacyRelayerSlot(relayer)) | 1));
+        bytes32 relayerSlot = vm.load(address(gateway), bytes32(uint256(13)));
+        address owner = gateway.owner();
 
         vm.expectEmit(true, true, true, true, address(gateway));
-        emit Initializable.Initialized(3);
+        emit Initializable.Initialized(4);
         vm.prank(address(host));
-        gateway.migrate(address(this));
+        gateway.migrate();
 
-        assertEq(gateway.relayer(), relayer, "relayer moved");
-        assertEq(vm.load(address(gateway), bytes32(uint256(13))), _relayerSlot(relayer), "old _paused byte dropped");
-        assertFalse(gateway.paused(), "the old byte does not pause");
-        assertEq(gateway.version(), 3);
+        assertEq(vm.load(address(gateway), bytes32(uint256(13))), relayerSlot, "relayer slot untouched");
+        assertEq(gateway.owner(), owner, "owner unchanged");
+        assertEq(gateway.version(), 4);
+    }
+
+    /// A proxy two versions behind would skip a migration, so `migrate` refuses it.
+    function testMigrateRefusesOlderVersions() public {
+        IntentGatewayV2 gateway = _legacyGateway();
+        vm.store(address(gateway), INITIALIZABLE_SLOT, bytes32(uint256(2)));
+
+        vm.prank(address(host));
+        vm.expectRevert(Initializable.InvalidInitialization.selector);
+        gateway.migrate();
+        assertEq(gateway.version(), 2, "still at version 2");
     }
 
     /// `initialize` arms the gate from the init data and lands at `VERSION`.
@@ -4604,20 +4631,20 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         vm.expectEmit(true, true, true, true, address(gateway));
         emit IntentsBase.RelayerUpdated(address(0), relayer);
         vm.expectEmit(true, true, true, true, address(gateway));
-        emit Initializable.Initialized(3);
+        emit Initializable.Initialized(4);
         gateway.initialize(InitParams({params: p, peerChains: new bytes[](0), relayer: relayer, owner: address(this)}));
         assertEq(gateway.relayer(), relayer);
-        assertEq(gateway.version(), 3);
+        assertEq(gateway.version(), 4);
     }
 
     /// @dev OpenZeppelin's `Initializable` namespaced slot; `_initialized` is its low 8 bytes.
     bytes32 internal constant INITIALIZABLE_SLOT = 0xf0c57e16840df040f15088dc2f81fe391c3923bec73e23a9662efc9c229c6a00;
 
-    /// @dev A proxy as an implementation from before this one left it: open gate, version 2.
+    /// @dev A proxy as the previous implementation left it: open gate, version 3.
     function _legacyGateway() internal returns (IntentGatewayV2 gateway) {
         gateway = _freshInitializedGateway();
-        vm.store(address(gateway), INITIALIZABLE_SLOT, bytes32(uint256(2)));
-        assertEq(gateway.version(), 2, "legacy proxy");
+        vm.store(address(gateway), INITIALIZABLE_SLOT, bytes32(uint256(3)));
+        assertEq(gateway.version(), 3, "legacy proxy");
     }
 
     function _openParams() internal view returns (Params memory) {
@@ -4653,7 +4680,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         vm.prank(address(host));
         intentGateway.onAccept(IncomingPostRequest({relayer: relayer, request: reopen}));
         assertEq(intentGateway.relayer(), address(0));
-        assertEq(intentGateway.version(), 3, "reopening the gate is not a migration either");
+        assertEq(intentGateway.version(), 4, "reopening the gate is not a migration either");
 
         // With no relayer set the gate is open, so a delivery from anyone lands.
         uint256 before = usdc.balanceOf(filler);
@@ -4737,7 +4764,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         PostRequest memory arm = _rotateRequest(relayer);
         vm.prank(address(host));
         gateway.onAccept(IncomingPostRequest({relayer: filler, request: arm}));
-        assertEq(gateway.version(), 3, "a rotation leaves the version alone");
+        assertEq(gateway.version(), 4, "a rotation leaves the version alone");
         PostRequest memory another = _newDeploymentRequest(bytes("OTHER_CHAIN"), address(0xCAFE));
         another.from = abi.encodePacked(address(gateway));
         another.to = abi.encodePacked(address(gateway));
@@ -4782,7 +4809,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         vm.prank(address(host));
         intentGateway.onAccept(IncomingPostRequest({relayer: relayer, request: rotate}));
         assertEq(intentGateway.relayer(), next, "rotated");
-        assertEq(intentGateway.version(), 3, "neither is a migration");
+        assertEq(intentGateway.version(), 4, "neither is a migration");
         assertEq(intentGateway._nonce(), 2, "_nonce preserved");
         assertEq(intentGateway._filled(filledCommitment), filler, "_filled preserved");
         assertEq(intentGateway._orders(escrowedCommitment, 0), escrowedAmount, "_orders preserved");
@@ -4805,7 +4832,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
 
         assertEq(_implementationOf(address(intentGateway)), address(newImpl));
         assertEq(intentGateway.relayer(), relayer, "relayer survives an implementation swap");
-        assertEq(intentGateway.version(), 3, "no migration ran, so the version is unchanged");
+        assertEq(intentGateway.version(), 4, "no migration ran, so the version is unchanged");
     }
 
     /// @dev Through the real host: a delivery the gateway refuses is recorded as undelivered, so
@@ -4841,17 +4868,17 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         }
     }
 
-    /// @dev The proxy that is actually live on mainnet, on the fork: armed and migrated, closed to
+    /// @dev The proxy that is actually live on mainnet, on the fork: armed, closed to
     /// re-initialisation, and governed only by its own relayer, including the next upgrade, which
-    /// must keep every readable piece of state, and a rotation.
+    /// lands at `VERSION` with every other readable piece of state kept, and a rotation.
     function testLiveProxyIsArmedAndGovernedOnlyByItsRelayer() public {
         IntentGatewayV2 live = IntentGatewayV2(payable(LIVE_GATEWAY));
         assertGt(LIVE_GATEWAY.code.length, 0, "live gateway present on the fork");
         address liveRelayer = live.relayer();
         assertTrue(liveRelayer != address(0), "live proxy is armed");
-        uint64 liveVersion = live.version();
-        // Without init data the upgrade below cannot migrate, so the proxy must need no migration.
-        assertGe(liveVersion, intentGateway.version(), "live proxy needs no migration");
+        // What the deploy script prints for governance: `migrate()` while the live proxy is a version
+        // behind, nothing once it has caught up.
+        bytes memory migration = intentGatewayUpgradeInitialization(live);
         assertEq(vm.load(LIVE_GATEWAY, bytes32(uint256(13))), _relayerSlot(liveRelayer), "relayer alone in slot 13");
 
         address implBefore = _implementationOf(LIVE_GATEWAY);
@@ -4871,13 +4898,10 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
             fees[i] = live._destinationProtocolFees(keccak256(peers[i]));
         }
 
-        // Nobody can initialise it again, and the host cannot migrate it again.
+        // Nobody can initialise it again.
         InitParams memory init = InitParams({params: p, peerChains: peers, relayer: filler, owner: address(this)});
         vm.expectRevert(Initializable.InvalidInitialization.selector);
         live.initialize(init);
-        vm.prank(liveHost);
-        vm.expectRevert(Initializable.InvalidInitialization.selector);
-        live.migrate(address(this));
         // The legacy `initialize` is not an entry point of the live implementation: the call
         // reverts with no data, as any unknown selector does.
         (bool legacyInitialized, bytes memory legacyReturn) =
@@ -4896,7 +4920,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
             to: abi.encodePacked(LIVE_GATEWAY),
             body: bytes.concat(
                 bytes1(uint8(IntentsBase.RequestKind.Execute)),
-                abi.encodeCall(ExtrinsicIntents.upgradeToAndCall, (address(newImpl), ""))
+                abi.encodeCall(ExtrinsicIntents.upgradeToAndCall, (address(newImpl), migration))
             ),
             timeoutTimestamp: 0
         });
@@ -4912,13 +4936,13 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         assertTrue(implBefore != address(newImpl), "implementation actually changed");
         assertEq(live.relayer(), liveRelayer, "relayer survives the upgrade");
         assertEq(vm.load(LIVE_GATEWAY, bytes32(uint256(13))), _relayerSlot(liveRelayer), "slot 13 preserved");
-        assertEq(live.version(), liveVersion, "version preserved");
+        assertEq(live.version(), intentGateway.version(), "at VERSION after the upgrade");
         assertEq(live.owner(), liveOwner, "owner preserved");
         assertEq(live.pendingOwner(), livePendingOwner, "pending owner preserved");
         assertEq(live.paused(), livePaused, "pause state preserved");
         vm.prank(liveHost);
         vm.expectRevert(Initializable.InvalidInitialization.selector);
-        live.migrate(address(this));
+        live.migrate();
         vm.expectRevert(Initializable.InvalidInitialization.selector);
         live.initialize(init);
         assertEq(live._nonce(), nonce, "_nonce preserved");
@@ -4946,7 +4970,7 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         vm.prank(liveHost);
         live.onAccept(IncomingPostRequest({relayer: liveRelayer, request: rotate}));
         assertEq(live.relayer(), next, "rotated through Execute");
-        assertEq(live.version(), liveVersion, "a rotation leaves the version alone");
+        assertEq(live.version(), intentGateway.version(), "a rotation leaves the version alone");
         vm.prank(liveHost);
         vm.expectRevert(IntentsBase.Unauthorized.selector);
         live.onAccept(IncomingPostRequest({relayer: liveRelayer, request: rotate}));
@@ -5721,24 +5745,6 @@ contract IntentGatewayV2Test is MainnetForkBaseTest {
         gateway.initialize(
             InitParams({params: _openParams(), peerChains: new bytes[](0), relayer: address(0), owner: address(0)})
         );
-    }
-
-    /// `migrate` sets the owner of a proxy coming from an earlier implementation.
-    function testMigrateSetsTheOwner() public {
-        IntentGatewayV2 gateway = _legacyGateway();
-        address next = makeCleanAddr("migratedOwner");
-
-        vm.prank(address(host));
-        vm.expectRevert(abi.encodeWithSelector(OwnableUpgradeable.OwnableInvalidOwner.selector, address(0)));
-        gateway.migrate(address(0));
-
-        vm.expectEmit(true, true, true, true, address(gateway));
-        emit OwnableUpgradeable.OwnershipTransferred(address(this), next);
-        vm.prank(address(host));
-        gateway.migrate(next);
-
-        assertEq(gateway.owner(), next, "owner from the migration");
-        assertEq(gateway.version(), 3);
     }
 
     function testOwnershipTransferIsTwoStep() public {

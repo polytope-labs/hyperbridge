@@ -72,6 +72,17 @@ export type {
 	CancelledLimitOrder,
 	PostingOutcome,
 } from "@/orderbook/limit-orders"
+// What `simplex.limitOrders.profitability()` answers with: figures in whole tokens
+// and dollars, for reading rather than for building orders from.
+export type {
+	Profitability,
+	ProfitPeriod,
+	ProfitBucket,
+	ProfitFigures,
+	ProfitBucketFigures,
+	BookProfit,
+	StartingInventory,
+} from "@/orderbook/profitability"
 
 // ─── Persistence ────────────────────────────────────────────────────────────
 // The SQLite implementation lives at `@hyperbridge/simplex/sqlite`. It is built
@@ -84,6 +95,8 @@ export type {
 	ActivityStore,
 	StateStore,
 	LimitOrderStore,
+	InventoryStore,
+	InventorySnapshot,
 	LimitOrder,
 	LimitOrderInsert,
 	LimitOrderFilter,
@@ -92,6 +105,7 @@ export type {
 	LimitOrderStatus,
 	LimitOrderFill,
 	LimitOrderFillInsert,
+	LimitOrderFillRecord,
 	LimitOrderHold,
 	StoredBid,
 	BidInsert,

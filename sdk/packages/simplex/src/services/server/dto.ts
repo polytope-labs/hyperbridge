@@ -173,6 +173,7 @@ export interface ChainRowDto {
 	stateMachineId: string
 	label: string
 	rpcUrls: string[]
+	/** Hyperbridge's bundler the chain fills through, empty where it runs none. */
 	bundlerUrl: string
 	watchOnly: boolean
 	/** False for rows added since boot — they only start filling after a restart. */
@@ -247,6 +248,17 @@ export interface BidStatsDto {
 	retracted: number
 	pendingRetraction: number
 }
+
+/** GET /api/analytics/profitability */
+export type {
+	BookProfit,
+	ProfitBucket,
+	ProfitBucketFigures,
+	ProfitFigures,
+	Profitability as ProfitabilityDto,
+	ProfitPeriod,
+	StartingInventory,
+} from "@/orderbook/profitability"
 
 export interface SendTokenOption {
 	symbol: string

@@ -418,6 +418,14 @@ button:disabled {
 	color: var(--text-secondary);
 }
 
+/* How many items a tab holds, beside its label. */
+.step-count {
+	font-family: var(--font-mono);
+	font-size: 0.6875rem;
+	font-weight: 500;
+	opacity: 0.8;
+}
+
 .steps .step.active {
 	background: var(--card-raised);
 	color: var(--text);

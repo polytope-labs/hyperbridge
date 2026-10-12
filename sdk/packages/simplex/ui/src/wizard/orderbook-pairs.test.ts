@@ -45,9 +45,7 @@ describe("wizard markets from the orderbook", () => {
 			substrateKey: `0x${"22".repeat(32)}`,
 			orderbook: { url: DEFAULT_ORDERBOOK_URLS.mainnet, books },
 			chains: state.chains.map((chain) =>
-				chainIds.includes(chain.meta.chainId)
-					? { ...chain, enabled: true, bundlerUrl: `https://bundler.example/${chain.meta.chainId}` }
-					: chain,
+				chainIds.includes(chain.meta.chainId) ? { ...chain, enabled: true } : chain,
 			),
 		}
 	}

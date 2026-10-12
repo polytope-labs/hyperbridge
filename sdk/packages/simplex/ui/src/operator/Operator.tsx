@@ -5,6 +5,7 @@ import hyperfxLogo from "../assets/hyperfx-logo.webp"
 import { CopyHash } from "../components/CopyHash"
 import {
 	ActivityIcon,
+	AnalyticsIcon,
 	ChartLineIcon,
 	LogsIcon,
 	OperationsIcon,
@@ -17,6 +18,7 @@ import { InstallAppButton } from "../components/InstallAppButton"
 import { useAction, useIsHandheld, usePolling } from "../lib/hooks"
 import type { BalanceSnapshot, StatusOperator } from "../types"
 import { OrderBook } from "./OrderBook"
+import { Analytics } from "./Analytics"
 import { Orders } from "./Orders"
 import { Operations, type OperationsPanel } from "./Operations"
 import { Logs } from "./Logs"
@@ -36,6 +38,7 @@ const PAGE_TABS: Array<{
 	{ value: "overview", label: "Overview", description: "Orders, health and liquidity", icon: OverviewIcon },
 	{ value: "orderbook", label: "Order book", description: "Live bids and asks", icon: ChartLineIcon },
 	{ value: "history", label: "History", description: "Orders and bids", icon: ActivityIcon },
+	{ value: "analytics", label: "Analytics", description: "Profit and return", icon: AnalyticsIcon },
 	{ value: "wallet", label: "Wallet", description: "Funds and history", icon: WalletIcon },
 	{ value: "logs", label: "Logs", description: "Live filler output", icon: LogsIcon, desktopOnly: true },
 	{ value: "operations", label: "Operations", description: "Live configuration", icon: OperationsIcon },
@@ -56,6 +59,11 @@ const PAGE_COPY: Record<Tab, { eyebrow: string; title: string; description: stri
 		eyebrow: "Execution feed",
 		title: "History",
 		description: "Follow orders from detection through bidding and execution.",
+	},
+	analytics: {
+		eyebrow: "Performance",
+		title: "Analytics",
+		description: "What your buys and sells added to your inventory, against what you held when the period began.",
 	},
 	wallet: {
 		eyebrow: "Treasury",
@@ -218,11 +226,13 @@ export function Operator(props: { status: StatusOperator; refresh: () => void })
 							balances={balances}
 							onResetHalt={resetHalt}
 							runtime={{ pending, onTogglePause: togglePause, onStop: stopFiller }}
+							onOpenAnalytics={() => setTab("analytics")}
 						/>
 					) : null}
 
 					{tab === "orderbook" ? <OrderBook /> : null}
 					{tab === "history" ? <Orders chainLabels={status.chainLabels} /> : null}
+					{tab === "analytics" ? <Analytics /> : null}
 					{tab === "logs" && !handheld ? <Logs /> : null}
 					{tab === "wallet" ? (
 						<Wallet

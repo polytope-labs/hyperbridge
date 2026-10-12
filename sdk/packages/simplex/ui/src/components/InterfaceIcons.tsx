@@ -80,6 +80,14 @@ export function ActivityIcon(props: IconProps) {
 	)
 }
 
+export function AnalyticsIcon(props: IconProps) {
+	return (
+		<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" {...props}>
+			<path d="M3 16.5h14M5.5 13.5V10M10 13.5v-9M14.5 13.5V7.5" strokeLinecap="round" />
+		</svg>
+	)
+}
+
 export function WalletIcon(props: IconProps) {
 	return (
 		<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" {...props}>

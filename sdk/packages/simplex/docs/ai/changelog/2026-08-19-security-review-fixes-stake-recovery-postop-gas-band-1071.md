@@ -8,4 +8,4 @@ A threat-model audit of the paymaster (fork-executed, not just read) produced th
 
 The SDK's shared `POST_OP_GAS_LIMIT` split into `POST_OP_GAS_LIMIT_SIMPLEX` (40k) and `POST_OP_GAS_LIMIT_CIRCLE` (100k) — it was feeding both paymasters, and Circle's is a different contract whose postOp was never measured here.
 
-Files: `src/services/paymaster/types.ts`, `src/services/paymaster/provider/simplex.ts`, `src/services/paymaster/provider/circle.ts`, `src/tests/services/UserOpSender.test.ts`, plus `evm/src/utils/SimplexPaymaster.sol`, `evm/tests/foundry/{SimplexPaymasterTest,SimplexPaymasterPermit2ForkTest,SimplexPaymasterGasGriefTest,SimplexPaymasterStakeLockForkTest}.t.sol` and `modules/pallets/intents-coprocessor/src/{lib,types,weights}.rs`.
+Files: `src/services/paymaster/types.ts`, `src/services/paymaster/provider/simplex.ts`, `src/services/paymaster/provider/circle.ts`, `src/tests/services/UserOpSender.test.ts`, plus `evm/src/utils/SimplexPaymaster.sol`, `evm/tests/foundry/{SimplexPaymasterTest,SimplexPaymasterPermit2ForkTest,SimplexPaymasterGasGriefTest}.t.sol` and `modules/pallets/intents-coprocessor/src/{lib,types,weights}.rs`.

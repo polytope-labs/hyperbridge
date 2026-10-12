@@ -185,6 +185,7 @@ export class IntentGateway {
 	 *
 	 * The ERC-4337 bundler URL is read from `dest.bundlerUrl`, set when constructing
 	 * the destination chain via {@link EvmChain.create} or {@link EvmChainParams.bundlerUrl}.
+	 * An `EvmChain` given none uses the bundler Hyperbridge runs for it.
 	 *
 	 * @param source - Source chain for order placement
 	 * @param dest - Destination chain for order fulfillment
@@ -618,6 +619,8 @@ export class IntentGateway {
 	 * order. Use `relayerFee` to approve the ERC-20 spend before submitting.
 	 * Same-chain orders use the direct local route for either `from` option and
 	 * return `{ nativeValue: 0n, relayerFee: 0n }`.
+	 * When the chain receiving the cancel transaction is a testnet, `nativeValue` is `0n` and the caller
+	 * approves `relayerFee` of that host's fee token to that chain's gateway.
 	 *
 	 * Delegates to {@link OrderCanceller.quoteCancelOrder}.
 	 *

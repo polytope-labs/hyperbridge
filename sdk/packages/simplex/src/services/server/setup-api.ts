@@ -138,8 +138,6 @@ export async function handleSetupRequest(
 				return sendJson(res, 200, await validateAlchemyKey(body, deps))
 			case "validate-rpc":
 				return sendJson(res, 200, await validateRpc(body, deps))
-			case "validate-bundler":
-				return sendJson(res, 200, await validateBundler(body, deps))
 			case "validate-token":
 				return sendJson(res, 200, await validateToken(body))
 			case "derive-evm-address":
@@ -175,8 +173,6 @@ export async function validateAlchemyKey(body: Record<string, unknown>, deps: Re
 			label: meta.label,
 			note: meta.note,
 			rpcUrl,
-			// Alchemy serves ERC-4337 bundler methods on the same endpoint.
-			bundlerUrl: rpcUrl,
 		}
 	})
 
@@ -216,25 +212,6 @@ export async function validateRpc(body: Record<string, unknown>, deps: Required<
 		}),
 	)
 	return { ok: results.every((r) => !r.error), results }
-}
-
-/** Warning-only: bundler probes never block the wizard. */
-export async function validateBundler(body: Record<string, unknown>, deps: Required<SetupDeps>) {
-	const url = String(body.url ?? "").trim()
-	if (!url) return { ok: false, warning: "Bundler URL is empty" }
-	try {
-		const entryPoints = await withTimeout(
-			deps.rpcRequest(url, "eth_supportedEntryPoints", []),
-			PROBE_TIMEOUT_MS,
-			"Bundler probe",
-		)
-		return { ok: true, entryPoints }
-	} catch (err) {
-		return {
-			ok: true,
-			warning: `Bundler did not answer eth_supportedEntryPoints: ${err instanceof Error ? err.message : err}`,
-		}
-	}
 }
 
 export async function validateToken(body: Record<string, unknown>) {
@@ -398,7 +375,6 @@ export function maskToml(config: FillerConfigFile, chainLabels?: string[]): stri
 	}
 	for (const chain of masked.chains) {
 		chain.rpcUrls = chain.rpcUrls.map(maskUrlKey)
-		chain.bundlerUrl = maskUrlKey(chain.bundlerUrl)
 	}
 	return emitFillerToml(masked, { chainComments: chainLabels })
 }

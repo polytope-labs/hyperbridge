@@ -18,7 +18,7 @@ import {
 	stringToBytes,
 	zeroAddress,
 } from "viem"
-import { ENTRY_POINT, GATEWAY, TOKENS } from "./env.mjs"
+import { GATEWAY, TOKENS, entryPointOf } from "./env.mjs"
 
 // Simplex exports neither of these from its package root, so they are restated here.
 export const ACCOUNT_ABI = parseAbi([
@@ -28,7 +28,7 @@ export const ACCOUNT_ABI = parseAbi([
 	"error LimitOrderExceeded(bytes32 orderId, uint256 total, uint256 cap)",
 ])
 
-/** The EntryPoint v0.8 events that say whether an operation ran and, if not, why. */
+/** The EntryPoint events, the same in v0.8 and v0.9, that say whether an operation ran and, if not, why. */
 export const ENTRY_POINT_ABI = parseAbi([
 	"struct PackedUserOperation { address sender; uint256 nonce; bytes initCode; bytes callData; bytes32 accountGasLimits; uint256 preVerificationGas; bytes32 gasFees; bytes paymasterAndData; bytes signature; }",
 	"function getUserOpHash(PackedUserOperation userOp) view returns (bytes32)",
@@ -58,15 +58,16 @@ export function debitOf(userOp) {
 }
 
 /**
- * What the EntryPoint logged for `userOpHash` in a bundle's receipt: its `UserOperationEvent`, its
+ * What `chain`'s EntryPoint logged for `userOpHash` in a bundle's receipt: its `UserOperationEvent`, its
  * revert reason, and the logs its execution left. A bundle can carry other operations, so the
  * execution's logs are the ones between the previous operation's event, or `BeforeExecution`, and
  * this one's. Undefined when the operation is not in the receipt.
  */
-export function operationIn(receipt, userOpHash) {
+export function operationIn(chain, receipt, userOpHash) {
+	const entryPoint = entryPointOf(chain).toLowerCase()
 	const logs = receipt.logs
 	const events = parseEventLogs({ abi: ENTRY_POINT_ABI, logs, strict: false }).filter(
-		(event) => event.address.toLowerCase() === ENTRY_POINT.toLowerCase(),
+		(event) => event.address.toLowerCase() === entryPoint,
 	)
 	const ours = (event) => event.args.userOpHash?.toLowerCase() === userOpHash.toLowerCase()
 	const done = events.find((event) => event.eventName === "UserOperationEvent" && ours(event))
@@ -367,7 +368,7 @@ async function refusalChecks(ctx, result, orders, tallies) {
 		return `${label(order)}: the bid sent past the simulation never reached the chain: ${r.executeResult ?? r.executeError}`
 	}
 	const receipt = await client.getTransactionReceipt({ hash: r.transactionHash })
-	const op = operationIn(receipt, r.userOpHash)
+	const op = operationIn(order.fillChain, receipt, r.userOpHash)
 	if (!op) return `${r.transactionHash} does not carry the operation ${r.userOpHash}`
 	if (op.success) return `${label(order)}: a fill past its size went through in ${r.transactionHash}`
 	const refused = op.revertReason ? decodeRefusal(op.revertReason) : undefined

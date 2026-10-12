@@ -48,7 +48,7 @@ The form shows the reason. The common ones are:
 
 ## **A limit order is amber, or shows `UNDER_FUNDED`**
 
-An amber **On the book** badge means the order is open, but the last posting or check reported a problem. Open the order to read it. A failed posting is retried on the next reconciliation. `UNDER_FUNDED` means your balance on the fill chain no longer covers the order, so the orderbook advertises less than its size. Top up the chain or cancel the order.
+An amber line under a live order means the order is open, but the last posting or check reported a problem. The line shows the reason, and opening the order shows it in full. A failed posting is retried on the next reconciliation. `UNDER_FUNDED` means your balance on the fill chain no longer covers the order, so the orderbook advertises less than its size. Top up the chain or cancel the order.
 
 ---
 
@@ -66,13 +66,25 @@ Deposit more of the token your limit orders pay out on their fill chains, or let
 
 ## **RPC rate limiting (429 errors)**
 
-Switch to a premium RPC provider, reduce `maxConcurrentOrders`, or raise `blockScanIntervalSeconds`.
+Switch to a premium RPC provider, reduce `maxConcurrentOrders`, or raise `blockScanIntervalSeconds`. On free endpoints, the [free RPC table](/developers/evm/simplex/configuration#free-rpc-endpoints) notes the ones that rate-limit often.
+
+---
+
+## **`Hyperbridge runs no bundler for <chain>, so simplex cannot fill there`**
+
+Simplex refuses to start, or to add or switch a chain to filling, when Hyperbridge runs no [bundler](/developers/evm/simplex/configuration#bundler) for it, since every fill is a UserOperation a bundler submits. Mark the chain watch-only, or remove it.
+
+---
+
+## **`Bundler <host> for <chain> does not support EntryPoint <address>`**
+
+Simplex refuses to start, or to add or switch a chain, when a chain's bundler answers `eth_supportedEntryPoints` without the EntryPoint that chain's solver account uses, since every fill UserOperation would be rejected. That points at a fault in Hyperbridge's bundler for the chain; mark the chain watch-only until it is fixed. A bundler that does not answer, or whose answer cannot be read, is only logged as a warning.
 
 ---
 
 ## **Bid submission fails**
 
-- Confirm that `substratePrivateKey`, `hyperbridgeWsUrl`, and each chain's `bundlerUrl` are set, and that your Substrate account holds BRIDGE tokens.
+- Confirm that `substratePrivateKey` and `hyperbridgeWsUrl` are set, and that your Substrate account holds BRIDGE tokens.
 - On chains with a paymaster (Circle or Simplex), make sure the solver's smart account holds at least 1 USDC (or 1 USDT for the `SimplexPaymaster`), so the paymaster can cover gas.
 - On chains without a paymaster, the solver needs a native balance. Simplex automatically tops up the ERC-4337 EntryPoint deposit to cover `targetGasUnits` (3M by default) at the current gas price.
 - If you use MPC Vault, verify that the client-signer container is running and reachable.

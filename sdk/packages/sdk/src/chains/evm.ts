@@ -117,7 +117,8 @@ export interface EvmChainParams {
 	 */
 	consensusStateId?: string
 	/**
-	 * Optional ERC-4337 bundler URL for account abstraction support
+	 * ERC-4337 bundler URL for account abstraction support. Defaults to the
+	 * bundler Hyperbridge runs for the chain, where there is one.
 	 */
 	bundlerUrl?: string
 }
@@ -188,7 +189,7 @@ export class EvmChain implements IChain {
 	 * This is the only public way to construct an `EvmChain` — the constructor is private.
 	 *
 	 * @param rpcUrl - HTTP(S) RPC URL of the EVM node
-	 * @param bundlerUrl - Optional ERC-4337 bundler URL for account abstraction support
+	 * @param bundlerUrl - Optional ERC-4337 bundler URL; defaults to Hyperbridge's bundler for the chain
 	 * @returns A fully initialised `EvmChain` ready for use
 	 * @throws If the chain ID returned by the RPC is not a known Hyperbridge deployment
 	 *
@@ -220,8 +221,12 @@ export class EvmChain implements IChain {
 		return this.params.host
 	}
 
+	/**
+	 * The bundler given to this chain, or else the one Hyperbridge runs for it.
+	 * Undefined on a chain Hyperbridge runs no bundler for.
+	 */
 	get bundlerUrl(): string | undefined {
-		return this.params.bundlerUrl
+		return this.params.bundlerUrl ?? chainConfigs[this.params.chainId]?.bundlerUrl
 	}
 
 	get config(): IEvmConfig {

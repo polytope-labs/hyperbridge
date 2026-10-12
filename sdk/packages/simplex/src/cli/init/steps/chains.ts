@@ -1,6 +1,12 @@
 import { confirm, log, multiselect, select, spinner } from "@clack/prompts"
 import { fetchChainId } from "@/services/FillerConfigService"
-import { chainsForNetwork, chainByAlchemySubdomain, type InitChainMeta, type InitNetwork } from "../chains"
+import {
+	chainsForNetwork,
+	chainByAlchemySubdomain,
+	chainByChainId,
+	type InitChainMeta,
+	type InitNetwork,
+} from "../chains"
 import { parseAlchemyUrl, deriveAlchemyRpc } from "../derive/alchemy"
 import { ProviderDerivation, askDerivedOrCustom } from "../derive-flow"
 import { guard, why, askUrl, withTimeout, PROBE_TIMEOUT_MS } from "../prompt-utils"
@@ -51,8 +57,7 @@ function detectPrefillNetwork(prefill?: Prefill): InitNetwork | undefined {
 	if (!prefill) return undefined
 	for (const chainId of prefill.chainIds) {
 		if (chainId === null) continue
-		const meta = chainsForNetwork("testnet").find((c) => c.chainId === chainId)
-		if (meta) return "testnet"
+		if (chainByChainId(chainId)?.network === "testnet") return "testnet"
 	}
 	return "mainnet"
 }

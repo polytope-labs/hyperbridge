@@ -46,8 +46,8 @@ static async start(options: SimplexOptions): Promise<Simplex>
 
 **Returns:** `Promise<Simplex>` — a solver that is already scanning
 
-**Throws:** If the config is invalid, a chain's RPCs are unreachable, or EIP-7702 delegation fails on
-every chain. A partially-started solver is never returned, so there is no readiness state to poll.
+**Throws:** If the config is invalid, a chain's RPCs are unreachable, a filling chain's bundler lists
+EntryPoints without the chain's, or EIP-7702 delegation fails on every chain. A partially-started solver is never returned, so there is no readiness state to poll.
 
 **Example:**
 
@@ -354,6 +354,24 @@ withFills(id: string): Promise<{
 } | null>
 ```
 
+### profitability(period, tzOffsetMinutes?)
+
+What your fills earned over a period: `"7d"`, `"30d"`, `"12w"`, `"12m"` or `"all"`. Profit is the
+change the period's fills made to what the solver holds, each token valued at its latest rate, and
+it is compared with the inventory the period began with. `tzOffsetMinutes` is what
+`getTimezoneOffset()` returns on the clock the buckets should be cut on, and defaults to UTC.
+
+```typescript lineNumbers
+profitability(period: ProfitPeriod, tzOffsetMinutes?: number): Promise<Profitability>
+```
+
+The result holds `totals`, one `series` entry per bucket, one `books` entry per pair,
+`startInventory`, `estimatedFills` and `unpricedTokens`, as plain numbers in whole tokens and
+dollars. The [profitability route](/developers/evm/simplex/api/limit-orders#get-apianalyticsprofitability)
+describes each field. It reads the data store and the balances already in memory, and asks the
+indexer what moved between the moments it compares. It answers without an orderbook configured,
+and without the indexer, which only costs it the deposits and withdrawals no fill shows.
+
 ### books()
 
 What the orderbook will take: the books it lists, the smallest payout (dust floor, 1e18 scale) it
@@ -393,7 +411,9 @@ use on their own chains.
 | `createdAt`, `updatedAt` | `string` | SQLite-style `"YYYY-MM-DD HH:MM:SS"` in UTC |
 
 `LimitOrderFill`: `id`, `limitOrderId`, `commitment` (the swap it settled), `bid`, `amount` (what
-it drew the order down by, 1e18 in the payout token), `transactionHash`, `filledAt`.
+it drew the order down by, 1e18 in the payout token), `amountIn` (what it took in, 1e18 in the
+token the order takes in, or `null` for a fill recorded before it was kept), `transactionHash`,
+`filledAt`.
 
 ### Over HTTP
 
@@ -409,14 +429,16 @@ unknown id a `404` on `GET` and a `400` on `DELETE`. The
 | `GET /api/limit-orders/:id` | `withFills(id)` | `{ order, fills, bids }` |
 | `DELETE /api/limit-orders/:id` | `cancel(id)` | `{ order, result }` |
 | `GET /api/orderbook/books` | `books()` | `{ books, minOrderSizes, chains }` |
+| `GET /api/analytics/profitability?period=&tz=` | `profitability(period, tz)` | `Profitability` |
 
 ### Lifecycle
 
 While the solver runs, a fill draws its order down by what was delivered and reposts the remainder,
 closing it as `filled` once what is left is under the dust floor. The solver heartbeats the
 orderbook while anything is posted, reconciles against the orderbook's copy every
-`orderbook.reconcileIntervalSecs` (default 300) — withdrawing entries no order owns and reposting
-orders whose entry has gone — and sweeps expired orders every 30 seconds.
+`orderbook.reconcileIntervalSecs` (default 300) — withdrawing entries no order owns, reposting
+orders whose entry has gone, and reposting orders signed for an EntryPoint their fill chain no longer
+uses — and sweeps expired orders every 30 seconds.
 
 ## PairController
 
@@ -480,7 +502,8 @@ remove(index: number): Promise<void>
 list(): ChainView[]
 ```
 
-**Returns:** `{ chainId, stateMachineId, rpcUrls, bundlerUrl, watchOnly }` per chain.
+**Returns:** `{ chainId, stateMachineId, rpcUrls, bundlerUrl, watchOnly }` per chain. `bundlerUrl` is the
+[Hyperbridge bundler](/developers/evm/simplex/configuration#bundler) the chain fills through, empty where there is none.
 
 ### add(chain)
 
@@ -496,13 +519,14 @@ add(chain: ChainInput): Promise<ChainView>
 | Name | Type | Description |
 |------|------|-------------|
 | `chain.rpcUrls` | `string[]` | One or more endpoints. Multiple enables quorum log scanning |
-| `chain.bundlerUrl` | `string` | ERC-4337 bundler, required to submit fill UserOperations |
 | `chain.watchOnly` | `boolean` | Optional. Monitor without filling |
 | `chain.confirmationPolicy` | `ChainConfirmationPolicy` | Required for chains with no built-in curve (testnets, and anything outside Ethereum, BSC, Polygon, Base, Arbitrum and Unichain) |
 
 **Throws:** If the endpoints are unreachable or answer for a different chain, the chain is already
-configured, no confirmation curve covers it, or delegation fails. The endpoints are probed and the
-chain id read back before anything is mutated, and a failed add rolls itself back.
+configured, no confirmation curve covers it, or delegation fails. Unless the chain is added watch-only,
+it also throws when Hyperbridge runs no bundler for it, or that bundler's `eth_supportedEntryPoints`
+lacks the chain's EntryPoint. The endpoints are
+probed and the chain id read back before anything is mutated, and a failed add rolls itself back.
 
 On a scanner you supplied, `add` requires the scanner to already carry the chain — call
 `scanner.addChain(...)` first, then this. On a scanner the solver owns, it is added for you.
@@ -531,12 +555,6 @@ setRpcUrls(chainId: number, rpcUrls: string[]): Promise<void>
 **Throws:** If the endpoints share a hostname, are unreachable, answer for a different chain, or
 belong to a scanner you supplied — see [Scanner ownership](#scanner-ownership).
 
-### setBundlerUrl(chainId, bundlerUrl)
-
-```typescript lineNumbers
-setBundlerUrl(chainId: number, bundlerUrl: string): Promise<void>
-```
-
 ### setWatchOnly(chainId, watchOnly)
 
 Monitor without filling. Takes effect on the next order.
@@ -544,6 +562,9 @@ Monitor without filling. Takes effect on the next order.
 ```typescript lineNumbers
 setWatchOnly(chainId: number, watchOnly: boolean): Promise<void>
 ```
+
+`setWatchOnly(chainId, false)` throws when Hyperbridge runs no bundler for the chain, or its bundler
+lists EntryPoints without the chain's.
 
 On a solver started without a `signer`, `setWatchOnly(chainId, false)` throws — and `add` defaults a
 new chain to watch-only, rejecting an explicit `watchOnly: false`. A signerless start runs on a
@@ -602,7 +623,7 @@ resolve(symbol: string, chain: string): HexString | null
 redefined — repointing one under a running market would silently redirect its fills. `resolve`
 returns `null` when the asset is not deployed or not known on that chain.
 
-The registry ships USDC, USDT, DAI, CNGN, USDR, ZARP, EURC, XSGD and TRYB.
+The registry ships USDC, USDT, DAI, CNGN, USDR, ZARP, EURC, XSGD, TRYB and BRIDGE.
 
 ## WalletController
 
@@ -728,8 +749,8 @@ const signer = digestSigner({
 
 ## Persistence
 
-Four things survive a restart: the bids submitted, the operator's limit orders, the activity feed,
-and whether the operator paused. They live behind `SimplexDataStore`.
+Five things survive a restart: the bids submitted, the operator's limit orders, the activity feed,
+a daily record of inventory, and whether the operator paused. They live behind `SimplexDataStore`.
 
 ```typescript lineNumbers
 interface SimplexDataStore {
@@ -737,6 +758,7 @@ interface SimplexDataStore {
     activity: ActivityStore
     state: StateStore
     limitOrders: LimitOrderStore
+    inventory: InventoryStore
     close?(): Promise<void>
 }
 ```
@@ -848,8 +870,27 @@ release(id: string, amount: string): Promise<void>
 drawDown(id: string, amount: string): Promise<LimitOrder | null>
 recordFill(fill: LimitOrderFillInsert): Promise<void>
 fills(limitOrderId: string, limit?: number): Promise<LimitOrderFill[]>
+fillHistory(): Promise<LimitOrderFillRecord[]>
 transaction<T>(settle: () => Promise<T>): Promise<T>
 ```
+
+`fillHistory` returns every fill of every order, oldest first, each with its order's `book`, `base`,
+`quote`, `side` and `price`. [`profitability()`](#profitabilityperiod-tzoffsetminutes) is worked
+out from it, so a store that keeps `amountIn` on each fill gets exact figures.
+
+### InventoryStore
+
+```typescript lineNumbers
+record(balances: Record<string, number>): Promise<void>
+latest(): Promise<InventorySnapshot | null>
+since(from: Date): Promise<InventorySnapshot[]>
+```
+
+What the solver held, as whole tokens per symbol, recorded about once a day. Profitability compares
+a period's profit with the inventory it began with, and a snapshot that was never taken cannot be
+recovered from the chain. `InventorySnapshot` is `id`, `takenAt` (SQLite-style UTC) and `balances`.
+`since` returns snapshots oldest first. Losing a row costs a figure on the analytics page and
+nothing else.
 
 <Callout type="warn">
     Correctness-critical, like `BidStore`. `remaining` and `reserved` are inventory: they are what

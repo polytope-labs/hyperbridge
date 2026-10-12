@@ -153,7 +153,7 @@ export class OrderScanner implements OrderScannerContract {
 		const chainId =
 			chain.chainId ??
 			(
-				await resolveChainConfigs([{ rpcUrls, bundlerUrl: chain.bundlerUrl ?? "" }], {
+				await resolveChainConfigs([{ rpcUrls }], {
 					loggers: this.loggers,
 					tolerateUnreachable: true,
 				})

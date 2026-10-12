@@ -10,8 +10,8 @@ if the rate moved against us — a written option on this filler's inventory, at
 (USDC/CNGN) are the worst case, since the naira reprices in steps rather than drifting.
 
 Operators configure seconds because that is the unit the risk is in; the contract compares block numbers, so the
-value is converted per destination chain from the chain's nominal block time (`Chain.blockTime`, milliseconds in
-viem), with a 30-second discovery allowance added before the conversion and the result rounded up — seconds rather
+value is converted per destination chain from the chain's measured block time (see the bid tenor decision note), with
+a 30-second discovery allowance added before the conversion and the result rounded up — seconds rather
 than a block count, because the lag between reading the head and the fill landing is wall-clock and does not scale
 with block time.
 

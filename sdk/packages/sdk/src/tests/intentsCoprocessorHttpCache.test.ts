@@ -1,17 +1,15 @@
 import http from "node:http"
 import type { AddressInfo } from "node:net"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { HttpProvider, type ApiPromise } from "@polkadot/api"
+import type { ApiPromise } from "@polkadot/api"
 import { IntentsCoprocessor } from "@/chains/intentsCoprocessor"
+import type { BatchingHttpProvider } from "@/utils/batchingHttpProvider"
 
 /**
- * polkadot-js's `HttpProvider` caches every request that names a block hash, and what it caches is
- * the request promise itself — a rejected one included — under a TTL that every hit refreshes. A
- * caller retrying a failed read with identical parameters would get the same rejection replayed
- * from memory, and the node would never see a second request. The coprocessor builds its HTTP
- * provider with that cache off. These pin both halves: the hazard in the dependency, so the
- * workaround rests on a check rather than a memory, and the provider the coprocessor actually
- * builds being free of it.
+ * A read through the coprocessor's HTTP api that fails is sent to the node again when retried, and
+ * never answered with the earlier failure replayed from a cache. polkadot-js's `HttpProvider` keeps
+ * rejected requests that name a block hash in its response cache, so this pins that the provider
+ * the coprocessor builds has no such cache.
  */
 
 const BLOCK_HASH = `0x${"de".repeat(32)}`
@@ -85,25 +83,13 @@ describe("coprocessor HTTP provider cache", () => {
 
 	afterEach(() => node.close())
 
-	// The dependency's own behaviour. If this starts failing, polkadot-js no longer caches
-	// rejections, and the capacity override in `IntentsCoprocessor.http` can be reconsidered.
-	it("polkadot-js HttpProvider replays a cached rejection instead of retrying", async () => {
-		const provider = new HttpProvider(`http://127.0.0.1:${port}`)
-
-		await expect(provider.send("state_getRuntimeVersion", [BLOCK_HASH], true)).rejects.toThrow("fetch failed")
-		await expect(provider.send("state_getRuntimeVersion", [BLOCK_HASH], true)).rejects.toThrow("fetch failed")
-
-		expect(node.answered()).toBe(0)
-		expect(provider.stats.total.cached).toBe(1)
-	})
-
 	it("the coprocessor's HTTP api retries a read that failed rather than replaying the failure", async () => {
 		// The HTTP endpoint is derived from the websocket's; that endpoint is all the coprocessor
 		// reads from the ws api to build it.
 		const wsApi = { _rpcCore: { provider: { endpoint: `ws://127.0.0.1:${port}` } } } as unknown as ApiPromise
 		const coprocessor = IntentsCoprocessor.fromApi(wsApi)
 
-		const { provider } = (await coprocessor.queryApi()) as unknown as { provider: HttpProvider }
+		const { provider } = (await coprocessor.queryApi()) as unknown as { provider: BatchingHttpProvider }
 
 		await expect(provider.send("state_getRuntimeVersion", [BLOCK_HASH], true)).rejects.toThrow("fetch failed")
 		await expect(provider.send("state_getRuntimeVersion", [BLOCK_HASH], true)).resolves.toEqual(RUNTIME_VERSION)

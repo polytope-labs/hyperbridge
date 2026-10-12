@@ -179,6 +179,11 @@ interface SubmissionOutcome extends BidSubmissionResult {
 	 * that bounced off a copy already pooled. Internal to the retry loop; callers see `pending`.
 	 */
 	stalled?: boolean
+	/**
+	 * The stalled extrinsic's last pool status was `Future`: the node is missing a lower nonce of
+	 * this account's, so the extrinsic cannot be included until that nonce is filled.
+	 */
+	future?: boolean
 }
 
 /**
@@ -453,6 +458,9 @@ export class IntentsCoprocessor {
 	 * fails on-chain, and a second `retractBid` that pulls the bid just placed. When the signed nonce
 	 * cannot be read, the stalled result is returned rather than guessed at.
 	 *
+	 * A stall in `Future` first fills the missing nonce below it ({@link fillNonceGap}), so the
+	 * replacement can land.
+	 *
 	 * A rejection that bounced off a copy already pooled (1013/1014) is likewise left alone: that
 	 * copy is in flight and its outcome is unknown here, so the `pending` result goes back to the
 	 * caller to confirm later.
@@ -489,6 +497,7 @@ export class IntentsCoprocessor {
 					nonce ??= this.signedNonce(extrinsic)
 					// Without the nonce the extrinsic went out under, a retry cannot be a replacement.
 					if (nonce === undefined) return result
+					if (result.future) await this.fillNonceGap(keyPair, nonce, timeoutMs)
 					continue
 				}
 				// A copy of this nonce is already pooled — in flight, not ours to replace. When that
@@ -547,19 +556,6 @@ export class IntentsCoprocessor {
 	}
 
 	/**
-	 * Sends an extrinsic with a timeout.
-	 *
-	 * A timeout is only a failure when the extrinsic never made it into the transaction pool.
-	 * Once a pool-entry status (Future/Ready/Broadcast/Retracted) has been seen, the extrinsic is
-	 * in flight and may well execute after the watch is abandoned — the result is then `pending`
-	 * and `stalled`, telling the caller to replace it under the same nonce or confirm it later,
-	 * never to re-sign the same call under a fresh one.
-	 *
-	 * `nonce` pins the submission to a specific account nonce, which is what makes a retry a pool
-	 * replacement rather than a second extrinsic queued behind the first. Left undefined on the
-	 * first attempt, where the api's auto-nonce is correct.
-	 */
-	/**
 	 * The nonce the next submission signs with, or undefined when the node cannot be asked.
 	 *
 	 * Submissions are serialised, but a watch gives up while its extrinsic is still in the pool
@@ -575,6 +571,7 @@ export class IntentsCoprocessor {
 	 * queued as future, or simply not counted yet — is covered by `lastPooledNonce` instead, which
 	 * is the highest nonce this instance has put into the pool. The two are combined rather than
 	 * trusted separately, so a burst never reuses a nonce and a restart still picks up the chain's.
+	 * A nonce left missing by an extrinsic the node dropped is filled by {@link fillNonceGap}.
 	 */
 	private async nextNonce(api: ApiPromise): Promise<number | undefined> {
 		try {
@@ -590,6 +587,48 @@ export class IntentsCoprocessor {
 		}
 	}
 
+	/**
+	 * A stall in `Future` means the node is missing a lower nonce of this account's, one whose
+	 * extrinsic it dropped, and everything signed above that nonce waits behind it. This fills the
+	 * lowest missing nonce, which `system_accountNextIndex` reports on the same node, with a
+	 * `system.remark` rather than the next call, so the calls already pooled above it land in the
+	 * order they were signed. One nonce per stall; a further gap shows up as the next `Future` stall.
+	 *
+	 * The remark carries no tip, so on any node or pool view that still holds a live call of ours at
+	 * that nonce, the call outranks it and the remark only ever fills a real gap.
+	 *
+	 * It runs inside the submission queue, so it submits directly rather than enqueueing, and gives
+	 * up after `timeoutMs` so a silent socket cannot hold the queue. A failure or timeout is logged
+	 * and left to the next stall.
+	 */
+	private async fillNonceGap(keyPair: KeyringPair, nonce: number, timeoutMs: number): Promise<void> {
+		const fill = async () => {
+			const accountNextIndex = this.api.rpc?.system?.accountNextIndex
+			if (!accountNextIndex) return
+			const missing = Number((await accountNextIndex(keyPair.address)).toString())
+			if (!Number.isFinite(missing) || missing >= nonce) return
+			await this.api.tx.system.remark("0x").signAndSend(keyPair, { tip: 0n, nonce: missing })
+		}
+		try {
+			await Promise.race([fill(), rejectAfter(timeoutMs, `Timed out after ${timeoutMs}ms`)])
+		} catch (err) {
+			console.warn(`Could not fill the nonce gap below ${nonce}:`, err)
+		}
+	}
+
+	/**
+	 * Sends an extrinsic with a timeout.
+	 *
+	 * A timeout is only a failure when the extrinsic never made it into the transaction pool.
+	 * Once a pool-entry status (Future/Ready/Broadcast/Retracted) has been seen, the extrinsic is
+	 * in flight and may well execute after the watch is abandoned — the result is then `pending`
+	 * and `stalled`, telling the caller to replace it under the same nonce or confirm it later,
+	 * never to re-sign the same call under a fresh one.
+	 *
+	 * `nonce` pins the submission to a specific account nonce, which is what makes a retry a pool
+	 * replacement rather than a second extrinsic queued behind the first. Left undefined on the
+	 * first attempt, where the api's auto-nonce is correct.
+	 */
 	private async sendWithTimeout(
 		extrinsic: SubmittableExtrinsic<"promise">,
 		keyPair: KeyringPair,
@@ -601,6 +640,7 @@ export class IntentsCoprocessor {
 			let resolved = false
 			let unsubscribe: (() => void) | null = null
 			let enteredPool = false
+			let inFuture = false
 
 			// Set timeout to detect stuck transactions
 			const timeoutId = setTimeout(() => {
@@ -613,6 +653,7 @@ export class IntentsCoprocessor {
 						success: false,
 						pending: enteredPool || undefined,
 						stalled: enteredPool || undefined,
+						future: (enteredPool && inFuture) || undefined,
 						extrinsicHash: enteredPool ? (extrinsic.hash.toHex() as HexString) : undefined,
 						error: `Transaction timed out after ${timeoutMs}ms${enteredPool ? " while in the transaction pool" : ""}`,
 					})
@@ -630,6 +671,7 @@ export class IntentsCoprocessor {
 						result.status.isRetracted
 					) {
 						enteredPool = true
+						inFuture = result.status.isFuture
 					}
 
 					if (result.dispatchError && (result.status.isInBlock || result.status.isFinalized)) {

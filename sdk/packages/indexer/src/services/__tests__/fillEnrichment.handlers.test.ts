@@ -148,6 +148,31 @@ it.each([
 	}
 })
 
+it.each([
+	["OrderFilled", handleOrderFilledEventV3, "IOrderV3Fill"],
+	["PartialFill", handlePartialFilledEventV3, "IOrderV3PartialFill"],
+] as const)("persists the userOpHash of a %s executed through EntryPoint v0.9", async (name, handle, entity) => {
+	const encoded = abi.encodeEventLog(abi.getEvent(name), [
+		commitment,
+		filler,
+		[{ token: pad(token), amount: 100n }],
+		[],
+	])
+	await handle({
+		address: gateway,
+		transactionHash: hash,
+		blockHash: hash,
+		blockNumber: 10,
+		logIndex: 5,
+		args: abi.decodeEventLog(name, encoded.data, encoded.topics),
+		transaction: {
+			input: "0x",
+			receipt: async () => ({ logs: [{ ...logs[1], address: "0x433709009b8330fda32311df1c2afa402ed8d009" }] }),
+		},
+	} as any)
+	expect(records.get(`${entity}:${hash}.5`)).toMatchObject({ userOpHash: hash, orderId: commitment })
+})
+
 it("records plain EOA fills without receipt enrichment when no transaction is supplied", async () => {
 	await IntentGatewayV3Service.recordFill(commitment, filler, [{ token: pad(token) as any, amount: 100n }], [], {
 		transactionHash: hash,

@@ -1,4 +1,10 @@
-import { CryptoUtils, BundlerMethod, type PackedUserOperation, type HexString } from "@hyperbridge/sdk"
+import {
+	CryptoUtils,
+	BundlerMethod,
+	rundlerUserOperationFees,
+	type PackedUserOperation,
+	type HexString,
+} from "@hyperbridge/sdk"
 import { toHex, type PublicClient } from "viem"
 import { ENTRYPOINT_ABI } from "@/config/abis/Entrypoint"
 import type { ChainClientManager } from "./ChainClientManager"
@@ -64,6 +70,9 @@ const FALLBACK_VERIFICATION_GAS_LIMIT = 250_000n
 const FALLBACK_CALL_GAS_LIMIT = 1_500_000n
 const FALLBACK_PRE_VERIFICATION_GAS = 150_000n
 
+const PRIORITY_FEE_BUMP_PERCENT = 8n
+const MAX_FEE_BUMP_PERCENT = 10n
+
 /**
  * Submits self-initiated, paymaster-sponsored UserOperations through the bundler,
  * so the solver pays gas in stablecoins rather than native token. Shared by the
@@ -119,7 +128,7 @@ export class UserOpSender {
 		try {
 			// Fetched before paymaster selection so the deposit gate can price the op's
 			// max prefund; a failure here means nothing was submitted, safe to fall back.
-			fees = await this.getGasPrice(bundlerUrl, publicClient, chainId)
+			fees = await this.getGasPrice(bundlerUrl, publicClient)
 
 			// Without explicit limits the fallbacks (~1.9M gas) over-require the deposit;
 			// a false skip degrades to the caller's native fallback, which is safe —
@@ -344,35 +353,30 @@ export class UserOpSender {
 		return userOp
 	}
 
-	/** Mirrors the gas-price selection used by the delegation and fill paths. */
+	/**
+	 * Prices the op for the rundler bundler, as the fill path does: its suggested fees, or the
+	 * chain's gas price raised to the priority fee it requires where it suggests none.
+	 */
 	private async getGasPrice(
 		bundlerUrl: string,
 		publicClient: PublicClient,
-		chainId: number,
 	): Promise<{ maxFeePerGas: bigint; maxPriorityFeePerGas: bigint }> {
-		const lower = bundlerUrl.toLowerCase()
-		if (lower.includes("pimlico.io")) {
-			const res = await this.sendBundlerRpc<{ fast: { maxFeePerGas: string; maxPriorityFeePerGas: string } }>(
-				bundlerUrl,
-				BundlerMethod.PIMLICO_GET_USER_OPERATION_GAS_PRICE,
-				[],
-			)
-			return { maxFeePerGas: BigInt(res.fast.maxFeePerGas), maxPriorityFeePerGas: BigInt(res.fast.maxPriorityFeePerGas) }
-		}
-		if (lower.includes("alchemy.com")) {
-			const [rundlerPriorityFee, latestBlock] = await Promise.all([
-				this.sendBundlerRpc<HexString>(bundlerUrl, BundlerMethod.RUNDLER_MAX_PRIORITY_FEE_PER_GAS, []),
-				publicClient.getBlock({ blockTag: "latest" }),
-			])
-			const baseFeePerGas = latestBlock.baseFeePerGas ?? (await publicClient.getGasPrice())
-			const isArbitrum = BigInt(chainId) === 42161n
-			const prioBump = isArbitrum ? 0n : 25n
-			const maxPriorityFeePerGas = BigInt(rundlerPriorityFee) + (BigInt(rundlerPriorityFee) * prioBump) / 100n
-			const bufferedBaseFee = baseFeePerGas + (baseFeePerGas * 50n) / 100n
-			return { maxFeePerGas: bufferedBaseFee + maxPriorityFeePerGas, maxPriorityFeePerGas }
-		}
-		const gasPrice = await publicClient.getGasPrice()
-		return { maxFeePerGas: gasPrice + (gasPrice * 10n) / 100n, maxPriorityFeePerGas: gasPrice + (gasPrice * 8n) / 100n }
+		const [gasPrice, latestBlock] = await Promise.all([
+			publicClient.getGasPrice(),
+			publicClient.getBlock({ blockTag: "latest" }),
+		])
+		return rundlerUserOperationFees(
+			bundlerUrl,
+			{
+				maxFeePerGas: gasPrice + (gasPrice * MAX_FEE_BUMP_PERCENT) / 100n,
+				maxPriorityFeePerGas: gasPrice + (gasPrice * PRIORITY_FEE_BUMP_PERCENT) / 100n,
+			},
+			{
+				baseFeePerGas: latestBlock.baseFeePerGas ?? gasPrice,
+				priorityFeeBumpPercent: PRIORITY_FEE_BUMP_PERCENT,
+				maxFeeBumpPercent: MAX_FEE_BUMP_PERCENT,
+			},
+		)
 	}
 
 	private async sendBundlerRpc<T>(bundlerUrl: string, method: string, params: unknown[]): Promise<T> {

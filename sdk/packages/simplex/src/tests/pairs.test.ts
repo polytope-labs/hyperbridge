@@ -124,9 +124,19 @@ describe("AssetRegistry", () => {
 		// every cNGN quote on that chain by 1e12.
 		expect(sdk.getCNgnDecimals("EVM-56")).toBe(6)
 		expect(sdk.getUsdcDecimals("EVM-56")).toBe(18)
+		// BRIDGE is the same CREATE2 address on both of its chains, with OpenZeppelin's ERC20 layout.
+		for (const chain of ["EVM-56", "EVM-137"]) {
+			expect(registry.getAddress("BRIDGE", chain)).toBe("0x5b0c50fDd52ECC0d4c682c441eaBaD41FfDEABBB")
+			expect(sdk.getAssetMetadataBySymbol(chain, "bridge")?.decimals).toBe(18)
+			expect(sdk.getTokenStorageSlots(chain, "0x5b0c50fDd52ECC0d4c682c441eaBaD41FfDEABBB")).toEqual({
+				balanceSlot: 0,
+				allowanceSlot: 1,
+			})
+		}
 		// Not deployed there → absent, not an error.
 		expect(registry.getAddress("EURC", "EVM-56")).toBeNull()
 		expect(registry.getAddress("USDR", "EVM-42161")).toBeNull()
+		expect(registry.getAddress("BRIDGE", "EVM-1")).toBeNull()
 	})
 
 	it("rejects malformed definitions", () => {

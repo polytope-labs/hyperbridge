@@ -1,22 +1,15 @@
 import { useCallback, useRef, useState } from "react"
-import { toast } from "sonner"
 import { api } from "../../api"
 import { useAction, usePolling } from "../../lib/hooks"
 import type { EndpointVerificationState } from "../../components/EndpointVerificationStatus"
 import type { ChainDefault, ChainsDto } from "../../types"
 
-interface AlchemyChainRow {
-	chainId: number
-	rpcUrl: string | null
-	bundlerUrl: string | null
-}
-
 export interface ChainDraft {
 	meta: ChainDefault
 	enabled: boolean
 	rpcUrls: string[]
+	/** Not editable. Hyperbridge's bundler the chain fills through, empty where it runs none. */
 	bundlerUrl: string
-	viaAlchemy: boolean
 	watchOnly: boolean
 	running: boolean
 	verificationState?: EndpointVerificationState
@@ -31,8 +24,7 @@ function seedDrafts(dto: ChainsDto): ChainDraft[] {
 			meta,
 			enabled: Boolean(row),
 			rpcUrls: row ? [...row.rpcUrls] : meta.defaultRpcUrls?.length ? [...meta.defaultRpcUrls] : [""],
-			bundlerUrl: row?.bundlerUrl ?? "",
-			viaAlchemy: false,
+			bundlerUrl: meta.hyperbridgeBundlerUrl ?? "",
 			watchOnly: row?.watchOnly ?? false,
 			running: row?.running ?? false,
 		}
@@ -44,7 +36,6 @@ function seedDrafts(dto: ChainsDto): ChainDraft[] {
 			enabled: true,
 			rpcUrls: [...row.rpcUrls],
 			bundlerUrl: row.bundlerUrl,
-			viaAlchemy: false,
 			watchOnly: row.watchOnly,
 			running: row.running,
 		})
@@ -56,10 +47,7 @@ function seedDrafts(dto: ChainsDto): ChainDraft[] {
 export function useChainSettings() {
 	const [dto, setDto] = useState<ChainsDto>()
 	const [drafts, setDrafts] = useState<ChainDraft[]>()
-	const [alchemyKey, setAlchemyKey] = useState("")
-	const [alchemy, setAlchemy] = useState<{ status?: "ok" | "err"; error?: string; busy?: boolean }>({})
 	const [saved, setSaved] = useState(false)
-	const alchemyBusyRef = useRef(false)
 	const verifyingRef = useRef(new Set<number>())
 	const { run, message, error } = useAction()
 
@@ -73,60 +61,12 @@ export function useChainSettings() {
 	const patch = (chainId: number, changes: Partial<ChainDraft>) =>
 		setDrafts((rows) => rows?.map((row) => (row.meta.chainId === chainId ? { ...row, ...changes } : row)))
 	const chains = drafts ?? []
-	const updateAlchemyKey = (key: string) => {
-		setAlchemyKey(key)
-		setAlchemy({})
-	}
-
-	const applyAlchemyKey = async () => {
-		if (alchemyBusyRef.current || !alchemyKey.trim() || !dto) return
-		alchemyBusyRef.current = true
-		setAlchemy({ busy: true })
-		try {
-			const result = await api.post<{ valid: boolean; error?: string; chains: AlchemyChainRow[] }>(
-				"/api/setup/validate-alchemy-key",
-				{ apiKey: alchemyKey.trim(), network: dto.network },
-			)
-			setAlchemy({ status: result.valid ? "ok" : "err", error: result.error })
-			if (!result.valid) {
-				toast.error("Alchemy key could not be validated", { description: result.error })
-				return
-			}
-			setDrafts((rows) =>
-				rows?.map((row) => {
-					const filled = result.chains.find((candidate) => candidate.chainId === row.meta.chainId)
-					const bundlerUrl = filled?.bundlerUrl ?? filled?.rpcUrl
-					if (!bundlerUrl) return row
-					// Match the wizard: Alchemy submits fills while scanning keeps
-					// the public quorum or the operator's saved RPC providers.
-					return {
-						...row,
-						bundlerUrl,
-						viaAlchemy: true,
-						verificationState: undefined,
-						verificationMessage: undefined,
-					}
-				}),
-			)
-			toast.success("Bundlers configured", {
-				description:
-					"Supported chain bundlers were filled from your Alchemy key. RPC endpoints were preserved.",
-			})
-		} catch (cause) {
-			const description = cause instanceof Error ? cause.message : String(cause)
-			setAlchemy({ status: "err", error: description })
-			toast.error("Alchemy key could not be validated", { description })
-		} finally {
-			alchemyBusyRef.current = false
-		}
-	}
-
 	const verifyChain = async (chain: ChainDraft) => {
 		if (verifyingRef.current.has(chain.meta.chainId)) return
 		verifyingRef.current.add(chain.meta.chainId)
 		patch(chain.meta.chainId, {
 			verificationState: "checking",
-			verificationMessage: "Checking RPC and bundler endpoints…",
+			verificationMessage: "Checking RPC endpoints…",
 		})
 		try {
 			const urls = chain.rpcUrls.map((url) => url.trim()).filter(Boolean)
@@ -153,33 +93,9 @@ export function useChainSettings() {
 				return
 			}
 
-			if (chain.bundlerUrl.trim()) {
-				try {
-					const bundler = await api.post<{ ok: boolean; warning?: string }>("/api/setup/validate-bundler", {
-						url: chain.bundlerUrl.trim(),
-						chainId: chain.meta.chainId,
-					})
-					if (bundler.warning) {
-						patch(chain.meta.chainId, {
-							verificationState: "warning",
-							verificationMessage: `RPC verified. Bundler warning: ${bundler.warning}`,
-						})
-						return
-					}
-				} catch (cause) {
-					const description = `Bundler check failed: ${cause instanceof Error ? cause.message : cause}`
-					patch(chain.meta.chainId, {
-						verificationState: "error",
-						verificationMessage: description,
-					})
-					return
-				}
-			}
 			patch(chain.meta.chainId, {
 				verificationState: "success",
-				verificationMessage: chain.bundlerUrl.trim()
-					? "RPC and bundler connections are ready."
-					: "RPC connection is ready.",
+				verificationMessage: "RPC connection is ready.",
 			})
 		} finally {
 			verifyingRef.current.delete(chain.meta.chainId)
@@ -206,7 +122,6 @@ export function useChainSettings() {
 					.map((chain) => ({
 						chainId: chain.meta.chainId,
 						rpcUrls: chain.rpcUrls.map((url) => url.trim()).filter(Boolean),
-						bundlerUrl: chain.bundlerUrl.trim(),
 						watchOnly: chain.watchOnly,
 					})),
 			})
@@ -222,13 +137,9 @@ export function useChainSettings() {
 		chains,
 		loaded: drafts !== undefined,
 		patch,
-		alchemyKey,
-		updateAlchemyKey,
-		alchemy,
 		saved,
 		message,
 		error,
-		applyAlchemyKey,
 		verifyChain,
 		toggleChain,
 		save,

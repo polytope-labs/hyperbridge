@@ -257,8 +257,8 @@ export class ChainConfigService {
 		return this.getConfig(chain)?.popularTokens ?? []
 	}
 
-	getEntryPointV08Address(chain: string): HexString {
-		return this.getConfig(chain)?.addresses.EntryPointV08!
+	getEntryPointAddress(chain: string): HexString | undefined {
+		return this.getConfig(chain)?.addresses.EntryPoint as HexString | undefined
 	}
 
 	getCirclePaymasterAddress(chain: string): HexString | undefined {

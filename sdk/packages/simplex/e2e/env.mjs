@@ -1,5 +1,6 @@
 // Settings for the testnet swap end-to-end run. Every key and every endpoint comes from the
 // environment; only public contract addresses live here.
+import { ChainConfigService } from "@hyperbridge/sdk"
 import { bscTestnet, polygonAmoy } from "viem/chains"
 
 /** Reads a required variable, naming every missing one at once. */
@@ -24,9 +25,6 @@ export function readEnv() {
 	// The account that tops the solvers' Hyperbridge balances up. Optional: without it a solver
 	// short of BRIDGE is reported rather than funded.
 	env.substrateFunder = process.env.SECRET_PHRASE
-	// A bundler is optional: Alchemy serves ERC-4337 on the same endpoint as the RPC.
-	env.bscBundler = process.env.E2E_BSC_TESTNET_BUNDLER_URL || env.bscRpc
-	env.amoyBundler = process.env.E2E_POLYGON_AMOY_BUNDLER_URL || env.amoyRpc
 	// Simplex posts to the orderbook URL as given; a deployment's base URL serves GraphQL under it.
 	const orderbook = env.orderbook.replace(/\/+$/, "")
 	env.orderbook = orderbook.endsWith("/graphql") ? orderbook : `${orderbook}/graphql`
@@ -36,8 +34,15 @@ export function readEnv() {
 export const GATEWAY = "0x6CF42FA9BecbC5b6a26884964956b113530f7cFA"
 export const HOST = "0x9AA003594d59C62EE17A73A569Fd7B1DbdBd71E1"
 export const FEE_TOKEN = "0xBE97E73126D66188d72fbF99029126D0340a7f18"
-/** ERC-4337 EntryPoint v0.8, the one the SDK submits bids through. */
-export const ENTRY_POINT = "0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108"
+
+const chainConfig = new ChainConfigService()
+
+/** The ERC-4337 EntryPoint the SDK submits bids through on `chain`, a state machine id such as `EVM-97`. */
+export function entryPointOf(chain) {
+	const address = chainConfig.getEntryPointAddress(chain)
+	if (!address) throw new Error(`The SDK configures no EntryPoint for ${chain}`)
+	return address
+}
 
 export const TOKENS = {
 	"EVM-97": {
@@ -52,8 +57,8 @@ export const TOKENS = {
 
 export function chains(env) {
 	return {
-		"EVM-97": { id: 97, viem: bscTestnet, rpc: env.bscRpc, bundler: env.bscBundler },
-		"EVM-80002": { id: 80002, viem: polygonAmoy, rpc: env.amoyRpc, bundler: env.amoyBundler },
+		"EVM-97": { id: 97, viem: bscTestnet, rpc: env.bscRpc },
+		"EVM-80002": { id: 80002, viem: polygonAmoy, rpc: env.amoyRpc },
 	}
 }
 

@@ -1,6 +1,7 @@
 import { encodeFunctionData, decodeFunctionData, type PublicClient } from "viem"
 import { ABI as IntentGatewayV2ABI } from "@/abis/IntentGatewayV2"
 import { isRevert } from "./escrowReads"
+import { TESTNET_CHAINS } from "@/utils"
 import type { FillOptions, HexString, Order } from "@/types"
 
 export type DecodedFillOrder = { order: Order; options: FillOptions }
@@ -8,7 +9,17 @@ export type DecodedFillOrder = { order: Order; options: FillOptions }
 /** `fillOrder(Order, FillOptions)` selector, pinned by codec tests; avoids import-time hashing in VM2. */
 export const FILL_ORDER_SELECTOR = "0x68ddf058" as const
 /** The gateway release this SDK speaks. SolverAccount carries no version, so only the gateway is read. */
-export const SUPPORTED_INTENTS_VERSION = 3n
+export const SUPPORTED_INTENTS_VERSION = 4n
+/**
+ * Testnet gateways already run the userOpHash solver selection that release 4 brings to mainnet, but
+ * report 3, so a testnet chain accepts both.
+ */
+const TESTNET_INTENTS_VERSIONS = [3n, SUPPORTED_INTENTS_VERSION]
+
+/** The releases a gateway on `stateMachineId` may report. */
+function supportedReleases(stateMachineId: string): bigint[] {
+	return TESTNET_CHAINS.has(stateMachineId) ? TESTNET_INTENTS_VERSIONS : [SUPPORTED_INTENTS_VERSION]
+}
 export const CONTRACT_VERSION_ABI = [
 	{
 		type: "function",
@@ -28,19 +39,33 @@ async function readContractVersion(client: PublicClient, address: HexString): Pr
 	}
 }
 
-/** Whether the gateway reports the supported release. RPC failures propagate. */
-export async function supportsRateFills(client: PublicClient, gateway: HexString): Promise<boolean> {
-	return (await readContractVersion(client, gateway)) === SUPPORTED_INTENTS_VERSION
+/** Whether the gateway on `stateMachineId` reports a supported release. RPC failures propagate. */
+export async function supportsRateFills(
+	client: PublicClient,
+	gateway: HexString,
+	stateMachineId: string,
+): Promise<boolean> {
+	const version = await readContractVersion(client, gateway)
+	return supportedReleases(stateMachineId).some((release) => release === version)
 }
 
-/** The gateway must report release {@link SUPPORTED_INTENTS_VERSION}; a missing getter or any other release throws. */
-export async function assertGatewayRelease(client: PublicClient, gateway: HexString): Promise<void> {
+/**
+ * The gateway on `stateMachineId` must report a supported release: {@link SUPPORTED_INTENTS_VERSION}, or
+ * 3 on a testnet. A missing getter or any other release throws.
+ */
+export async function assertGatewayRelease(
+	client: PublicClient,
+	gateway: HexString,
+	stateMachineId: string,
+): Promise<void> {
+	const supported = supportedReleases(stateMachineId)
 	const version = await readContractVersion(client, gateway)
-	if (version === SUPPORTED_INTENTS_VERSION) return
+	if (supported.some((release) => release === version)) return
+	const required = supported.join(" or ")
 	throw new Error(
 		version === undefined
-			? `IntentGateway ${gateway} reports no version(); this SDK requires release ${SUPPORTED_INTENTS_VERSION}`
-			: `IntentGateway ${gateway} reports release ${String(version)}; this SDK requires release ${SUPPORTED_INTENTS_VERSION}`,
+			? `IntentGateway ${gateway} reports no version(); this SDK requires release ${required}`
+			: `IntentGateway ${gateway} reports release ${String(version)}; this SDK requires release ${required}`,
 	)
 }
 

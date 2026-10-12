@@ -169,7 +169,8 @@ curl -s $SIMPLEX/api/limit-orders/9f1c2e6a-3b4d-4c1e-9a55-0d7f2b8e41aa
   "order": { "id": "9f1c2e6a-…", "status": "open", "remaining": "3520000000000000000000", "…": "…" },
   "fills": [
     { "id": 12, "limitOrderId": "9f1c2e6a-…", "commitment": "0x…", "bid": "0x…",
-      "amount": "1480000000000000000000", "transactionHash": "0x…", "filledAt": "2026-09-30 12:20:41" }
+      "amount": "1480000000000000000000", "amountIn": "1000000000000000000",
+      "transactionHash": "0x…", "filledAt": "2026-09-30 12:20:41" }
   ],
   "bids": []
 }
@@ -182,6 +183,7 @@ curl -s $SIMPLEX/api/limit-orders/9f1c2e6a-3b4d-4c1e-9a55-0d7f2b8e41aa
 | `commitment` | The swap order the fill settled. |
 | `bid` | The ID Hyperbridge filed the winning bid under, when known. |
 | `amount` | How much the fill drew the order down by, 1e18-scaled in the token paid out. |
+| `amountIn` | What the fill took in, 1e18-scaled in the token the order takes in. `null` for a fill recorded before Simplex kept it. |
 | `transactionHash` | The fill's transaction on the fill chain, when known. |
 | `filledAt` | When the fill settled, in UTC, as `YYYY-MM-DD HH:MM:SS`. |
 
@@ -209,6 +211,56 @@ The order is closed locally first, so nothing new can draw on it even if the ord
 After any other rejection, or a failure, the entry may still be live on the orderbook. Simplex keeps its `commitment` on the order and sets `lastError`, and the next reconciliation withdraws the entry.
 
 An ID that matches no order answers `400`, not `404`.
+
+## GET /api/analytics/profitability
+
+Returns what your fills earned over a period, worked out the way the dashboard's [Analytics page](/developers/evm/simplex/analytics) shows it. Both parameters are optional:
+
+| Parameter | Description |
+|---|---|
+| `period` | `7d` (the default), `30d`, `12w`, `12m` or `all`. Each has its own bucket size: day, day, week, month and year. |
+| `tz` | Your clock's offset from UTC in minutes, as JavaScript's `getTimezoneOffset()` returns it, so that a day starts at your midnight. `-60` is one hour ahead of UTC. Defaults to `0`. |
+
+```bash lineNumbers
+curl -s "$SIMPLEX/api/analytics/profitability?period=30d&tz=-60"
+```
+
+```json lineNumbers
+{
+  "period": "30d",
+  "bucket": "day",
+  "from": 1788649200000,
+  "to": 1791200520000,
+  "totals": { "profitUsd": 2312.0, "startInventoryUsd": 126429.43, "returnPct": 1.83, "transfersUsd": 5000.0,
+              "boughtUsd": 406261.0, "soldUsd": 398297.12, "buys": 119, "sells": 122 },
+  "series": [ { "start": 1788649200000, "profitUsd": 71.4, "startInventoryUsd": 126429.43, "transfersUsd": 0, "…": "…" } ],
+  "books": [
+    { "book": "USDC-cNGN", "base": "USDC", "quote": "cNGN", "bought": 235629, "sold": 223020,
+      "averageBuy": 1579.88, "averageSell": 1589.3, "spreadPct": 0.6,
+      "baseChange": 12609, "quoteChange": -17819994.94, "rate": 1584.6, "profitUsd": 1360.1 }
+  ],
+  "startInventory": {
+    "at": 1788649200000, "source": "snapshot", "recordedAt": 1788609720000, "usd": 126429.43,
+    "tokens": [ { "symbol": "USDC", "amount": 56362.67, "usd": 56362.67 }, { "…": "…" } ]
+  },
+  "estimatedFills": 0,
+  "unpricedTokens": []
+}
+```
+
+Unlike the rest of this page, these figures are plain numbers in whole tokens and dollars, not 1e18-scaled strings. They are for reading, not for building orders from.
+
+| Field | Description |
+|---|---|
+| `from`, `to` | The start of the first bucket and the moment the summary was taken, in milliseconds since the epoch. |
+| `totals` | The whole period. `profitUsd` is what the period's fills added to inventory less what they took out, in dollars at each pair's latest rate. `startInventoryUsd` is the inventory held when the period began, and `returnPct` is the first over the second as a percentage. Both are `null` when there is no snapshot and the period began more than seven days ago. `transfersUsd` is what moved in and out other than through fills, net, from the indexer's record of the solver's balances; it is `null` when the indexer has no reading for both ends of the period. `boughtUsd`, `soldUsd`, `buys` and `sells` are the volume and the number of fills each way. |
+| `series` | One entry per bucket, oldest first, with the same figures as `totals` and the bucket's `start`. Each is compared with the inventory at its own start. Buckets nothing happened in are included. |
+| `books` | One entry per pair. `bought` and `sold` are in the base token, and `averageBuy` and `averageSell` in quote per base. `spreadPct` is how far the average sell sits above the average buy. `baseChange` and `quoteChange` are what the fills did to the two tokens held. `rate` is the rate the pair is valued at: midway between its latest buy and its latest sell. |
+| `startInventory` | The inventory the period began with: its dollar value, its tokens, and its `source`. `snapshot` is a stored daily snapshot and `balances` is what is held now; either is adjusted by what moved between `recordedAt` and `at`, which comes from the indexer where it follows the solver and from the fills and sends on record elsewhere. The nearest snapshot is used however far it is from the start, and today's balances only for a start within the last seven days. `null` when there is neither. |
+| `estimatedFills` | Fills in the period that had no `amountIn`, and were priced at their order's rate instead. |
+| `unpricedTokens` | Tokens the period touched that no pair connects to a dollar stable. The dollar figures leave them out. |
+
+It answers `400` for an unknown `period` or a `tz` that is not a whole number of minutes.
 
 ## Repricing
 
@@ -281,4 +333,4 @@ Every route on this page returns orders in this shape.
 
 ## From the library
 
-To embed Simplex as a library rather than run the binary, the same operations are available as `simplex.limitOrders.books()`, `create()`, `list()`, `get()`, `withFills()` and `cancel()`. They emit `limit-order:posted`, `limit-order:rejected`, `limit-order:cancelled`, `limit-order:resized` and `limit-order:filled` events. See the [Simplex SDK guide](/developers/sdk/simplex).
+To embed Simplex as a library rather than run the binary, the same operations are available as `simplex.limitOrders.books()`, `create()`, `list()`, `get()`, `withFills()`, `cancel()` and `profitability()`. They emit `limit-order:posted`, `limit-order:rejected`, `limit-order:cancelled`, `limit-order:resized` and `limit-order:filled` events. See the [Simplex SDK guide](/developers/sdk/simplex).

@@ -16,10 +16,10 @@ import type { Signer } from "@/services/wallet"
  */
 
 /** The gateway release a fill settles on, which `prepareSubmitBid` insists both sides report. */
-const SUPPORTED_RELEASE = 3n
+const SUPPORTED_RELEASE = 4n
 
 /** Stands in for Base's deployed SolverAccount, the implementation the release check reads. */
-const SOLVER_ACCOUNT = "0x77c3394CA5881A74f18139AC87D0c11F8Faa90cC" as HexString
+const SOLVER_ACCOUNT = "0xaAd062555800a97Af062795189e32a3CBd045612" as HexString
 
 /** Anvil's first account, which is the key the orderbook's vectors were signed with. */
 export const SOLVER_KEY = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80" as HexString
@@ -41,7 +41,7 @@ function intentGateway(chainId: number): Promise<IntentGateway> {
 	// biome-ignore lint/suspicious/noExplicitAny: the fee token read is the one thing here that wants a node
 	;(chain as any).getFeeTokenWithDecimals = async () => ({ address: BASE_USDC, decimals: 6 })
 	// Signing a bid reads `version()` off the gateway and the solver account, since
-	// a fill settles only on release 3. Both answer it here: the rig is about the
+	// a fill settles only on release 4. Both answer it here: the rig is about the
 	// bytes the op carries, and there is no node to ask.
 	// biome-ignore lint/suspicious/noExplicitAny: the stubs below stand in for a node
 	const stubbed = chain as any

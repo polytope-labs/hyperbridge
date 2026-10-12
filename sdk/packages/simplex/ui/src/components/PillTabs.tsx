@@ -1,6 +1,7 @@
 /** Pill-style tab row used for page tabs, signer types and pricing sources. */
 export function PillTabs<T extends string>(props: {
-	options: ReadonlyArray<{ value: T; label: string }>
+	/** `count` is how many items a tab holds, shown beside its label. */
+	options: ReadonlyArray<{ value: T; label: string; count?: number }>
 	value: T
 	onChange: (value: T) => void
 	className?: string
@@ -22,6 +23,7 @@ export function PillTabs<T extends string>(props: {
 					onClick={() => props.onChange(option.value)}
 				>
 					{option.label}
+					{option.count === undefined ? null : <span className="step-count">{option.count}</span>}
 				</button>
 			))}
 		</div>

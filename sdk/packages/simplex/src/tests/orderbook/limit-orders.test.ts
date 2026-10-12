@@ -499,6 +499,24 @@ describe("LimitOrderService.settleFill", () => {
 		expect(settled.remaining).toBe("0")
 		expect(settled.status).toBe("filled")
 	})
+
+	it.each(["cancelled", "rejected", "filled"] as const)(
+		"leaves a %s order closed when a fill settles on it afterwards",
+		async (status) => {
+			const client = fakeClient([])
+			const { service, store } = makeService(client)
+			const events: string[] = []
+			service.listen((event) => events.push(event.kind))
+			const created = await service.create(REQUEST)
+			await store.setStatus(created.order.id, status)
+
+			expect(await service.settleFill(created.order.id, 500_000n * ONE)).toBeNull()
+			expect(await service.settleFill(created.order.id, 999_999n * ONE)).toBeNull()
+			expect((await store.get(created.order.id))?.status).toBe(status)
+			expect(client.submitted).toEqual(["0x00"])
+			expect(events).toEqual([])
+		},
+	)
 })
 
 describe("LimitOrderService.reconcileTallies", () => {
@@ -746,6 +764,36 @@ describe("reposting when the old entry will not come down", () => {
 		const reposted = await service.repost(created.order)
 		expect(reposted?.lastError).toMatch(/ECONNREFUSED/)
 		expect(client.submitted).toEqual(["0x00"])
+	})
+
+	it.each(["filled", "cancelled", "expired", "rejected"] as const)(
+		"leaves a row that went %s while the old entry was coming down",
+		async (status) => {
+			const client = fakeClient([])
+			const { service, store } = makeService(client)
+			const created = await service.create(REQUEST)
+			client.cancelOrder = async () => {
+				await store.setStatus(created.order.id, status)
+				return { kind: "rejected", code: "UNKNOWN_ORDER", message: "gone" }
+			}
+
+			expect(await service.repost(created.order)).toBeNull()
+			expect(client.submitted).toEqual(["0x00"])
+			expect((await store.get(created.order.id))?.status).toBe(status)
+		},
+	)
+
+	it("leaves a row that was cancelled while a refused withdrawal was out", async () => {
+		const client = fakeClient([])
+		const { service, store } = makeService(client)
+		const created = await service.create(REQUEST)
+		client.cancelOrder = async () => {
+			await store.setStatus(created.order.id, "cancelled")
+			return { kind: "failed", message: "connect ECONNREFUSED" }
+		}
+
+		expect(await service.repost(created.order)).toBeNull()
+		expect((await store.get(created.order.id))?.status).toBe("cancelled")
 	})
 })
 

@@ -1,5 +1,5 @@
 import { randomBytes, randomUUID } from "node:crypto"
-import { getChainId, MAX_DECLARED_ENTRIES, type HexString } from "@hyperbridge/sdk"
+import { ENTRY_POINT_V08, getChainId, MAX_DECLARED_ENTRIES, type HexString } from "@hyperbridge/sdk"
 import { type AssetRegistry, normalizeSymbol } from "@/config/asset-registry"
 import type { LimitOrder, LimitOrderFilter, LimitOrderInsert, LimitOrderStore } from "@/data/types"
 import type { ContractInteractionService } from "@/services/ContractInteractionService"
@@ -143,7 +143,10 @@ export interface CancelledLimitOrder {
 export interface ReconcileReport {
 	/** Orderbook entries no limit order here owns, now withdrawn. */
 	cancelled: number
-	/** Limit orders whose entry had gone, now posted again. */
+	/**
+	 * Limit orders posted again: their entry had gone, or it was signed for an
+	 * EntryPoint the fill chain no longer uses.
+	 */
 	reposted: number
 	/** Postings the orderbook is not backing in full, left alone and surfaced. */
 	underFunded: number
@@ -169,6 +172,8 @@ export class LimitOrderService {
 	private logger: Logger
 	private cachedLimits?: { limits: OrderbookLimits; readAt: number }
 	private onEvent?: (event: LimitOrderEvent) => void
+	/** Re-signs in flight, by order id. A fill's resize waits one out rather than reposting alongside it. */
+	private readonly resigning = new Map<string, Promise<boolean>>()
 
 	constructor(
 		private readonly store: LimitOrderStore,
@@ -304,6 +309,7 @@ export class LimitOrderService {
 					bookExpiresAt: null,
 					bookPrice: null,
 					orderNonce: order.orderNonce,
+					entryPoint: null,
 					status: "cancelled",
 					lastError: null,
 				}))!,
@@ -621,25 +627,40 @@ export class LimitOrderService {
 	async resize(remaining: LimitOrder, delivered: bigint): Promise<LimitOrder | null> {
 		const id = remaining.id
 		const floor = await this.dustFloor(remaining)
-		if (BigInt(remaining.remaining) < floor) {
+		// A re-sign in flight posts from a read taken before this fill, and run alongside
+		// it each would post its own entry, so this waits and replaces its posting
+		// instead. Nothing is awaited between the last check and the claim below, and
+		// both branches take it before touching the orderbook, so none can start once
+		// this is under way.
+		for (let resigning = this.resigning.get(id); resigning; resigning = this.resigning.get(id)) await resigning
+		// A row that has already closed stays closed, whatever fill lands on it later.
+		const order = await this.store.setStatus(id, "resizing", null, POSTABLE)
+		if (!order) return null
+
+		if (BigInt(order.remaining) < floor) {
 			this.logger.info(
-				{ id, remaining: remaining.remaining, floor: floor.toString() },
+				{ id, remaining: order.remaining, floor: floor.toString() },
 				"Limit order worked down past the dust floor; closing it",
 			)
-			if (remaining.commitment) await this.withdraw(remaining.commitment as HexString)
-			const closed = await this.store.setPosting(id, {
-				commitment: null,
-				bookExpiresAt: null,
-				bookPrice: null,
-				orderNonce: remaining.orderNonce,
-				status: "filled",
-				lastError: null,
-			})
+			if (order.commitment) await this.withdraw(order.commitment as HexString)
+			const closed = await this.store.setPosting(
+				id,
+				{
+					commitment: null,
+					bookExpiresAt: null,
+					bookPrice: null,
+					orderNonce: order.orderNonce,
+					entryPoint: null,
+					status: "filled",
+					lastError: null,
+				},
+				POSTABLE,
+			)
 			if (closed) this.report({ kind: "filled", order: closed })
 			return closed
 		}
 
-		const resized = await this.repost(await this.store.setStatus(id, "resizing"))
+		const resized = await this.repost(order)
 		if (resized) this.report({ kind: "resized", order: resized, delivered })
 		return resized
 	}
@@ -654,7 +675,7 @@ export class LimitOrderService {
 	async repost(order: LimitOrder | null): Promise<LimitOrder | null> {
 		if (!order) return null
 		// A same-asset order was never on the book, so there is nothing to put back.
-		if (isLocal(order)) return this.store.setStatus(order.id, "open")
+		if (isLocal(order)) return this.store.setStatus(order.id, "open", null, POSTABLE)
 
 		// Expiry belongs here rather than in each caller. The matcher refuses an
 		// expired order, so posting one advertises depth that is quoted to swappers,
@@ -676,7 +697,7 @@ export class LimitOrderService {
 					{ id: order.id, commitment: order.commitment, err: message },
 					"Could not clear the old entry; leaving the posting alone rather than adding a second",
 				)
-				return this.store.setStatus(order.id, "open", message)
+				return this.store.setStatus(order.id, "open", message, POSTABLE)
 			}
 		}
 
@@ -684,8 +705,12 @@ export class LimitOrderService {
 		// the row is live with no entry on the book, which is exactly what
 		// reconciliation would otherwise read as one to put back. The status is what
 		// `POSTABLE` lets the posting write over, and the write refreshes
-		// `updatedAt`, which is what reconciliation actually leaves alone.
-		await this.store.setStatus(order.id, "resizing")
+		// `updatedAt`, which is what reconciliation actually leaves alone. Guarded,
+		// because a fill can have closed the row while the old entry was coming down.
+		if (!(await this.store.setStatus(order.id, "resizing", null, POSTABLE))) {
+			this.logger.info({ id: order.id }, "Limit order closed while it was being reposted; leaving it closed")
+			return null
+		}
 
 		// A fresh nonce, because the orderbook remembers every op hash it has taken
 		// and a signed op cannot be posted twice.
@@ -739,7 +764,9 @@ export class LimitOrderService {
 	 * They drift apart when a request never got an answer or the process died
 	 * between two of them: an entry the orderbook still lists that nothing here
 	 * owns, an order here whose entry has gone, or an entry the orderbook has cut
-	 * down because the solver cannot cover what it quoted.
+	 * down because the solver cannot cover what it quoted. A posted op is also
+	 * signed over one EntryPoint, so when the fill chain moves to another, every
+	 * entry signed before the move is withdrawn and posted again.
 	 */
 	async reconcile(now: Date = new Date()): Promise<ReconcileReport> {
 		const [entries, live] = await Promise.all([this.postedOrders(), this.live()])
@@ -768,7 +795,17 @@ export class LimitOrderService {
 
 		for (const order of live) {
 			if (isLocal(order)) continue
-			if (order.commitment && found.has(order.commitment.toLowerCase())) continue
+			if (order.commitment && found.has(order.commitment.toLowerCase())) {
+				try {
+					if (await this.resign(order)) report.reposted++
+				} catch (err) {
+					this.logger.error(
+						{ id: order.id, err },
+						"Could not sign the limit order again for its chain's EntryPoint",
+					)
+				}
+				continue
+			}
 			// A row touched moments ago has a posting in flight: a create posts after
 			// its insert, and a repost posts after its cancel, both leaving the row
 			// live with nothing on the book to find. Posting now would put a second
@@ -788,6 +825,52 @@ export class LimitOrderService {
 		}
 
 		return report
+	}
+
+	/**
+	 * Withdraws a posting signed for an EntryPoint its fill chain no longer uses,
+	 * and posts it again signed for the one it uses now. Answers whether a new
+	 * posting landed.
+	 *
+	 * The row is read again and claimed out of `open` first: a fill can have worked
+	 * it down or started its own repost since reconciliation listed it, and that
+	 * write is the one to follow. A fill that lands once the claim is taken waits
+	 * in `resize` for this to finish. The EntryPoint is only written with a posting
+	 * that landed, so a pass cut short anywhere leaves a row the next pass still
+	 * reads as stale, or as having no entry, and finishes the job.
+	 */
+	private async resign(listed: LimitOrder): Promise<boolean> {
+		const entryPoint = this.configService.getEntryPointAddress(listed.fillChain)
+		if (!entryPoint || sameAddress(signedFor(listed), entryPoint)) return false
+
+		const order = await this.store.get(listed.id)
+		if (!order || order.status !== "open" || order.commitment !== listed.commitment) return false
+		if (sameAddress(signedFor(order), entryPoint) || this.resigning.has(order.id)) return false
+
+		// Registered in the same tick the claim is written in, so a resize either
+		// claimed the row first or finds this one to wait for.
+		const resigned = this.signAgain(order, entryPoint)
+		this.resigning.set(
+			order.id,
+			resigned.catch(() => false),
+		)
+		try {
+			return await resigned
+		} finally {
+			this.resigning.delete(order.id)
+		}
+	}
+
+	private async signAgain(order: LimitOrder, entryPoint: HexString): Promise<boolean> {
+		const claimed = await this.store.setStatus(order.id, "resizing", null, ["open"])
+		if (!claimed) return false
+
+		this.logger.warn(
+			{ id: order.id, commitment: order.commitment, signedFor: signedFor(order), entryPoint },
+			"Limit order was signed for an EntryPoint its chain no longer uses; signing it again",
+		)
+		const posted = await this.repost(claimed)
+		return !!posted?.commitment && sameAddress(signedFor(posted), entryPoint)
 	}
 
 	/**
@@ -884,6 +967,7 @@ export class LimitOrderService {
 			bookExpiresAt: null,
 			bookPrice: null,
 			orderNonce: order.orderNonce,
+			entryPoint: null,
 			status: "expired",
 			lastError: null,
 		})
@@ -948,12 +1032,12 @@ export class LimitOrderService {
 
 	/** Builds and submits the posting, then writes the orderbook's answer onto the row. */
 	private async post(order: LimitOrder): Promise<PostedLimitOrder> {
-		const { result, orderNonce } = await this.submit(order)
+		const { result, orderNonce, entryPoint } = await this.submit(order)
 
 		if (result.kind === "accepted" || result.kind === "unchanged") {
 			const posted = result.order
 			this.logger.info(
-				{ id: order.id, commitment: posted.commitment, price: posted.price },
+				{ id: order.id, commitment: posted.commitment, price: posted.price, entryPoint },
 				"Limit order posted to the orderbook",
 			)
 			const stored = await this.store.setPosting(
@@ -963,6 +1047,10 @@ export class LimitOrderService {
 					bookExpiresAt: posted.expiresAt,
 					bookPrice: posted.price,
 					orderNonce: orderNonce.toString(),
+					// An entry the orderbook already held was signed by an earlier attempt,
+					// for whichever EntryPoint was current then. Recorded as unknown, which
+					// reconciliation reads as v0.8 and signs again once the chain is past it.
+					entryPoint: result.kind === "accepted" ? entryPoint : null,
 					status: "open",
 					lastError: null,
 				},
@@ -1004,6 +1092,7 @@ export class LimitOrderService {
 					bookExpiresAt: null,
 					bookPrice: null,
 					orderNonce: orderNonce.toString(),
+					entryPoint: null,
 					status: "open",
 					lastError: message,
 				}))!,
@@ -1029,25 +1118,36 @@ export class LimitOrderService {
 	 * on a new nonce would put a second entry behind the same liability and record
 	 * only the second one.
 	 */
-	private async submit(order: LimitOrder): Promise<{ result: SubmitOrderResult; orderNonce: bigint }> {
+	private async submit(
+		order: LimitOrder,
+	): Promise<{ result: SubmitOrderResult; orderNonce: bigint; entryPoint: HexString }> {
+		const entryPoint = this.entryPointFor(order.fillChain)
 		const orderNonce = BigInt(order.orderNonce)
-		const attempt = await this.buildAndSubmit(order, orderNonce)
+		const attempt = await this.buildAndSubmit(order, orderNonce, entryPoint)
 		const first = attempt.result
 		if (first.kind !== "rejected" || (first.code !== "REPLAYED" && first.code !== "ORDER_EXISTS")) {
-			return { result: first, orderNonce }
+			return { result: first, orderNonce, entryPoint }
 		}
 
 		if (first.code === "ORDER_EXISTS" && attempt.commitment) {
 			const live = await this.entryAt(order, attempt.commitment)
 			if (live) {
 				this.logger.info({ id: order.id, commitment: live.commitment }, "This posting is already on the orderbook")
-				return { result: { kind: "unchanged", order: live }, orderNonce }
+				return { result: { kind: "unchanged", order: live }, orderNonce, entryPoint }
 			}
 		}
 
 		this.logger.warn({ id: order.id, code: first.code }, "Orderbook has seen this op before; reposting on a new nonce")
 		const retried = orderNonce + 1n
-		return { result: (await this.buildAndSubmit(order, retried)).result, orderNonce: retried }
+		const { result } = await this.buildAndSubmit(order, retried, entryPoint)
+		return { result, orderNonce: retried, entryPoint }
+	}
+
+	/** The EntryPoint a posting on `chain` is signed for now. */
+	private entryPointFor(chain: string): HexString {
+		const entryPoint = this.configService.getEntryPointAddress(chain)
+		if (!entryPoint) throw new LimitOrderValidationError(`No EntryPoint is configured for ${chain}`)
+		return entryPoint
 	}
 
 	/**
@@ -1068,8 +1168,9 @@ export class LimitOrderService {
 	private async buildAndSubmit(
 		order: LimitOrder,
 		orderNonce: bigint,
+		entryPoint: HexString,
 	): Promise<{ result: SubmitOrderResult; commitment?: HexString }> {
-		const { commitment, userOp } = await this.buildUserOp(order, orderNonce)
+		const { commitment, userOp } = await this.buildUserOp(order, orderNonce, entryPoint)
 		try {
 			return { result: await this.client.submitOrder(userOp), commitment }
 		} catch (err) {
@@ -1080,7 +1181,11 @@ export class LimitOrderService {
 		}
 	}
 
-	private async buildUserOp(order: LimitOrder, orderNonce: bigint): Promise<{ commitment: HexString; userOp: HexString }> {
+	private async buildUserOp(
+		order: LimitOrder,
+		orderNonce: bigint,
+		entryPointAddress: HexString,
+	): Promise<{ commitment: HexString; userOp: HexString }> {
 		const baseToken = this.assetRegistry.getAddress(order.base, order.fillChain)!
 		const quoteToken = this.assetRegistry.getAddress(order.quote, order.fillChain)!
 		const [baseDecimals, quoteDecimals] = await Promise.all([
@@ -1097,11 +1202,6 @@ export class LimitOrderService {
 			baseDecimals,
 			quoteDecimals,
 		})
-
-		const entryPointAddress = this.configService.getEntryPointAddress(order.fillChain)
-		if (!entryPointAddress) {
-			throw new LimitOrderValidationError(`No EntryPoint is configured for ${order.fillChain}`)
-		}
 
 		return this.contractService.prepareLimitOrderUserOp({
 			fillChain: order.fillChain,
@@ -1151,6 +1251,15 @@ function hasExpired(expiresAt: string | null, now: Date): boolean {
 	return !Number.isNaN(at) && at <= now.getTime()
 }
 
+
+/** The EntryPoint an order's posting was signed for. One stored without it was signed for v0.8. */
+function signedFor(order: LimitOrder): string {
+	return order.entryPoint ?? ENTRY_POINT_V08
+}
+
+function sameAddress(a: string, b: string): boolean {
+	return a.toLowerCase() === b.toLowerCase()
+}
 
 /** How long ago a row was written. Its stamps are UTC but not marked as such. */
 function sinceMs(updatedAt: string, now: Date): number {

@@ -68,7 +68,7 @@ export interface FillerTomlConfig {
 	 * Optional asset-registry escape hatch: symbol → { chain → address }. Only
 	 * needed for assets the built-in registry does not ship, or to override a
 	 * shipped address for a deployment. Shipped symbols: USDC, USDT, DAI, CNGN
-	 * (SDK chain registry) + curated USDR, ZARP, EURC, XSGD and TRYB.
+	 * (SDK chain registry) + curated USDR, ZARP, EURC, XSGD, TRYB and BRIDGE.
 	 */
 	assets?: Record<string, AssetDefinition>
 	/**
@@ -324,9 +324,6 @@ export function validateConfig(config: FillerTomlConfig, cliWatchOnly = false): 
 	for (const chain of config.chains) {
 		if (!Array.isArray(chain.rpcUrls) || chain.rpcUrls.length === 0 || chain.rpcUrls.some((u) => !u)) {
 			throw new Error("Each chain configuration must have rpcUrls (a non-empty array of strings)")
-		}
-		if (!chain.bundlerUrl) {
-			throw new Error("Each chain configuration must have bundlerUrl")
 		}
 	}
 

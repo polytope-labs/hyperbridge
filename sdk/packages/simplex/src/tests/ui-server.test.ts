@@ -117,7 +117,7 @@ function fakeConfig(): FillerConfigFile {
 			{ token0: "USDC", token1: "CNGN" },
 			{ token0: "USDC", token1: "ZARP" },
 		],
-		chains: [{ rpcUrls: ["https://rpc.example"], bundlerUrl: "https://bundler.example" }],
+		chains: [{ rpcUrls: ["https://rpc.example"] }],
 	}
 }
 
@@ -292,6 +292,30 @@ describe("UiServer (operator mode)", () => {
 		const response = await fetch(`${base}/api/orderbook/snapshot?book=a`)
 		expect(response.status).toBe(502)
 		expect(await response.json()).toEqual({ error: "offline" })
+	})
+
+	it("reads profitability for a period on the viewer's clock", async () => {
+		const summary = { period: "30d", bucket: "day", series: [] }
+		const read = vi.fn().mockResolvedValue(summary)
+		const { base } = await startServer({
+			limitOrders: { profitability: read } as unknown as OperatorContext["limitOrders"],
+		})
+
+		const response = await fetch(`${base}/api/analytics/profitability?period=30d&tz=-60`)
+		expect(response.status).toBe(200)
+		expect(await response.json()).toEqual(summary)
+		expect(read).toHaveBeenCalledWith("30d", -60)
+
+		// The overview asks for its week without saying so.
+		await fetch(`${base}/api/analytics/profitability`)
+		expect(read).toHaveBeenLastCalledWith("7d", 0)
+
+		for (const query of ["period=1y", "period=7d&tz=abc", "period=7d&tz=1.5", "period=7d&tz=900"]) {
+			expect((await fetch(`${base}/api/analytics/profitability?${query}`)).status).toBe(400)
+		}
+		expect(
+			(await fetch(`${base}/api/analytics/profitability`, { method: "POST", headers: CSRF })).status,
+		).toBe(405)
 	})
 
 	it("reads one level's orders and validates the level", async () => {
@@ -1240,8 +1264,8 @@ describe("UiServer (operator mode)", () => {
 	function chainsConfig(): FillerConfigFile {
 		const config = marketConfig()
 		config.chains = [
-			{ rpcUrls: ["https://base.example"], bundlerUrl: "https://base-bundler.example" },
-			{ rpcUrls: ["https://bsc.example"], bundlerUrl: "https://bsc-bundler.example" },
+			{ rpcUrls: ["https://base.example"] },
+			{ rpcUrls: ["https://bsc.example"] },
 		]
 		return config
 	}
@@ -1255,7 +1279,7 @@ describe("UiServer (operator mode)", () => {
 				stateMachineId: "EVM-8453",
 				label: "Base",
 				rpcUrls: ["https://base.example"],
-				bundlerUrl: "https://base-bundler.example",
+				bundlerUrl: "https://bundler.polytope.technology/base",
 				watchOnly: false,
 				running: true,
 			},
@@ -1264,7 +1288,7 @@ describe("UiServer (operator mode)", () => {
 				stateMachineId: "EVM-56",
 				label: "BNB Chain",
 				rpcUrls: ["https://bsc.example"],
-				bundlerUrl: "https://bsc-bundler.example",
+				bundlerUrl: "https://bundler.polytope.technology/bsc",
 				watchOnly: false,
 				running: true,
 			},
@@ -1283,10 +1307,8 @@ describe("UiServer (operator mode)", () => {
 		const { base } = await startServer({ config, chains: [84532, 11155111] })
 		const dto = await (await fetch(`${base}/api/chains`)).json()
 		expect(dto.network).toBe("testnet")
-		expect(dto.catalog.map((c: { chainId: number }) => c.chainId)).toEqual(
-			expect.arrayContaining([84532, 11155111]),
-		)
-		expect(dto.catalog.map((c: { chainId: number }) => c.chainId)).not.toContain(1)
+		// Only the testnets Hyperbridge runs a bundler for can be enabled.
+		expect(dto.catalog.map((c: { chainId: number }) => c.chainId)).toEqual([80002, 97])
 	})
 
 	it("replaces the chain set: probes only new endpoints, persists, and asks for a restart", async () => {
@@ -1295,17 +1317,8 @@ describe("UiServer (operator mode)", () => {
 		// Drop BNB Chain, add Arbitrum, and give Base a second quorum provider.
 		const res = await put(base, "/api/chains", {
 			chains: [
-				{
-					chainId: 8453,
-					rpcUrls: ["https://base.example", "https://base-two.example"],
-					bundlerUrl: "https://base-bundler.example",
-				},
-				{
-					chainId: 42161,
-					rpcUrls: ["https://arb.example"],
-					bundlerUrl: "https://arb-bundler.example",
-					watchOnly: true,
-				},
+				{ chainId: 8453, rpcUrls: ["https://base.example", "https://base-two.example"] },
+				{ chainId: 42161, rpcUrls: ["https://arb.example"], watchOnly: true },
 			],
 		})
 		expect(res.status).toBe(200)
@@ -1319,7 +1332,7 @@ describe("UiServer (operator mode)", () => {
 		expect(operator.config.simplex.watchOnly).toEqual({ "42161": true })
 
 		const written = parse(readFileSync(operator.configPath!, "utf-8")) as FillerConfigFile
-		expect(written.chains[1].bundlerUrl).toBe("https://arb-bundler.example")
+		expect(written.chains[1]).toEqual({ rpcUrls: ["https://arb.example"] })
 		// The rewritten file keeps the chain rows identifiable — the TOML has no chain id.
 		expect(readFileSync(operator.configPath!, "utf-8")).toContain("# Arbitrum")
 
@@ -1334,11 +1347,7 @@ describe("UiServer (operator mode)", () => {
 	it("rejects chain edits that boot would reject, with nothing persisted", async () => {
 		const fetchChainId = vi.fn(async () => 999)
 		const { base, operator } = await startServer({ config: chainsConfig() }, { fetchChainId })
-		const base8453 = {
-			chainId: 8453,
-			rpcUrls: ["https://base.example"],
-			bundlerUrl: "https://base-bundler.example",
-		}
+		const base8453 = { chainId: 8453, rpcUrls: ["https://base.example"] }
 
 		const empty = await put(base, "/api/chains", { chains: [] })
 		expect((await empty.json()).error).toContain("at least one chain")
@@ -1348,11 +1357,13 @@ describe("UiServer (operator mode)", () => {
 		})
 		expect((await sameHost.json()).error).toContain("different domains")
 
-		const noBundler = await put(base, "/api/chains", { chains: [{ ...base8453, bundlerUrl: "  " }] })
-		expect((await noBundler.json()).error).toContain("bundler URL")
+		const noBundler = await put(base, "/api/chains", {
+			chains: [base8453, { chainId: 11155111, rpcUrls: ["https://sepolia.example"] }],
+		})
+		expect((await noBundler.json()).error).toContain("Hyperbridge runs no bundler for Sepolia")
 
 		const uncovered = await put(base, "/api/chains", {
-			chains: [base8453, { chainId: 999, rpcUrls: ["https://odd.example"], bundlerUrl: "https://odd.example" }],
+			chains: [base8453, { chainId: 999, rpcUrls: ["https://odd.example"], watchOnly: true }],
 		})
 		expect((await uncovered.json()).error).toContain("No confirmation policy")
 
@@ -1370,7 +1381,7 @@ describe("UiServer (operator mode)", () => {
 		config.vault = { vaults: [{ chain: "EVM-56", vault: "0x1111111111111111111111111111111111111111" }] }
 		const { base, operator } = await startServer({ config }, { fetchChainId: vi.fn(async () => 8453) })
 		const res = await put(base, "/api/chains", {
-			chains: [{ chainId: 8453, rpcUrls: ["https://base.example"], bundlerUrl: "https://base-bundler.example" }],
+			chains: [{ chainId: 8453, rpcUrls: ["https://base.example"] }],
 		})
 		expect(res.status).toBe(400)
 		expect((await res.json()).error).toContain("vault treasury")
@@ -1384,8 +1395,9 @@ describe("UiServer (operator mode)", () => {
 		)
 		const res = await put(base, "/api/chains", {
 			chains: [
-				{ chainId: 8453, rpcUrls: ["https://base.example"], bundlerUrl: "https://base-bundler.example" },
-				{ chainId: 84532, rpcUrls: ["https://base-sepolia.example"], bundlerUrl: "https://bundler.example" },
+				{ chainId: 8453, rpcUrls: ["https://base.example"] },
+				// Hyperbridge runs no bundler on Base Sepolia, so it can only be watched.
+				{ chainId: 84532, rpcUrls: ["https://base-sepolia.example"], watchOnly: true },
 			],
 		})
 		expect(res.status).toBe(200)
@@ -1401,7 +1413,7 @@ describe("UiServer (operator mode)", () => {
 		expect(dto.chains.every((c: { watchOnly: boolean }) => c.watchOnly)).toBe(true)
 
 		await put(base, "/api/chains", {
-			chains: [{ chainId: 8453, rpcUrls: ["https://base.example"], bundlerUrl: "https://base-bundler.example" }],
+			chains: [{ chainId: 8453, rpcUrls: ["https://base.example"] }],
 		})
 		// Expanding it per chain would stop validateConfig treating this as an
 		// all-watch-only (signer-less) config.
@@ -1429,8 +1441,7 @@ describe("UiServer (operator mode)", () => {
 		expect(prefill.valid).toBe(true)
 		const base8453 = prefill.chains.find((c: { chainId: number }) => c.chainId === 8453)
 		expect(base8453.rpcUrl).toContain("test-key")
-		// Alchemy serves ERC-4337 bundler methods on the same endpoint.
-		expect(base8453.bundlerUrl).toBe(base8453.rpcUrl)
+		expect(base8453.bundlerUrl).toBeUndefined()
 
 		expect((await fetch(`${base}/api/setup/defaults`)).status).toBe(410)
 		expect(

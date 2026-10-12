@@ -62,9 +62,8 @@ async function main() {
 	for (const leg of s.legs) await ensureAllowance(srcPub, srcWallet, TOKENS[s.source][leg.tokenIn].address)
 	await ensureAllowance(srcPub, srcWallet, FEE_TOKEN)
 
-	const sourceChain = EvmChain.fromParams({ chainId: src.id, host: HOST, rpcUrl: src.rpc, bundlerUrl: src.bundler })
-	const destChain =
-		s.source === s.dest ? sourceChain : EvmChain.fromParams({ chainId: dst.id, host: HOST, rpcUrl: dst.rpc, bundlerUrl: dst.bundler })
+	const sourceChain = EvmChain.fromParams({ chainId: src.id, host: HOST, rpcUrl: src.rpc })
+	const destChain = s.source === s.dest ? sourceChain : EvmChain.fromParams({ chainId: dst.id, host: HOST, rpcUrl: dst.rpc })
 	const coprocessor = await IntentsCoprocessor.connect(env.hyperbridge)
 	const gateway = await IntentGateway.create(sourceChain, destChain, coprocessor)
 

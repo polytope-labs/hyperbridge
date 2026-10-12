@@ -163,11 +163,11 @@ After execution, any tokens remaining in the `CallDispatcher` are swept back to 
 
 ## Solver Selection
 
-When `solverSelection` is enabled in the intent gateway parameters, orders are protected from unauthorized fills. At order placement, the user specifies a `session` key — a temporary keypair generated for this order. Only a solver explicitly authorized by the session key can fill the order.
+When `solverSelection` is enabled in the intent gateway parameters, orders are protected from unauthorized fills. At order placement, the user specifies a `session` key — a temporary keypair generated for this order. The session key selects one solver bid, a UserOperation, and only that UserOperation can fill the order. Gateways at this release select by `userOpHash`, which requires ERC-4337 EntryPoint v0.9 (`0x433709009B8330FDa32311DF1C2AFA402eD8D009`) on the destination chain, because `fillOrder` reads the executing UserOperation from it. Earlier deployments select a solver address with `SelectSolver(bytes32 commitment,address solver)` until they are upgraded, and the SDK reads `SELECT_SOLVER_TYPEHASH()` to tell which form a gateway uses.
 
 ### `SolverAccount`
 
-The SolverAccount is a smart account designed for solvers that combines [ERC-4337](https://eips.ethereum.org/EIPS/eip-4337) (account abstraction), [EIP-7702](https://eips.ethereum.org/EIPS/eip-7702), and [ERC-7821](https://eips.ethereum.org/EIPS/eip-7821) (batch execution) to batch `gateway.select(...)` and `gateway.fillOrder(...)` into a single atomic UserOperation. Solvers delegate their EOA to the SolverAccount via EIP-7702 and submit bundled operations through the ERC-4337 EntryPoint.
+The SolverAccount is a smart account designed for solvers that combines [ERC-4337](https://eips.ethereum.org/EIPS/eip-4337) (account abstraction), [EIP-7702](https://eips.ethereum.org/EIPS/eip-7702), and [ERC-7821](https://eips.ethereum.org/EIPS/eip-7821) (batch execution): it calls `gateway.select(...)` while validating a bid UserOperation and runs `gateway.fillOrder(...)` when that operation executes. Solvers delegate their EOA to the SolverAccount via EIP-7702 and submit operations through EntryPoint v0.9, the only EntryPoint the account accepts.
 
 `SolverAccount.validateUserOp` accepts two signature formats, discriminated by length: a standard 65-byte ECDSA signature over the `userOpHash` for regular account operations (delegation no-ops, approvals, treasury batches), and the 162-byte intent-selection payload `abi.encodePacked(commitment, solverSignature, sessionSignature)` for fills. UserOperations whose calldata contains a `fillOrder` call to the gateway are refused on the standard path. This guard exists because bids are public on Hyperbridge and embed a valid 65-byte solver signature over the `userOpHash` — without it, anyone could strip the commitment and session signature from a bid and submit the bare operation: the fill would revert (no selection is staged during validation), but it would still consume the bid's nonce and grief the solver of the gas fees. Fills therefore only validate through the intent-selection path.
 
@@ -179,22 +179,24 @@ The user places an order with `order.session` set to the session key's public ad
 </Step>
 <Step>
 ### Auction
-Solvers observe the `OrderPlaced` event and compete by posting UserOperations to hyperbridge that specify the output amounts they'll provide. A bid is bound to its order structurally: the UserOperation's ERC-4337 nonce key (the upper 192 bits of the nonce) must equal the lower 192 bits of `keccak256(commitment ‖ session)` — binding both the order and the session key the solver is bidding against — and its calldata carries the `fillOrder` call for that order. The solver then signs the operation as EntryPoint v0.8 EIP-712 typed data (domain `ERC4337`/`1`, type `PackedUserOperation`) — the digest of which *is* the `userOpHash` — so the signed payload remains fully inspectable by the solver's signing infrastructure (hardware wallets, MPC or TEE policy engines) rather than an opaque digest.
+Solvers observe the `OrderPlaced` event and compete by posting UserOperations to hyperbridge that specify the output amounts they'll provide. A bid is bound to its order structurally: the UserOperation's ERC-4337 nonce key (the upper 192 bits of the nonce) must equal the lower 192 bits of `keccak256(commitment ‖ session ‖ keccak256(callData))` — binding the order, the session key the solver is bidding against, and the bid's own calldata, so each price a solver bids on one order executes independently — and its calldata carries the `fillOrder` call for that order. The solver then signs the operation as EntryPoint v0.9 EIP-712 typed data (domain `ERC4337`/`1`, type `PackedUserOperation`) — the digest of which *is* the `userOpHash` — so the signed payload remains fully inspectable by the solver's signing infrastructure (hardware wallets, MPC or TEE policy engines) rather than an opaque digest.
 </Step>
 <Step>
 ### Bid selection
-The user reviews all bids and picks the best one. To authorize the winning solver, the user signs an EIP-712 `SolverSelection` message with the session key:
+The user reviews all bids and picks the best one. To select it, the user signs an EIP-712 `SelectSolver` message with the session key over the bid's `userOpHash`:
 ```solidity
-struct SolverSelection {
-    bytes32 commitment,   // order commitment hash
-    address solver       // authorized solver address
+struct SelectSolver {
+    bytes32 commitment;  // order commitment hash
+    bytes32 userOpHash;  // EntryPoint v0.9 hash of the selected bid UserOperation
 }
 ```
-The session signature is appended to the solver's `UserOperation` as `abi.encodePacked(commitment, solverSignature, sessionSignature)` and submitted to an ERC-4337 bundler. The solver pays all gas costs for on-chain execution.
+The session signature is appended to the solver's `UserOperation` as `abi.encodePacked(commitment, solverSignature, sessionSignature)` and submitted to an ERC-4337 bundler that serves EntryPoint v0.9. The solver pays all gas costs for on-chain execution.
 </Step>
 <Step>
 ### On-chain Execution
-During `SolverAccount.validateUserOp()`, `IntentGatewayV2.select()` is called which recovers the session key from the EIP-712 signature, verifies it matches the order's session key, and stores the authorized solver in transient storage (`tstore`). The account then verifies the solver's signature against the plain `userOpHash` and checks that the UserOperation's nonce key matches `keccak256(commitment ‖ recovered session key)` — rejecting, during validation rather than at the solver's expense during execution, any attempt to pair a solver's signed bid with a different order or with a session signature from a key the solver never bid against. When `fillOrder()` runs in the same transaction, it reads the authorized solver from transient storage (`tload`) and verifies `msg.sender` matches. Since transient storage is cleared after each transaction, the selection cannot be replayed or front-run.
+During `SolverAccount.validateUserOp()`, the account calls `IntentGatewayV2.select(SelectOptions)` (selector `0x81b06069`) with the commitment, the `userOpHash` the EntryPoint is validating, and the session signature. `select` recovers the signer of `SelectSolver(commitment, userOpHash)` and marks the slot `keccak256(abi.encode(commitment, userOpHash, signer))` in transient storage (`tstore`). The account then verifies the solver's signature against the plain `userOpHash` and checks that the UserOperation's nonce key derives from the commitment, the recovered session key and the calldata — rejecting, during validation rather than at the solver's expense during execution, any attempt to pair a solver's signed bid with a different order or with a session signature from a key the solver never bid against.
+
+When `fillOrder()` runs, it does not check `msg.sender`. It reads `getCurrentUserOpHash()` from EntryPoint v0.9 and reverts `Unauthorized` unless that hash is non-zero and the slot for `(commitment, userOpHash, order.session)` is marked (`tload`). A fill therefore succeeds only while the selected UserOperation executes, from any contract that operation calls, and never from a direct call. Because the slot is keyed on the signer, a selection signed by any other key cannot overwrite the session key's, and since transient storage is cleared after each transaction, the selection cannot be replayed or front-run.
 </Step>
 </Steps>
 

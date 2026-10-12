@@ -37,7 +37,6 @@ export const ERC7821_BATCH_MODE = "0x0100000000000000000000000000000000000000000
  * Bundler RPC method names for ERC-4337 operations.
  *
  * Values map to JSON-RPC method strings sent to a 4337 bundler endpoint.
- * `PIMLICO_GET_USER_OPERATION_GAS_PRICE` is a Pimlico-specific extension.
  */
 export const BundlerMethod = {
 	/** Submits a UserOperation to the bundler mempool. */
@@ -46,10 +45,10 @@ export const BundlerMethod = {
 	ETH_GET_USER_OPERATION_RECEIPT: "eth_getUserOperationReceipt",
 	/** Estimates gas limits for a UserOperation before submission. */
 	ETH_ESTIMATE_USER_OPERATION_GAS: "eth_estimateUserOperationGas",
-	/** Pimlico-specific method to fetch recommended EIP-1559 gas prices for UserOperations. */
-	PIMLICO_GET_USER_OPERATION_GAS_PRICE: "pimlico_getUserOperationGasPrice",
-	/** Alchemy (Rundler) method to fetch recommended priority fee for UserOperations. */
+	/** Rundler method returning the priority fee it requires of UserOperations. */
 	RUNDLER_MAX_PRIORITY_FEE_PER_GAS: "rundler_maxPriorityFeePerGas",
+	/** Rundler method returning the fees it requires and suggests for UserOperations. */
+	RUNDLER_GET_USER_OPERATION_GAS_PRICE: "rundler_getUserOperationGasPrice",
 } as const
 
 /** Union of all valid bundler RPC method name strings. */
@@ -72,37 +71,6 @@ export interface BundlerGasEstimate {
 	paymasterVerificationGasLimit?: HexString
 	/** Gas limit for paymaster post-operation hook, if a paymaster is used (hex). */
 	paymasterPostOpGasLimit?: HexString
-}
-
-/**
- * Response payload returned by Pimlico's
- * `pimlico_getUserOperationGasPrice` method.
- *
- * Provides EIP-1559 fee recommendations at three priority tiers.
- * Each field is optional; callers should fall back from `fast` → `standard` → `slow`.
- */
-export interface PimlicoGasPriceEstimate {
-	/** Low-priority fee recommendation. */
-	slow: {
-		/** Maximum total fee per gas (hex). */
-		maxFeePerGas: HexString
-		/** Maximum miner tip per gas (hex). */
-		maxPriorityFeePerGas: HexString
-	}
-	/** Medium-priority fee recommendation. */
-	standard: {
-		/** Maximum total fee per gas (hex). */
-		maxFeePerGas: HexString
-		/** Maximum miner tip per gas (hex). */
-		maxPriorityFeePerGas: HexString
-	}
-	/** High-priority fee recommendation for fastest inclusion. */
-	fast: {
-		/** Maximum total fee per gas (hex). */
-		maxFeePerGas: HexString
-		/** Maximum miner tip per gas (hex). */
-		maxPriorityFeePerGas: HexString
-	}
 }
 
 /**

@@ -71,6 +71,7 @@ describe("setup API", () => {
 					token1: "USDC",
 				},
 			],
+			// A bundler an older config named, with a provider key in it: never written back or shown.
 			chains: [{ rpcUrls: [rpcUrl], bundlerUrl: "https://api.pimlico.io/v2/1/rpc?apikey=secretpimlicokey" }],
 			orderbook: { url: "https://orderbook.example/graphql" },
 		}
@@ -115,19 +116,6 @@ describe("setup API", () => {
 		const res = await (await post(base, "validate-rpc", { urls: [rpc.url, rpc.url], expectedChainId: 1 })).json()
 		expect(res.ok).toBe(false)
 		expect(res.error).toContain("different domains")
-	})
-
-	it("probes bundlers as a warning-only check", async () => {
-		rpc = await startMockRpc({})
-		const { base } = await startInitServer()
-
-		const ok = await (await post(base, "validate-bundler", { url: rpc.url })).json()
-		expect(ok.ok).toBe(true)
-		expect(ok.entryPoints).toHaveLength(1)
-
-		const dead = await (await post(base, "validate-bundler", { url: "http://127.0.0.1:1/rpc" })).json()
-		expect(dead.ok).toBe(true)
-		expect(dead.warning).toBeDefined()
 	})
 
 	it("validates ERC-20 tokens on-chain", async () => {
@@ -365,7 +353,8 @@ describe("setup API", () => {
 		const written = parse(readFileSync(configPath, "utf-8")) as FillerConfigFile
 		expect(() => validateConfig(written)).not.toThrow()
 		expect(written.simplex.signer?.type).toBe("privateKey")
-		expect(JSON.parse(JSON.stringify(written))).toEqual(JSON.parse(JSON.stringify(config)))
+		const expected = { ...config, chains: config.chains.map(({ rpcUrls }) => ({ rpcUrls })) }
+		expect(JSON.parse(JSON.stringify(written))).toEqual(JSON.parse(JSON.stringify(expected)))
 
 		await vi.waitFor(() => expect(onSaveAndStart).toHaveBeenCalledTimes(1))
 		const [bootedConfig, toml, path] = onSaveAndStart.mock.calls[0]

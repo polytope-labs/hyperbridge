@@ -781,7 +781,6 @@ test("configured startup owns the socket before filling and relaunch attaches wh
 		chains: [
 			{
 				rpcUrls: [`http://127.0.0.1:${blackhole.port}`],
-				bundlerUrl: `http://127.0.0.1:${blackhole.port}`,
 			},
 		],
 	}
@@ -1215,7 +1214,7 @@ test("first run writes a valid private config under Electron userData", async (t
 				],
 			},
 		],
-		chains: [{ rpcUrls: ["http://127.0.0.1:9"], bundlerUrl: "http://127.0.0.1:9" }],
+		chains: [{ rpcUrls: ["http://127.0.0.1:9"] }],
 		orderbook: { url: "https://orderbook.example/graphql" },
 	}
 	const result = await page.evaluate(async (body) => {

@@ -20,9 +20,9 @@ verified against the intent recorded in the 2026-08-19 entries before editing:
   mock now defines both getters as `() => undefined` (no paymaster configured → zero reserve),
   which restores the suite's exact spread/fee arithmetic.
 
-`test:filler` now includes `src/tests/pairs.test.ts`, so the file runs in CI (the "Run simplex
-test" step of `.github/workflows/test-sdk.yml`). It is pure-unit — no network, no env. Verified:
-55/55 pass via `pnpm vitest run --maxConcurrency=1 src/tests/pairs.test.ts`, biome lint clean on
-the file, and `vitest list` collects all four `test:filler` files after codegen.
+`src/tests/pairs.test.ts` runs in CI through `test:unit` (the "Run simplex test - CLI, logger,
+and UI units" step of `.github/workflows/test-sdk.yml`). It is pure-unit — no network, no env.
+Verified: 55/55 pass via `pnpm vitest run --maxConcurrency=1 src/tests/pairs.test.ts`, and biome
+lint is clean on the file.
 
 Files: `src/tests/pairs.test.ts`, `package.json`, `docs/ai/{ChangeLog,Decisions}.md`.

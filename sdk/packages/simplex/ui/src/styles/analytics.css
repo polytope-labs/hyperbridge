@@ -1,0 +1,262 @@
+/*
+ * Profitability: the spread on the overview, and the analytics page behind it.
+ * A gain is green and a loss red wherever a figure is one or the other, and the
+ * sign in front of the figure says the same thing without the colour.
+ */
+.operator-metrics [data-tone="ok"],
+.analytics [data-tone="ok"] {
+	--tone: var(--ok);
+}
+
+.operator-metrics [data-tone="err"],
+.analytics [data-tone="err"] {
+	--tone: var(--err);
+}
+
+/* The overview's return: one of the summary cells, and a link. */
+a.operator-metric-link {
+	color: inherit;
+	text-decoration: none;
+}
+
+a.operator-metric-link:hover span {
+	color: var(--text-secondary);
+}
+
+a.operator-metric-link:focus-visible {
+	outline: 2px solid var(--focus);
+	outline-offset: 0.35rem;
+	border-radius: 0.25rem;
+}
+
+.operator-metrics strong[data-tone] {
+	color: var(--tone, inherit);
+}
+
+.operator-metrics small {
+	overflow: hidden;
+	color: var(--muted);
+	font-size: 0.6875rem;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+/* What the starting inventory is made of, in a line under the figures. */
+.analytics-holdings {
+	margin: 1rem 0 0;
+	color: var(--muted);
+	font-size: 0.75rem;
+	line-height: 1.6;
+}
+
+.analytics .steps.analytics-periods {
+	margin: 1.5rem 0 0;
+}
+
+/* Two charts on one time axis, with the figures of the bucket pointed at read out above them. */
+.analytics-charts {
+	display: grid;
+	gap: 1.5rem;
+	min-width: 0;
+}
+
+.analytics-charts figure {
+	display: grid;
+	gap: 0.5rem;
+	min-width: 0;
+	margin: 0;
+}
+
+.analytics-charts figcaption {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 0.35rem 1rem;
+	color: var(--text-secondary);
+	font-size: 0.75rem;
+}
+
+.analytics-charts svg {
+	display: block;
+	overflow: visible;
+}
+
+.analytics-readout {
+	margin: 0;
+	color: var(--muted);
+	font-family: var(--font-mono);
+	font-size: 0.6875rem;
+	letter-spacing: 0.02em;
+}
+
+/* A swatch beside the word, so the word is never the colour's only job. */
+.analytics-key {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.4rem;
+	color: var(--muted);
+}
+
+.analytics-key::before {
+	content: "";
+	width: 0.5rem;
+	height: 0.5rem;
+	border-radius: 0.125rem;
+	background: var(--tone);
+}
+
+.analytics-rule {
+	stroke: rgba(255, 255, 255, 0.06);
+	stroke-width: 1;
+}
+
+.analytics-rule[data-zero] {
+	stroke: rgba(255, 255, 255, 0.2);
+}
+
+.analytics-axis {
+	fill: var(--muted);
+	font-family: var(--font-mono);
+	font-size: 0.625rem;
+}
+
+.analytics-line {
+	fill: none;
+	stroke: var(--text);
+	stroke-width: 2;
+	stroke-linecap: round;
+	stroke-linejoin: round;
+}
+
+.analytics-area {
+	fill: rgba(255, 255, 255, 0.07);
+}
+
+/* Ringed in the page's own colour, so the dot stays a dot where it sits on the line. */
+.analytics-dot {
+	fill: var(--text);
+	stroke: var(--bg);
+	stroke-width: 2;
+}
+
+.analytics-cursor {
+	stroke: rgba(255, 255, 255, 0.22);
+	stroke-width: 1;
+}
+
+.analytics-bar {
+	fill: var(--tone);
+	transition: opacity 120ms var(--ease-out);
+}
+
+.analytics-bar[data-dim] {
+	opacity: 0.45;
+}
+
+.analytics-hit {
+	fill: transparent;
+}
+
+/* The figures as tables. Wide ones scroll inside their frame rather than the page. */
+.analytics-table-frame {
+	overflow-x: auto;
+	border: 1px solid var(--border);
+	border-radius: 0.75rem;
+}
+
+.analytics-table {
+	width: 100%;
+	border-collapse: separate;
+	border-spacing: 0;
+	font-size: 0.85rem;
+	font-variant-numeric: tabular-nums;
+}
+
+.analytics-table th,
+.analytics-table td {
+	padding: 0.65rem 0.9rem;
+	text-align: right;
+	vertical-align: middle;
+	white-space: nowrap;
+}
+
+.analytics-table th:first-child,
+.analytics-table td:first-child {
+	text-align: left;
+}
+
+.analytics-table th {
+	background: var(--control);
+	color: var(--muted);
+	font-size: 0.7rem;
+	font-weight: 500;
+	letter-spacing: 0.04em;
+	text-transform: uppercase;
+}
+
+.analytics-table td {
+	border-top: 1px solid var(--border);
+}
+
+.analytics-table tbody tr:hover {
+	background: var(--card-raised);
+}
+
+/* A bucket nothing happened in is still a row, and reads as one that can be skipped. */
+.analytics-table tr[data-quiet] td {
+	color: var(--muted);
+}
+
+.analytics-table strong {
+	font-weight: 500;
+}
+
+.analytics-table strong[data-tone] {
+	color: var(--tone, inherit);
+}
+
+.analytics-table small {
+	color: var(--muted);
+	font-weight: 400;
+}
+
+/* A pair's change in the base it holds, over its change in the quote. */
+.analytics-change {
+	display: grid;
+	gap: 0.15rem;
+	justify-items: end;
+}
+
+.analytics-change span + span {
+	color: var(--muted);
+}
+
+.analytics-pair {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.6rem;
+}
+
+/* The shared pair icons, a size down for a table row, overlapping in the same proportion. */
+.analytics-pair .token-pair-icons {
+	width: auto;
+	min-width: 0;
+}
+
+.analytics-pair .token-icon {
+	width: 1.4rem;
+	height: 1.4rem;
+}
+
+.analytics-pair .token-icon + .token-icon {
+	margin-left: -0.3rem;
+	box-shadow: 0 0 0 2px var(--bg);
+}
+
+.analytics-method {
+	max-width: 46rem;
+	margin: 1.75rem 0 0;
+	color: var(--muted);
+	font-size: 0.75rem;
+	line-height: 1.6;
+}

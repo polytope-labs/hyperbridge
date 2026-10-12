@@ -36,7 +36,8 @@ interface BuiltinSpec {
  * so a new asset is added there once and never in a parallel table here.
  * ZARP/EURC/XSGD/TRYB/USDR are curated stablecoin deployments whose addresses
  * were taken from the issuer's official documentation and verified on-chain
- * (`symbol()`/`decimals()`) before inclusion in the SDK registry.
+ * (`symbol()`/`decimals()`) before inclusion in the SDK registry. BRIDGE is
+ * Hyperbridge's own BridgeToken, on BNB Chain and Polygon.
  */
 const BUILTIN_ASSETS: Record<string, BuiltinSpec> = {
 	USDC: { resolve: (r, chain) => r.getUsdcAsset(chain) },
@@ -48,6 +49,7 @@ const BUILTIN_ASSETS: Record<string, BuiltinSpec> = {
 	EURC: { resolve: (r, chain) => r.getAssetBySymbol(chain, "EURC") },
 	XSGD: { resolve: (r, chain) => r.getAssetBySymbol(chain, "XSGD") },
 	TRYB: { resolve: (r, chain) => r.getAssetBySymbol(chain, "TRYB") },
+	BRIDGE: { resolve: (r, chain) => r.getAssetBySymbol(chain, "BRIDGE") },
 }
 
 /**
@@ -131,10 +133,10 @@ export function validateAssetDefinitions(assets: Record<string, AssetDefinition>
  *  1. the user's `[assets]` table — an *escape hatch* for assets the registry
  *     doesn't ship (or per-deployment overrides), never required for shipped
  *     symbols;
- *  2. shipped symbols (USDC, USDT, DAI, CNGN, USDR, ZARP, EURC, XSGD, TRYB)
- *     resolved per chain from the SDK chain registry (`chain.ts`) — the single
- *     source of truth shared with the rest of the SDK, so an address
- *     correction there is never shadowed by a parallel table here.
+ *  2. shipped symbols (USDC, USDT, DAI, CNGN, USDR, ZARP, EURC, XSGD, TRYB,
+ *     BRIDGE) resolved per chain from the SDK chain registry (`chain.ts`) —
+ *     the single source of truth shared with the rest of the SDK, so an
+ *     address correction there is never shadowed by a parallel table here.
  *
  * Address lookups are per `(symbol, chain)` — a chain where no layer knows the
  * asset simply doesn't trade pairs involving it. The registry holds addresses

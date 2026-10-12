@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest"
 import { toHex } from "viem"
-import type { HexString } from "@hyperbridge/sdk"
+import { rundlerUserOperationFees, type HexString } from "@hyperbridge/sdk"
 
 import { UserOpSender, type Eip7702Authorization } from "@/services/UserOpSender"
 import { buildPaymasterAndData } from "@/services/paymaster"
@@ -23,6 +23,11 @@ vi.mock("@/services/paymaster", () => ({
 	buildPaymasterAndData: vi.fn(),
 }))
 
+vi.mock("@hyperbridge/sdk", async (importOriginal) => {
+	const actual = await importOriginal<typeof import("@hyperbridge/sdk")>()
+	return { ...actual, rundlerUserOperationFees: vi.fn(actual.rundlerUserOperationFees) }
+})
+
 const CHAIN = "EVM-56"
 const CHAIN_ID = 56
 const ENTRY_POINT = "0x4337843378433784337843378433784337843378" as HexString
@@ -34,14 +39,18 @@ const SOLVER = "0x13E41CdE1D55880cbe031c69f206C2E9BC3c94C2" as HexString
 // Fixed limits as passed by the delegation flow — skips bundler gas estimation.
 const GAS = { verificationGasLimit: 150_000n, callGasLimit: 50_000n, preVerificationGas: 100_000n }
 
-const configService = {
-	getEntryPointAddress: () => ENTRY_POINT,
-	getBundlerUrl: () => "http://127.0.0.1:1/bundler",
-	getChainId: () => CHAIN_ID,
-} as unknown as FillerConfigService
+const configServiceFor = (bundlerUrl: string) =>
+	({
+		getEntryPointAddress: () => ENTRY_POINT,
+		getBundlerUrl: () => bundlerUrl,
+		getChainId: () => CHAIN_ID,
+	}) as unknown as FillerConfigService
+
+const configService = configServiceFor("http://127.0.0.1:1/bundler")
 
 const publicClient = {
 	getGasPrice: async () => 1_000_000_000n,
+	getBlock: async () => ({ baseFeePerGas: 900_000_000n }),
 	// Only EntryPoint.getNonce is read on this path (fixed gas limits skip estimation).
 	readContract: async () => 0n,
 }
@@ -64,13 +73,18 @@ const permit2ModePaymasterAndData = packPaymasterAndData({
 })
 
 let bundlerCalls: Array<{ method: string; params: unknown[] }>
+let bundlerReplies: Record<string, { result?: unknown; error?: unknown }>
 
 beforeEach(() => {
 	bundlerCalls = []
+	bundlerReplies = {}
 	vi.mocked(buildPaymasterAndData).mockReset()
+	vi.mocked(rundlerUserOperationFees).mockClear()
 	vi.stubGlobal("fetch", async (_url: unknown, init?: { body?: string }) => {
 		const { method, params } = JSON.parse(init?.body ?? "{}") as { method: string; params: unknown[] }
 		bundlerCalls.push({ method, params })
+		const reply = bundlerReplies[method]
+		if (reply) return { json: async () => ({ jsonrpc: "2.0", id: 1, ...reply }) }
 		let result: unknown
 		switch (method) {
 			case "eth_sendUserOperation":
@@ -179,5 +193,66 @@ describe("UserOpSender EIP-7702 authorization ordering", () => {
 
 		expect(signAuthorization).not.toHaveBeenCalled()
 		expect(bundlerCalls.some((c) => c.method === "eth_sendUserOperation")).toBe(false)
+	})
+})
+
+describe("UserOpSender gas price", () => {
+	const sponsorWith = async (bundlerUrl: string) => {
+		vi.mocked(buildPaymasterAndData).mockResolvedValue({
+			paymasterAndData: permit2ModePaymasterAndData,
+			type: "simplex",
+			address: PAYMASTER,
+			token: TOKEN,
+		})
+		const sender = new UserOpSender(clientManager, configServiceFor(bundlerUrl), signer)
+		return sender.trySendSponsored({ chain: CHAIN, callData: "0x" as HexString, gas: GAS })
+	}
+
+	const sentFees = () =>
+		bundlerCalls
+			.filter((c) => c.method === "eth_sendUserOperation")
+			.map((c) => {
+				const [op] = c.params as [{ maxFeePerGas: HexString; maxPriorityFeePerGas: HexString }]
+				return { maxFeePerGas: BigInt(op.maxFeePerGas), maxPriorityFeePerGas: BigInt(op.maxPriorityFeePerGas) }
+			})
+
+	const rundlerCalls = () => bundlerCalls.filter((c) => c.method.startsWith("rundler_")).map((c) => c.method)
+	const METHOD_NOT_FOUND = { error: { code: -32601, message: "Method not found" } }
+
+	it("prices a rundler bundler from the fees it suggests, raised by the bumps", async () => {
+		bundlerReplies.rundler_getUserOperationGasPrice = {
+			result: { suggested: { maxPriorityFeePerGas: toHex(2_000_000_000n), maxFeePerGas: toHex(5_000_000_000n) } },
+		}
+
+		await expect(sponsorWith("http://rundler.test/bundler")).resolves.not.toBeNull()
+
+		const fees = { maxPriorityFeePerGas: 2_160_000_000n, maxFeePerGas: 5_500_000_000n }
+		expect(sentFees()).toEqual([fees])
+		expect(vi.mocked(buildPaymasterAndData).mock.calls[0][0].prefund?.maxFeePerGas).toBe(fees.maxFeePerGas)
+		expect(rundlerCalls()).toEqual(["rundler_getUserOperationGasPrice"])
+		expect(rundlerUserOperationFees).toHaveBeenCalledWith("http://rundler.test/bundler", expect.anything(), expect.anything())
+	})
+
+	it("raises the fees to a rundler bundler's priority fee where it suggests none", async () => {
+		bundlerReplies.rundler_getUserOperationGasPrice = METHOD_NOT_FOUND
+		// 30 gwei, the Polygon Amoy floor, against a 1 gwei chain gas price.
+		bundlerReplies.rundler_maxPriorityFeePerGas = { result: "0x6fc23ac00" }
+
+		await expect(sponsorWith("http://older-rundler.test/bundler")).resolves.not.toBeNull()
+
+		const fees = { maxPriorityFeePerGas: 32_400_000_000n, maxFeePerGas: 990_000_000n + 32_400_000_000n }
+		expect(sentFees()).toEqual([fees])
+	})
+
+	it("keeps the chain estimate and stops asking when the bundler does not serve rundler fees", async () => {
+		bundlerReplies.rundler_getUserOperationGasPrice = METHOD_NOT_FOUND
+		bundlerReplies.rundler_maxPriorityFeePerGas = METHOD_NOT_FOUND
+
+		await sponsorWith("http://other-bundler.test/bundler")
+		await sponsorWith("http://other-bundler.test/bundler")
+
+		const chainFees = { maxPriorityFeePerGas: 1_080_000_000n, maxFeePerGas: 1_100_000_000n }
+		expect(sentFees()).toEqual([chainFees, chainFees])
+		expect(rundlerCalls()).toEqual(["rundler_getUserOperationGasPrice", "rundler_maxPriorityFeePerGas"])
 	})
 })

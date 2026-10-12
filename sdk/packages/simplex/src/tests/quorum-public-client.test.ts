@@ -29,6 +29,9 @@ const ENV_BASE_RPC = process.env.BASE_MAINNET
 
 const NETWORK_QUORUM_RPCS: string[] = ENV_BASE_RPC ? [OFFICIAL_BASE_RPC, ENV_BASE_RPC] : []
 
+// The official gateway rate-limits CI runners, so tests that need one reachable provider use the operator endpoint.
+const REACHABLE_BASE_RPC = ENV_BASE_RPC ?? OFFICIAL_BASE_RPC
+
 const describeIfNetwork = NETWORK_QUORUM_RPCS.length === 2 ? describe : describe.skip
 
 // Base mainnet USDC. Any full node should serve recent logs for this contract.
@@ -121,11 +124,11 @@ describeIfNetwork("QuorumPublicClient.getLogs — N=2 Base RPCs", () => {
 		// The unreachable one fails, so it does not vote: the answer that came back
 		// is the only one there is.
 		const client = new QuorumPublicClient(BASE_CHAIN_ID, [
-			OFFICIAL_BASE_RPC,
+			REACHABLE_BASE_RPC,
 			"https://this-host-should-never-resolve.invalid",
 		])
 
-		const singleProvider = new QuorumPublicClient(BASE_CHAIN_ID, [OFFICIAL_BASE_RPC])
+		const singleProvider = new QuorumPublicClient(BASE_CHAIN_ID, [REACHABLE_BASE_RPC])
 		const latestBlockNumber = await singleProvider.getBlockNumber()
 
 		const logs = await client.getLogs({
@@ -141,7 +144,7 @@ describeIfNetwork("QuorumPublicClient.getLogs — N=2 Base RPCs", () => {
 		const badUrl = "https://another-unresolvable-host.invalid"
 		const client = new QuorumPublicClient(BASE_CHAIN_ID, ["https://a-third-unresolvable-host.invalid", badUrl])
 
-		const singleProvider = new QuorumPublicClient(BASE_CHAIN_ID, [OFFICIAL_BASE_RPC])
+		const singleProvider = new QuorumPublicClient(BASE_CHAIN_ID, [REACHABLE_BASE_RPC])
 		const latestBlockNumber = await singleProvider.getBlockNumber()
 
 		let caught: unknown
@@ -177,7 +180,7 @@ describeIfNetwork("QuorumPublicClient.getBlockNumber — N=2 Base RPCs", () => {
 
 	it("reads the head from the reachable provider when the other is unreachable", async () => {
 		const client = new QuorumPublicClient(BASE_CHAIN_ID, [
-			OFFICIAL_BASE_RPC,
+			REACHABLE_BASE_RPC,
 			"https://getblock-number-unreachable.invalid",
 		])
 		await expect(client.getBlockNumber()).resolves.toBeGreaterThan(0n)

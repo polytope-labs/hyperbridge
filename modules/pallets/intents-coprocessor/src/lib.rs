@@ -207,6 +207,12 @@ pub mod pallet {
 		PaymasterStakeWithdrawalInitiated { state_machine: StateMachine },
 		/// A rotation of the paymaster's authorised relayer was initiated
 		PaymasterRelayerUpdateInitiated { state_machine: StateMachine, relayer: H160 },
+		/// An update to the paymaster's bundler allowlist was initiated
+		PaymasterBundlersUpdateInitiated {
+			state_machine: StateMachine,
+			bundlers: Vec<H160>,
+			allowed: bool,
+		},
 	}
 
 	#[pallet::error]
@@ -231,6 +237,8 @@ pub mod pallet {
 		TooManyBids,
 		/// Failed to dispatch cross-chain request
 		DispatchFailed,
+		/// The paymaster bundler list must be non-empty and may not contain the zero address
+		InvalidPaymasterBundlers,
 	}
 
 	#[pallet::call]
@@ -624,9 +632,9 @@ pub mod pallet {
 
 		/// Upgrade the SimplexPaymaster implementation behind its ERC-1967 proxy via
 		/// cross-chain governance. Authorized on the paymaster by `source == hyperbridge`.
-		/// `init_data` is delegatecalled on the new implementation in the same transaction;
-		/// `migrate(relayer)` there arms the paymaster's relayer gate atomically with the
-		/// upgrade on a proxy from before the gate.
+		/// `init_data` is delegatecalled on the new implementation in the same transaction with
+		/// the host as `msg.sender`, so a host-only `migrate()` there runs atomically with the
+		/// upgrade.
 		#[pallet::call_index(11)]
 		#[pallet::weight(T::WeightInfo::upgrade_paymaster())]
 		pub fn upgrade_paymaster(
@@ -808,6 +816,41 @@ pub mod pallet {
 			)?;
 
 			Self::deposit_event(Event::PaymasterRelayerUpdateInitiated { state_machine, relayer });
+
+			Ok(())
+		}
+
+		/// List (`allowed`) or delist the bundler wallets whose bundles the paymaster sponsors.
+		/// Weighed as `upgrade_paymaster`, the same lookup and dispatch.
+		#[pallet::call_index(21)]
+		#[pallet::weight(T::WeightInfo::upgrade_paymaster())]
+		pub fn set_paymaster_bundlers(
+			origin: OriginFor<T>,
+			state_machine: StateMachine,
+			bundlers: Vec<H160>,
+			allowed: bool,
+		) -> DispatchResult {
+			T::GovernanceOrigin::ensure_origin(origin)?;
+			ensure!(
+				!bundlers.is_empty() && bundlers.iter().all(|bundler| !bundler.is_zero()),
+				Error::<T>::InvalidPaymasterBundlers
+			);
+
+			let paymaster =
+				Paymasters::<T>::get(state_machine).ok_or(Error::<T>::PaymasterNotFound)?;
+
+			Self::dispatch(
+				state_machine,
+				paymaster,
+				RequestKind::PaymasterSetBundlers { bundlers: bundlers.clone(), allowed }
+					.encode_body(),
+			)?;
+
+			Self::deposit_event(Event::PaymasterBundlersUpdateInitiated {
+				state_machine,
+				bundlers,
+				allowed,
+			});
 
 			Ok(())
 		}

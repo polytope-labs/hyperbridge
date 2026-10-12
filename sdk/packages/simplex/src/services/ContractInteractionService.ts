@@ -1,4 +1,4 @@
-import { formatUnits, encodeFunctionData, formatEther } from "viem"
+import { formatUnits, encodeFunctionData, formatEther, type PublicClient } from "viem"
 import {
 	ADDRESS_ZERO,
 	CryptoUtils,
@@ -85,12 +85,23 @@ const LIMIT_ORDER_PRE_VERIFICATION_GAS = 50_000n
  */
 const BID_DISCOVERY_PAD_SECONDS = 30
 
+/**
+ * How many blocks back a chain's block time is measured over. Block timestamps are whole
+ * seconds, so the span has to be long enough for one second not to matter: 1,000 blocks is
+ * 250s on Arbitrum.
+ */
+const BLOCK_TIME_SAMPLE_BLOCKS = 1_000n
+
+/** Assumed when a chain declares no block time and its blocks cannot be read. */
+const FALLBACK_BLOCK_TIME_SECONDS = 2
+
 export class ContractInteractionService {
 	private configService: FillerConfigService
 	public cacheService: CacheService
 	private logger: Logger
 
 	private sdkHelperCache: Map<string, IntentGateway> = new Map()
+	private blockTimes: Map<string, Promise<number>> = new Map()
 	private solverAccountAddress: HexString
 	private signer: Signer
 
@@ -175,6 +186,17 @@ export class ContractInteractionService {
 		try {
 			const chainIds = this.configService.getConfiguredChainIds()
 			const chainNames = chainIds.map((id) => `EVM-${id}`)
+			// First and together: a bid needs its chain's block time, and the reads below are slower.
+			await Promise.all(
+				chainNames.map(async (chainName) => {
+					try {
+						await this.blockTimeSeconds(chainName)
+					} catch (err) {
+						this.logger.warn({ err, chain: chainName }, "Could not measure the block time at startup")
+					}
+				}),
+			)
+
 			for (const chainName of chainNames) {
 				try {
 					await this.getFeeTokenWithDecimals(chainName)
@@ -897,20 +919,65 @@ export class ContractInteractionService {
 	 *
 	 * Operators configure seconds because that is the unit the risk is actually in, but the
 	 * contract compares against block numbers so `order.deadline` and this read the same
-	 * clock. The conversion uses the chain's nominal block time; it is deliberately rounded
-	 * up, since erring long costs a slightly stale quote while erring short silently drops
-	 * winnable bids.
+	 * clock. The conversion uses the chain's block time from {@link blockTimeSeconds}; it is
+	 * deliberately rounded up, since erring long costs a slightly stale quote while erring
+	 * short silently drops winnable bids.
 	 */
 	private async bidValidUntilBlock(chain: string): Promise<bigint> {
 		const client = this.clientManager.getPublicClient(chain)
-		const currentBlock = await client.getBlockNumber()
-		// viem documents `Chain.blockTime` in milliseconds (Ethereum 12000, Base 2000,
-		// Arbitrum 250), hence the conversion; the fallback is already in seconds.
-		const blockTimeMs = client.chain?.blockTime
-		const blockTimeSec = blockTimeMs ? blockTimeMs / 1000 : 2
+		const [currentBlock, blockTimeSec] = await Promise.all([client.getBlockNumber(), this.blockTimeSeconds(chain)])
 		// Converted once, so the rounding happens in one place rather than twice.
 		const windowSec = this.configService.getBidValiditySeconds() + BID_DISCOVERY_PAD_SECONDS
 		return currentBlock + BigInt(Math.ceil(windowSec / blockTimeSec))
+	}
+
+	/**
+	 * Seconds per block on `chain`. Measured once, when simplex starts ({@link initCache}), and
+	 * kept until it stops. A chain with no measurement yet, because it was added later or its
+	 * blocks could not be read at startup, is measured at its first bid.
+	 *
+	 * The nominal `Chain.blockTime` cannot be relied on alone: it goes stale when a chain
+	 * speeds up (BSC makes a block every 0.45s against a declared 0.75s) and some chains
+	 * declare none. Converting at a slower block time than the chain's ends a bid early, so
+	 * the faster of the measured and the declared figure is used, and a stalled or idle
+	 * stretch in the sample never shortens a bid.
+	 *
+	 * Blocks that cannot be read fall back to the declared figure, then to
+	 * {@link FALLBACK_BLOCK_TIME_SECONDS}. That answer is not kept.
+	 */
+	private blockTimeSeconds(chain: string): Promise<number> {
+		const known = this.blockTimes.get(chain)
+		if (known) return known
+
+		const client = this.clientManager.getPublicClient(chain)
+		// viem documents `Chain.blockTime` in milliseconds (Ethereum 12000, Base 2000, Arbitrum 250).
+		const declaredMs = client.chain?.blockTime
+		const declared = declaredMs ? declaredMs / 1000 : undefined
+		const seconds = this.measureBlockTimeSeconds(client)
+			.then((measured) => (declared ? Math.min(measured, declared) : measured))
+			.catch((err) => {
+				this.blockTimes.delete(chain)
+				const fallback = declared ?? FALLBACK_BLOCK_TIME_SECONDS
+				this.logger.warn(
+					{ err, chain, seconds: fallback },
+					"Could not measure the block time; using the declared one",
+				)
+				return fallback
+			})
+		this.blockTimes.set(chain, seconds)
+		return seconds
+	}
+
+	/** The average block time over the chain's last {@link BLOCK_TIME_SAMPLE_BLOCKS} blocks, in seconds. */
+	private async measureBlockTimeSeconds(client: PublicClient): Promise<number> {
+		const head = await client.getBlock({ blockTag: "latest" })
+		const span = head.number < BLOCK_TIME_SAMPLE_BLOCKS ? head.number : BLOCK_TIME_SAMPLE_BLOCKS
+		const tail = await client.getBlock({ blockNumber: head.number - span })
+		const measured = Number(head.timestamp - tail.timestamp) / Number(span)
+		if (!Number.isFinite(measured) || measured <= 0) {
+			throw new Error(`${span} blocks span ${head.timestamp - tail.timestamp}s`)
+		}
+		return measured
 	}
 
 	/**

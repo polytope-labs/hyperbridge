@@ -4,6 +4,7 @@ import { BASE_CHAIN, BASE_CNGN, BASE_USDC, postingRig } from "../helpers/posting
 import {
 	ADDRESS_ZERO,
 	CryptoUtils,
+	ENTRY_POINT_V09,
 	decodeERC7821ExecuteBatch,
 	decodeFillOrder,
 	decodePhantomBidDeclaration,
@@ -38,11 +39,13 @@ const MIN_TTL_SECS = 900
 const TAKEN_IN = 1_500_000_000_000n
 const PAID_OUT = 1_000_500_000n
 
-async function postOne(overrides: { ttlSecs?: number; acceptedSourceChains?: string[] } = {}) {
+async function postOne(
+	overrides: { ttlSecs?: number; acceptedSourceChains?: string[]; entryPointAddress?: HexString } = {},
+) {
 	const { service, signer } = await postingRig({ gateway: GATEWAY, chainId: BASE_CHAIN_ID })
 	const built = await service.prepareLimitOrderUserOp({
 		fillChain: BASE_CHAIN,
-		entryPointAddress: ENTRY_POINT,
+		entryPointAddress: overrides.entryPointAddress ?? ENTRY_POINT,
 		inputToken: BASE_CNGN,
 		outputToken: BASE_USDC,
 		inputAmount: TAKEN_IN,
@@ -58,8 +61,8 @@ async function postOne(overrides: { ttlSecs?: number; acceptedSourceChains?: str
  * Who signed the op, over the bare userOpHash the EntryPoint derives. The
  * commitment prefix is not covered by that hash, so it is stripped first.
  */
-async function recoverSigner(op: PackedUserOperation): Promise<string> {
-	const typed = CryptoUtils.packedUserOpTypedData({ ...op, signature: "0x" }, ENTRY_POINT, BigInt(BASE_CHAIN_ID))
+async function recoverSigner(op: PackedUserOperation, entryPoint: HexString = ENTRY_POINT): Promise<string> {
+	const typed = CryptoUtils.packedUserOpTypedData({ ...op, signature: "0x" }, entryPoint, BigInt(BASE_CHAIN_ID))
 	return recoverTypedDataAddress({ ...typed, signature: `0x${op.signature.slice(66)}` as Hex })
 }
 
@@ -116,5 +119,19 @@ describe("the op simplex posts", () => {
 		expect(BigInt(op.nonce) >> 64n).toBe(CryptoUtils.bidNonceKey(commitment, ADDRESS_ZERO, op.callData))
 		// The low 64 bits are the sequence the EntryPoint counts within that key.
 		expect(BigInt(op.nonce) & ((1n << 64n) - 1n)).toBe(0n)
+	})
+
+	it("signs for the EntryPoint it is given, under the same commitment and nonce", async () => {
+		// The nonce is the op's own key at its first sequence, never read from an
+		// EntryPoint, so signing the same posting for another one changes the
+		// signature alone.
+		const before = await postOne()
+		const after = await postOne({ entryPointAddress: ENTRY_POINT_V09 })
+
+		expect(after.commitment).toBe(before.commitment)
+		expect(after.op.nonce).toBe(before.op.nonce)
+		expect(after.op.signature).not.toBe(before.op.signature)
+		expect(await recoverSigner(after.op, ENTRY_POINT_V09)).toBe(after.signer.address)
+		expect(await recoverSigner(after.op)).not.toBe(after.signer.address)
 	})
 })

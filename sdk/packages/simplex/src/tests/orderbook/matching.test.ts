@@ -31,6 +31,7 @@ function limitOrder(overrides: Partial<LimitOrder> = {}): LimitOrder {
 		status: "open",
 		commitment: "0xabc",
 		orderNonce: "0",
+		entryPoint: null,
 		bookExpiresAt: null,
 		bookPrice: null,
 		lastError: null,

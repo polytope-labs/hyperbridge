@@ -17,7 +17,7 @@ pragma solidity ^0.8.17;
 import {Account} from "@openzeppelin/contracts/account/Account.sol";
 import {ERC4337Utils} from "@openzeppelin/contracts/account/utils/draft-ERC4337Utils.sol";
 import {ERC7821} from "@openzeppelin/contracts/account/extensions/draft-ERC7821.sol";
-import {PackedUserOperation} from "@openzeppelin/contracts/interfaces/draft-IERC4337.sol";
+import {IEntryPoint, PackedUserOperation} from "@openzeppelin/contracts/interfaces/draft-IERC4337.sol";
 import {Execution} from "@openzeppelin/contracts/interfaces/draft-IERC7579.sol";
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import {IERC1271} from "@openzeppelin/contracts/interfaces/IERC1271.sol";
@@ -59,6 +59,11 @@ contract SolverAccount is Account, ERC7821, IERC1271 {
     bytes32 private constant BUDGETS_STORAGE_SLOT = 0xef37eedb8cd243d7bb1074a6cb5a4fad8c39bd328408761135c4a5a7d5c29900;
 
     /**
+     * @dev ERC-4337 EntryPoint v0.9, the only one this account accepts.
+     */
+    IEntryPoint private constant ENTRYPOINT_V09 = IEntryPoint(0x433709009B8330FDa32311DF1C2AFA402eD8D009);
+
+    /**
      * @dev A plain ECDSA signature: r, s, v.
      */
     uint256 private constant ECDSA_SIGNATURE_LENGTH = 65;
@@ -98,12 +103,21 @@ contract SolverAccount is Account, ERC7821, IERC1271 {
     }
 
     /**
+     * @dev EntryPoint v0.9 in place of OpenZeppelin's v0.8. It gates `validateUserOp`, `getNonce`
+     * and the EntryPoint's right to execute batches.
+     */
+    function entryPoint() public pure override returns (IEntryPoint) {
+        return ENTRYPOINT_V09;
+    }
+
+    /**
      * @dev A 65-byte signature is plain ECDSA over `userOpHash`. It is refused for ops that call
      * `fillOrder`: bids are public, so a bid's solver signature could be replayed here to burn its
      * nonce and the solver's gas.
      *
      * A 162-byte signature is `abi.encodePacked(commitment, solverSignature, sessionSignature)`.
-     * The gateway's `select` recovers the session key, and the nonce key must derive from the
+     * The session key signs the commitment and `userOpHash`, so its selection holds for this op
+     * alone. The gateway's `select` recovers that key, and the nonce key must derive from the
      * commitment, that key and the op's calldata, so none of them can be swapped after signing.
      *
      * The calldata is what makes each bid's key its own. A solver bidding several prices on one
@@ -130,10 +144,11 @@ contract SolverAccount is Account, ERC7821, IERC1271 {
         bytes calldata solverSignature = op.signature[32:97];
         bytes calldata sessionSignature = op.signature[97:162];
 
-        // Recovers the session key and stages the selection that `fillOrder` checks. A bad session
-        // signature fails validation instead of reverting it, as ERC-4337 requires.
+        // Recovers the session key and stages the selection that `fillOrder` checks while this op
+        // executes. A bad session signature fails validation instead of reverting it, as ERC-4337
+        // requires.
         SelectOptions memory selectOptions =
-            SelectOptions({commitment: commitment, solver: address(this), signature: sessionSignature});
+            SelectOptions({commitment: commitment, userOpHash: userOpHash, signature: sessionSignature});
         address sessionKey;
         try IIntentGatewayV2(_intentGateway).select(selectOptions) returns (address recovered) {
             sessionKey = recovered;
@@ -171,8 +186,7 @@ contract SolverAccount is Account, ERC7821, IERC1271 {
      * @dev Whether `selector` is a `fillOrder` of this or an earlier gateway release.
      */
     function _isFillOrder(bytes4 selector) private pure returns (bool) {
-        return selector == FILL_ORDER_SELECTOR 
-            || selector == HISTORICAL_FILL_ORDER_SELECTOR
+        return selector == FILL_ORDER_SELECTOR || selector == HISTORICAL_FILL_ORDER_SELECTOR
             || selector == HISTORICAL_FILL_ORDER_NO_EXPIRY_SELECTOR;
     }
 

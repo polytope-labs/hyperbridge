@@ -88,6 +88,8 @@ export interface BidPlan {
 	fillerOutputs: TokenInfo[]
 	/** The take signed beside each output: the escrow this bid's fill earns. */
 	fillerInputs: TokenInfo[]
+	/** The decimals `fillerInputs[leg]` is counted in: the input token's, on the order's source chain. */
+	inputDecimals?: number
 	fundingCalls: ERC7821Call[]
 	partialFill: boolean
 	profit: number
@@ -102,6 +104,7 @@ interface BidPlanCache {
 	payout: string
 	outputs: FillerOutputCache[]
 	inputs: FillerOutputCache[]
+	inputDecimals?: number
 	calls: FundingCallCache[]
 	partialFill: boolean
 	profit: number
@@ -448,6 +451,7 @@ export class CacheService {
 				})),
 				partialFill: plan.partialFill,
 				profit: plan.profit,
+				...(plan.inputDecimals !== undefined ? { inputDecimals: plan.inputDecimals } : {}),
 				...(plan.budget ? { budget: budgetFromCache(plan.budget) } : {}),
 			}))
 		} catch (error) {
@@ -479,6 +483,7 @@ export class CacheService {
 					})),
 					partialFill: plan.partialFill,
 					profit: plan.profit,
+					...(plan.inputDecimals !== undefined ? { inputDecimals: plan.inputDecimals } : {}),
 					...(plan.budget ? { budget: budgetToCache(plan.budget) } : {}),
 				})),
 				timestamp: Date.now(),

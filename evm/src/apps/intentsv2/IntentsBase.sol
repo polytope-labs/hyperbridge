@@ -56,9 +56,16 @@ abstract contract IntentsBase is EIP712 {
 
     /**
      * @dev EIP-712 typehash for solver selection signatures.
-     * Encodes the struct: SelectSolver(bytes32 commitment, address solver).
+     * Encodes the struct: SelectSolver(bytes32 commitment, bytes32 userOpHash).
      */
-    bytes32 public constant SELECT_SOLVER_TYPEHASH = keccak256("SelectSolver(bytes32 commitment,address solver)");
+    bytes32 public constant SELECT_SOLVER_TYPEHASH = keccak256("SelectSolver(bytes32 commitment,bytes32 userOpHash)");
+
+    /**
+     * @dev ERC-4337 EntryPoint v0.9, which reports the UserOperation a selected fill must run in.
+     * Fixed rather than taken from the caller: anyone may call the gateway, so a caller posing as
+     * an EntryPoint could report whatever hash a selection was signed for.
+     */
+    address internal constant ENTRYPOINT_V09 = 0x433709009B8330FDa32311DF1C2AFA402eD8D009;
 
     /**
      * @dev Sentinel key under which the Hyperbridge relayer fees are held in `_orders`. The low
@@ -177,7 +184,7 @@ abstract contract IntentsBase is EIP712 {
     /**
      * @dev Once set, the only relayer whose deliveries `onAccept` and `onGetResponse` accept. Slot 13
      * offset 0. Earlier implementations packed it at offset 1, behind an unused `bool _paused` that
-     * has since been removed; `IntentGatewayV2.migrate` moves it.
+     * has since been removed; the version-3 `migrate` moved it.
      */
     address internal _relayer;
 
@@ -440,6 +447,13 @@ abstract contract IntentsBase is EIP712 {
     }
 
     /**
+     * @notice The ERC-4337 EntryPoint that reports the UserOperation a selected fill runs in.
+     */
+    function entrypoint() public pure returns (address) {
+        return ENTRYPOINT_V09;
+    }
+
+    /**
      * @dev The block number order deadlines use. On Arbitrum that is the L2 block from ArbSys;
      * checking the chain id keeps the bytecode, and so the CREATE2 address, the same on every
      * chain.
@@ -469,19 +483,17 @@ abstract contract IntentsBase is EIP712 {
     }
 
     /**
-     * @dev Checks every leg's shape, skipped and completed legs included, before any transfer.
+     * @dev Checks leg `i`'s shape. Runs for skipped and completed legs too.
      */
-    function _validateLegs(Order calldata order, FillOptions calldata options) private pure {
-        for (uint256 i; i < order.output.assets.length; ++i) {
-            // A token is the address in its low 20 bytes; anything above would let one token pass
-            // `_isRepeatedToken` as two. Checked here too: a cross-chain fill never sees `placeOrder`.
-            if (uint256(order.inputs[i].token) >> 160 != 0) revert InvalidInput();
-            if (uint256(order.output.assets[i].token) >> 160 != 0) revert InvalidInput();
-            if (options.inputs[i].token != order.inputs[i].token) revert InvalidInput();
-            if (options.outputs[i].token != order.output.assets[i].token) revert InvalidInput();
-            // A leg is skipped by quoting zero on both sides, never on one.
-            if ((options.inputs[i].amount == 0) != (options.outputs[i].amount == 0)) revert InvalidInput();
-        }
+    function _validateLeg(Order calldata order, FillOptions calldata options, uint256 i) private pure {
+        // A token is the address in its low 20 bytes; anything above would let one token pass
+        // `_isRepeatedToken` as two. Checked here too: a cross-chain fill never sees `placeOrder`.
+        if (uint256(order.inputs[i].token) >> 160 != 0) revert InvalidInput();
+        if (uint256(order.output.assets[i].token) >> 160 != 0) revert InvalidInput();
+        if (options.inputs[i].token != order.inputs[i].token) revert InvalidInput();
+        if (options.outputs[i].token != order.output.assets[i].token) revert InvalidInput();
+        // A leg is skipped by quoting zero on both sides, never on one.
+        if ((options.inputs[i].amount == 0) != (options.outputs[i].amount == 0)) revert InvalidInput();
     }
 
     /**
@@ -491,7 +503,6 @@ abstract contract IntentsBase is EIP712 {
         internal
         returns (FillResult memory result)
     {
-        _validateLegs(order, options);
         uint256 legCount = order.output.assets.length;
         result.releasedInputs = new TokenInfo[](legCount);
         result.creditedOutputs = new TokenInfo[](legCount);
@@ -500,6 +511,7 @@ abstract contract IntentsBase is EIP712 {
         bool madeProgress;
 
         for (uint256 i; i < legCount; ++i) {
+            _validateLeg(order, options, i);
             madeProgress = _fillLeg(order, options, commitment, i, result) || madeProgress;
         }
 
@@ -777,22 +789,21 @@ abstract contract IntentsBase is EIP712 {
     }
 
     /**
-     * @dev Recovers the session key that signed the selection and stores `keccak256(sessionKey)` in
-     * transient storage under `keccak256(commitment, solver)`.
+     * @dev Recovers the session key that signed the selection and sets a non-zero marker in
+     * transient storage under `keccak256(commitment, userOpHash, sessionKey)`.
      */
     function _select(SelectOptions calldata options) internal returns (address) {
         if (_filled[options.commitment] != address(0)) revert Filled();
 
-        bytes32 structHash = keccak256(abi.encode(SELECT_SOLVER_TYPEHASH, options.commitment, options.solver));
+        bytes32 structHash = keccak256(abi.encode(SELECT_SOLVER_TYPEHASH, options.commitment, options.userOpHash));
         bytes32 digest = _hashTypedDataV4(structHash);
         address sessionKey = ECDSA.recover(digest, options.signature);
 
-        bytes32 slot = keccak256(abi.encode(options.commitment, options.solver));
-        // Hashed, never the bare key: an untouched slot reads zero, which must not match an order
-        // whose `session` is the zero address.
-        bytes32 selectionHash = keccak256(abi.encode(sessionKey));
+        // Keyed on the signer too: `select` is permissionless, so a selection signed by any other
+        // key lands in its own slot and cannot overwrite the session key's.
+        bytes32 slot = keccak256(abi.encode(options.commitment, options.userOpHash, sessionKey));
         assembly {
-            tstore(slot, selectionHash)
+            tstore(slot, 1)
         }
 
         return sessionKey;

@@ -3,21 +3,8 @@ pragma solidity ^0.8.24;
 
 import {Test} from "forge-std/Test.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {ISignatureTransfer} from "../../src/utils/SimplexPaymaster.sol";
-
-/// @dev Permit2 AllowanceTransfer surface — the signature-less pull path.
-interface IAllowanceTransfer {
-    function allowance(address owner, address token, address spender)
-        external
-        view
-        returns (uint160 amount, uint48 expiration, uint48 nonce);
-
-    function transferFrom(address from, address to, uint160 amount, address token) external;
-
-    function DOMAIN_SEPARATOR() external view returns (bytes32);
-
-    function nonceBitmap(address owner, uint256 word) external view returns (uint256);
-}
+import {ISignatureTransfer} from "@uniswap/permit2/src/interfaces/ISignatureTransfer.sol";
+import {IAllowanceTransfer} from "@uniswap/permit2/src/interfaces/IAllowanceTransfer.sol";
 
 /// @notice Answers: with the filler holding a uint256-max token approval to Permit2, can an
 ///         attacker who fully controls the paymaster drain the filler's balance? Runs against

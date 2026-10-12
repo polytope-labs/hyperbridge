@@ -3,10 +3,12 @@ import { mkdtempSync } from "fs"
 import { tmpdir } from "os"
 import { join } from "path"
 import { DatabaseSync } from "node:sqlite"
+import { ENTRY_POINT_V09 } from "@hyperbridge/sdk"
 import { LoggerContext } from "@/services/Logger"
 import { MemoryDataStore } from "@/data/memory"
 import { SqliteDataStore } from "@/data/sqlite"
 import type { LimitOrderInsert, LimitOrderStore } from "@/data/types"
+import { summarizeProfit } from "@/orderbook/profitability"
 
 const dataDir = () => mkdtempSync(join(tmpdir(), "simplex-limit-orders-"))
 
@@ -45,6 +47,7 @@ describe.each(backends)("%s", (_name, open) => {
 		expect(created.reserved).toBe("0")
 		expect(created.commitment).toBeNull()
 		expect(created.orderNonce).toBe("0")
+		expect(created.entryPoint).toBeNull()
 		expect(created.acceptedSources).toEqual(["EVM-1", "EVM-42161"])
 		await close()
 	})
@@ -68,6 +71,7 @@ describe.each(backends)("%s", (_name, open) => {
 			bookExpiresAt: "2026-09-15T12:00:00.000Z",
 			bookPrice: "1490000000000000000000",
 			orderNonce: "3",
+			entryPoint: ENTRY_POINT_V09,
 			status: "open",
 			lastError: null,
 		})
@@ -75,6 +79,29 @@ describe.each(backends)("%s", (_name, open) => {
 		expect(posted?.commitment).toBe("0xabc")
 		expect(posted?.orderNonce).toBe("3")
 		expect(posted?.bookPrice).toBe("1490000000000000000000")
+		expect(posted?.entryPoint).toBe(ENTRY_POINT_V09)
+		await close()
+	})
+
+	it("keeps a posting's EntryPoint until a new posting replaces it", async () => {
+		const { store, close } = open()
+		await store.create(ORDER)
+		const posting = {
+			commitment: "0xabc",
+			bookExpiresAt: null,
+			bookPrice: null,
+			orderNonce: "1",
+			entryPoint: ENTRY_POINT_V09,
+			status: "open" as const,
+			lastError: null,
+		}
+		await store.setPosting(ORDER.id, posting)
+
+		// A repost marks the row before the new posting lands, and the old one is still up meanwhile.
+		expect((await store.setStatus(ORDER.id, "resizing"))?.entryPoint).toBe(ENTRY_POINT_V09)
+
+		const cleared = await store.setPosting(ORDER.id, { ...posting, commitment: null, entryPoint: null })
+		expect(cleared?.entryPoint).toBeNull()
 		await close()
 	})
 
@@ -373,6 +400,87 @@ describe("SqliteLimitOrderStore", () => {
 		await store.close()
 	})
 
+	it("adds entry_point in place to a database written before it, reading its postings as null", async () => {
+		const dir = dataDir()
+		const legacy = new DatabaseSync(join(dir, "bids.db"))
+		legacy.exec(`
+			CREATE TABLE limit_orders (
+				id TEXT PRIMARY KEY,
+				book TEXT NOT NULL,
+				base TEXT NOT NULL,
+				quote TEXT NOT NULL,
+				side TEXT NOT NULL,
+				fill_chain TEXT NOT NULL,
+				price TEXT NOT NULL,
+				size TEXT NOT NULL,
+				remaining TEXT NOT NULL,
+				reserved TEXT NOT NULL DEFAULT '0',
+				accepted_sources TEXT NOT NULL,
+				ttl_secs INTEGER NOT NULL,
+				expires_at TEXT,
+				status TEXT NOT NULL,
+				commitment TEXT,
+				order_nonce TEXT NOT NULL DEFAULT '0',
+				book_expires_at TEXT,
+				book_price TEXT,
+				last_error TEXT,
+				created_at TEXT NOT NULL DEFAULT (datetime('now')),
+				updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+			);
+		`)
+		legacy
+			.prepare(
+				`
+				INSERT INTO limit_orders (
+					id, book, base, quote, side, fill_chain, price, size, remaining,
+					accepted_sources, ttl_secs, status, commitment, order_nonce
+				)
+				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'open', '0xa1', '4')
+			`,
+			)
+			.run(
+				ORDER.id,
+				ORDER.book,
+				ORDER.base,
+				ORDER.quote,
+				ORDER.side,
+				ORDER.fillChain,
+				ORDER.price,
+				ORDER.size,
+				ORDER.size,
+				JSON.stringify(ORDER.acceptedSources),
+				ORDER.ttlSecs,
+			)
+		legacy.close()
+
+		const migrated = new SqliteDataStore(dir, new LoggerContext({ level: "warn" }))
+		expect(await migrated.limitOrders.get(ORDER.id)).toMatchObject({
+			status: "open",
+			commitment: "0xa1",
+			orderNonce: "4",
+			remaining: ORDER.size,
+			acceptedSources: ORDER.acceptedSources,
+			entryPoint: null,
+		})
+		await migrated.limitOrders.setPosting(ORDER.id, {
+			commitment: "0xa2",
+			bookExpiresAt: null,
+			bookPrice: null,
+			orderNonce: "5",
+			entryPoint: ENTRY_POINT_V09,
+			status: "open",
+			lastError: null,
+		})
+		await migrated.close()
+
+		const reopened = new SqliteDataStore(dir, new LoggerContext({ level: "warn" }))
+		expect(await reopened.limitOrders.get(ORDER.id)).toMatchObject({
+			commitment: "0xa2",
+			entryPoint: ENTRY_POINT_V09,
+		})
+		await reopened.close()
+	})
+
 	it("survives a reopen of the same data directory", async () => {
 		const dir = dataDir()
 		const first = new SqliteDataStore(dir, new LoggerContext({ level: "warn" }))
@@ -382,6 +490,166 @@ describe("SqliteLimitOrderStore", () => {
 		const second = new SqliteDataStore(dir, new LoggerContext({ level: "warn" }))
 		expect((await second.limitOrders.get(ORDER.id))?.size).toBe(ORDER.size)
 		await second.close()
+	})
+})
+
+describe("SqliteLimitOrderStore fill migration", () => {
+	const columnsOf = (dir: string) => {
+		const db = new DatabaseSync(join(dir, "bids.db"))
+		const columns = db.prepare("PRAGMA table_info(limit_order_fills)").all() as unknown as Array<{ name: string }>
+		db.close()
+		return columns.map((column) => column.name)
+	}
+
+	/**
+	 * A data directory as the release before left it: both limit order tables at the schema that
+	 * shipped, a buy and a sell, and a fill of each. Written with plain SQL rather than through
+	 * the store, which could only ever write the schema it has now.
+	 */
+	function shippedDataDir(): string {
+		const dir = dataDir()
+		const db = new DatabaseSync(join(dir, "bids.db"))
+		db.exec(`
+			CREATE TABLE limit_orders (
+				id TEXT PRIMARY KEY,
+				book TEXT NOT NULL,
+				base TEXT NOT NULL,
+				quote TEXT NOT NULL,
+				side TEXT NOT NULL,
+				fill_chain TEXT NOT NULL,
+				price TEXT NOT NULL,
+				size TEXT NOT NULL,
+				remaining TEXT NOT NULL,
+				reserved TEXT NOT NULL DEFAULT '0',
+				accepted_sources TEXT NOT NULL,
+				ttl_secs INTEGER NOT NULL,
+				expires_at TEXT,
+				status TEXT NOT NULL,
+				commitment TEXT,
+				order_nonce TEXT NOT NULL DEFAULT '0',
+				book_expires_at TEXT,
+				book_price TEXT,
+				last_error TEXT,
+				created_at TEXT NOT NULL DEFAULT (datetime('now')),
+				updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+			);
+			CREATE TABLE limit_order_fills (
+				id INTEGER PRIMARY KEY AUTOINCREMENT,
+				limit_order_id TEXT NOT NULL,
+				commitment TEXT NOT NULL,
+				bid TEXT,
+				amount TEXT NOT NULL,
+				transaction_hash TEXT,
+				filled_at TEXT NOT NULL DEFAULT (datetime('now'))
+			);
+			CREATE INDEX idx_limit_order_fills_order ON limit_order_fills(limit_order_id);
+
+			INSERT INTO limit_orders (id, book, base, quote, side, fill_chain, price, size, remaining, accepted_sources, ttl_secs, status)
+			VALUES
+				('buy', 'USDC-cNGN', 'USDC', 'cNGN', 'BID', 'EVM-8453', '1500000000000000000000', '3000000000000000000000', '1500000000000000000000', '["EVM-1"]', 900, 'open'),
+				('sell', 'USDC-cNGN', 'USDC', 'cNGN', 'ASK', 'EVM-8453', '1510000000000000000000', '2000000000000000000', '1000000000000000000', '["EVM-1"]', 900, 'open');
+			-- The buy paid 1,500 cNGN out and the sell paid 1 USDC out. Neither says what it took in.
+			INSERT INTO limit_order_fills (limit_order_id, commitment, bid, amount, transaction_hash, filled_at)
+			VALUES
+				('buy', '0xb1', '0xbid1', '1500000000000000000000', '0xt1', '2026-10-01 10:00:00'),
+				('sell', '0xs1', NULL, '1000000000000000000', NULL, '2026-10-02 10:00:00');
+		`)
+		db.close()
+		return dir
+	}
+
+	it("adds what a fill took in to a database the release before wrote, and keeps its rows", async () => {
+		const dir = shippedDataDir()
+		expect(columnsOf(dir)).not.toContain("amount_in")
+
+		const store = new SqliteDataStore(dir, new LoggerContext({ level: "warn" }))
+		expect(columnsOf(dir)).toContain("amount_in")
+
+		// Every fill it held is still there, with nothing in the new column.
+		expect(
+			(await store.limitOrders.fills("buy")).map((fill) => [
+				fill.commitment,
+				fill.bid,
+				fill.amount,
+				fill.amountIn,
+			]),
+		).toEqual([["0xb1", "0xbid1", "1500000000000000000000", null]])
+		expect((await store.limitOrders.get("sell"))?.remaining).toBe("1000000000000000000")
+
+		// And a fill settled from here on keeps what it took in.
+		await store.limitOrders.recordFill({
+			limitOrderId: "sell",
+			commitment: "0xs2",
+			amount: "1000000000000000000",
+			amountIn: "1512000000000000000000",
+		})
+		expect((await store.limitOrders.fillHistory()).map((fill) => [fill.limitOrderId, fill.amountIn])).toEqual([
+			["buy", null],
+			["sell", null],
+			["sell", "1512000000000000000000"],
+		])
+		await store.close()
+	})
+
+	it("prices the fills it migrated at their order's rate, and says they are estimates", async () => {
+		const store = new SqliteDataStore(shippedDataDir(), new LoggerContext({ level: "warn" }))
+		const summary = summarizeProfit(await store.limitOrders.fillHistory(), {
+			period: "7d",
+			now: Date.parse("2026-10-05T12:00:00Z"),
+		})
+
+		// 1 USDC bought at 1,500 and sold at 1,510, each at its order's own rate: 10 cNGN up.
+		expect(summary.books[0]).toMatchObject({
+			bought: 1,
+			sold: 1,
+			averageBuy: 1500,
+			averageSell: 1510,
+			baseChange: 0,
+			quoteChange: 10,
+		})
+		expect(summary.estimatedFills).toBe(2)
+		await store.close()
+	})
+
+	it("migrates once: opening the database again changes nothing", async () => {
+		const dir = shippedDataDir()
+		await new SqliteDataStore(dir, new LoggerContext({ level: "warn" })).close()
+		const migrated = columnsOf(dir)
+
+		const again = new SqliteDataStore(dir, new LoggerContext({ level: "warn" }))
+		expect(columnsOf(dir)).toEqual(migrated)
+		expect(await again.limitOrders.fillHistory()).toHaveLength(2)
+		await again.close()
+	})
+
+	it("leaves the database writable by a solver still on the release before", async () => {
+		// Two solvers can share a data directory, and they are not upgraded in the same instant.
+		const dir = shippedDataDir()
+		const store = new SqliteDataStore(dir, new LoggerContext({ level: "warn" }))
+
+		// The earlier version's insert, which names no `amount_in`.
+		const older = new DatabaseSync(join(dir, "bids.db"))
+		older
+			.prepare(
+				"INSERT INTO limit_order_fills (limit_order_id, commitment, bid, amount, transaction_hash) VALUES (?, ?, ?, ?, ?)",
+			)
+			.run("buy", "0xb2", null, "750000000000000000000", null)
+		older.close()
+
+		expect((await store.limitOrders.fills("buy")).map((fill) => [fill.commitment, fill.amountIn])).toEqual([
+			["0xb2", null],
+			["0xb1", null],
+		])
+		await store.close()
+	})
+
+	it("creates a new database with the column already in place, not by migrating to it", async () => {
+		const dir = dataDir()
+		await new SqliteDataStore(dir, new LoggerContext({ level: "warn" })).close()
+
+		// A migration appends its column; a table created at this schema has it beside `amount`.
+		const columns = columnsOf(dir)
+		expect(columns.indexOf("amount_in")).toBe(columns.indexOf("amount") + 1)
 	})
 })
 
@@ -396,6 +664,7 @@ describe.each(backends)("%s fill history", (_name, open) => {
 			bookExpiresAt: null,
 			bookPrice: null,
 			orderNonce: "1",
+			entryPoint: null,
 			status: "open",
 			lastError: null,
 		})
@@ -408,6 +677,56 @@ describe.each(backends)("%s fill history", (_name, open) => {
 			["0xaa", "100", "0xb1", "0xt1"],
 		])
 		expect(fills.every((fill) => fill.limitOrderId === ORDER.id && typeof fill.filledAt === "string")).toBe(true)
+		await close()
+	})
+
+	it("keeps what a fill took in beside what it paid out", async () => {
+		const { store, close } = open()
+		await store.create(ORDER)
+		await store.recordFill({ limitOrderId: ORDER.id, commitment: "0xaa", amount: "1500", amountIn: "1" })
+		// A fill whose event carried no inputs has nothing to keep.
+		await store.recordFill({ limitOrderId: ORDER.id, commitment: "0xbb", amount: "3000" })
+
+		expect((await store.fills(ORDER.id)).map((fill) => [fill.commitment, fill.amountIn])).toEqual([
+			["0xbb", null],
+			["0xaa", "1"],
+		])
+		await close()
+	})
+
+	it("reads every order's fills back with its terms, oldest first", async () => {
+		const { store, close } = open()
+		await store.create(ORDER)
+		await store.create({ ...ORDER, id: "order-2", side: "ASK", price: "1510000000000000000000" })
+		await store.recordFill({ limitOrderId: ORDER.id, commitment: "0xaa", amount: "1500", amountIn: "1" })
+		await store.recordFill({ limitOrderId: "order-2", commitment: "0xbb", amount: "2" })
+		// A fill whose order is not on record could not be priced, and is left out.
+		await store.recordFill({ limitOrderId: "someone-else", commitment: "0xcc", amount: "7" })
+
+		const history = await store.fillHistory()
+		expect(history.map(({ id, filledAt, ...terms }) => terms)).toEqual([
+			{
+				limitOrderId: ORDER.id,
+				book: ORDER.book,
+				base: "USDC",
+				quote: "CNGN",
+				side: "BID",
+				price: ORDER.price,
+				amount: "1500",
+				amountIn: "1",
+			},
+			{
+				limitOrderId: "order-2",
+				book: ORDER.book,
+				base: "USDC",
+				quote: "CNGN",
+				side: "ASK",
+				price: "1510000000000000000000",
+				amount: "2",
+				amountIn: null,
+			},
+		])
+		expect(history.every((fill) => typeof fill.filledAt === "string" && fill.id > 0)).toBe(true)
 		await close()
 	})
 

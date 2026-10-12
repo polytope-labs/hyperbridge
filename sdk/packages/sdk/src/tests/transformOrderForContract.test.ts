@@ -1,11 +1,13 @@
 import { transformOrderForContract } from "@/protocols/intents/utils"
 import type { HexString, Order } from "@/types"
-import { encodeWithdrawalRequest, normalizeAddressForEvmBytes32 } from "@/utils"
+import { encodeWithdrawalRequest } from "@/utils"
+import { decodeAbiParameters, parseAbiParameters } from "viem"
 import { describe, expect, it } from "vitest"
 
 const ADDR_20 = "0xEa4f68301aCec0dc9Bbe10F15730c59FB79d237E" as HexString
 const ADDR_32 = "0x000000000000000000000000Ea4f68301aCec0dc9Bbe10F15730c59FB79d237E" as HexString
 const NATIVE = "0x0000000000000000000000000000000000000000000000000000000000000000" as HexString
+const COMMITMENT = `0x${"11".repeat(32)}` as HexString
 
 function makeOrder(overrides: Partial<Order> = {}): Order {
 	return {
@@ -78,8 +80,8 @@ describe("transformOrderForContract", () => {
 
 	it("hex-encodes string source and destination", () => {
 		const result = transformOrderForContract(makeOrder())
-		expect(result.source).toMatch(/^0x/)
-		expect(result.destination).toMatch(/^0x/)
+		expect(result.source).toBe("0x45564d2d31")
+		expect(result.destination).toBe("0x45564d2d3432313631")
 	})
 
 	it("preserves already-hex source and destination", () => {
@@ -102,15 +104,25 @@ describe("transformOrderForContract", () => {
 	})
 
 	it("encodes withdrawal requests with bytes32 token addresses", () => {
-		expect(() => encodeWithdrawalRequest(makeOrder({ id: NATIVE }), ADDR_20)).not.toThrow()
-	})
+		const order = makeOrder({
+			id: COMMITMENT,
+			inputs: [
+				{ token: ADDR_20, amount: 1000n },
+				{ token: NATIVE, amount: 5n },
+			],
+		})
+		const [request] = decodeAbiParameters(
+			parseAbiParameters("(bytes32 commitment, bytes32 beneficiary, (bytes32 token, uint256 amount)[] tokens)"),
+			encodeWithdrawalRequest(order, ADDR_20),
+		)
 
-	it("normalizes fill option output token addresses before contract encoding", () => {
-		const outputs = makeOrder().output.assets.map((asset) => ({
-			...asset,
-			token: normalizeAddressForEvmBytes32(asset.token),
-		}))
-
-		expect(outputs[0].token).toBe(ADDR_32)
+		expect(request).toEqual({
+			commitment: COMMITMENT,
+			beneficiary: ADDR_32.toLowerCase(),
+			tokens: [
+				{ token: ADDR_32.toLowerCase(), amount: 1000n },
+				{ token: NATIVE, amount: 5n },
+			],
+		})
 	})
 })

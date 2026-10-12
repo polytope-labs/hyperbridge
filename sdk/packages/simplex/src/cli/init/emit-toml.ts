@@ -227,8 +227,6 @@ export function emitFillerToml(config: FillerConfigFile, options: EmitOptions = 
 		push("[[chains]]")
 		push("# List 2+ organisationally independent RPC providers to enable quorum log scanning.")
 		push(kv("rpcUrls", chain.rpcUrls))
-		push("# ERC-4337 bundler used to submit fill UserOperations on this chain.")
-		push(kv("bundlerUrl", chain.bundlerUrl))
 		push()
 	})
 

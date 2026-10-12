@@ -12,7 +12,7 @@ const ICONS: Record<EndpointVerificationState, string> = {
 	error: "×",
 }
 
-/** Persistent, row-local result for an RPC and bundler verification attempt. */
+/** Persistent, row-local result for an RPC verification attempt. */
 export function EndpointVerificationStatus({ state, message }: EndpointVerificationStatusProps) {
 	if (!state || !message) return null
 	return (

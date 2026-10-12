@@ -69,8 +69,8 @@ describe("phantom bid declaration v2 — Uniswap V4 positions", () => {
 		})
 	})
 
-	// The whole point of the version split: a solver that declares no positions must keep emitting
-	// exactly the bytes it emitted before positions existed, so nothing downstream sees a change.
+	// Simplex signs every orderbook post with a declaration that names no positions, so that case
+	// must stay in the v1 layout that every decoder reads.
 	it("emits the v1 layout byte-for-byte when no positions are declared", () => {
 		const chains = ["EVM-1", "EVM-8453"]
 		expect(encodePhantomBidDeclaration({ acceptedSourceChains: chains })).toBe(encodeAcceptedSourceChains(chains))
@@ -111,10 +111,10 @@ describe("phantom bid declaration v2 — Uniswap V4 positions", () => {
 	})
 })
 
-// A bid built on the real-bid path carries the EntryPoint v0.8 paymasterAndData simplex packs for
-// the Simplex paymaster's PERMIT2 mode, with the declaration appended after the permit. These
-// fixtures pack it the way simplex's `packPaymasterAndData` and `buildPermit2Mode` do, field for
-// field, so a layout drift between the two packages fails here rather than in production.
+// Simplex posts the bare declaration, but the shared codec also decodes one appended to the
+// EntryPoint v0.8 paymasterAndData simplex packs for its paymaster's PERMIT2 mode. These fixtures
+// pack it the way simplex's `packPaymasterAndData` and `buildPermit2Mode` do, field for field, so a
+// layout drift between the two packages fails here.
 describe("phantom bid paymasterAndData — Permit2-sponsored bids", () => {
 	const PAYMASTER = "0x0f9c4b1a2d3e4f5061728394a5b6c7d8e9f01234" as HexString
 	const FEE_TOKEN = "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913" as HexString
@@ -230,7 +230,7 @@ describe("phantom bid paymasterAndData — Permit2-sponsored bids", () => {
 		})
 	})
 
-	// A caller must not be able to sign bytes the aggregation would read as "declared nothing".
+	// A caller must not be able to sign bytes a decoder would read as "declared nothing".
 	it("refuses to append a declaration to anything but a Permit2-mode sponsorship", () => {
 		const declaration = { acceptedSourceChains: ["EVM-1"] }
 		expect(() => encodePhantomBidPaymasterAndData({ ...declaration, sponsorship: permitSponsorship() })).toThrow()
@@ -251,10 +251,8 @@ describe("phantom bid paymasterAndData — Permit2-sponsored bids", () => {
 	})
 })
 
-// The chain ids are UTF-8 encoded by hand: the indexer decodes bids inside SubQuery's vm2 sandbox,
-// where TextDecoder is not a global and the `util` fallback rejects a sandbox-created Uint8Array —
-// so a decoder that reached for it threw on every bid that named a source chain. The hand-rolled
-// codec must therefore match TextEncoder/TextDecoder byte for byte, and refuse what they refuse.
+// The codec encodes and decodes chain ids as UTF-8 by hand, so it must match TextEncoder and
+// TextDecoder byte for byte, and refuse what they refuse.
 describe("declaration chain ids — hand-rolled UTF-8", () => {
 	const ids = ["EVM-8453", "POLKADOT-3367", "SUBSTRATE-cere", "ké-ø", "日本-1", "𝔼VM-1"]
 

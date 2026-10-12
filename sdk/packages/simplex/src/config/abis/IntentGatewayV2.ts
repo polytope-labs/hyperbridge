@@ -1256,9 +1256,9 @@ export const INTENT_GATEWAY_V2_ABI = [
 						internalType: "bytes32",
 					},
 					{
-						name: "solver",
-						type: "address",
-						internalType: "address",
+						name: "userOpHash",
+						type: "bytes32",
+						internalType: "bytes32",
 					},
 					{
 						name: "signature",

@@ -8,6 +8,7 @@ import { assertPairSymbolsResolve, validatePairConfigs, type PairConfig } from "
 import { assertConfirmationCoverage, type VaultToml } from "@/config/filler-toml"
 import type { ChainConfirmationPolicy, FillerTomlConfig, RebalancingConfig } from "@/config/filler-toml"
 import { resolveChainConfigs, validateRpcUrls, type AllowlistConfig } from "@/services/FillerConfigService"
+import { assertBundlersServeEntryPoint } from "@/services/bundler-preflight"
 import { LoggerContext, type Logger, type LogLevel, type LogSink } from "@/services/Logger"
 import type { ActivityEvent, BidStats, LimitOrderFill, SimplexDataStore, StoredBid, WalletTx } from "@/data/types"
 import { patchRuntimeState } from "@/data/state"
@@ -15,6 +16,16 @@ import { MemoryDataStore } from "@/data/memory"
 import { OrderScanner as OrderScannerImpl } from "@/scanner/order-scanner"
 import type { OrderScanner } from "@/scanner/types"
 import type { LimitOrder, LimitOrderFilter } from "@/data/types"
+import { IndexerInventory } from "@/data/indexer-inventory"
+import { inventoryOf, parseUtc } from "@/data/inventory"
+import {
+	type InventoryOutflow,
+	type InventoryRecord,
+	inventoryInstants,
+	type Profitability,
+	type ProfitPeriod,
+	summarizeProfit,
+} from "@/orderbook/profitability"
 import type {
 	CancelledLimitOrder,
 	CreateLimitOrderRequest,
@@ -174,13 +185,13 @@ export interface ChainView {
 	chainId: number
 	stateMachineId: string
 	rpcUrls: string[]
+	/** Hyperbridge's bundler the chain fills through, empty where it runs none. */
 	bundlerUrl: string
 	watchOnly: boolean
 }
 
 export interface ChainInput {
 	rpcUrls: string[]
-	bundlerUrl: string
 	watchOnly?: boolean
 	/**
 	 * Required for chains with no built-in confirmation curve (testnets and
@@ -215,6 +226,8 @@ export interface SimplexStatus {
  * enabled, rather than quietly doing nothing.
  */
 export class LimitOrderController {
+	private indexed?: IndexerInventory
+
 	constructor(
 		private runtime: FillerRuntime,
 		private emit: LimitOrderEmitter,
@@ -251,6 +264,63 @@ export class LimitOrderController {
 			this.runtime.data.bids.byLimitOrder(id),
 		])
 		return { order, fills, bids }
+	}
+
+	/**
+	 * What the operator's buys and sells earned over `period`, bucketed on a clock
+	 * `tzOffsetMinutes` behind UTC.
+	 *
+	 * Profit is the change the period's fills made to what the solver holds, and
+	 * it is compared with the inventory the period began with. That inventory
+	 * comes from the stored snapshots and, when the balances have been read in
+	 * full, from what is held now, each carried to the period's start by what
+	 * moved between. The indexer says what moved, deposits and withdrawals
+	 * included, wherever it has followed the solver; elsewhere the fills and
+	 * sends on record stand in. It answers whether or not an orderbook is
+	 * configured, and whether or not the indexer does.
+	 */
+	async profitability(period: ProfitPeriod, tzOffsetMinutes = 0): Promise<Profitability> {
+		const now = Date.now()
+		const { data, balanceProvider } = this.runtime
+		// Every snapshot is read: there is one a day, and which of them a period needs depends
+		// on where its buckets start.
+		const [fills, snapshots, ledger] = await Promise.all([
+			data.limitOrders.fillHistory(),
+			data.inventory.since(new Date(0)),
+			data.activity.walletTxs(500),
+		])
+
+		const inventory: InventoryRecord[] = snapshots.map((snapshot) => ({
+			at: parseUtc(snapshot.takenAt),
+			balances: snapshot.balances,
+		}))
+		const held = inventoryOf(balanceProvider.getSnapshot())
+		if (held) inventory.push({ at: now, balances: held, live: true })
+
+		// A sweep or a redeem moves tokens between the wallet and a vault, both of which are
+		// inventory. Only a send takes them out of it.
+		const outflows: InventoryOutflow[] = []
+		for (const tx of ledger) {
+			const amount = Number(tx.amount)
+			if (tx.kind === "send" && tx.token && Number.isFinite(amount) && amount > 0) {
+				outflows.push({ at: tx.ts, symbol: tx.token, amount })
+			}
+		}
+
+		const instants = inventoryInstants(fills, { period, now, tzOffsetMinutes, inventory })
+		const readings = await this.indexerInventory().at(instants, now)
+		return summarizeProfit(fills, { period, now, tzOffsetMinutes, inventory, outflows, readings })
+	}
+
+	/** One reader for the life of the filler, so the readings it has already fetched are kept. */
+	private indexerInventory(): IndexerInventory {
+		this.indexed ??= new IndexerInventory({
+			indexerUrl: this.runtime.indexerUrl,
+			solver: this.runtime.fillerAddress,
+			describeToken: this.runtime.describeToken,
+			logger: this.runtime.loggers.get("inventory"),
+		})
+		return this.indexed
 	}
 
 	/** The pairs the orderbook lists, the smallest payout each token may carry, and its tokens per chain. */
@@ -455,11 +525,8 @@ export class ChainController {
 	async add(chain: ChainInput): Promise<ChainView> {
 		return this.serialise(async () => {
 			validateRpcUrls(chain.rpcUrls)
-			if (!chain.bundlerUrl?.trim()) {
-				throw new Error("A bundler URL is required to submit fill UserOperations")
-			}
 
-			const [resolved] = await resolveChainConfigs([{ rpcUrls: chain.rpcUrls, bundlerUrl: chain.bundlerUrl }])
+			const [resolved] = await resolveChainConfigs([{ rpcUrls: chain.rpcUrls }])
 			const { chainId } = resolved
 			const { configService, config, intentFiller } = this.runtime
 
@@ -499,16 +566,18 @@ export class ChainController {
 				)
 			}
 
-			configService.addChain(resolved)
 			// A filler the operator put in watch-only must not start filling on a chain
 			// added later, and a signerless observer never fills at all.
 			// `chain.watchOnly` still wins when given explicitly (checked above).
 			const watchOnly = chain.watchOnly ?? (this.runtime.signerless || this.runtime.globalWatchOnly)
+			await assertBundlersServeEntryPoint([resolved], configService, { watchOnly: { [chainId]: watchOnly } })
+
+			configService.addChain(resolved)
 			if (watchOnly) intentFiller.setWatchOnly(chainId, true)
 
 			try {
 				if (!inScanner) {
-					await this.scanner.addChain({ rpcUrls: chain.rpcUrls, bundlerUrl: chain.bundlerUrl, chainId })
+					await this.scanner.addChain({ rpcUrls: chain.rpcUrls, chainId })
 				}
 				// Drop anything cached from a previous life of this chain id, or the
 				// clients keep pointing at whatever endpoints it had before.
@@ -536,7 +605,7 @@ export class ChainController {
 			}
 
 			this.runtime.resolvedChains.push(resolved)
-			config.chains = [...config.chains, { rpcUrls: chain.rpcUrls, bundlerUrl: chain.bundlerUrl }]
+			config.chains = [...config.chains, { rpcUrls: chain.rpcUrls }]
 			if (Object.keys(confirmationPolicies).length > 0) config.confirmationPolicies = confirmationPolicies
 			this.syncWatchOnlyToConfig()
 
@@ -591,9 +660,7 @@ export class ChainController {
 
 			// Probe before mutating: an endpoint answering for another chain would
 			// otherwise silently feed this scanner the wrong chain's logs.
-			const [probed] = await resolveChainConfigs([
-				{ rpcUrls, bundlerUrl: this.runtime.resolvedChains[index].bundlerUrl ?? "" },
-			])
+			const [probed] = await resolveChainConfigs([{ rpcUrls }])
 			if (probed.chainId !== chainId) {
 				throw new Error(`Those endpoints answer for chain ${probed.chainId}, not ${chainId}`)
 			}
@@ -620,19 +687,6 @@ export class ChainController {
 		})
 	}
 
-	async setBundlerUrl(chainId: number, bundlerUrl: string): Promise<void> {
-		return this.serialise(async () => {
-			if (!bundlerUrl?.trim()) throw new Error("A bundler URL is required")
-			const index = this.runtime.resolvedChains.findIndex((chain) => chain.chainId === chainId)
-			if (index < 0) throw new Error(`Chain ${chainId} is not configured`)
-
-			this.runtime.configService.setBundlerUrl(chainId, bundlerUrl)
-			this.runtime.resolvedChains[index].bundlerUrl = bundlerUrl
-			this.runtime.config.chains[index].bundlerUrl = bundlerUrl
-			await this.persist()
-		})
-	}
-
 	/** Monitor without filling. Takes effect on the next order. */
 	async setWatchOnly(chainId: number, watchOnly: boolean): Promise<void> {
 		return this.serialise(async () => {
@@ -642,6 +696,10 @@ export class ChainController {
 				throw new Error(
 					"Watch-only cannot be disabled: this solver was started without a signer. Restart with `signer` to fill.",
 				)
+			}
+			if (!watchOnly) {
+				const chain = this.runtime.resolvedChains.find((resolved) => resolved.chainId === chainId)
+				if (chain) await assertBundlersServeEntryPoint([chain], this.runtime.configService)
 			}
 			this.runtime.intentFiller.setWatchOnly(chainId, watchOnly)
 			this.syncWatchOnlyToConfig()

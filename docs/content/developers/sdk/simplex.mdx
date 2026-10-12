@@ -42,14 +42,8 @@ const config: SimplexConfig = {
         hyperbridgeWsUrl: "wss://hyperbridge-mainnet-rpc.blockops.network",
     },
     chains: [
-        {
-            rpcUrls: ["https://base.example"],
-            bundlerUrl: "https://bundler.example/base",
-        },
-        {
-            rpcUrls: ["https://arbitrum.example"],
-            bundlerUrl: "https://bundler.example/arb",
-        },
+        { rpcUrls: ["https://base.example"] },
+        { rpcUrls: ["https://arbitrum.example"] },
     ],
     // Required. Prices come from the limit orders you post here.
     orderbook: {
@@ -429,7 +423,6 @@ remove from the highest index first if you are closing several.
 ```ts lineNumbers
 await simplex.chains.add({
     rpcUrls: ["https://polygon.example"],
-    bundlerUrl: "https://bundler.example/polygon",
     // Required for chains with no built-in confirmation curve.
     confirmationPolicy: {
         points: [
@@ -593,10 +586,7 @@ A shared scanner is edited through the scanner, so every solver reading it sees 
 
 ```ts lineNumbers
 // Start scanning a chain. Solvers still opt in individually — see below.
-await orders.addChain({
-    rpcUrls: ["https://polygon.example"],
-    bundlerUrl: "https://bundler.example/polygon",
-})
+await orders.addChain({ rpcUrls: ["https://polygon.example"] })
 
 // Swap endpoints. The cursor is kept, so no block goes unscanned.
 await orders.setRpcUrls(8453, ["https://base-new.example"])
@@ -615,8 +605,8 @@ matches incoming events against its own configured chains, so tell it separately
 supplies the events, the solver decides which it wants:
 
 ```ts lineNumbers
-await orders.addChain({ rpcUrls, bundlerUrl })   // the scanner sees it
-await solverA.chains.add({ rpcUrls, bundlerUrl }) // this solver acts on it
+await orders.addChain({ rpcUrls })   // the scanner sees it
+await solverA.chains.add({ rpcUrls }) // this solver acts on it
 ```
 
 `simplex.chains.add` and `.setRpcUrls` only reach a scanner that solver built for itself. On one you

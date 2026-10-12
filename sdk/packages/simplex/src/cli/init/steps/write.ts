@@ -137,7 +137,7 @@ export function assembleConfig(state: WizardState): FillerConfigFile {
 		// would otherwise shadow the fresh entry (last [[chains]] wins at load).
 		chains: [
 			...state.passthroughChains,
-			...state.chains.map((chain) => ({ rpcUrls: chain.rpcUrls, bundlerUrl: chain.bundlerUrl ?? "" })),
+			...state.chains.map((chain) => ({ rpcUrls: chain.rpcUrls })),
 		],
 		rebalancing,
 		vault: hasVault ? vault : undefined,
@@ -167,10 +167,7 @@ function chainComments(state: WizardState): string[] {
 function showSummary(state: WizardState, outputPath: string): void {
 	const lines: string[] = []
 	for (const chain of state.chains) {
-		const bundlerHost = chain.bundlerUrl ? new URL(chain.bundlerUrl).hostname : "?"
-		lines.push(
-			`${chain.meta.label}: ${chain.rpcUrls.length} RPC${chain.rpcUrls.length > 1 ? "s (quorum)" : ""}, bundler ${bundlerHost}`,
-		)
+		lines.push(`${chain.meta.label}: ${chain.rpcUrls.length} RPC${chain.rpcUrls.length > 1 ? "s (quorum)" : ""}`)
 	}
 	if (state.passthroughChains.length > 0) {
 		lines.push(`+ ${state.passthroughChains.length} unmanaged chain(s) kept from the previous config`)

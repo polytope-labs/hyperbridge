@@ -11,15 +11,17 @@ The dashboard is where you watch and steer a running solver. The solver serves i
 
 ![The Simplex dashboard Overview page, showing runtime metrics, the filling switch and balances by network](./images/dashboard-overview.png)
 
-<figcaption>The Overview page: liquidity per chain and per token, and the filling switch. Your limit orders are listed below the balances.</figcaption>
+<figcaption>The Overview page: the return on inventory over the last seven days, liquidity per chain and per token, and the filling switch. Your limit orders are listed below the balances.</figcaption>
 </figure>
 
 ## What is on it
 
-The sidebar has five pages:
+The sidebar has seven pages:
 
-- **Overview** is where you set your prices, by posting [limit orders](/developers/evm/simplex/limit-orders). It also shows your balances per chain and per token, and has the controls to pause filling or stop the solver. You will use this page the most.
+- **Overview** is where you set your prices, by posting [limit orders](/developers/evm/simplex/limit-orders). It also shows your balances per chain and per token, your return on inventory over the last seven days, and the controls to pause filling or stop the solver. You will use this page the most.
+- **Order book** shows the live bids and asks across all solvers for a pair.
 - **History** follows every order the solver has seen, from detection through its bid to who filled it.
+- **Analytics** shows what your buys and sells added to your inventory over a period you choose. See [Profitability](/developers/evm/simplex/analytics).
 - **Wallet** sends funds out of the solver wallet, manages the [vault treasury](/developers/evm/simplex/treasury), and lists the wallet's transactions.
 - **Logs** shows everything the solver has logged since it started, with a level picker and a search box. It is hidden on phones.
 - **Operations** holds live settings: the order allowlist, chains and RPC endpoints, notifications, and [remote access](#through-the-remote-access-tunnel).

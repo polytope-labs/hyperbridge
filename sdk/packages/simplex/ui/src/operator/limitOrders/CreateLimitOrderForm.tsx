@@ -3,7 +3,7 @@ import { AppSelect } from "../../components/AppSelect"
 import { ChainMultiSelect } from "../../components/ChainMultiSelect"
 import { TokenOnChainIcon } from "../../components/TokenIcon"
 import { formatAmount } from "../../lib/format"
-import type { BalanceSnapshot, CreateLimitOrderRequest, OrderbookBook, OrderbookChain } from "../../types"
+import type { BalanceSnapshot, CreateLimitOrderRequest, LimitOrder, OrderbookBook, OrderbookChain } from "../../types"
 import { ApiError } from "../../api"
 import { AMOUNT_PATTERN, groupThousands, type OrderSide, parseAmount, requestFrom } from "./limitOrderModel"
 
@@ -24,9 +24,10 @@ export function CreateLimitOrderForm(props: {
 	chainLabel: (id: string) => string
 	/** What each chain holds of the token the order pays out, shown beside it in "Fills on". */
 	balances?: BalanceSnapshot
-	onCreated: () => Promise<void> | void
+	/** Called once every order went through, with each as the orderbook answered it. */
+	onCreated: (created: LimitOrder[]) => Promise<void> | void
 	onCancel: () => void
-	create: (request: CreateLimitOrderRequest) => Promise<void>
+	create: (request: CreateLimitOrderRequest) => Promise<LimitOrder>
 }) {
 	const { books, orderbookChains, chains, chainLabel, balances, onCreated, onCancel, create } = props
 	const [bookId, setBookId] = useState(() => books[0]?.id ?? "")
@@ -89,12 +90,13 @@ export function CreateLimitOrderForm(props: {
 		setBusy(true)
 		setError(undefined)
 		const posted: string[] = []
+		const created: LimitOrder[] = []
 		try {
 			for (const next of requests as CreateLimitOrderRequest[]) {
-				await create(next)
+				created.push(await create(next))
 				posted.push(next.fillChain)
 			}
-			await onCreated()
+			await onCreated(created)
 		} catch (err) {
 			const reason = err instanceof ApiError ? err.message : "Could not create the limit order"
 			// What went through must not be posted again by a retry.

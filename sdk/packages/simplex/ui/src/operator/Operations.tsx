@@ -60,7 +60,7 @@ export function Operations(props: {
 					/>
 					<OperationLink
 						title="Chains & endpoints"
-						description="Maintain RPC providers, bundlers, and watch-only behaviour."
+						description="Maintain RPC providers and watch-only behaviour."
 						meta={`${props.chains.length} enabled`}
 						onClick={() => setPanel("chains")}
 					/>

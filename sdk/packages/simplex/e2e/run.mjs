@@ -93,11 +93,9 @@ points = [{ amount = "1", value = 1 }, { amount = "100000", value = 2 }]
 
 [[chains]]
 rpcUrls = [${q(env.bscRpc)}]
-bundlerUrl = ${q(env.bscBundler)}
 
 [[chains]]
 rpcUrls = [${q(env.amoyRpc)}]
-bundlerUrl = ${q(env.amoyBundler)}
 `
 }
 

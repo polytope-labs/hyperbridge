@@ -1,3 +1,4 @@
+@account-abstraction/=node_modules/@account-abstraction/
 @hyperbridge/core/=node_modules/@hyperbridge/core/contracts/
 @openzeppelin/=node_modules/@openzeppelin/
 @polytope-labs/=node_modules/@polytope-labs/

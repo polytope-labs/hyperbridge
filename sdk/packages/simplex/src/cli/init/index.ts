@@ -9,7 +9,6 @@ import { guard, withTimeout, PROBE_TIMEOUT_MS } from "./prompt-utils"
 import { migrateLegacyConfig } from "./migrate-legacy"
 import { newWizardState, type Prefill } from "./state"
 import { stepChains } from "./steps/chains"
-import { stepBundlers } from "./steps/bundlers"
 import { stepSigner } from "./steps/signer"
 import { stepHyperbridge } from "./steps/hyperbridge"
 import { stepFineTune } from "./steps/finetune"
@@ -46,7 +45,6 @@ export async function runInit(options: InitOptions): Promise<void> {
 	const state = newWizardState()
 	state.prefillConfig = prefill?.config
 	await stepChains(state, prefill)
-	await stepBundlers(state, prefill)
 	await stepSigner(state, prefill)
 	await stepHyperbridge(state, prefill)
 

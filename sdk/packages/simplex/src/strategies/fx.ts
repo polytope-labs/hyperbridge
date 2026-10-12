@@ -784,6 +784,7 @@ export class FXFiller implements FillerStrategy {
 						payout: toScaled(finalOutputAmount, outputDecimals),
 						fillerOutputs,
 						fillerInputs,
+						inputDecimals,
 						fundingCalls: [...fundingCalls],
 						partialFill,
 						profit: totalProfit,

@@ -1,4 +1,5 @@
 import externalLinks from "../../config/external-links.json"
+import { HYPERBRIDGE_BUNDLER_URLS } from "@/config/bundlers"
 
 export type InitNetwork = "mainnet" | "testnet"
 
@@ -18,6 +19,11 @@ export interface InitChainMeta {
 	 * operator needs no RPC provider account to run. See {@link FREE_RPC_URLS}.
 	 */
 	defaultRpcUrls?: string[]
+	/**
+	 * Hyperbridge's ERC-4337 bundler for the chain, which simplex fills through. A chain
+	 * without one can only be watched. See {@link HYPERBRIDGE_BUNDLER_URLS}.
+	 */
+	hyperbridgeBundlerUrl?: string
 }
 
 /**
@@ -123,6 +129,7 @@ export const INIT_CHAINS: InitChainMeta[] = [
 		alchemySubdomain: "eth-mainnet",
 		explorerUrl: externalLinks.chainExplorers.ethereum,
 		defaultRpcUrls: FREE_RPC_URLS[1],
+		hyperbridgeBundlerUrl: HYPERBRIDGE_BUNDLER_URLS[1],
 	},
 	{
 		chainId: 42161,
@@ -132,6 +139,7 @@ export const INIT_CHAINS: InitChainMeta[] = [
 		alchemySubdomain: "arb-mainnet",
 		explorerUrl: externalLinks.chainExplorers.arbitrum,
 		defaultRpcUrls: FREE_RPC_URLS[42161],
+		hyperbridgeBundlerUrl: HYPERBRIDGE_BUNDLER_URLS[42161],
 	},
 	{
 		chainId: 8453,
@@ -141,6 +149,7 @@ export const INIT_CHAINS: InitChainMeta[] = [
 		alchemySubdomain: "base-mainnet",
 		explorerUrl: externalLinks.chainExplorers.base,
 		defaultRpcUrls: FREE_RPC_URLS[8453],
+		hyperbridgeBundlerUrl: HYPERBRIDGE_BUNDLER_URLS[8453],
 	},
 	{
 		chainId: 137,
@@ -150,6 +159,7 @@ export const INIT_CHAINS: InitChainMeta[] = [
 		alchemySubdomain: "polygon-mainnet",
 		explorerUrl: externalLinks.chainExplorers.polygon,
 		defaultRpcUrls: FREE_RPC_URLS[137],
+		hyperbridgeBundlerUrl: HYPERBRIDGE_BUNDLER_URLS[137],
 	},
 	{
 		chainId: 56,
@@ -159,6 +169,7 @@ export const INIT_CHAINS: InitChainMeta[] = [
 		alchemySubdomain: "bnb-mainnet",
 		explorerUrl: externalLinks.chainExplorers.bnb,
 		defaultRpcUrls: FREE_RPC_URLS[56],
+		hyperbridgeBundlerUrl: HYPERBRIDGE_BUNDLER_URLS[56],
 	},
 	{
 		chainId: 11155111,
@@ -191,6 +202,7 @@ export const INIT_CHAINS: InitChainMeta[] = [
 		network: "testnet",
 		alchemySubdomain: "polygon-amoy",
 		explorerUrl: externalLinks.chainExplorers.polygonAmoy,
+		hyperbridgeBundlerUrl: HYPERBRIDGE_BUNDLER_URLS[80002],
 	},
 	{
 		chainId: 97,
@@ -199,6 +211,7 @@ export const INIT_CHAINS: InitChainMeta[] = [
 		network: "testnet",
 		alchemySubdomain: "bnb-testnet",
 		explorerUrl: externalLinks.chainExplorers.bnbChapel,
+		hyperbridgeBundlerUrl: HYPERBRIDGE_BUNDLER_URLS[97],
 	},
 ]
 
@@ -207,8 +220,9 @@ export const HYPERBRIDGE_WS_DEFAULTS: Record<InitNetwork, string> = {
 	testnet: "wss://gargantua.rpc.polytope.technology",
 }
 
+/** The chains the wizards and the Chains panel offer: those Hyperbridge runs a bundler for. */
 export function chainsForNetwork(network: InitNetwork): InitChainMeta[] {
-	return INIT_CHAINS.filter((chain) => chain.network === network)
+	return INIT_CHAINS.filter((chain) => chain.network === network && chain.hyperbridgeBundlerUrl)
 }
 
 export function chainByChainId(chainId: number): InitChainMeta | undefined {

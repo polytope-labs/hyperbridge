@@ -2,7 +2,7 @@ import { Interface } from "@ethersproject/abi"
 import type { EthereumLog, EthereumTransaction } from "@subql/types-ethereum"
 import { extractAddressFromTopic } from "./transfer.helpers"
 
-// These events have the same ABI in canonical EntryPoint v0.6/v0.7/v0.8.
+// These events have the same ABI in canonical EntryPoint v0.6/v0.7/v0.8/v0.9.
 const entryPoint = new Interface([
 	"event UserOperationEvent(bytes32 indexed userOpHash, address indexed sender, address indexed paymaster, uint256 nonce, bool success, uint256 actualGasCost, uint256 actualGasUsed)",
 	"event BeforeExecution()",
@@ -13,6 +13,7 @@ const ENTRY_POINTS = new Set([
 	"0x5ff137d4b0fdcd49dca30c7cf57e578a026d2789",
 	"0x0000000071727de22e5e9d8baf0edac6f37da032",
 	"0x4337084d9e255ff0702461cf8895ce9e3b5ff108",
+	"0x433709009b8330fda32311df1c2afa402ed8d009",
 ])
 
 function findUserOpEvent(logs: EthereumLog[], sender: string, logIndex: number): EthereumLog | undefined {

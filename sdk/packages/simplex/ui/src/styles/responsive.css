@@ -416,7 +416,7 @@
 	.operator-sidebar nav {
 		/* One column per page shown here, plus the install button. Logs is
 		   desktop-only, so it is not one of them. */
-		grid-template-columns: repeat(6, minmax(0, 1fr));
+		grid-template-columns: repeat(7, minmax(0, 1fr));
 	}
 
 	button.operator-nav-item {
@@ -457,12 +457,12 @@
 		gap: 0;
 	}
 
-	.operator-metrics > div {
+	.operator-metrics > * {
 		padding: 1rem 0.75rem;
 		border-bottom: 1px solid var(--border);
 	}
 
-	.operator-metrics > div:nth-child(odd) {
+	.operator-metrics > *:nth-child(odd) {
 		padding-left: 0;
 		border-left: 0;
 	}
@@ -497,34 +497,6 @@
 
 	.operator-asset-total {
 		text-align: left;
-	}
-
-	/* Two rows: the pair and what it offers above, its side and status below. */
-	button.operator-market-row {
-		grid-template-columns: 3.25rem minmax(0, 1fr) 1rem;
-		row-gap: 0.35rem;
-	}
-
-	.operator-market-row > .token-pair-icons {
-		grid-area: 1 / 1 / 3 / 2;
-	}
-
-	.operator-market-row > .operator-market-copy {
-		grid-area: 1 / 2 / 2 / 3;
-	}
-
-	.operator-market-row > .limit-order-side-tag {
-		grid-area: 2 / 2 / 3 / 3;
-		justify-self: start;
-	}
-
-	.operator-market-row > .badge {
-		grid-area: 2 / 2 / 3 / 3;
-		justify-self: end;
-	}
-
-	.operator-market-row > svg {
-		grid-area: 1 / 3 / 3 / 4;
 	}
 
 	button.operator-tool-row {

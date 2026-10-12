@@ -66,22 +66,9 @@ curl -s -X POST $SIMPLEX/api/setup/validate-rpc \
 
 Send `urls`, or a single `url`. `expectedChainId` is optional. The URLs must be valid and each on a different domain. When they are not, `results` is empty and `error` says why. Otherwise `ok` is `true` only when every URL answered for the expected chain, and each failing entry in `results` carries an `error`.
 
-### POST /api/setup/validate-bundler
-
-Checks that a bundler answers `eth_supportedEntryPoints`. A bundler that does not answer is a warning, not a failure, so `ok` is `true` unless the URL is empty.
-
-```bash lineNumbers
-curl -s -X POST $SIMPLEX/api/setup/validate-bundler \
-    -H 'Content-Type: application/json' -H 'X-Simplex-UI: 1' \
-    -d '{ "url": "https://api.pimlico.io/v2/8453/rpc?apikey=KEY" }'
-# → { "ok": true, "entryPoints": ["0x…"] }
-```
-
-When the bundler does not answer, the response has a `warning` in place of `entryPoints`.
-
 ### POST /api/setup/validate-alchemy-key
 
-Checks an Alchemy API key, and derives an RPC URL for each mainnet chain Alchemy serves. Alchemy serves bundler methods on the same endpoint, so each chain's `bundlerUrl` is the same URL.
+Checks an Alchemy API key, and derives an RPC URL for each mainnet chain Alchemy serves. The setup wizard and the dashboard no longer call this route.
 
 ```bash lineNumbers
 curl -s -X POST $SIMPLEX/api/setup/validate-alchemy-key \
@@ -94,8 +81,7 @@ curl -s -X POST $SIMPLEX/api/setup/validate-alchemy-key \
   "valid": true,
   "chains": [
     { "chainId": 8453, "stateMachineId": "EVM-8453", "label": "Base",
-      "rpcUrl": "https://base-mainnet.g.alchemy.com/v2/KEY",
-      "bundlerUrl": "https://base-mainnet.g.alchemy.com/v2/KEY" }
+      "rpcUrl": "https://base-mainnet.g.alchemy.com/v2/KEY" }
   ]
 }
 ```

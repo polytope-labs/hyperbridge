@@ -94,10 +94,7 @@ rpcUrls = [
 ]
 ```
 
-| Field | Default | Description |
-|---|---|---|
-| `rpcUrls` | none (required) | The chain's RPC endpoints, as a non-empty array. Each URL needs its own hostname. With more than one, event scans and confirmation counts are read through a [quorum](/developers/evm/simplex/confirmations#rpc-quorum). |
-| `bundlerUrl` | none | Accepted and ignored. Simplex fills through [Hyperbridge's bundler](#bundler) for the chain. |
+`rpcUrls` is required. It lists the chain's RPC endpoints as a non-empty array, and each URL needs its own hostname. With more than one, event scans and confirmation counts are read through a [quorum](/developers/evm/simplex/confirmations#rpc-quorum). Fills go through [Hyperbridge's bundler](#bundler) for the chain, so an entry names no bundler.
 
 An entry names no chain ID. At startup Simplex asks each endpoint for its chain ID, and every endpoint that answers must report the same one. An endpoint that can't answer is kept, and the quorum judges it on each call. The chain fails to start only when no endpoint answers.
 
@@ -268,7 +265,7 @@ Fills execute as ERC-4337 UserOperations, which a bundler submits on chain. Simp
 | BSC Chapel (testnet) | `https://bundler.polytope.technology/bsc-chapel` |
 | Polygon Amoy (testnet) | `https://bundler.polytope.technology/polygon-amoy` |
 
-Simplex can only watch any other chain. It [refuses to fill there](/developers/evm/simplex/troubleshooting), so list such a chain under `watchOnly`. An older config's `bundlerUrl` is ignored.
+Simplex can only watch any other chain. It [refuses to fill there](/developers/evm/simplex/troubleshooting), so list such a chain under `watchOnly`.
 
 ## Delegation & Gas Payment
 

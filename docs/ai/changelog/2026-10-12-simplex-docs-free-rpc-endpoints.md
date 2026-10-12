@@ -4,7 +4,7 @@ The Simplex configuration page (`docs/content/developers/evm/simplex/configurati
 `[[chains]]` section, which it did not have.
 
 - It documents `rpcUrls` (required, non-empty, one hostname per URL, quorum-read when there is more
-  than one) and `bundlerUrl` (accepted and ignored). An entry has no chain ID: boot asks every
+  than one). An entry names no bundler and no chain ID: boot asks every
   endpoint, and the ones that answer must agree. An endpoint that cannot answer is kept for the
   quorum, and the chain fails only when none answers.
 - Its "Free RPC endpoints" subsection gives one `[[chains]]` block per chain, for BNB Smart
@@ -16,5 +16,5 @@ The Simplex configuration page (`docs/content/developers/evm/simplex/configurati
 - It says how the endpoints were tested, how the quorum sets aside one that rate-limits (its
   `Retry-After`, up to 5 minutes) or lags (15 seconds), and which free endpoints fail outright.
 
-The overview no longer says free RPCs will not work, or that archive access is required. It points
+The Bundler section no longer mentions `bundlerUrl`. The overview no longer says free RPCs will not work, or that archive access is required. It points
 to the table instead. The installation, Confirmations and RPC, and troubleshooting pages link to it.

@@ -83,32 +83,11 @@ The limit orders themselves are not in this file. They are inventory you open an
 
 ## `[[chains]]`
 
-Each chain Simplex scans and fills on is one `[[chains]]` entry. At least one is required.
-
-```toml lineNumbers
-[[chains]]  # Base
-rpcUrls = [
-    "https://base-rpc.publicnode.com",
-    "https://base.gateway.tenderly.co",
-    "https://mainnet.base.org",
-]
-```
-
-`rpcUrls` is required. It lists the chain's RPC endpoints as a non-empty array, and each URL needs its own hostname. With more than one, event scans and confirmation counts are read through a [quorum](/developers/evm/simplex/confirmations#rpc-quorum). Fills go through [Hyperbridge's bundler](#bundler) for the chain, so an entry names no bundler.
-
-An entry names no chain ID. At startup Simplex asks each endpoint for its chain ID, and every endpoint that answers must report the same one. An endpoint that can't answer is kept, and the quorum judges it on each call. The chain fails to start only when no endpoint answers.
-
-Reads outside the quorum go to the first healthy endpoint. These include balance reads, gas estimation and transaction submission. Put the endpoint you trust most first.
-
-Use one endpoint per operator. Two URLs from the same provider agree with each other by construction, so the second adds nothing to the quorum.
+One entry per chain. `rpcUrls` lists the chain's RPC endpoints, each on a different hostname. With more than one, Simplex reads scans through a [quorum](/developers/evm/simplex/confirmations#rpc-quorum). List your most trusted endpoint first: reads outside the quorum use it.
 
 ### Free RPC endpoints
 
-You don't need a paid provider to start. The endpoints below are free and need no account or API key. The setup wizards and the dashboard's Chains panel start each mainnet chain with the uncommented ones below. The commented ones also passed testing. A paid provider gives you more headroom, and you can list it alongside free ones.
-
-Each endpoint scanned its chain alone for 20 minutes, as the only RPC, on 16–18 September 2026. The defaults then ran together in a quorum for 19 hours. All of them ran from one IP address. Free endpoints come and go, so watch your own logs.
-
-When an endpoint rate-limits, Simplex sets it aside for as long as its `Retry-After` header asks, up to 5 minutes. An endpoint that falls behind the others is set aside for 15 seconds. The quorum is worked out over the rest, so one struggling endpoint costs nothing while enough of the others keep up.
+Free, no API key needed, tested September 2026. The setup wizard uses the uncommented ones. Use one endpoint per operator.
 
 ```toml lineNumbers
 [[chains]]  # BNB Smart Chain (56)
@@ -186,14 +165,7 @@ rpcUrls = [
 ]
 ```
 
-Some free endpoints fail outright, so leave them out:
-
-- Every `bsc-dataseed*` host refuses `eth_getLogs`. Simplex logs this as rate limiting, but it never clears, and a chain with only these endpoints never sees an order.
-- `base.drpc.org` times out on `eth_getLogs`, and `arbitrum-one.public.blastapi.io` caps it at 10 blocks, fewer than one scan covers. Both providers work on the other chains listed.
-- Tatum's gateways allow 5 requests a minute, and ZAN refuses `eth_getLogs` without an account.
-- A URL with an API key in it, as endpoint directories publish them, shares one quota with everyone using it, and the key stops working without notice.
-
-Some endpoints answer `curl` but refuse requests from Node, which Simplex uses. To try a new endpoint, run `simplex run --watch-only` with it as the chain's only `rpcUrls` entry, and watch the log for scan errors.
+Avoid `bsc-dataseed*`, `base.drpc.org` and `arbitrum-one.public.blastapi.io`, which don't serve the `eth_getLogs` a scan needs, as well as Tatum, ZAN and any URL with an API key in it.
 
 ## Signer Configuration
 

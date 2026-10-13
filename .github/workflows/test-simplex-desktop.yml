@@ -21,6 +21,23 @@ on:
     workflow_dispatch:
 
 jobs:
+    macos-provisioning-profile:
+        name: Mac provisioning profile (${{ matrix.runner }})
+        runs-on: ${{ matrix.runner }}
+        strategy:
+            fail-fast: false
+            matrix:
+                runner: [macos-latest, macos-15-intel]
+        steps:
+            - name: Checkout repository
+              uses: actions/checkout@v4
+            - name: Setup Node.js
+              uses: actions/setup-node@v4
+              with:
+                  node-version: "24"
+            - name: Read native CMS profile fixtures and prepare passkey signing
+              run: node --test sdk/packages/simplex-desktop/scripts/mac-provisioning-profile.test.mjs
+
     desktop-runtime-integrity:
         name: Desktop Node runtime (${{ matrix.target }})
         runs-on: ${{ matrix.runner }}

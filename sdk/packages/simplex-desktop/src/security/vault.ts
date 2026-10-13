@@ -16,7 +16,8 @@ import type { DeviceKeyStore } from "./device-key-store"
 import { isPasskeyCredential, type PasskeyCredential, type PasskeyUnlock } from "./passkeys"
 
 type VaultRecord = {
-	version: 2 | 3
+	version: 2 | 3 | 4
+	profileId?: string
 	salt?: string
 	wrappedKey?: SealedSecret
 	passkey?: PasskeyCredential & { key: string }
@@ -29,6 +30,10 @@ export interface DesktopAccessState {
 	mode: "create" | "unlock" | "reset-password" | "save-recovery" | "unlocked"
 	passkeyAvailable: boolean
 	passkeyEnabled: boolean
+	passkeyMechanism?: string
+	passkeyUnavailableReason?: string
+	passkeyMigrationRequired?: boolean
+	passkeyEnrollmentAvailable?: boolean
 	passwordEnabled: boolean
 	recoveryEnabled: boolean
 	backgroundResumeAvailable: boolean
@@ -58,6 +63,8 @@ export class DesktopVault {
 	private generation = 0
 	private passkeyAttempt = 0
 	private passkeyActive = false
+	private passkeyFinalState?: "committing" | "succeeded" | "failed" | "cancelled"
+	private activating = false
 	private busy = false
 	private nextAttempt = 0
 	constructor(
@@ -87,6 +94,8 @@ export class DesktopVault {
 		this.key = undefined
 		this.recovery = undefined
 		this.pending = undefined
+		this.passkeyFinalState = undefined
+		this.options.passkeys?.resetStatus?.()
 	}
 	private expire(): void {
 		if (this.busy) return
@@ -129,7 +138,11 @@ export class DesktopVault {
 		}
 		if (
 			!record ||
-			(record.version !== 2 && record.version !== 3) ||
+			(record.version !== 2 && record.version !== 3 && record.version !== 4) ||
+			(record.profileId !== undefined &&
+				(typeof record.profileId !== "string" || !/^[A-Za-z0-9_-]{22}$/.test(record.profileId))) ||
+			(record.version === 4 && !record.profileId) ||
+			(record.passkey?.mechanism === "native-macos" && (record.version !== 4 || !record.profileId)) ||
 			(record.version === 2 && (!record.salt || !record.wrappedKey)) ||
 			(record.salt !== undefined && (typeof record.salt !== "string" || !/^[a-f0-9]{32}$/.test(record.salt))) ||
 			Boolean(record.salt) !== Boolean(record.wrappedKey) ||
@@ -149,6 +162,10 @@ export class DesktopVault {
 		this.expire()
 		const record = this.record()
 		const secureDeviceStorageAvailable = await this.options.deviceKeyStore.available()
+		const capability = this.options.passkeys?.capability?.()
+		const migration = Boolean(
+			record?.passkey && this.options.passkeys?.supports && !this.options.passkeys.supports(record.passkey),
+		)
 		return {
 			mode: this.key
 				? "unlocked"
@@ -159,8 +176,20 @@ export class DesktopVault {
 						: record
 							? "unlock"
 							: "create",
-			passkeyAvailable: Boolean(this.options.passkeys?.available()) && secureDeviceStorageAvailable,
+			passkeyAvailable:
+				Boolean(this.options.passkeys?.available()) &&
+				secureDeviceStorageAvailable &&
+				(!migration || this.recovery !== undefined),
 			passkeyEnabled: Boolean(record?.passkey),
+			passkeyMechanism: this.options.passkeys?.mechanism,
+			passkeyUnavailableReason:
+				migration && !this.recovery
+					? record?.wrappedKey
+						? "Create a native Mac passkey after signing in with your password or recovery code."
+						: "Use your recovery code to create a native Mac passkey."
+					: capability?.reason,
+			passkeyMigrationRequired: migration,
+			passkeyEnrollmentAvailable: Boolean(this.options.passkeys?.available()) && secureDeviceStorageAvailable,
 			passwordEnabled: Boolean(record?.wrappedKey),
 			recoveryEnabled: Boolean(record),
 			backgroundResumeAvailable:
@@ -174,8 +203,13 @@ export class DesktopVault {
 		if (this.busy || (authentication && Date.now() < this.nextAttempt))
 			throw new Error("Please wait a moment before trying again")
 		this.busy = true
+		this.passkeyFinalState = undefined
+		this.options.passkeys?.resetStatus?.()
 		try {
 			await action()
+		} catch (error) {
+			if (this.passkeyFinalState === "committing") this.passkeyFinalState = "failed"
+			throw error
 		} finally {
 			this.busy = false
 			if (authentication) this.nextAttempt = Date.now() + 1_000
@@ -190,39 +224,71 @@ export class DesktopVault {
 	}
 	private async requirePasskeys(): Promise<PasskeyUnlock> {
 		if (!this.options.passkeys?.available() || !(await this.options.deviceKeyStore.available()))
-			throw new Error("Passkeys require macOS or Windows with secure OS key storage. Use another sign-in method.")
+			throw new Error(
+				this.options.passkeys?.capability?.().reason ??
+					"Passkeys require macOS or Windows with secure OS key storage. Use another sign-in method.",
+			)
 		return this.options.passkeys
 	}
-	/** True only while a browser ceremony is open, not while a password or setup step runs first. */
+	/** True only during a passkey operation, not password verification or solver activation. */
 	isPasskeyPending(): boolean {
 		return this.passkeyActive
 	}
 	cancelPasskey(): void {
+		// Solver activation is the commit boundary: finishing it keeps solver and UI access consistent.
+		if (this.activating) return
+		if (this.passkeyFinalState === "committing") this.passkeyFinalState = "cancelled"
 		this.passkeyAttempt++
 		this.options.passkeys?.cancel()
 	}
-	/** Runs one browser ceremony; a cancel before it starts must not be lost. */
+	/** Teardown cancels passkey work without discarding password or authorized recovery state. */
+	cancelPendingAccess(): void {
+		this.cancelPasskey()
+	}
+	/** A cancel before a ceremony starts must not be lost. */
 	private async ceremony<T>(attempt: number, run: () => Promise<T>): Promise<T> {
 		if (attempt !== this.passkeyAttempt) throw new Error("Passkey cancelled. Try again.")
 		this.passkeyActive = true
+		this.passkeyFinalState = undefined
 		try {
-			return await run()
+			const result = await run()
+			if (attempt !== this.passkeyAttempt) throw new Error("Passkey cancelled. Try again.")
+			return result
 		} finally {
 			this.passkeyActive = false
 		}
 	}
-	/** Reuses the profile's WebAuthn user handle so a replacement overwrites the old passkey where supported. */
-	private async enrollPasskey(key: Buffer, userId?: string): Promise<NonNullable<VaultRecord["passkey"]>> {
+	/** Native replacement uses a fresh handle, preserving the old credential until commit. */
+	private async enrollPasskey(
+		key: Buffer,
+		userId: string | undefined,
+		profileId: string,
+		attempt = this.passkeyAttempt,
+	): Promise<NonNullable<VaultRecord["passkey"]>> {
 		const generation = this.generation
-		const attempt = this.passkeyAttempt
+		if (attempt !== this.passkeyAttempt) throw new Error("Passkey cancelled. Try again.")
 		const passkeys = await this.requirePasskeys()
 		const wrappedKey = await this.options.deviceKeyStore.protect(key)
 		this.checkGeneration(generation)
-		const credential = await this.ceremony(attempt, () => passkeys.register(userId))
+		let credential = await this.ceremony(attempt, () =>
+			passkeys.mechanism === "native-macos"
+				? passkeys.register(undefined, { profileId })
+				: passkeys.register(userId),
+		)
+		if (credential.mechanism === "native-macos")
+			credential = await this.ceremony(attempt, () => passkeys.authenticate(credential))
+		this.checkGeneration(generation)
+		if (attempt !== this.passkeyAttempt) throw new Error("Passkey cancelled. Try again.")
 		return { ...credential, key: wrappedKey }
 	}
 	private async passkeyKey(record: VaultRecord): Promise<Buffer> {
 		if (!record.passkey) throw new Error("No passkey is enrolled for this profile")
+		if (this.options.passkeys?.supports && !this.options.passkeys.supports(record.passkey))
+			throw new Error(
+				record.wrappedKey
+					? "This passkey needs migration. Use your password or recovery code to create a native Mac passkey."
+					: "This passkey needs migration. Use your recovery code to create a native Mac passkey.",
+			)
 		const generation = this.generation
 		const attempt = this.passkeyAttempt
 		const passkeys = await this.requirePasskeys()
@@ -230,9 +296,19 @@ export class DesktopVault {
 		const { key: wrappedKey, ...savedCredential } = record.passkey
 		const credential = await this.ceremony(attempt, () => passkeys.authenticate(savedCredential))
 		this.checkGeneration(generation)
-		record.passkey = { ...credential, key: wrappedKey }
+		if (attempt !== this.passkeyAttempt) throw new Error("Passkey cancelled. Try again.")
+		this.passkeyFinalState = "committing"
 		// Only a verified assertion can release the OS-protected key to the dashboard.
-		return this.options.deviceKeyStore.unprotect(record.passkey.key)
+		const key = await this.options.deviceKeyStore.unprotect(wrappedKey)
+		try {
+			this.checkGeneration(generation)
+			if (attempt !== this.passkeyAttempt) throw new Error("Passkey cancelled. Try again.")
+			record.passkey = { ...credential, key: wrappedKey }
+			return key
+		} catch (error) {
+			key.fill(0)
+			throw error
+		}
 	}
 	private async wrapDeviceKey(key: Buffer): Promise<string | undefined> {
 		try {
@@ -271,7 +347,16 @@ export class DesktopVault {
 		const { code, wrappedKey } = createRecoveryKey(key)
 		this.pending = {
 			key,
-			record: { ...credentials, version: credentials.passkey ? 3 : 2, recoveryKey: wrappedKey },
+			record: {
+				...credentials,
+				version: credentials.passkey?.mechanism === "native-macos" ? 4 : credentials.passkey ? 3 : 2,
+				profileId:
+					credentials.profileId ??
+					(credentials.passkey?.mechanism === "native-macos"
+						? randomBytes(16).toString("base64url")
+						: undefined),
+				recoveryKey: wrappedKey,
+			},
 			revision,
 			code,
 			restartAllowed,
@@ -280,12 +365,20 @@ export class DesktopVault {
 		}
 		this.scheduleExpiry()
 	}
-	private async activate(key: Buffer): Promise<void> {
+	private async activate(key: Buffer, passkeyAttempt?: number): Promise<void> {
 		const generation = this.generation
-		await this.options.start(key)
-		this.checkGeneration(generation)
-		this.key = key
-		this.options.onUnlocked?.()
+		if (passkeyAttempt !== undefined && passkeyAttempt !== this.passkeyAttempt)
+			throw new Error("Passkey cancelled. Try again.")
+		this.activating = true
+		try {
+			await this.options.start(key)
+			this.checkGeneration(generation)
+			this.key = key
+			if (passkeyAttempt !== undefined) this.passkeyFinalState = "succeeded"
+			this.options.onUnlocked?.()
+		} finally {
+			this.activating = false
+		}
 	}
 	private checkGeneration(generation: number): void {
 		if (generation !== this.generation) throw new Error("Sign-in cancelled. Try again.")
@@ -300,18 +393,28 @@ export class DesktopVault {
 			const revision = this.revision()
 			const record = this.record()
 			let key: Buffer | undefined
+			const attempt = this.passkeyAttempt
+			const passkeyAttempt =
+				request.method === "passkey" || request.method === "create-passkey" ? attempt : undefined
 			try {
 				if (!record) {
 					if (request.method !== "create" && request.method !== "create-passkey")
 						throw new Error("Create a passkey or password to continue")
 					key = randomBytes(32)
+					const profileId = randomBytes(16).toString("base64url")
 					const credentials: Credentials =
 						request.method === "create-passkey"
-							? { passkey: await this.enrollPasskey(key) }
+							? {
+									passkey: await this.enrollPasskey(key, undefined, profileId, attempt),
+									profileId:
+										this.options.passkeys?.mechanism === "native-macos" ? profileId : undefined,
+								}
 							: await this.wrapPassword(key, request.password, request.confirmation)
 					credentials.deviceKey = await this.wrapDeviceKey(key)
 					this.checkConfig(key)
 					this.checkGeneration(generation)
+					if (passkeyAttempt !== undefined && passkeyAttempt !== this.passkeyAttempt)
+						throw new Error("Passkey cancelled. Try again.")
 					// A new profile commits only after its recovery code is acknowledged.
 					this.stage(key, credentials, revision, request.restartSolver === true)
 					key = undefined
@@ -340,8 +443,10 @@ export class DesktopVault {
 				if (request.usePasskey === true && request.method !== "passkey") {
 					// The password already proved access; a declined passkey must not block this unlock.
 					try {
-						record.passkey = await this.enrollPasskey(key, record.passkey?.userId)
-						record.version = 3
+						const profileId = record.profileId ?? randomBytes(16).toString("base64url")
+						record.passkey = await this.enrollPasskey(key, record.passkey?.userId, profileId, attempt)
+						record.version = record.passkey.mechanism === "native-macos" ? 4 : 3
+						if (record.version === 4) record.profileId = profileId
 					} catch {
 						this.checkGeneration(generation)
 						warning = "Passkey not saved. You can create one the next time you sign in with your password."
@@ -349,9 +454,9 @@ export class DesktopVault {
 				}
 				record.deviceKey = (await this.wrapDeviceKey(key)) ?? record.deviceKey
 				this.checkGeneration(generation)
-				await this.persistAndPrepare(record, key, revision, request.restartSolver === true)
+				await this.persistAndPrepare(record, key, revision, request.restartSolver === true, passkeyAttempt)
 				this.checkGeneration(generation)
-				await this.activate(key)
+				await this.activate(key, passkeyAttempt)
 				key = undefined
 			} finally {
 				key?.fill(0)
@@ -367,6 +472,7 @@ export class DesktopVault {
 			const revision = this.revision()
 			const record = this.record()
 			if (!record) throw new Error("No saved configuration to recover")
+			const passkeyAttempt = request.method === "passkey" ? this.passkeyAttempt : undefined
 			let key: Buffer | undefined
 			try {
 				if (request.method === "passkey") key = await this.passkeyKey(record)
@@ -374,7 +480,10 @@ export class DesktopVault {
 				else throw new Error("This recovery method is not available")
 				this.checkConfig(key)
 				this.checkGeneration(generation)
+				if (passkeyAttempt !== undefined && passkeyAttempt !== this.passkeyAttempt)
+					throw new Error("Passkey cancelled. Try again.")
 				this.recovery = { key, record, revision, expiresAt: Date.now() + RECOVERY_SESSION_MS }
+				if (request.method === "passkey") this.passkeyFinalState = "succeeded"
 				this.scheduleExpiry()
 				key = undefined
 			} finally {
@@ -402,12 +511,20 @@ export class DesktopVault {
 		await this.exclusive(async () => {
 			const recovery = this.recovery
 			if (!recovery) throw new Error("Verify your recovery code or sign-in method again")
-			const passkey = await this.enrollPasskey(recovery.key, recovery.record.passkey?.userId)
+			const attempt = this.passkeyAttempt
+			const profileId = recovery.record.profileId ?? randomBytes(16).toString("base64url")
+			const passkey = await this.enrollPasskey(recovery.key, recovery.record.passkey?.userId, profileId, attempt)
 			const deviceKey = (await this.wrapDeviceKey(recovery.key)) ?? recovery.record.deviceKey
+			if (attempt !== this.passkeyAttempt) throw new Error("Passkey cancelled. Try again.")
 			if (this.recovery !== recovery) throw new Error("Recovery cancelled. Verify your recovery code again.")
 			this.stage(
 				recovery.key,
-				{ ...recovery.record, passkey, deviceKey },
+				{
+					...recovery.record,
+					passkey,
+					deviceKey,
+					profileId: passkey.mechanism === "native-macos" ? profileId : recovery.record.profileId,
+				},
 				recovery.revision,
 				request.restartSolver === true,
 			)
@@ -433,12 +550,15 @@ export class DesktopVault {
 		key: Buffer,
 		revision: string | undefined,
 		restartAllowed: boolean,
+		passkeyAttempt?: number,
 	): Promise<void> {
 		const generation = this.generation
 		if (this.revision() !== revision) throw new Error("Security settings changed. Cancel and sign in again.")
 		this.checkConfig(key)
 		await this.options.prepare(restartAllowed)
 		this.checkGeneration(generation)
+		if (passkeyAttempt !== undefined && passkeyAttempt !== this.passkeyAttempt)
+			throw new Error("Passkey cancelled. Try again.")
 		if (this.revision() !== revision) throw new Error("Security settings changed. Cancel and sign in again.")
 		mkdirSync(this.options.dataDir, { recursive: true, mode: 0o700 })
 		writeSecretAtomic(this.vaultPath, JSON.stringify(record) + "\n")
@@ -478,8 +598,14 @@ export class DesktopVault {
 		const fromUi = request.headers.get("x-simplex-ui") === "1" && (!origin || origin === "simplex://local")
 		try {
 			if (path === "/api/desktop/security" && request.method === "GET") return json(await this.state())
-			if (path === "/api/desktop/passkey-status" && request.method === "GET")
-				return json({ pending: this.isPasskeyPending() })
+			if (path === "/api/desktop/passkey-status" && request.method === "GET") {
+				const native = this.options.passkeys?.status?.()
+				return json({
+					pending: this.isPasskeyPending(),
+					...native,
+					...(native && this.passkeyFinalState ? { state: this.passkeyFinalState } : {}),
+				})
+			}
 			if (path === "/api/desktop/recovery-code" && request.method === "GET") {
 				if (!fromUi) return json({ error: "Forbidden" }, 403)
 				return json({ code: this.recoveryCode() })
@@ -547,7 +673,16 @@ export class DesktopVault {
 			}
 			return json(warning ? { ok: true, warning } : { ok: true })
 		} catch (error) {
-			return json({ error: error instanceof Error ? error.message : "Could not unlock Simplex" }, 400)
+			return json(
+				{
+					error: error instanceof Error ? error.message : "Could not unlock Simplex",
+					code:
+						error instanceof Error && "code" in error && typeof error.code === "string"
+							? error.code
+							: undefined,
+				},
+				400,
+			)
 		}
 	}
 }

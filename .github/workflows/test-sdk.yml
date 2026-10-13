@@ -31,7 +31,8 @@ jobs:
             - name: Checkout repository
               uses: actions/checkout@v4
               with:
-                  ref: ${{ github.event.pull_request.head.sha || github.sha }}
+                  # Match the workflow's proposed merge so upstream SDK scripts are present.
+                  ref: ${{ github.sha }}
 
             - name: Setup Node.js
               uses: actions/setup-node@v4
@@ -135,7 +136,8 @@ jobs:
             - name: Checkout repository
               uses: actions/checkout@v4
               with:
-                  ref: ${{ github.event.pull_request.head.sha || github.sha }}
+                  # Match the workflow's proposed merge so upstream SDK scripts are present.
+                  ref: ${{ github.sha }}
 
             - name: Setup Node.js
               uses: actions/setup-node@v4

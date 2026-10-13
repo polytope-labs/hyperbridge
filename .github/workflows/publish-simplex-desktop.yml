@@ -221,10 +221,21 @@ jobs:
           node packages/simplex-desktop/scripts/release-signing.cjs
           pnpm --dir packages/simplex-desktop package -- ${{ matrix.builder_args }} --publish never
 
+      - name: Materialize Mac passkey provisioning profile
+        if: needs.prepare.outputs.sign_artifacts == 'true' && runner.os == 'macOS'
+        shell: bash
+        env:
+          SIMPLEX_MACOS_PROVISIONING_PROFILE_BASE64: ${{ secrets.SIMPLEX_MACOS_PROVISIONING_PROFILE_BASE64 }}
+        run: |
+          test -n "$SIMPLEX_MACOS_PROVISIONING_PROFILE_BASE64"
+          printf '%s' "$SIMPLEX_MACOS_PROVISIONING_PROFILE_BASE64" | /usr/bin/base64 -D > "$RUNNER_TEMP/simplex-passkeys.provisionprofile"
+
       - name: Build signed installers and updater metadata
         if: needs.prepare.outputs.sign_artifacts == 'true'
         env:
           SIMPLEX_DESKTOP_SIGN_RELEASE: "true"
+          SIMPLEX_PASSKEY_RP_ID: ${{ runner.os == 'macOS' && vars.SIMPLEX_PASSKEY_RP_ID || '' }}
+          SIMPLEX_MACOS_PROVISIONING_PROFILE_PATH: ${{ runner.temp }}/simplex-passkeys.provisionprofile
           APPLE_API_KEY: ${{ runner.temp }}/simplex-notary-key.p8
           APPLE_API_KEY_ID: ${{ runner.os == 'macOS' && secrets.SIMPLEX_APPLE_API_KEY_ID || '' }}
           APPLE_API_ISSUER: ${{ runner.os == 'macOS' && secrets.SIMPLEX_APPLE_API_ISSUER || '' }}
@@ -272,6 +283,7 @@ jobs:
         if: needs.prepare.outputs.sign_artifacts == 'true' && runner.os == 'macOS'
         env:
           APPLE_TEAM_ID: ${{ secrets.SIMPLEX_APPLE_TEAM_ID }}
+          SIMPLEX_PASSKEY_RP_ID: ${{ vars.SIMPLEX_PASSKEY_RP_ID }}
         run: node packages/simplex-desktop/scripts/verify-macos-signatures.mjs packages/simplex-desktop/release "$APPLE_TEAM_ID"
 
       - name: Verify Authenticode signatures and timestamps
@@ -314,11 +326,20 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+      - name: Upload Mac passkey domain association file
+        if: needs.prepare.outputs.sign_artifacts == 'true' && runner.os == 'macOS'
+        uses: actions/upload-artifact@v4
+        with:
+          name: simplex-passkey-association-${{ matrix.target }}
+          path: sdk/packages/simplex-desktop/build/mac-passkeys/apple-app-site-association
+          if-no-files-found: error
+          retention-days: 7
+
       - name: Remove Apple notarization key and signing keychain
         if: always() && needs.prepare.outputs.sign_artifacts == 'true' && runner.os == 'macOS'
         shell: bash
         run: |
-          rm -f "$RUNNER_TEMP/simplex-notary-key.p8" "$RUNNER_TEMP/simplex-developer-id.p12"
+          rm -f "$RUNNER_TEMP/simplex-notary-key.p8" "$RUNNER_TEMP/simplex-developer-id.p12" "$RUNNER_TEMP/simplex-passkeys.provisionprofile"
           security delete-keychain "$RUNNER_TEMP/simplex-signing.keychain-db" || true
 
   release:

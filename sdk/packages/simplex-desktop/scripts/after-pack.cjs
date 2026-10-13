@@ -12,4 +12,12 @@ module.exports = async function afterPack(context) {
 		productFilename: context.packager.appInfo.productFilename,
 	})
 	await signPackagedWindowsRuntime(runtimePath, context)
+	if (context.electronPlatformName === "darwin") {
+		const { buildMacPasskeys } = await import("./build-macos-passkeys.mjs")
+		const { copyFile, mkdir } = require("node:fs/promises")
+		const { dirname, join } = require("node:path")
+		const destination = join(dirname(dirname(runtimePath)), "desktop", "native", "mac-passkeys.node")
+		await mkdir(dirname(destination), { recursive: true })
+		await copyFile(buildMacPasskeys(Arch[context.arch]), destination)
+	}
 }

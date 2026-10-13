@@ -9,12 +9,14 @@ on:
         branches: [main]
         paths:
             - "sdk/packages/simplex-desktop/**"
+            - "sdk/packages/simplex/ui/src/app/DesktopAccess.tsx"
             - ".github/workflows/test-simplex-desktop.yml"
     pull_request:
         branches: [main]
         types: [opened, synchronize, reopened, ready_for_review]
         paths:
             - "sdk/packages/simplex-desktop/**"
+            - "sdk/packages/simplex/ui/src/app/DesktopAccess.tsx"
             - ".github/workflows/test-simplex-desktop.yml"
     workflow_dispatch:
 
@@ -180,6 +182,12 @@ jobs:
 
             - name: Verify and stage the host Node runtime
               run: pnpm --dir packages/simplex-desktop stage:node -- --target ${{ matrix.target }}
+
+            - name: Build and load native Mac passkey module
+              if: runner.os == 'macOS'
+              run: |
+                  pnpm --dir packages/simplex-desktop build:native
+                  node -e 'const n = require("./packages/simplex-desktop/build/native/darwin-" + process.arch + "/mac-passkeys.node"); if (n.capabilities("example.com").available) throw new Error("Unsigned Node process must not authorize passkeys")'
 
             - name: Run cross-platform desktop tests
               run: pnpm --dir packages/simplex-desktop test

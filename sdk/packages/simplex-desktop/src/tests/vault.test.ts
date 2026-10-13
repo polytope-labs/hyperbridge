@@ -58,7 +58,12 @@ async function enroll(f: ReturnType<typeof fixture>) {
 }
 
 function passkeyFixture(dataDir?: string) {
-	const credential = { id: "test-credential", publicKey: "test-cose-key", counter: 0, transports: ["internal"] }
+	const credential = {
+		id: "test-credential",
+		publicKey: "test-cose-key",
+		counter: 0,
+		transports: ["internal"],
+	}
 	const passkeys: PasskeyUnlock = {
 		available: vi.fn(() => true),
 		register: vi.fn(async (userId = "profile-user") => ({ ...credential, userId })),
@@ -67,6 +72,211 @@ function passkeyFixture(dataDir?: string) {
 	}
 	return { ...fixture(dataDir, { passkeys }), passkeys }
 }
+
+function nativeFixture(dataDir?: string) {
+	const f = passkeyFixture(dataDir)
+	f.passkeys.mechanism = "native-macos"
+	f.passkeys.supports = (credential) =>
+		credential.mechanism === "native-macos" && credential.rpId === "passkeys.example.com"
+	f.passkeys.register = vi.fn(async () => ({
+		id: "native-credential",
+		publicKey: "native-public-key",
+		counter: 0,
+		userId: "new-native-handle",
+		rpId: "passkeys.example.com",
+		mechanism: "native-macos" as const,
+	}))
+	return f
+}
+
+describe("native Mac vault migration", () => {
+	it("clears old passkey status on lock and at the start of a password flow", async () => {
+		const f = nativeFixture()
+		await f.unlock({ method: "create-passkey" })
+		const next = nativeFixture(f.dataDir)
+		let nativeState = "idle"
+		next.passkeys.status = () => ({ mechanism: "native-macos", state: nativeState })
+		next.passkeys.resetStatus = vi.fn(() => {
+			nativeState = "idle"
+		})
+		const authenticate = vi.mocked(next.passkeys.authenticate).getMockImplementation()!
+		vi.mocked(next.passkeys.authenticate).mockImplementation(async (saved) => {
+			nativeState = "succeeded"
+			return authenticate(saved)
+		})
+		const status = async () =>
+			(await next.vault.handle(new Request("simplex://local/api/desktop/passkey-status"))).json()
+		await next.vault.unlock({ method: "passkey" })
+		expect(await status()).toMatchObject({ pending: false, state: "succeeded" })
+		next.vault.lock()
+		expect(await status()).toMatchObject({ pending: false, state: "idle" })
+		nativeState = "cancelled"
+		vi.spyOn(Date, "now").mockReturnValue(Date.now() + 2_000)
+		await expect(next.vault.unlock({ method: "password", password })).rejects.toThrow()
+		expect(await status()).toMatchObject({ pending: false, state: "idle" })
+	})
+	it("cancels and zeroes the key during OS key release before starting the solver", async () => {
+		const f = nativeFixture()
+		await f.unlock({ method: "create-passkey" })
+		const next = nativeFixture(f.dataDir)
+		let releasedKey: Buffer | undefined
+		const unprotect = vi.mocked(next.deviceKeyStore.unprotect).getMockImplementation()!
+		vi.mocked(next.deviceKeyStore.unprotect).mockImplementation(async (value) => {
+			const key = await unprotect(value)
+			releasedKey = key
+			next.vault.cancelPasskey()
+			return key
+		})
+		await expect(next.vault.unlock({ method: "passkey" })).rejects.toThrow(/cancelled/)
+		expect(next.start).not.toHaveBeenCalled()
+		expect(next.vault.isUnlocked()).toBe(false)
+		expect(releasedKey).toEqual(Buffer.alloc(32))
+	})
+	it("finishes committed solver activation when window teardown or cancellation arrives", async () => {
+		const f = nativeFixture()
+		await f.unlock({ method: "create-passkey" })
+		const booting = nativeFixture(f.dataDir)
+		let solverKey: Buffer | undefined
+		booting.start.mockImplementation(async (key) => {
+			solverKey = Buffer.from(key)
+			booting.vault.cancelPendingAccess()
+			booting.vault.cancelPasskey()
+		})
+		await expect(booting.vault.unlock({ method: "passkey" })).resolves.toBeUndefined()
+		expect(booting.vault.isUnlocked()).toBe(true)
+		expect(booting.start).toHaveBeenCalledOnce()
+		expect(booting.start.mock.calls[0][0]).toEqual(solverKey)
+		expect(solverKey).not.toEqual(Buffer.alloc(32))
+	})
+	it("cancels a passkey while the solver drains without persisting or starting it", async () => {
+		const f = nativeFixture()
+		await f.unlock({ method: "create-passkey" })
+		const before = readFileSync(f.metadata, "utf8")
+		const next = nativeFixture(f.dataDir)
+		next.prepare.mockImplementation(async () => next.vault.cancelPendingAccess())
+		await expect(next.vault.unlock({ method: "passkey" })).rejects.toThrow(/cancelled/)
+		expect(next.start).not.toHaveBeenCalled()
+		expect(next.vault.isUnlocked()).toBe(false)
+		expect(readFileSync(f.metadata, "utf8")).toBe(before)
+	})
+	it("keeps password unlock and recovery confirmation alive when the window hides during prepare", async () => {
+		const f = fixture()
+		await enroll(f)
+		const next = fixture(f.dataDir)
+		next.prepare.mockImplementation(async () => next.vault.cancelPendingAccess())
+		await next.vault.unlock({ method: "password", password })
+		expect(next.vault.isUnlocked()).toBe(true)
+		expect(next.start.mock.calls[0][0]).not.toEqual(Buffer.alloc(32))
+		const creating = nativeFixture()
+		await creating.vault.unlock({ method: "create-passkey" })
+		creating.prepare.mockImplementation(async () => creating.vault.cancelPendingAccess())
+		await creating.vault.confirmRecovery(true)
+		expect(creating.vault.isUnlocked()).toBe(true)
+		expect(creating.start.mock.calls[0][0]).not.toEqual(Buffer.alloc(32))
+	})
+	it("does not open optional native enrollment after window teardown during password verification", async () => {
+		const f = fixture()
+		await enroll(f)
+		const next = nativeFixture(f.dataDir)
+		const unlocking = next.vault.unlock({ method: "password", password, usePasskey: true })
+		next.vault.cancelPendingAccess()
+		await expect(unlocking).resolves.toMatch(/not saved/)
+		expect(next.passkeys.register).not.toHaveBeenCalled()
+		expect(next.vault.isUnlocked()).toBe(true)
+		expect(JSON.parse(readFileSync(f.metadata, "utf8")).version).toBe(2)
+	})
+	it("preserves authorized recovery on window teardown during a password reset or cancelled native reset", async () => {
+		const f = nativeFixture()
+		await f.vault.unlock({ method: "create-passkey" })
+		const code = f.vault.recoveryCode()
+		await f.vault.confirmRecovery(true)
+		const next = nativeFixture(f.dataDir)
+		await next.vault.recover({ method: "code", recoveryCode: code })
+		vi.mocked(next.passkeys.register).mockImplementation(async () => {
+			next.vault.cancelPendingAccess()
+			throw new Error("cancelled")
+		})
+		await expect(next.vault.resetPasskey({})).rejects.toThrow(/cancelled/)
+		expect((await next.vault.state()).mode).toBe("reset-password")
+		const protect = vi.mocked(next.deviceKeyStore.protect).getMockImplementation()!
+		vi.mocked(next.deviceKeyStore.protect).mockImplementation(async (key) => {
+			next.vault.cancelPendingAccess()
+			return protect(key)
+		})
+		await next.vault.resetPassword(replacement)
+		expect((await next.vault.state()).mode).toBe("save-recovery")
+		await next.vault.confirmRecovery(true)
+		expect(next.vault.isUnlocked()).toBe(true)
+		await fixture(f.dataDir).vault.unlock({ method: "password", password: replacement.password })
+	})
+	it("writes v4 with a profile ID only after recovery acknowledgement and a successful authentication proof", async () => {
+		const f = nativeFixture()
+		await f.vault.unlock({ method: "create-passkey" })
+		expect(f.passkeys.authenticate).toHaveBeenCalledOnce()
+		expect(f.vault.isUnlocked()).toBe(false)
+		expect(readdirSync(f.dataDir)).toEqual([])
+		await f.vault.confirmRecovery(true)
+		const record = JSON.parse(readFileSync(f.metadata, "utf8"))
+		expect(record).toMatchObject({ version: 4, passkey: { mechanism: "native-macos", counter: 1 } })
+		expect(record.profileId).toMatch(/^[A-Za-z0-9_-]{22}$/)
+		expect(f.passkeys.register).toHaveBeenCalledWith(undefined, { profileId: record.profileId })
+		await nativeFixture(f.dataDir).vault.unlock({ method: "passkey" })
+	})
+	it("requires password/code migration for localhost and preserves the config key and password recovery", async () => {
+		const f = passkeyFixture()
+		const code = await enroll(f)
+		await passkeyFixture(f.dataDir).vault.unlock({ method: "password", password, usePasskey: true })
+		const next = nativeFixture(f.dataDir)
+		expect(await next.vault.state()).toMatchObject({
+			passkeyMigrationRequired: true,
+			passkeyAvailable: false,
+			passkeyEnrollmentAvailable: true,
+		})
+		await expect(next.vault.unlock({ method: "passkey" })).rejects.toThrow(/migration/)
+		expect(next.deviceKeyStore.unprotect).not.toHaveBeenCalled()
+		const before = JSON.parse(readFileSync(f.metadata, "utf8"))
+		const migrated = nativeFixture(f.dataDir)
+		await migrated.vault.unlock({ method: "password", password, usePasskey: true })
+		const after = JSON.parse(readFileSync(f.metadata, "utf8"))
+		expect(after.version).toBe(4)
+		expect(after.recoveryKey).toEqual(before.recoveryKey)
+		expect(after.wrappedKey).toEqual(before.wrappedKey)
+		expect(migrated.passkeys.register).toHaveBeenCalledWith(undefined, { profileId: after.profileId })
+		await fixture(f.dataDir).vault.recover({ method: "code", recoveryCode: code })
+	})
+	it("keeps legacy access when the new credential proof fails", async () => {
+		const f = passkeyFixture()
+		await enroll(f)
+		await passkeyFixture(f.dataDir).vault.unlock({ method: "password", password, usePasskey: true })
+		const before = JSON.parse(readFileSync(f.metadata, "utf8"))
+		const next = nativeFixture(f.dataDir)
+		vi.mocked(next.passkeys.authenticate).mockRejectedValue(new Error("proof failed"))
+		await expect(next.vault.unlock({ method: "password", password, usePasskey: true })).resolves.toMatch(
+			/not saved/,
+		)
+		expect(JSON.parse(readFileSync(f.metadata, "utf8")).passkey).toEqual(before.passkey)
+		expect(next.vault.isUnlocked()).toBe(true)
+	})
+	it("recovers passkey-only legacy profiles, stages native replacement, and preserves metadata on cancellation", async () => {
+		const f = passkeyFixture()
+		await f.vault.unlock({ method: "create-passkey" })
+		const code = f.vault.recoveryCode()
+		await f.vault.confirmRecovery(true)
+		const before = readFileSync(f.metadata, "utf8")
+		const next = nativeFixture(f.dataDir)
+		expect((await next.vault.state()).passkeyUnavailableReason).toBe(
+			"Use your recovery code to create a native Mac passkey.",
+		)
+		await next.vault.recover({ method: "code", recoveryCode: code })
+		expect((await next.vault.state()).passkeyAvailable).toBe(true)
+		await next.vault.resetPasskey({})
+		expect(next.passkeys.register).toHaveBeenCalledWith(undefined, { profileId: expect.any(String) })
+		expect(readFileSync(f.metadata, "utf8")).toBe(before)
+		await next.vault.cancelRecovery()
+		expect(readFileSync(f.metadata, "utf8")).toBe(before)
+		await passkeyFixture(f.dataDir).vault.unlock({ method: "passkey" })
+	})
+})
 
 describe("passkey desktop vault", () => {
 	it("creates without a password, requires recovery acknowledgement, and verifies before releasing a key", async () => {

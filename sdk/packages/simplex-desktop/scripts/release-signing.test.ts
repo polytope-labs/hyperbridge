@@ -1,8 +1,8 @@
 import { createRequire } from "node:module"
-import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { describe, expect, it, vi } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 import { notarytoolArguments } from "./notarize-macos-dmg.mjs"
 import { entitlementKeys, teamIdentifier } from "./verify-macos-signatures.mjs"
 import { assertWindowsUpdatePublisher, verifyWindowsUpdateConfig } from "./verify-windows-update-config.mjs"
@@ -16,8 +16,13 @@ const {
 	validateAzureEndpoint,
 } = require("./release-signing.cjs")
 
+const temporaryDirectories: string[] = []
+afterEach(async () => {
+	await Promise.all(temporaryDirectories.splice(0).map((path) => rm(path, { recursive: true, force: true })))
+})
 async function macEnvironment() {
 	const directory = await mkdtemp(join(tmpdir(), "simplex-signing-"))
+	temporaryDirectories.push(directory)
 	const apiKey = join(directory, "AuthKey_TEST.p8")
 	const keychain = join(directory, "signing.keychain-db")
 	await writeFile(apiKey, "fixture")
@@ -29,6 +34,7 @@ async function macEnvironment() {
 		APPLE_API_KEY_ID: "KEYID",
 		APPLE_API_ISSUER: "issuer",
 		APPLE_TEAM_ID: "TEAMID",
+		SIMPLEX_MACOS_PROVISIONING_PROFILE_PATH: join(directory, "distribution.provisionprofile"),
 	}
 }
 
@@ -66,26 +72,50 @@ describe("desktop release signing", () => {
 
 	it("signs macOS releases from the CI keychain rather than CSC_LINK", async () => {
 		const env = await macEnvironment()
-		expect(() => assertReleaseSigningEnvironment("darwin", { ...env, CSC_LINK: "base64-p12" })).toThrow(/unset CSC_LINK/)
-		expect(() => assertReleaseSigningEnvironment("darwin", { ...env, CSC_KEYCHAIN: "/missing.keychain-db" })).toThrow(
-			/CSC_KEYCHAIN does not exist/,
+		expect(() => assertReleaseSigningEnvironment("darwin", { ...env, CSC_LINK: "base64-p12" })).toThrow(
+			/unset CSC_LINK/,
 		)
+		expect(() =>
+			assertReleaseSigningEnvironment("darwin", { ...env, CSC_KEYCHAIN: "/missing.keychain-db" }),
+		).toThrow(/CSC_KEYCHAIN does not exist/)
 	})
 
-	it("configures the app and bundled Node with only the hardened-runtime entitlements", async () => {
-		const config = loadBuilderConfig(await macEnvironment(), "darwin")
+	it("configures restricted passkey entitlements only on the main application", async () => {
+		const env = await macEnvironment()
+		const outputDirectory = join(env.CSC_KEYCHAIN, "..", "passkeys")
+		const config = loadBuilderConfig(env, "darwin", {
+			outputDirectory,
+			readProfile: () => ({
+				teams: ["TEAMID"],
+				platforms: ["OSX"],
+				provisionsAllDevices: true,
+				expiresAt: "2099-01-01T00:00:00Z",
+				entitlements: {
+					"com.apple.application-identifier": "PREFIX.network.hyperbridge.simplex",
+					"com.apple.developer.team-identifier": "TEAMID",
+					"com.apple.developer.associated-domains": ["*"],
+				},
+			}),
+		})
 		expect(config.forceCodeSigning).toBe(true)
 		expect(config.dmg).toMatchObject({ sign: true })
 		expect(config.extraMetadata).toMatchObject({ simplexMacTeamId: "TEAMID" })
 		expect(config.mac).toMatchObject({
 			identity: "TEAMID",
 			hardenedRuntime: true,
-			entitlements: "resources/entitlements.mac.plist",
 			entitlementsInherit: "resources/entitlements.mac.plist",
 			preAutoEntitlements: false,
 			strictVerify: true,
-			binaries: ["Contents/Resources/runtime/node"],
+			binaries: ["Contents/Resources/runtime/node", "Contents/Resources/desktop/native/mac-passkeys.node"],
 			notarize: true,
+		})
+		expect(config.extraMetadata).toMatchObject({
+			simplexPasskeyRpId: "passkeys.hyperfx.finance",
+			simplexApplicationIdentifier: "PREFIX.network.hyperbridge.simplex",
+		})
+		expect(await readFile(config.mac.entitlements, "utf8")).toContain("webcredentials:passkeys.hyperfx.finance")
+		expect(JSON.parse(await readFile(join(outputDirectory, "apple-app-site-association"), "utf8"))).toEqual({
+			webcredentials: { apps: ["PREFIX.network.hyperbridge.simplex"] },
 		})
 		const entitlements = entitlementKeys(
 			await readFile(new URL("../resources/entitlements.mac.plist", import.meta.url), "utf8"),
@@ -105,10 +135,7 @@ describe("desktop release signing", () => {
 					<key>com.apple.security.cs.allow-jit</key><true/>
 				</dict>
 			`),
-		).toEqual([
-			"com.apple.security.cs.allow-jit",
-			"com.apple.security.cs.allow-unsigned-executable-memory",
-		])
+		).toEqual(["com.apple.security.cs.allow-jit", "com.apple.security.cs.allow-unsigned-executable-memory"])
 	})
 
 	it("submits the distributable DMG with the configured App Store Connect key", () => {
@@ -135,9 +162,7 @@ describe("desktop release signing", () => {
 	})
 
 	it("accepts only Azure Trusted Signing service endpoints", () => {
-		expect(validateAzureEndpoint("https://eus.codesigning.azure.net")).toBe(
-			"https://eus.codesigning.azure.net/",
-		)
+		expect(validateAzureEndpoint("https://eus.codesigning.azure.net")).toBe("https://eus.codesigning.azure.net/")
 		for (const endpoint of [
 			"http://eus.codesigning.azure.net",
 			"https://codesigning.azure.net.attacker.example",
@@ -186,9 +211,9 @@ describe("desktop release signing", () => {
 	it("signs the Windows Node runtime after staging and rejects a skipped signature", async () => {
 		const signIf = vi.fn().mockResolvedValue(true)
 		const context = { electronPlatformName: "win32", packager: { signIf } }
-		await expect(signPackagedWindowsRuntime("C:\\Simplex\\runtime\\node.exe", context, windowsEnvironment())).resolves.toBe(
-			true,
-		)
+		await expect(
+			signPackagedWindowsRuntime("C:\\Simplex\\runtime\\node.exe", context, windowsEnvironment()),
+		).resolves.toBe(true)
 		expect(signIf).toHaveBeenCalledWith("C:\\Simplex\\runtime\\node.exe")
 
 		signIf.mockResolvedValue(false)

@@ -1,3 +1,4 @@
+import bridge from "../assets/tokens/bridge.png"
 import cngn from "../assets/tokens/cngn.png"
 import dai from "../assets/tokens/dai.png"
 import eurc from "../assets/tokens/eurc.png"
@@ -6,12 +7,14 @@ import eth from "../assets/networks/ethereum.svg"
 import matic from "../assets/networks/polygon.svg"
 import unknown from "../assets/tokens/unknown.svg"
 import usdc from "../assets/tokens/usdc.png"
+import usdr from "../assets/tokens/usdr.png"
 import usdt from "../assets/tokens/usdt.png"
 import zarp from "../assets/tokens/zarp.png"
 import bridge from "../assets/tokens/bridge.png"
 import { ChainLogo } from "./ChainLogo"
 
 const TOKEN_ICONS: Record<string, string> = {
+	BRIDGE: bridge,
 	CNGN: cngn,
 	DAI: dai,
 	ETH: eth,
@@ -20,6 +23,7 @@ const TOKEN_ICONS: Record<string, string> = {
 	BRIDGE: bridge,
 	MATIC: matic,
 	USDC: usdc,
+	USDR: usdr,
 	USDT: usdt,
 	ZARP: zarp,
 }

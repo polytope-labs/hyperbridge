@@ -52,9 +52,12 @@ function validateMacPasskeyProfile(profile, { rpId, teamId }, now = Date.now()) 
 		throw new Error("Release builds require a Developer ID distribution profile, not a development profile")
 	if (!profile.provisionsAllDevices || !profile.platforms?.includes("OSX"))
 		throw new Error("Native passkey releases require a macOS Developer ID distribution profile")
+	// A Developer ID profile grants every domain as the plain string "*", not a list.
 	const domains = e["com.apple.developer.associated-domains"]
-	if (!Array.isArray(domains) || (!domains.includes("*") && !domains.includes(`webcredentials:${rpId}`)))
-		throw new Error("Apple profile does not authorize the passkey associated domain")
+	const authorized =
+		domains === "*" ||
+		(Array.isArray(domains) && (domains.includes("*") || domains.includes(`webcredentials:${rpId}`)))
+	if (!authorized) throw new Error("Apple profile does not authorize the passkey associated domain")
 	return applicationIdentifier
 }
 function prepareMacPasskeySigning(

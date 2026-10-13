@@ -39,21 +39,30 @@ export function notarytoolArguments(dmg, env = process.env) {
 }
 
 /**
- * Staples the notarization ticket to the DMG. The ticket comes from Apple's
- * CloudKit endpoint, which sometimes drops the connection, so a failed
- * attempt is retried after a pause.
+ * Runs `action` again after a pause when it throws. Apple's ticket server
+ * sometimes drops connections from CI runners, which fails stapling,
+ * Gatekeeper assessment and ticket validation alike.
  */
-export async function stapleDmg(dmg, { attempts = 5, delayMs = 30_000, runCommand = run, sleep } = {}) {
+export async function retryAppleNetwork(label, action, { attempts = 5, delayMs = 30_000, sleep } = {}) {
 	const pause = sleep ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms)))
 	for (let attempt = 1; ; attempt++) {
 		try {
-			return runCommand("xcrun", ["stapler", "staple", "-v", dmg])
+			return action()
 		} catch (error) {
 			if (attempt >= attempts) throw error
-			process.stderr.write(`Stapling attempt ${attempt} of ${attempts} failed; retrying in ${delayMs / 1000}s\n`)
+			process.stderr.write(`${label} attempt ${attempt} of ${attempts} failed; retrying in ${delayMs / 1000}s\n`)
 			await pause(delayMs)
 		}
 	}
+}
+
+/** Staples the notarization ticket to the DMG. */
+export function stapleDmg(dmg, { attempts, delayMs, runCommand = run, sleep } = {}) {
+	return retryAppleNetwork("Stapling", () => runCommand("xcrun", ["stapler", "staple", "-v", dmg]), {
+		attempts,
+		delayMs,
+		sleep,
+	})
 }
 
 async function sha512(path) {

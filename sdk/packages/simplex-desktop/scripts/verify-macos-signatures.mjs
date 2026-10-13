@@ -3,6 +3,7 @@ import { readdir } from "node:fs/promises"
 import { join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import { createRequire } from "node:module"
+import { retryAppleNetwork } from "./notarize-macos-dmg.mjs"
 
 const require = createRequire(import.meta.url)
 const passkeyConfiguration = require("../resources/passkeys.json")
@@ -131,10 +132,15 @@ export async function verifyMacSignatures(root, expectedTeamId) {
 	if (nativeEntitlements.some((key) => !REQUIRED_ENTITLEMENTS.includes(key)))
 		throw new Error("Native library contains unexpected app identity entitlements")
 	verifyTeam(dmg, expectedTeamId)
-	run("spctl", ["--assess", "--type", "execute", "--verbose=4", app])
-	run("spctl", ["--assess", "--type", "open", "--context", "context:primary-signature", "--verbose=4", dmg])
-	run("xcrun", ["stapler", "validate", app])
-	run("xcrun", ["stapler", "validate", dmg])
+	// Gatekeeper and the stapler both look the ticket up at Apple, which drops CI connections now and then.
+	await retryAppleNetwork("Gatekeeper assessment", () =>
+		run("spctl", ["--assess", "--type", "execute", "--verbose=4", app]),
+	)
+	await retryAppleNetwork("Gatekeeper assessment", () =>
+		run("spctl", ["--assess", "--type", "open", "--context", "context:primary-signature", "--verbose=4", dmg]),
+	)
+	await retryAppleNetwork("Ticket validation", () => run("xcrun", ["stapler", "validate", app]))
+	await retryAppleNetwork("Ticket validation", () => run("xcrun", ["stapler", "validate", dmg]))
 	return { app, dmg, helpers, runtime }
 }
 

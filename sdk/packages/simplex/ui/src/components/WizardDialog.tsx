@@ -15,8 +15,10 @@ export function WizardDialog(props: {
 	title: string
 	description: string
 	children: ReactNode
+	/** Added to the dialog, e.g. to size it to its content. */
+	className?: string
 }) {
-	const { open, onClose, title, description, children } = props
+	const { open, onClose, title, description, children, className } = props
 	return (
 		<ResponsiveDialog
 			open={open}
@@ -24,7 +26,10 @@ export function WizardDialog(props: {
 				if (!nextOpen) onClose()
 			}}
 		>
-			<ResponsiveDialogContent className="market-dialog" overlayClassName="dialog-overlay">
+			<ResponsiveDialogContent
+				className={className ? `market-dialog ${className}` : "market-dialog"}
+				overlayClassName="dialog-overlay"
+			>
 					<header className="market-dialog-header">
 						<div>
 							<ResponsiveDialogTitle>{title}</ResponsiveDialogTitle>

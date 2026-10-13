@@ -1,11 +1,12 @@
 import { defineConfig } from "vite"
 import react from "@vitejs/plugin-react"
+import tailwindcss from "@tailwindcss/vite"
 import { resolve } from "path"
 
 export default defineConfig({
 	root: __dirname,
 	base: "./",
-	plugins: [react()],
+	plugins: [react(), tailwindcss()],
 	resolve: {
 		// ui/src may import browser-safe modules from src/; the build fails if one grows a node-only import
 		alias: { "@": resolve(__dirname, "../src") },

@@ -8,6 +8,7 @@ import unknown from "../assets/tokens/unknown.svg"
 import usdc from "../assets/tokens/usdc.png"
 import usdt from "../assets/tokens/usdt.png"
 import zarp from "../assets/tokens/zarp.png"
+import bridge from "../assets/tokens/bridge.png"
 import { ChainLogo } from "./ChainLogo"
 
 const TOKEN_ICONS: Record<string, string> = {
@@ -16,10 +17,16 @@ const TOKEN_ICONS: Record<string, string> = {
 	ETH: eth,
 	EURC: eurc,
 	BNB: bnb,
+	BRIDGE: bridge,
 	MATIC: matic,
 	USDC: usdc,
 	USDT: usdt,
 	ZARP: zarp,
+}
+
+/** The image a token is shown with, for components that take a source rather than this one. */
+export function tokenIconSrc(symbol: string): string {
+	return TOKEN_ICONS[symbol.trim().toUpperCase()] ?? unknown
 }
 
 export function TokenIcon({ symbol, size = "md" }: { symbol: string; size?: "sm" | "md" | "lg" }) {

@@ -1,6 +1,11 @@
-import { formatAmount } from "../lib/format"
+import { type ReactNode, useCallback, useRef, useState } from "react"
+import { api } from "../api"
+import { usePolling } from "../lib/hooks"
+import { formatAmount, formatCompactAmount } from "../lib/format"
 import type { BalanceSnapshot, StatusOperator } from "../types"
 import { ReturnMetric } from "./analytics/ReturnMetric"
+import { BridgeTopUpDialog, type BridgeTopUpState } from "./BridgeTopUpDialog"
+import { BridgeTopUpProgressDialog } from "./BridgeTopUpProgressDialog"
 import { LimitOrders } from "./LimitOrders"
 import { availableStablecoinLiquidity, OperatorBalances } from "./OperatorBalances"
 
@@ -11,8 +16,40 @@ export function OperatorOverview(props: {
 	/** Pause/resume and stop, rendered inline so the page that shows health also controls it. */
 	runtime: { pending: boolean; onTogglePause: () => void; onStop: () => void }
 	onOpenAnalytics: () => void
+	/** Reloads the balance snapshot after a BRIDGE top-up fills. */
+	onBalancesChanged: () => void
 }) {
-	const { status, balances, onResetHalt, runtime, onOpenAnalytics } = props
+	const { status, balances, onResetHalt, runtime, onOpenAnalytics, onBalancesChanged } = props
+	const [topUpOpen, setTopUpOpen] = useState(false)
+	const [progressOpen, setProgressOpen] = useState(false)
+	const [topUp, setTopUp] = useState<BridgeTopUpState>()
+	const lastTopUpStage = useRef<string>(undefined)
+	// A request in flight is not overlapped: a sync reads chains and the indexer and can take seconds.
+	const topUpLoading = useRef(false)
+	const syncTopUp = useRef(false)
+	// A delivered top-up may still be waiting for the indexer's last statuses; the solver decides.
+	syncTopUp.current = progressOpen
+	const loadTopUp = useCallback(async () => {
+		if (topUpLoading.current) return
+		topUpLoading.current = true
+		try {
+			// While the progress dialog shows a pending top-up, the solver first re-reads it from the
+			// chains and the indexer: another party may have filled or delivered it.
+			const path = syncTopUp.current ? "/api/bridge-top-up?sync=1" : "/api/bridge-top-up"
+			const { current } = await api.get<{ current: BridgeTopUpState | null }>(path)
+			// The balance only moves once the BRIDGE reaches Hyperbridge; reload it then rather than on the next poll.
+			const previous = lastTopUpStage.current
+			lastTopUpStage.current = current?.stage
+			if (current?.stage === "delivered" && previous !== undefined && previous !== "delivered") onBalancesChanged()
+			setTopUp(current ?? undefined)
+		} catch {
+			// Older solvers and fillers without a Hyperbridge key have no top-up; the button stays plain.
+		} finally {
+			topUpLoading.current = false
+		}
+	}, [onBalancesChanged])
+	// Tracked closely while the dialog shows it, otherwise only to spot one left pending.
+	usePolling(loadTopUp, progressOpen ? 5_000 : topUp?.pending ? 15_000 : 30_000)
 	const stablecoinLiquidity = availableStablecoinLiquidity(balances)
 
 	return (
@@ -38,7 +75,26 @@ export function OperatorOverview(props: {
 					label="Available liquidity"
 					value={stablecoinLiquidity === null ? "—" : `$${formatAmount(stablecoinLiquidity)}`}
 				/>
-				<Metric label="BRIDGE available" value={balances?.hyperbridge?.free.toLocaleString() ?? "—"} />
+				<Metric
+					label="BRIDGE available"
+					value={balances?.hyperbridge ? formatCompactAmount(balances.hyperbridge.free) : "—"}
+					title={balances?.hyperbridge ? `${balances.hyperbridge.free.toLocaleString()} BRIDGE` : undefined}
+					action={
+						balances?.hyperbridge ? (
+							<button
+								type="button"
+								className="secondary operator-metric-action"
+								data-pending={topUp?.pending ? "" : undefined}
+								// The tile is narrow; the pending pill says the short form and names the long one.
+								aria-label={topUp?.pending ? "Top up pending" : undefined}
+								title={topUp?.pending ? "Top up pending" : undefined}
+								onClick={() => (topUp?.pending ? setProgressOpen(true) : setTopUpOpen(true))}
+							>
+								{topUp?.pending ? "Pending" : "Top up"}
+							</button>
+						) : undefined
+					}
+				/>
 				<ReturnMetric onOpen={onOpenAnalytics} />
 			</section>
 
@@ -73,15 +129,41 @@ export function OperatorOverview(props: {
 			<OperatorBalances status={status} balances={balances} />
 
 			<LimitOrders chains={status.chains} chainLabels={status.chainLabels} balances={balances} />
+
+			<BridgeTopUpDialog
+				open={topUpOpen}
+				onClose={() => setTopUpOpen(false)}
+				onStarted={(started) => {
+					setTopUp(started)
+					setTopUpOpen(false)
+					setProgressOpen(true)
+					void loadTopUp()
+				}}
+			/>
+
+			<BridgeTopUpProgressDialog
+				open={progressOpen}
+				onOpenChange={setProgressOpen}
+				topUp={topUp}
+				onChanged={() => void loadTopUp()}
+			/>
 		</div>
 	)
 }
 
-function Metric(props: { label: string; value: string }) {
+function Metric(props: { label: string; value: string; title?: string; action?: ReactNode }) {
 	return (
 		<div>
-			<span>{props.label}</span>
-			<strong>{props.value}</strong>
+			{/* An action sits beside the label, so the figure keeps the tile's full width as it grows. */}
+			{props.action ? (
+				<div className="operator-metric-label">
+					<span>{props.label}</span>
+					{props.action}
+				</div>
+			) : (
+				<span>{props.label}</span>
+			)}
+			<strong title={props.title}>{props.value}</strong>
 		</div>
 	)
 }

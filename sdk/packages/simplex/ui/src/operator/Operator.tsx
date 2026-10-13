@@ -227,6 +227,7 @@ export function Operator(props: { status: StatusOperator; refresh: () => void })
 							onResetHalt={resetHalt}
 							runtime={{ pending, onTogglePause: togglePause, onStop: stopFiller }}
 							onOpenAnalytics={() => setTab("analytics")}
+							onBalancesChanged={load}
 						/>
 					) : null}
 

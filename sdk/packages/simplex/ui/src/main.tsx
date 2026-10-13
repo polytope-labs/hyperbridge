@@ -1,6 +1,7 @@
 import { StrictMode } from "react"
 import { createRoot } from "react-dom/client"
 import { App } from "./App"
+import "./styles/hyperbridge-ui.css"
 import "./styles/foundations.css"
 import "./styles/review.css"
 import "./styles/markets.css"

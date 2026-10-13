@@ -54,6 +54,16 @@ export function formatAmount(value: number): string {
 	return value.toLocaleString(undefined, { maximumFractionDigits: 4 })
 }
 
+/**
+ * An amount that must fit a narrow figure: in full up to 100,000, abbreviated above it
+ * ("123.46K", "1.23M"), so a large balance never runs out of its tile.
+ */
+export function formatCompactAmount(value: number): string {
+	if (Math.abs(value) < 100_000) return formatAmount(value)
+	// Pinned to en-US: other locales abbreviate in lower case ("1.23m") or with words ("1,23 Mio.").
+	return value.toLocaleString("en-US", { notation: "compact", maximumFractionDigits: 2 })
+}
+
 /** "09:05 AM" in the viewer's locale. */
 export function formatClockTime(ts: number): string {
 	return new Date(ts).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })

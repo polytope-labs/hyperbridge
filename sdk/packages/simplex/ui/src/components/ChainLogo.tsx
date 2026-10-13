@@ -24,6 +24,12 @@ const chainLogos = {
 	polygon: polygonLogo,
 }
 
+/** A network's logo image, for components that take a source rather than this one. */
+export function chainLogoSrc(label: string): string | undefined {
+	const family = chainFamily(label)
+	return family ? chainLogos[family] : undefined
+}
+
 /** Network variants share their parent chain's supplied, local logo asset. */
 export function ChainLogo({ label }: ChainLogoProps) {
 	const family = chainFamily(label)

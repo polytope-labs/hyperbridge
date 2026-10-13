@@ -126,7 +126,7 @@ export class TokenSender {
 			}
 		}
 
-		const result = await this.submit(chain, calls)
+		const result = await this.submitCalls(chain, calls)
 		this.logger.warn({ chain, token, amount, to, redeemed, ...result }, "Operator send executed")
 		return { ...result, redeemed }
 	}
@@ -192,7 +192,11 @@ export class TokenSender {
 		return null
 	}
 
-	private async submit(chain: string, calls: ERC7821Call[]): Promise<{ txHash: HexString; sponsored: boolean }> {
+	/**
+	 * Executes a batch from the filler wallet: sponsored UserOp first, native tx
+	 * when no sponsor is available. Shared by every operator-initiated outbound flow.
+	 */
+	async submitCalls(chain: string, calls: ERC7821Call[]): Promise<{ txHash: HexString; sponsored: boolean }> {
 		if (this.userOpSender?.canSponsor(chain)) {
 			const result = await this.userOpSender.trySendSponsored({
 				chain,

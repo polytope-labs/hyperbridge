@@ -38,6 +38,7 @@ import { LimitOrderValidationError, type CreateLimitOrderRequest } from "@/order
 import { isProfitPeriod } from "@/orderbook/profitability"
 import type { LimitOrderController } from "@/simplex"
 import type { BalanceProvider } from "../BalanceProvider"
+import type { BridgeTopUp, TopUpPayToken } from "../BridgeTopUp"
 import { getLogger, type LogLevel } from "../Logger"
 import { DEFAULT_TUNNEL_RELAY, parseRelayAddress, relayKey, type TunnelControls } from "../tunnel/TunnelService"
 import {
@@ -243,6 +244,8 @@ export interface OperatorContext {
 		sponsored: boolean
 		redeemed: boolean
 	}>
+	/** Buys BRIDGE for the filler's Hyperbridge account; absent without a substrate key. */
+	bridgeTopUp?: Pick<BridgeTopUp, "sources" | "quote" | "start" | "current" | "reclaim" | "sync">
 	/** Remote-access tunnel controls; absent when the binary runs without a data dir for keys (embedded fillers). */
 	tunnel?: TunnelControls
 	version: string
@@ -1383,6 +1386,11 @@ export class UiServer {
 			return this.handleAllowlist(req, res)
 		}
 
+		if (path === "/api/bridge-top-up" || path.startsWith("/api/bridge-top-up/")) {
+			if (this.mode !== "operator") return sendJson(res, 409, { error: "Filler is not running" })
+			return this.handleBridgeTopUp(req, res, path, method)
+		}
+
 		if (path === "/api/send" && method === "POST") {
 			if (this.mode !== "operator") return sendJson(res, 409, { error: "Filler is not running" })
 			return this.handleSend(req, res)
@@ -2081,6 +2089,58 @@ export class UiServer {
 			if (vaults.length > 0 || running.has(stateMachineId)) catalog[stateMachineId] = vaults
 		}
 		return catalog
+	}
+
+	private async handleBridgeTopUp(req: IncomingMessage, res: ServerResponse, path: string, method: string): Promise<void> {
+		const topUp = this.operator!.bridgeTopUp
+		if (!topUp) return sendJson(res, 501, { error: "BRIDGE top-up needs a Hyperbridge account key" })
+		const parse = (input: { chain?: string | null; token?: string | null; amount?: string | null }) => {
+			if (!input.chain || !input.token || !input.amount) return "chain, token and amount are required"
+			if (input.token !== "USDC" && input.token !== "USDT") return "token must be USDC or USDT"
+			if (!(Number(input.amount) > 0)) return `Invalid amount: ${input.amount}`
+			return { chain: input.chain, token: input.token as TopUpPayToken, amount: input.amount }
+		}
+		try {
+			if (path === "/api/bridge-top-up/sources") {
+				if (method !== "GET") return sendJson(res, 405, { error: "Method not allowed" })
+				return sendJson(res, 200, { sources: await topUp.sources() })
+			}
+			if (path === "/api/bridge-top-up/quote") {
+				if (method !== "GET") return sendJson(res, 405, { error: "Method not allowed" })
+				const query = new URL(req.url ?? "/", "http://localhost").searchParams
+				const params = parse({ chain: query.get("chain"), token: query.get("token"), amount: query.get("amount") })
+				if (typeof params === "string") return sendJson(res, 400, { error: params })
+				return sendJson(res, 200, await topUp.quote(params))
+			}
+			if (path === "/api/bridge-top-up") {
+				if (method === "GET") {
+					// A dashboard showing a pending top-up asks for it to be brought up to date first.
+					if (new URL(req.url ?? "/", "http://localhost").searchParams.get("sync") === "1") await topUp.sync()
+					return sendJson(res, 200, { current: (await topUp.current()) ?? null })
+				}
+				if (method !== "POST") return sendJson(res, 405, { error: "Method not allowed" })
+				let body: { chain?: string; token?: string; amount?: string }
+				try {
+					body = JSON.parse(await readBody(req))
+				} catch {
+					return sendJson(res, 400, { error: "Invalid JSON body" })
+				}
+				const params = parse(body)
+				if (typeof params === "string") return sendJson(res, 400, { error: params })
+				const state = await topUp.start(params)
+				this.logger.warn({ ...params, id: state.id }, "BRIDGE top-up started from the UI")
+				return sendJson(res, 200, state)
+			}
+			if (path === "/api/bridge-top-up/reclaim") {
+				if (method !== "POST") return sendJson(res, 405, { error: "Method not allowed" })
+				const state = await topUp.reclaim()
+				this.logger.warn({ id: state.id }, "BRIDGE top-up reclaim started from the UI")
+				return sendJson(res, 200, state)
+			}
+			return sendJson(res, 404, { error: "Not found" })
+		} catch (err) {
+			return sendJson(res, 400, { error: err instanceof Error ? err.message : String(err) })
+		}
 	}
 
 	private async handleSend(req: IncomingMessage, res: ServerResponse): Promise<void> {

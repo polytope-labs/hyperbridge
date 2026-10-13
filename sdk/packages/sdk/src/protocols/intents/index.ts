@@ -1,4 +1,5 @@
-export { IntentGateway } from "./IntentGateway"
+export { IntentGateway, type IntentGatewayOptions } from "./IntentGateway"
+export { deriveCanonicalPlacedOrder } from "./OrderPlacer"
 export {
 	HyperFxOrderbook,
 	OrderbookRequestError,

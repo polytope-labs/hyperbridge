@@ -1,0 +1,227 @@
+/*
+ * Tailwind for the @hyperbridge/ui components (the BRIDGE top-up progress dialog), without
+ * its global preflight or the package's shadcn variables: both would restyle and rename
+ * Simplex's own CSS. Classes are generated only for the package's build and the files that
+ * render it, and they sit in cascade layers.
+ *
+ * Inside an `.hb-ui` element the two stylesheets would still meet: Simplex styles bare
+ * elements (button, a, label) without a layer, which beats any layered utility. There the
+ * scoped preflight below stands in for Tailwind's, and Simplex's element rules are reverted.
+ */
+@layer theme, hb-base, utilities;
+@import "tailwindcss/theme.css" layer(theme);
+@import "tailwindcss/utilities.css" layer(utilities) source(none);
+@import "tw-animate-css";
+
+@source "../../../node_modules/@hyperbridge/ui/dist";
+@source "../operator/BridgeTopUpTimeline.tsx";
+@source "../operator/BridgeTopUpProgressDialog.tsx";
+
+@layer hb-base {
+	.hb-ui,
+	.hb-ui *,
+	.hb-ui ::before,
+	.hb-ui ::after {
+		box-sizing: border-box;
+		margin: 0;
+		padding: 0;
+		border: 0 solid;
+	}
+
+	.hb-ui :is(ul, ol) {
+		list-style: none;
+	}
+
+	.hb-ui a {
+		color: inherit;
+		text-decoration: inherit;
+	}
+
+	.hb-ui button {
+		font: inherit;
+		color: inherit;
+		background: transparent;
+		cursor: pointer;
+	}
+
+	.hb-ui :is(img, svg) {
+		display: block;
+		max-width: 100%;
+	}
+
+	.hb-ui :is(h1, h2, h3, h4, p) {
+		font: inherit;
+	}
+}
+
+/*
+ * Simplex's unlayered element rules give way to the layers above, inside the dialog only.
+ * SVG is left alone: its drawing attributes would be reverted with everything else.
+ */
+.hb-ui.hb-ui *:not(svg, svg *),
+.hb-ui.hb-ui *:not(svg, svg *):is(:hover, :active, :focus, :focus-visible, :disabled) {
+	all: revert-layer;
+}
+
+/* The package's brand tokens, from @hyperbridge/ui/styles/base.css. */
+@theme {
+  /* Fonts */
+  --font-heading: "Novatica", "sans-serif";
+  --font-heading-alt: "Aeonik", "sans-serif";
+  --font-mono: "AeonikMono", "sans-serif";
+  --font-sans: "Aeonik", "sans-serif";
+
+  /* Colors */
+  --color-primary: oklch(57.27% 0.222 263);
+  --color-foreground: #ffffff;
+  --color-muted-foreground: #929daa;
+
+  --color-background: #131417;
+
+  --color-brand-neutral-200: #c3c6cc;
+  --color-brand-white-400: oklch(0.9551 0 0);
+  --color-brand-white-500: oklch(1 0 0);
+
+  --color-brand-black-100: oklch(0.6914 0.0229 252.57);
+  --color-brand-black-200: oklch(0.3772 0.0245 272.64);
+  --color-brand-black-300: oklch(0.3227 0.02 273.23);
+  --color-brand-black-350: oklch(0.2593 0.0144 261.67);
+  --color-brand-black-500: oklch(0.243 0.0123 264.31);
+  --color-brand-black-550: oklch(0.2212 0.0108 260.68);
+  --color-brand-black-600: oklch(0.1915 0.0062 271.08);
+
+  --color-brand-success-400: oklch(0.8939 0.2249 141.13);
+
+  --color-brand-danger-200: oklch(0.2351 0.0411 340.53);
+  --color-brand-danger-500: oklch(0.6586 0.231 15.83);
+
+  --color-brand-warning-500: oklch(0.8372 0.171 85.15);
+
+  --color-brand-card-100: oklch(0.2939 0.0169 270.78);
+
+  /* Text */
+  /*
+    --text-tiny: 0.625rem;
+    --text-tiny--font-weight: 500;
+    --text-tiny--line-height: 1.5rem;
+    --text-tiny--letter-spacing: 0.125rem;
+    */
+  --text-display: 4.5rem;
+  --text-display--line-height: 120%;
+
+  --text-h1: 3.5rem;
+  --text-h1--line-height: 110%;
+
+  --text-h2: 3rem;
+  --text-h2--line-height: 120%;
+
+  --text-h3: 2.375rem;
+  --text-h3--line-height: 120%;
+
+  --text-h4: 2rem;
+  --text-h4--line-height: 120%;
+
+  --text-h5: 1.75rem;
+  --text-h5--line-height: 2.25rem;
+
+  --text-h6: 1.5rem;
+  --text-h6--line-height: 2rem;
+
+  --text-h7: 1.25rem;
+
+  --text-title: 1.125rem;
+
+  --text-body: 1rem;
+  --text-body--line-height: 1.25rem;
+
+  --text-body-2: 0.875rem;
+
+  --text-caption: 0.75rem;
+  --text-caption--line-height: 1rem;
+
+  --text-caption-2: 0.6875rem;
+  --text-caption-2--line-height: 1rem;
+
+  /* End Text */
+
+  /* Breakpoints */
+  --breakpoint-3xl: 120rem;
+
+  /* Gradients */
+  --gradient-brand: linear-gradient(
+    90deg,
+    #ffffff 0%,
+    #ffffff 10%,
+    #4adeff 29.71%,
+    #ff35eb 78.68%,
+    #ffed4a 100%
+  );
+
+  /* Breakpoints */
+  --breakpoint-3xl: 120rem;
+
+  /* Animations */
+  --ease-fluid: cubic-bezier(0.3, 0, 0, 1);
+  --ease-snappy: cubic-bezier(0.2, 0, 0, 1);
+}
+
+/* The package's dialog surface, from @hyperbridge/ui/styles/base.css. */
+@layer utilities {
+	.superellipse {
+		border-radius: var(--superellipse-radius);
+	}
+
+	.superellipse-base {
+		--superellipse-radius: 1rem;
+	}
+
+	.superellipse-sm {
+		--superellipse-radius: 0.75rem;
+	}
+
+	.tile-bg {
+		background-color: transparent;
+		background-image: radial-gradient(transparent 1px, #0000006e 1px);
+		background-size: 8px 8px;
+		backdrop-filter: brightness(1) blur(6px);
+	}
+}
+
+/*
+ * The timeline row's caption box is a fixed 1.25rem tall and clips its overflow, while its
+ * `md:!text-base` sets a 1.5rem line height that pushes descenders (the g in "Placing") past
+ * it. That line height is `!important` inside a layer, which nothing unlayered can beat, but
+ * it reads Tailwind's `--tw-leading` first.
+ */
+.hb-ui li[data-process-status] .truncate {
+	--tw-leading: 1.25rem;
+}
+
+/* A row's description stays on one line, ellipsised, beside its countdown or duration. */
+.hb-ui li[data-process-status] .flex-1 {
+	min-width: 0;
+}
+
+.hb-ui li[data-process-status] .flex-1 > :last-child {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+/*
+ * A failed step, as the Hyperbridge app shows one: a red caption and an alert mark where a
+ * finished step has its check. The library row draws neither.
+ */
+.hb-ui li[data-process-status="error"] .truncate {
+	color: var(--color-brand-danger-500);
+}
+
+.hb-ui li[data-process-status="error"] > div::after {
+	flex-shrink: 0;
+	width: 1rem;
+	height: 1rem;
+	background-color: var(--color-brand-danger-500);
+	content: "";
+	mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='12' r='10'/%3E%3Cline x1='12' x2='12' y1='8' y2='12'/%3E%3Cline x1='12' x2='12.01' y1='16' y2='16'/%3E%3C/svg%3E")
+		center / contain no-repeat;
+}

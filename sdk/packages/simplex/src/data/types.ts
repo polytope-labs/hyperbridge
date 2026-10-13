@@ -1,3 +1,6 @@
+import type { HexString } from "@hyperbridge/sdk"
+import type { BridgeTopUpStage, TopUpPayToken } from "@/services/BridgeTopUp"
+
 /**
  * The persistence contract for a running filler.
  *
@@ -19,6 +22,8 @@ export interface SimplexDataStore {
 	state: StateStore
 	limitOrders: LimitOrderStore
 	inventory: InventoryStore
+	/** Directory the store keeps its files in; absent for an in-memory store. */
+	readonly dataDir?: string
 	/** Releases any underlying handles. Called by `Simplex.stop()`. */
 	close?(): Promise<void>
 }
@@ -555,6 +560,87 @@ export interface RuntimeState {
 	paused?: boolean
 	/** Notification rules, browser subscriptions, and the per-installation VAPID identity. */
 	notifications?: NotificationRuntimeState
+	/** The latest BRIDGE top-up, kept so an open order is resumed or reclaimed after a restart. */
+	bridgeTopUp?: StoredBridgeTopUp
+}
+
+export interface StoredBridgeTopUp {
+	id: string
+	/** Source state machine id the order was placed on. */
+	chain: string
+	token: TopUpPayToken
+	amountIn: string
+	bridgeOut: string
+	stage: BridgeTopUpStage
+	createdAt: number
+	updatedAt: number
+	/** The order as placed, bigints encoded by `serializeOrder`. */
+	order: string
+	/** Signs the order's bid selection; it authorizes nothing beyond this order. */
+	sessionPrivateKey?: HexString
+	commitment?: HexString
+	placeTxHash?: HexString
+	fillTxHash?: HexString
+	reclaimTxHash?: HexString
+	/** The HyperFungibleToken request that carries the BRIDGE to Hyperbridge. */
+	deliveryCommitment?: HexString
+	/** The Hyperbridge extrinsic that delivered it, when this filler relayed it. */
+	deliveryTxHash?: HexString
+	/** Bids seen for the order. */
+	bidCount?: number
+	/** When each stage was entered, in ms. */
+	stageTimes?: Partial<Record<BridgeTopUpStage, number>>
+	/** What the order's executor reported, oldest first: bids, the selection and the fill. */
+	events?: TopUpExecutionEvent[]
+	/** The solver that filled the order, from the executor or the indexer. */
+	filler?: HexString
+	/** The BRIDGE request's progress from BSC into Hyperbridge, from the indexer. */
+	deliveryStatuses?: DeliveryStatus[]
+	/** The unfilled order's recovery, step by step, as the SDK's cancel flow reported it. */
+	recoverySteps?: RecoveryStepRecord[]
+	/** Hyperbridge's finalized response, which refunds the escrow when submitted on the source. */
+	claimCalldata?: HexString
+	/** The filler's own refund claim, when no relayer delivered it in time. */
+	claimTxHash?: HexString
+	error?: string
+}
+
+export interface RecoveryStepRecord {
+	step:
+		| "DESTINATION_FINALIZED"
+		| "ORDER_CANCELED"
+		| "SOURCE_FINALIZED"
+		| "HYPERBRIDGE_DELIVERED"
+		| "HYPERBRIDGE_FINALIZED"
+		| "FUNDS_CLAIMED"
+	/** When the step completed, in ms. */
+	timestamp: number
+	txHash?: HexString
+}
+
+export interface DeliveryStatus {
+	/** Dispatched on BSC, BSC final on Hyperbridge, delivered to Hyperbridge. */
+	status: "SOURCE" | "SOURCE_FINALIZED" | "DESTINATION"
+	/** In ms. */
+	timestamp: number
+	txHash: HexString
+}
+
+export interface TopUpBidPreview {
+	solverAddress: HexString
+	/** Output budgets as raw token units, the token as bytes32. */
+	outputs: { token: HexString; amount: string }[]
+}
+
+export interface TopUpExecutionEvent {
+	status: "NEW_BID" | "BIDS_RECEIVED" | "BID_SELECTED" | "FILLED"
+	/** When the filler saw it, in ms. */
+	timestamp: number
+	bidCount?: number
+	bids?: TopUpBidPreview[]
+	selectedSolver?: HexString
+	userOpHash?: HexString
+	txHash?: HexString
 }
 
 export interface NotificationSettings {

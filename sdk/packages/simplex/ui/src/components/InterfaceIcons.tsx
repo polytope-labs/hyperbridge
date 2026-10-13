@@ -136,3 +136,29 @@ export function ChevronRightIcon(props: IconProps) {
 		</svg>
 	)
 }
+
+export function SearchIcon(props: IconProps) {
+	return (
+		<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.8" {...props}>
+			<circle cx="9" cy="9" r="5.25" />
+			<path d="m13 13 3.5 3.5" strokeLinecap="round" />
+		</svg>
+	)
+}
+
+export function RefreshIcon(props: IconProps) {
+	return (
+		<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.7" {...props}>
+			<path d="M15.5 9.5a5.5 5.5 0 1 1-1.6-3.9" strokeLinecap="round" />
+			<path d="M15.75 3.75v3h-3" strokeLinecap="round" strokeLinejoin="round" />
+		</svg>
+	)
+}
+
+export function MinusIcon(props: IconProps) {
+	return (
+		<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.8" {...props}>
+			<path d="M5 10h10" strokeLinecap="round" />
+		</svg>
+	)
+}

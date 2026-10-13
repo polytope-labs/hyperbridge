@@ -2969,3 +2969,420 @@ button.limit-order-side[data-side="ASK"]:hover:not(.is-selected) {
 	font-variant-numeric: tabular-nums;
 	font-weight: 400;
 }
+
+/* A summary cell's figure with an action beside it: the BRIDGE balance and its Top up. */
+.operator-metric-label {
+	display: flex;
+	align-items: center;
+	gap: 0.5rem;
+	min-width: 0;
+}
+
+.operator-metric-label > span {
+	white-space: nowrap;
+}
+
+.operator-metrics button.operator-metric-action {
+	flex-shrink: 0;
+	min-height: 0;
+	padding: 0.1rem 0.55rem;
+	border-radius: 999px;
+	font-size: 0.6875rem;
+	line-height: 1.4;
+}
+
+.bridge-top-up-presets {
+	display: flex;
+	gap: 0.5rem;
+}
+
+.bridge-top-up-presets button {
+	flex: 1;
+}
+
+.bridge-top-up-presets button.active {
+	border-color: var(--text-secondary);
+	color: var(--text);
+}
+
+.operator-metrics button.operator-metric-action[data-pending] {
+	border-color: var(--warn);
+	color: var(--warn);
+}
+
+.sr-only {
+	position: absolute;
+	width: 1px;
+	height: 1px;
+	overflow: hidden;
+	clip: rect(0 0 0 0);
+	white-space: nowrap;
+}
+
+/* The top-up's "Pay with": the chosen token on its network, opening the picker. */
+.market-dialog.bridge-top-up-dialog {
+	width: min(32rem, calc(100vw - 2rem));
+}
+
+.token-picker-trigger {
+	display: flex;
+	align-items: center;
+	justify-content: flex-start;
+	gap: 0.85rem;
+	width: 100%;
+	padding: 0.75rem 0.9rem;
+	border: 1px solid var(--border-strong);
+	border-radius: 0.75rem;
+	background: var(--control);
+	color: var(--text);
+	text-align: left;
+	cursor: pointer;
+}
+
+.token-picker-trigger:disabled {
+	cursor: default;
+}
+
+.token-picker-trigger:hover:not(:disabled) {
+	border-color: var(--text-secondary);
+}
+
+.token-picker-trigger:focus-visible {
+	outline: 2px solid var(--focus);
+	outline-offset: 2px;
+}
+
+.token-picker-trigger > svg {
+	width: 1rem;
+	height: 1rem;
+	margin-left: auto;
+	color: var(--muted);
+}
+
+/* Two-pane token and network picker. On phones it is a drawer, which positions itself. */
+.token-picker:not(.drawer-popup) {
+	position: fixed;
+	top: 50%;
+	left: 50%;
+	z-index: 53;
+	display: grid;
+	grid-template-rows: minmax(0, 1fr) auto;
+	width: min(48rem, calc(100vw - 2rem));
+	height: min(36rem, calc(100dvh - 2rem));
+	transform: translate(-50%, -50%);
+	overflow: hidden;
+	border: 1px solid var(--border-strong);
+	border-radius: 1.1rem;
+	background: var(--bg);
+	color: var(--text);
+	box-shadow: 0 2rem 6rem rgba(0, 0, 0, 0.55);
+}
+
+.token-picker-panes {
+	display: grid;
+	grid-template-columns: minmax(13rem, 18rem) minmax(0, 1fr);
+	min-height: 0;
+}
+
+.token-picker-networks,
+.token-picker-tokens {
+	display: flex;
+	flex-direction: column;
+	min-height: 0;
+	padding: 1.25rem;
+}
+
+.token-picker-networks {
+	border-right: 1px solid var(--border);
+}
+
+.token-picker-panes h3 {
+	margin: 1.4rem 0 0.6rem;
+	color: var(--muted);
+	font-size: 0.75rem;
+	font-weight: 500;
+}
+
+.token-picker-panes ul {
+	display: grid;
+	align-content: start;
+	gap: 0.35rem;
+	margin: 0;
+	padding: 0;
+	overflow-y: auto;
+	list-style: none;
+}
+
+.token-picker-search {
+	display: flex;
+	align-items: center;
+	gap: 0.55rem;
+	padding: 0.7rem 0.85rem;
+	border-radius: 0.6rem;
+	background: var(--card);
+	color: var(--muted);
+}
+
+.token-picker-search svg {
+	flex-shrink: 0;
+	width: 1rem;
+	height: 1rem;
+}
+
+.token-picker-search input {
+	width: 100%;
+	min-width: 0;
+	padding: 0;
+	border: 0;
+	outline: 0;
+	background: transparent;
+	color: var(--text);
+	font: inherit;
+	font-size: 0.8125rem;
+}
+
+.token-picker-search:focus-within {
+	box-shadow: 0 0 0 1px var(--border-strong);
+}
+
+.token-picker-network,
+.token-picker-token {
+	display: flex;
+	align-items: center;
+	justify-content: flex-start;
+	gap: 0.85rem;
+	width: 100%;
+	padding: 0.75rem 0.8rem;
+	border: 1px solid transparent;
+	border-radius: 0.65rem;
+	background: transparent;
+	color: var(--text);
+	font: inherit;
+	text-align: left;
+	cursor: pointer;
+}
+
+.token-picker-network:hover,
+.token-picker-token:hover {
+	background: var(--card);
+}
+
+.token-picker-network:focus-visible,
+.token-picker-token:focus-visible {
+	outline: 2px solid var(--focus);
+	outline-offset: -2px;
+}
+
+.token-picker-network[aria-pressed="true"] {
+	border-color: rgba(116, 233, 152, 0.28);
+	background: rgba(116, 233, 152, 0.06);
+}
+
+.token-picker-token[aria-pressed="true"] {
+	background: var(--card);
+}
+
+.token-picker-network .chain-logo {
+	width: 1.75rem;
+	height: 1.75rem;
+}
+
+.token-picker-network > span:not(.token-picker-check) {
+	font-size: 0.875rem;
+	font-weight: 500;
+}
+
+.token-picker-check {
+	display: grid;
+	place-items: center;
+	width: 1.3rem;
+	height: 1.3rem;
+	margin-left: auto;
+	border-radius: 50%;
+	background: var(--ok);
+	color: var(--accent-text);
+}
+
+.token-picker-check svg {
+	width: 0.8rem;
+	height: 0.8rem;
+}
+
+.token-picker-token .send-review-asset {
+	flex-shrink: 0;
+}
+
+.token-picker-token-name {
+	display: grid;
+	gap: 0.2rem;
+	min-width: 0;
+}
+
+.token-picker-token-name strong {
+	font-size: 0.875rem;
+	font-weight: 500;
+}
+
+.token-picker-token-name small,
+.token-picker-token-name > span,
+.token-picker-token-balance > span {
+	color: var(--muted);
+	font-size: 0.75rem;
+	font-weight: 400;
+}
+
+.token-picker-token-balance {
+	display: grid;
+	gap: 0.2rem;
+	margin-left: auto;
+	text-align: right;
+}
+
+.token-picker-token-balance strong {
+	font-size: 0.875rem;
+	font-weight: 500;
+}
+
+.token-picker-empty {
+	padding: 0.75rem 0.8rem;
+	color: var(--muted);
+	font-size: 0.8125rem;
+}
+
+.token-picker-footer {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 1rem;
+	padding: 0.9rem 1.25rem;
+	border-top: 1px solid var(--border);
+	color: var(--muted);
+	font-size: 0.75rem;
+}
+
+.token-picker-keys {
+	display: flex;
+	align-items: center;
+	gap: 0.45rem;
+}
+
+.token-picker-keys kbd {
+	margin-right: 0.6rem;
+	padding: 0.15rem 0.45rem;
+	border-radius: 0.3rem;
+	background: var(--card);
+	color: var(--text-secondary);
+	font-family: var(--font-mono);
+	font-size: 0.6875rem;
+}
+
+.token-picker-keys kbd:last-child {
+	margin-right: 0;
+}
+
+.token-picker.drawer-popup .token-picker-panes {
+	max-height: 75dvh;
+}
+
+@media (max-width: 600px) {
+	.token-picker-panes {
+		grid-template-columns: minmax(0, 1fr);
+		overflow-y: auto;
+	}
+
+	.token-picker-networks {
+		padding-bottom: 0;
+		border-right: 0;
+	}
+
+	.token-picker-networks ul {
+		display: flex;
+		overflow-x: auto;
+	}
+
+	.token-picker-network {
+		width: auto;
+		white-space: nowrap;
+	}
+
+	.token-picker-footer {
+		display: none;
+	}
+}
+
+.token-picker-loading {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.6rem;
+	color: var(--muted);
+	font-size: 0.875rem;
+}
+
+.inline-spinner {
+	display: inline-block;
+	flex: none;
+	width: 0.9rem;
+	height: 0.9rem;
+	border: 2px solid var(--border-strong);
+	border-top-color: var(--text-secondary);
+	border-radius: 50%;
+	vertical-align: middle;
+	animation: inline-spin 700ms linear infinite;
+}
+
+@keyframes inline-spin {
+	to {
+		transform: rotate(360deg);
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.inline-spinner {
+		animation-duration: 2s;
+	}
+}
+
+/* An input's own problem, directly under it rather than among the form's notes. */
+.bridge-top-up .field-error {
+	color: var(--err);
+	font-size: 0.75rem;
+}
+
+.bridge-top-up input[aria-invalid="true"] {
+	border-color: var(--err);
+}
+
+/* Wallet and spendable balance side by side, compact, with the reserve explained on demand. */
+.bridge-top-up-balances {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.5rem;
+}
+
+.bridge-top-up-balances-divider {
+	width: 1px;
+	height: 0.8rem;
+	background: var(--border-strong);
+}
+
+.bridge-top-up-refresh[data-refreshing] svg {
+	animation: inline-spin 700ms linear infinite;
+}
+
+.bridge-top-up-refresh:disabled {
+	opacity: 1;
+	cursor: default;
+}
+
+/*
+ * The amount field is a div (a wrapping <label> would pass hover and clicks to the info
+ * button), and `.field > span:first-child` would then make its label row a block.
+ */
+.bridge-top-up .field > .field-label {
+	display: flex;
+}
+
+.bridge-top-up .field-label > label {
+	color: inherit;
+	font: inherit;
+}

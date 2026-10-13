@@ -12,10 +12,16 @@ function run(command, args, input) {
 }
 function readProvisioningProfile(path) {
 	const xml = run("security", ["cms", "-D", "-i", path])
+	// Older plutil versions reject JSON extraction when the enclosing profile
+	// contains binary/date metadata. Isolate each XML subtree before conversion.
+	const jsonField = (key) => {
+		const field = run("plutil", ["-extract", key, "xml1", "-o", "-", "-"], xml)
+		return JSON.parse(run("plutil", ["-convert", "json", "-o", "-", "-"], field))
+	}
 	return {
-		entitlements: JSON.parse(run("plutil", ["-extract", "Entitlements", "json", "-o", "-", "-"], xml)),
-		teams: JSON.parse(run("plutil", ["-extract", "TeamIdentifier", "json", "-o", "-", "-"], xml)),
-		platforms: JSON.parse(run("plutil", ["-extract", "Platform", "json", "-o", "-", "-"], xml)),
+		entitlements: jsonField("Entitlements"),
+		teams: jsonField("TeamIdentifier"),
+		platforms: jsonField("Platform"),
 		provisionsAllDevices:
 			run("plutil", ["-extract", "ProvisionsAllDevices", "raw", "-o", "-", "-"], xml) === "true",
 		expiresAt: run("plutil", ["-extract", "ExpirationDate", "raw", "-o", "-", "-"], xml),
@@ -53,6 +59,7 @@ function validateMacPasskeyProfile(profile, { rpId, teamId }, now = Date.now()) 
 	if (!profile.provisionsAllDevices || !profile.platforms?.includes("OSX"))
 		throw new Error("Native passkey releases require a macOS Developer ID distribution profile")
 	// A Developer ID profile grants every domain as the plain string "*", not a list.
+	// The app's generated entitlement still contains only its explicit webcredentials RP.
 	const domains = e["com.apple.developer.associated-domains"]
 	const authorized =
 		domains === "*" ||

@@ -9,7 +9,6 @@ type AccessState = {
 	passkeyAvailable: boolean
 	passkeyEnabled: boolean
 	passkeyMechanism?: string
-	passkeyUnavailableReason?: string
 	passkeyMigrationRequired?: boolean
 	passkeyEnrollmentAvailable?: boolean
 	passwordEnabled: boolean
@@ -249,16 +248,6 @@ function RestartConsent({
 	) : null
 }
 
-function MacEnrollmentNotice({ access }: { access: AccessState }) {
-	if (access.passkeyMechanism !== "native-macos") return null
-	return (
-		<p className="hint" role="note">
-			Your Mac will ask you to create the passkey, then confirm it in a second prompt. After setup, use this
-			version of Simplex or newer. Older versions cannot open this profile.
-		</p>
-	)
-}
-
 function Login({ access, perform, forgot }: { access: AccessState; perform: Perform; forgot(): void }) {
 	const creating = access.mode === "create"
 	const [password, setPassword] = useState("")
@@ -271,8 +260,8 @@ function Login({ access, perform, forgot }: { access: AccessState; perform: Perf
 		setPassword("")
 		setConfirmation("")
 	}
-	const passkeyFirst = (selectedMethod ?? preferredAccessMethod(access)) === "passkey"
-	if (passkeyFirst)
+	const passkeyFirst = access.passkeyAvailable && (selectedMethod ?? preferredAccessMethod(access)) === "passkey"
+	if (passkeyFirst || (!creating && !access.passwordEnabled))
 		return (
 			<PasskeyLogin
 				access={access}
@@ -292,15 +281,8 @@ function Login({ access, perform, forgot }: { access: AccessState; perform: Perf
 		>
 			<h1>{creating ? "Create a password" : "Unlock Simplex"}</h1>
 			<p className="hint">
-				{creating
-					? "Keep your settings and wallet details safe on this device."
-					: "Enter your password to continue."}
+				{creating ? "Create a password to sign in to Simplex." : "Enter your password to continue."}
 			</p>
-			{access.passkeyMechanism === "native-macos" && access.passkeyUnavailableReason && (
-				<p className="hint" role="note">
-					{access.passkeyUnavailableReason}
-				</p>
-			)}
 			{!access.secureDeviceStorageAvailable && (
 				<p className="hint" role="note">
 					Secure key storage is unavailable. After a reboot or update, sign in to resume filling.
@@ -324,7 +306,6 @@ function Login({ access, perform, forgot }: { access: AccessState; perform: Perf
 						Create a passkey for future logins
 					</label>
 				)}
-			{usePasskey && <MacEnrollmentNotice access={access} />}
 			<RestartConsent required={access.needsRestart} checked={restartSolver} onChange={setRestartSolver} />
 			<button type="submit" className="primary" disabled={access.needsRestart && !restartSolver}>
 				{creating ? "Continue" : "Unlock"}
@@ -365,46 +346,53 @@ function PasskeyLogin({
 	forgot(): void
 }) {
 	const creating = access.mode === "create"
+	const recoveryOnly = !creating && !access.passkeyAvailable && !access.passwordEnabled
 	return (
 		<div className="desktop-unlock-panel">
 			<h1>{creating ? "Create a passkey" : "Unlock Simplex"}</h1>
-			{creating && (
-				<p className="hint">
-					{access.passkeyMechanism === "native-macos"
-						? "Use a passkey with your Mac’s native verification prompt."
-						: "Sign in with Touch ID or Windows Hello."}
-				</p>
+			<p className="hint">
+				{creating
+					? "Create a passkey to sign in to Simplex."
+					: recoveryOnly
+						? "Use your recovery code to continue."
+						: "Use your passkey to continue."}
+			</p>
+			{access.passkeyAvailable && (
+				<RestartConsent required={access.needsRestart} checked={restartSolver} onChange={setRestartSolver} />
 			)}
-			{creating && <MacEnrollmentNotice access={access} />}
-			{!access.passkeyAvailable && (
-				<p className="hint" role="note">
-					{access.passkeyUnavailableReason ??
-						"Passkey or secure key storage is unavailable on this device. Use your recovery code or another sign-in method."}
-				</p>
-			)}
-			<RestartConsent required={access.needsRestart} checked={restartSolver} onChange={setRestartSolver} />
-			<div className="desktop-unlock-actions">
-				<button
-					type="button"
-					className="primary"
-					disabled={!access.passkeyAvailable || (access.needsRestart && !restartSolver)}
-					onClick={() => void unlock(creating ? "create-passkey" : "passkey")}
-				>
-					{creating ? "Create passkey" : "Unlock with passkey"}
-				</button>
-			</div>
-			<div className="desktop-unlock-links">
-				{(creating || access.passwordEnabled) && (
-					<button type="button" className="desktop-password-alternative" onClick={choosePassword}>
-						Use a password instead
+			{access.passkeyAvailable && (
+				<div className="desktop-unlock-actions">
+					<button
+						type="button"
+						className="primary"
+						disabled={access.needsRestart && !restartSolver}
+						onClick={() => void unlock(creating ? "create-passkey" : "passkey")}
+					>
+						{creating ? "Create passkey" : "Unlock with passkey"}
 					</button>
-				)}
-				{!creating && (
-					<button type="button" className="desktop-password-alternative" onClick={forgot}>
+				</div>
+			)}
+			{recoveryOnly && (
+				<div className="desktop-unlock-actions">
+					<button type="button" className="primary" onClick={forgot}>
 						Recover access
 					</button>
-				)}
-			</div>
+				</div>
+			)}
+			{!recoveryOnly && (
+				<div className="desktop-unlock-links">
+					{(creating || access.passwordEnabled) && (
+						<button type="button" className="desktop-password-alternative" onClick={choosePassword}>
+							Use a password instead
+						</button>
+					)}
+					{!creating && (
+						<button type="button" className="desktop-password-alternative" onClick={forgot}>
+							Recover access
+						</button>
+					)}
+				</div>
+			)}
 		</div>
 	)
 }
@@ -470,7 +458,6 @@ function NewPassword({ access, perform, cancel }: { access: AccessState; perform
 			<div className="desktop-unlock-panel">
 				<h1>Create a replacement passkey</h1>
 				<p className="hint">This replaces your current passkey.</p>
-				<MacEnrollmentNotice access={access} />
 				<RestartConsent required={access.needsRestart} checked={restartSolver} onChange={setRestartSolver} />
 				<div className="desktop-unlock-actions">
 					<button

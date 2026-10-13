@@ -8,9 +8,9 @@
 .desktop-unlock > .card {
 	display: grid;
 	gap: 1.25rem;
-	width: min(100%, 26rem);
+	width: min(100%, 28rem);
 	margin: 0;
-	padding: 2.25rem;
+	padding: 2rem;
 	border-radius: 1.25rem;
 	box-shadow: 0 24px 64px rgba(0, 0, 0, 0.35);
 }
@@ -42,6 +42,7 @@
 
 .desktop-unlock-links {
 	display: flex;
+	flex-wrap: wrap;
 	justify-content: center;
 	gap: 1.5rem;
 }

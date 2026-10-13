@@ -85,8 +85,7 @@ the replacement recovery code. Old/orphan provider entries may remain; replaceme
 does not revoke old metadata backups. **Do not downgrade after native enrollment.**
 Older binaries cannot read v4, including its password and recovery wrappers. The
 updater disables downgrades; for a manually downgraded installation, reinstall a
-compatible build before using password or recovery. Enrollment warns about this
-requirement before changing the profile.
+compatible build before using password or recovery.
 
 The configuration key and wallet address do not change during migration. Restoring
 on another Mac/account requires both vault/configuration files and recovery; a synced

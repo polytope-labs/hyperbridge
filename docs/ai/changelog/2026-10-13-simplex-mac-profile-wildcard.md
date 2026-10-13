@@ -9,6 +9,10 @@ Generated app entitlements still contain only `webcredentials:passkeys.hyperfx.f
 by default, or the explicitly configured RP ID. Team, application identifier,
 expiration, and Developer ID distribution checks still apply.
 
+The profile reader extracts required fields as XML before converting those fields
+to JSON. This supports older macOS `plutil` versions when profiles contain binary
+certificates, DER data, or date metadata outside the selected fields.
+
 Desktop sign-in shows passkey actions only when they are available. Otherwise,
 profiles with a password show password sign-in; passkey-only profiles retain
 recovery access. Build signing and provisioning diagnostics are not rendered in

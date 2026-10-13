@@ -301,8 +301,8 @@ updater SHA-512, and validates the exact asset set. The macOS jobs additionally 
 Electron helpers, bundled Node, and DMG to have the expected Developer ID team, the app, helpers, and
 Node to have exactly the two JIT entitlements, the app and DMG to pass Gatekeeper assessment, and the app to have a stapled
 notarization ticket. The signed DMG is separately submitted to `notarytool` as the outer distribution
-container and must also carry a valid stapled ticket. The Windows job
-requires valid, timestamped Authenticode signatures from the configured publisher on every packaged
+container and must also carry a valid stapled ticket. When Windows signing is configured, the Windows
+job requires valid, timestamped Authenticode signatures from the configured publisher on every packaged
 executable, including `Simplex.exe`, the bundled `node.exe`, and the NSIS installer.
 
 Only after every native job passes does CI publish the GitHub release. A failed upload remains a draft,
@@ -326,8 +326,10 @@ Store these as secrets in a GitHub Actions environment named `simplex-desktop-re
 - `SIMPLEX_APPLE_API_KEY_P8_BASE64`: base64-encoded App Store Connect API `.p8` key;
 - `SIMPLEX_APPLE_API_KEY_ID`, `SIMPLEX_APPLE_API_ISSUER`, and `SIMPLEX_APPLE_TEAM_ID`.
 
-Windows releases use Azure Trusted Signing. Store its workload identity as secrets in the same
-`simplex-desktop-release` environment:
+Windows releases are signed with Azure Trusted Signing once `SIMPLEX_AZURE_SIGNING_ENDPOINT` is set.
+Until then the Windows build ships unsigned. SmartScreen warns on install, and the installed app keeps
+automatic updates off because it names no trusted publisher. Store the Trusted Signing workload
+identity as secrets in the same `simplex-desktop-release` environment:
 
 - `SIMPLEX_AZURE_TENANT_ID`;
 - `SIMPLEX_AZURE_CLIENT_ID`;

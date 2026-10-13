@@ -233,7 +233,9 @@ jobs:
       - name: Build signed installers and updater metadata
         if: needs.prepare.outputs.sign_artifacts == 'true'
         env:
-          SIMPLEX_DESKTOP_SIGN_RELEASE: "true"
+          # Windows is signed once Azure Trusted Signing is configured. Until then it ships unsigned,
+          # and the installed app keeps auto-updates off because it names no trusted publisher.
+          SIMPLEX_DESKTOP_SIGN_RELEASE: ${{ runner.os == 'Windows' && vars.SIMPLEX_AZURE_SIGNING_ENDPOINT == '' && 'false' || 'true' }}
           SIMPLEX_PASSKEY_RP_ID: ${{ runner.os == 'macOS' && vars.SIMPLEX_PASSKEY_RP_ID || '' }}
           SIMPLEX_MACOS_PROVISIONING_PROFILE_PATH: ${{ runner.temp }}/simplex-passkeys.provisionprofile
           APPLE_API_KEY: ${{ runner.temp }}/simplex-notary-key.p8
@@ -287,7 +289,7 @@ jobs:
         run: node packages/simplex-desktop/scripts/verify-macos-signatures.mjs packages/simplex-desktop/release "$APPLE_TEAM_ID"
 
       - name: Verify Authenticode signatures and timestamps
-        if: needs.prepare.outputs.sign_artifacts == 'true' && runner.os == 'Windows'
+        if: needs.prepare.outputs.sign_artifacts == 'true' && runner.os == 'Windows' && vars.SIMPLEX_AZURE_SIGNING_ENDPOINT != ''
         shell: powershell
         env:
           SIMPLEX_WINDOWS_PUBLISHER_NAME: ${{ vars.SIMPLEX_WINDOWS_PUBLISHER_NAME }}
@@ -297,7 +299,7 @@ jobs:
           -PublisherName "$env:SIMPLEX_WINDOWS_PUBLISHER_NAME"
 
       - name: Verify Windows updater publisher
-        if: needs.prepare.outputs.sign_artifacts == 'true' && runner.os == 'Windows'
+        if: needs.prepare.outputs.sign_artifacts == 'true' && runner.os == 'Windows' && vars.SIMPLEX_AZURE_SIGNING_ENDPOINT != ''
         shell: pwsh
         env:
           SIMPLEX_WINDOWS_PUBLISHER_NAME: ${{ vars.SIMPLEX_WINDOWS_PUBLISHER_NAME }}

@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { notarytoolArguments } from "./notarize-macos-dmg.mjs"
+import { notarytoolArguments, stapleDmg } from "./notarize-macos-dmg.mjs"
 import { entitlementKeys, teamIdentifier } from "./verify-macos-signatures.mjs"
 import { assertWindowsUpdatePublisher, verifyWindowsUpdateConfig } from "./verify-windows-update-config.mjs"
 
@@ -159,6 +159,34 @@ describe("desktop release signing", () => {
 			"--output-format",
 			"json",
 		])
+	})
+
+	it("retries stapling when Apple's ticket server drops the connection", async () => {
+		const runCommand = vi
+			.fn()
+			.mockImplementationOnce(() => {
+				throw new Error("The network connection was lost.")
+			})
+			.mockReturnValueOnce("The staple and validate action worked!")
+		const sleep = vi.fn().mockResolvedValue(undefined)
+		await expect(stapleDmg("/release/Simplex.dmg", { runCommand, sleep, delayMs: 1 })).resolves.toBe(
+			"The staple and validate action worked!",
+		)
+		expect(runCommand).toHaveBeenCalledTimes(2)
+		expect(runCommand).toHaveBeenCalledWith("xcrun", ["stapler", "staple", "-v", "/release/Simplex.dmg"])
+		expect(sleep).toHaveBeenCalledTimes(1)
+	})
+
+	it("gives up after the last stapling attempt", async () => {
+		const runCommand = vi.fn(() => {
+			throw new Error("The network connection was lost.")
+		})
+		const sleep = vi.fn().mockResolvedValue(undefined)
+		await expect(stapleDmg("/release/Simplex.dmg", { attempts: 3, runCommand, sleep })).rejects.toThrow(
+			"The network connection was lost.",
+		)
+		expect(runCommand).toHaveBeenCalledTimes(3)
+		expect(sleep).toHaveBeenCalledTimes(2)
 	})
 
 	it("accepts only Azure Trusted Signing service endpoints", () => {

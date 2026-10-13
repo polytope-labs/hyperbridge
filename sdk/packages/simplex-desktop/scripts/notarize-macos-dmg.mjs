@@ -35,6 +35,24 @@ export function notarytoolArguments(dmg, env = process.env) {
 	]
 }
 
+/**
+ * Staples the notarization ticket to the DMG. The ticket comes from Apple's
+ * CloudKit endpoint, which sometimes drops the connection, so a failed
+ * attempt is retried after a pause.
+ */
+export async function stapleDmg(dmg, { attempts = 5, delayMs = 30_000, runCommand = run, sleep } = {}) {
+	const pause = sleep ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms)))
+	for (let attempt = 1; ; attempt++) {
+		try {
+			return runCommand("xcrun", ["stapler", "staple", "-v", dmg])
+		} catch (error) {
+			if (attempt >= attempts) throw error
+			process.stderr.write(`Stapling attempt ${attempt} of ${attempts} failed; retrying in ${delayMs / 1000}s\n`)
+			await pause(delayMs)
+		}
+	}
+}
+
 async function findDmg(root) {
 	const matches = (await readdir(root, { withFileTypes: true }))
 		.filter((entry) => entry.isFile() && entry.name.endsWith(".dmg"))
@@ -55,7 +73,7 @@ export async function notarizeMacDmg(root, env = process.env) {
 	if (result.status !== "Accepted") {
 		throw new Error(`Apple rejected ${dmg}: ${result.status ?? "unknown status"} (${result.id ?? "no id"})`)
 	}
-	run("xcrun", ["stapler", "staple", "-v", dmg])
+	await stapleDmg(dmg)
 	return { dmg, submissionId: result.id }
 }
 

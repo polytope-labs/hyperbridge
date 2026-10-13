@@ -176,17 +176,6 @@ async function assertPackagedOnboarding(socketPath, userData) {
 			substratePrivateKey: "bottom drive obey lake curtain smoke basket hold race lonely fit walk",
 			hyperbridgeWsUrl: "ws://127.0.0.1:9",
 		},
-		pairs: [
-			{
-				token0: "USDC",
-				token1: "USDC",
-				maxOrderSize: "100000",
-				askPriceCurve: [
-					{ amount: "100", price: "0.99" },
-					{ amount: "100000", price: "0.999" },
-				],
-			},
-		],
 		chains: [{ rpcUrls: ["http://127.0.0.1:9"] }],
 		orderbook: { url: "https://orderbook.example/graphql" },
 	}

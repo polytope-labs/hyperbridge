@@ -19,6 +19,23 @@ describe("Mac passkey distribution identity", () => {
 	it("uses the authorized application prefix independently of the signing team", () => {
 		expect(validateMacPasskeyProfile(profile(), policy)).toBe("PREFIX.network.hyperbridge.simplex")
 	})
+	it("accepts the wildcard as Apple writes it in a Developer ID profile: a string, not a list", () => {
+		const issued = {
+			...profile(),
+			entitlements: { ...profile().entitlements, "com.apple.developer.associated-domains": "*" },
+		}
+		expect(validateMacPasskeyProfile(issued, policy)).toBe("PREFIX.network.hyperbridge.simplex")
+	})
+	it("accepts a profile that lists the passkey domain itself", () => {
+		const listed = {
+			...profile(),
+			entitlements: {
+				...profile().entitlements,
+				"com.apple.developer.associated-domains": ["webcredentials:passkeys.example.com"],
+			},
+		}
+		expect(validateMacPasskeyProfile(listed, policy)).toBe("PREFIX.network.hyperbridge.simplex")
+	})
 	it("rejects wrong team, expired, development, App Store and mismatched domain profiles", () => {
 		const bad = [
 			{ ...profile(), teams: ["OTHER"] },

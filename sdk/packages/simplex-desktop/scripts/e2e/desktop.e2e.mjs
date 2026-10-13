@@ -284,7 +284,6 @@ function operatorFixture(socketPath, options = {}) {
 		orderbook: { url: "https://orderbook.example/graphql" },
 	}
 	const operator = {
-		strategies: [],
 		filler: {
 			pause() {},
 			resume() {},
@@ -321,7 +320,6 @@ function operatorFixture(socketPath, options = {}) {
 		startedAt: Date.now(),
 		configPath: join(dirname(socketPath), "filler-config.toml"),
 		chains: [],
-		strategyTypes: [],
 		// Every running filler has limit orders: they are what it prices from.
 		limitOrders: {
 			list: async () => [],

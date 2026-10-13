@@ -53,6 +53,7 @@ function validateMacPasskeyProfile(profile, { rpId, teamId }, now = Date.now()) 
 	if (!profile.provisionsAllDevices || !profile.platforms?.includes("OSX"))
 		throw new Error("Native passkey releases require a macOS Developer ID distribution profile")
 	// A Developer ID profile grants every domain as the plain string "*", not a list.
+	// The app's generated entitlement still contains only its explicit webcredentials RP.
 	const domains = e["com.apple.developer.associated-domains"]
 	const authorized =
 		domains === "*" ||

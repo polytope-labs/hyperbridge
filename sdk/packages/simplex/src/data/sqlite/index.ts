@@ -61,7 +61,10 @@ export class SqliteDataStore implements SimplexDataStore {
 	private databases: DatabaseSync[]
 	private logger: Logger
 
-	constructor(dataDir: string, loggers: LoggerContext = defaultLoggerContext()) {
+	constructor(
+		readonly dataDir: string,
+		loggers: LoggerContext = defaultLoggerContext(),
+	) {
 		this.logger = loggers.get("data-store")
 		if (!existsSync(dataDir)) mkdirSync(dataDir, { recursive: true })
 

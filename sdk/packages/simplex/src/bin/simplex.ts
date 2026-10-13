@@ -264,6 +264,7 @@ async function operatorContextFrom(
 			return runtime.resolvedChains.find((c) => c.chainId === chainId)?.rpcUrls[0]
 		},
 		send: (params) => runtime.tokenSender.send(params),
+		bridgeTopUp: runtime.bridgeTopUp,
 		tunnel,
 		version: packageJson.version,
 		startedAt: runtime.startedAt,

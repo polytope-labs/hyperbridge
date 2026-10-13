@@ -1,10 +1,13 @@
-import { formatUnits } from "viem"
+import { join } from "node:path"
+import { formatUnits, toHex } from "viem"
 import { IntentFiller } from "@/core/filler"
 import { FXFiller, type TradingPair } from "@/strategies/fx"
 import type { VaultConfig, FundingVenue } from "@/funding/types"
 import { VaultFundingPlanner } from "@/funding/vault/VaultFundingPlanner"
 import { VaultLiquidityState } from "@/funding/vault/VaultLiquidityState"
 import { TokenSender } from "@/services/TokenSender"
+import { BridgeTopUp } from "@/services/BridgeTopUp"
+import { deriveSubstrateKeyPair } from "@/services/substrate-key"
 import { formatChainKey, parseChainKey } from "@/config/interpolated-curve"
 import { AssetRegistry, normalizeSymbol } from "@/config/asset-registry"
 import { assertPairSymbolsResolve, retiredPairKeys } from "@/config/pairs"
@@ -140,6 +143,8 @@ export interface FillerRuntime {
 	vaultPreflight(vaults: VaultToml[]): Promise<void>
 	/** Operator-initiated outbound transfers (dashboard Send). */
 	tokenSender: TokenSender
+	/** Buys BRIDGE on BSC for the filler's Hyperbridge account. Absent without a substrate key. */
+	bridgeTopUp?: BridgeTopUp
 	startedAt: number
 	/** Stops everything bootFiller started. Idempotent; does NOT process.exit. */
 	shutdown(signal: string): Promise<void>
@@ -654,6 +659,33 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 		if (options.ownsData) await options.data.close?.()
 	}
 
+	const tokenSender = new TokenSender(
+		chainClientManager,
+		runtimeSigner.address as HexString,
+		() => config.vault?.vaults ?? [],
+		userOpSender,
+		configService,
+	)
+	// BRIDGE trades only on mainnet BSC, so a testnet filler has nothing to top up with.
+	const bridgeTopUp =
+		config.simplex.substratePrivateKey && network === "mainnet"
+			? new BridgeTopUp({
+					clientManager: chainClientManager,
+					delegation: new DelegationService(chainClientManager, configService, runtimeSigner),
+					configService,
+					tokenSender,
+					state: options.data.state,
+					storagePath: join(options.data.dataDir ?? process.cwd(), ".hyperbridge-cache"),
+					indexerUrl,
+					solver: runtimeSigner.address as HexString,
+					substratePublicKey: toHex((await deriveSubstrateKeyPair(config.simplex.substratePrivateKey)).publicKey),
+					hyperbridge: intentFiller.hyperbridgeConnection,
+					loggers: options.loggers,
+				})
+			: undefined
+	// Picks up a top-up a previous run left open: resumes its order or its reclaim.
+	void bridgeTopUp?.restore()
+
 	return {
 		intentFiller,
 		limitOrders: limitOrderService,
@@ -683,13 +715,8 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 		config,
 		configPath: options.configPath,
 		startedAt: Date.now(),
-		tokenSender: new TokenSender(
-			chainClientManager,
-			runtimeSigner.address as HexString,
-			() => config.vault?.vaults ?? [],
-			userOpSender,
-			configService,
-		),
+		tokenSender,
+		bridgeTopUp,
 		vaultPreflight: async (vaults) => {
 			const byChain: Record<string, VaultConfig[]> = {}
 			for (const row of vaults) {

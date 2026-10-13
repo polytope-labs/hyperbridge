@@ -6,9 +6,9 @@ import type { SetupDefaults } from "../types"
 import { assembleConfig, initialState, orderbookPairs, type WizardState } from "./state"
 
 /**
- * The wizard has no markets step: a config declares one market per book the
- * orderbook lists, and limit orders price them. A config with no markets would
- * boot no trading engine at all, so the pairs are not optional.
+ * The wizard has no markets step: limit orders can name only the books the
+ * orderbook lists, so the wizard checks the enabled chains carry one. It writes
+ * no `[[pairs]]`: they are optional, and balances follow the books.
  */
 describe("wizard markets from the orderbook", () => {
 	const USDC_BASE = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
@@ -50,7 +50,7 @@ describe("wizard markets from the orderbook", () => {
 		}
 	}
 
-	it("declares every book whose assets are deployed on an enabled chain", () => {
+	it("finds every book whose assets are deployed on an enabled chain", () => {
 		expect(orderbookPairs(wizardWith([8453]), defaults)).toEqual([{ token0: "USDC", token1: "cNGN" }])
 	})
 
@@ -62,13 +62,14 @@ describe("wizard markets from the orderbook", () => {
 		])
 	})
 
-	it("declares nothing when the enabled chains carry no book", () => {
+	it("finds nothing when the enabled chains carry no book", () => {
 		expect(orderbookPairs(wizardWith([1]), defaults)).toEqual([])
 	})
 
 	it("writes the orderbook section the config cannot boot without", () => {
 		const config = assembleConfig(wizardWith([8453]), defaults)
 		expect(config.orderbook).toEqual({ url: DEFAULT_ORDERBOOK_URLS.mainnet })
+		expect(config.pairs).toBeUndefined()
 		// The check that used to stop the wizard: "an [orderbook] section is required".
 		expect(() => validateConfig(config)).not.toThrow()
 	})

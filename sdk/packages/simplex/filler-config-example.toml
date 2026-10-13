@@ -184,9 +184,9 @@ triggerPercentage = 0.5
 # names what it takes in, what it pays out for that, and the chain it fills on.
 # An incoming order that matches no limit order is not filled.
 #
-# [[pairs]] only names the markets the dashboard lists (and adds each
-# cross-asset pair's token1 to the balances it tracks). It does not gate
-# matching, and a config with no [[pairs]] at all is valid. Assets are
+# [[pairs]] is optional and only names markets. It does not gate matching,
+# and it does not decide which balances are read: Simplex reads every token
+# in the orderbook's books on each configured chain. Assets are
 # referenced by symbol from Simplex's built-in registry — no address
 # configuration needed. The registry ships USDC, USDT, DAI, CNGN (per-chain via
 # the SDK, testnets included) plus curated mainnet deployments of USDR, ZARP,

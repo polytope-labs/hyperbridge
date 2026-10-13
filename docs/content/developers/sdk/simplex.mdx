@@ -403,10 +403,10 @@ feed.on("tick", async ({ mid }) => {
 
 ### Markets
 
-`config.pairs` and `simplex.pairs` name the markets the dashboard lists, and a cross-asset pair's
-`token1` is added to the balances the solver tracks. They do not gate matching: the matcher reads the
-limit orders alone, so adding or removing a pair does not change what the solver fills. A config
-with no pairs is valid.
+`config.pairs` and `simplex.pairs` name markets in the config. They are optional. They do not gate
+matching: the matcher reads the limit orders alone, so adding or removing a pair does not change what
+the solver fills. They do not decide which balances are read either. The solver reads the balance of
+every token in the orderbook's books on each configured chain.
 
 ```ts lineNumbers
 simplex.pairs.list() // [{ index, token0, token1, sameToken }]

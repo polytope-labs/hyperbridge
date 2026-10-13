@@ -1654,9 +1654,9 @@ export class UiServer {
 
 	/**
 	 * DELETE /api/strategies/:index — removes a market. The remaining config
-	 * must still validate (at least one market) before
-	 * anything mutates. Funds are never touched: vault treasury is per-asset
-	 * and stays configured regardless of markets.
+	 * must still validate before anything mutates. Removing the last market is
+	 * fine: `[[pairs]]` is optional. Funds are never touched: vault treasury is
+	 * per-asset and stays configured regardless of markets.
 	 */
 	private async handleMarketRemove(res: ServerResponse, index: number): Promise<void> {
 		const op = this.operator!
@@ -1666,9 +1666,6 @@ export class UiServer {
 		const { pairIndex } = strategy
 		try {
 			const remaining = pairs.filter((_, i) => i !== pairIndex)
-			if (remaining.length === 0) {
-				throw new Error("The last market cannot be removed live — edit the config and restart instead")
-			}
 			validatePairConfigs(remaining, op.config.assets)
 			await op.removePair?.(index)
 		} catch (err) {

@@ -442,9 +442,9 @@ uses — and sweeps expired orders every 30 seconds.
 
 ## PairController
 
-`simplex.pairs`. The markets the operator dashboard lists. Pairs do not gate matching or carry
-prices — the solver fills against limit orders alone — and a config may have none. Adding a
-cross-asset pair also adds its `token1` to the balances the solver tracks.
+`simplex.pairs`. The markets named in the config. Pairs do not gate matching or carry prices — the
+solver fills against limit orders alone — and a config may have none. They do not change which
+balances are read: the solver reads every token in the orderbook's books.
 
 ### list()
 

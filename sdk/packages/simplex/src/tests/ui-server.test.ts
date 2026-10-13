@@ -1178,7 +1178,7 @@ describe("UiServer (operator mode)", () => {
 		expect(written.pairs?.[1]?.token1).toBe("ZARP")
 	})
 
-	it("refuses removals that empty the market list or name an unknown strategy", async () => {
+	it("refuses removing an unknown strategy but lets the last market go", async () => {
 		const config = marketConfig()
 		config.pairs = [
 			{ token0: "USDC", token1: "ZARP" },
@@ -1210,7 +1210,7 @@ describe("UiServer (operator mode)", () => {
 		expect(removePair).not.toHaveBeenCalled()
 		expect(operator.config.pairs).toHaveLength(2)
 
-		// A single-market config: the last market cannot be removed live.
+		// A single-market config: [[pairs]] is optional, so the last market can go too.
 		server?.stop()
 		const single = marketConfig()
 		single.pairs = [single.pairs![1]]
@@ -1229,9 +1229,9 @@ describe("UiServer (operator mode)", () => {
 			removePair,
 		})
 		const last = await fetch(`${base2}/api/strategies/0`, { method: "DELETE", headers: CSRF })
-		expect(last.status).toBe(400)
-		expect((await last.json()).error).toContain("cannot be removed")
-		expect(removePair).not.toHaveBeenCalled()
+		expect(last.status).toBe(200)
+		expect((await last.json()).applied).toBe(true)
+		expect(removePair).toHaveBeenCalledWith(0)
 	})
 
 	it("serves static SPA files with an index.html fallback", async () => {

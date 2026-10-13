@@ -400,7 +400,7 @@ export class PairController {
 	 * the pair's symbols have to resolve before the market can be hydrated.
 	 */
 	async add(pair: PairConfig, options?: { assets?: Record<string, AssetDefinition> }): Promise<PairView> {
-		const { engine, assetRegistry, adminStrategies, balanceTokens, config } = this.runtime
+		const { engine, assetRegistry, adminStrategies, config } = this.runtime
 
 		const assets = options?.assets
 		const nextAssets = { ...(config.assets ?? {}), ...(assets ?? {}) }
@@ -420,17 +420,6 @@ export class PairController {
 		engine.addPair(tradingPair)
 		config.pairs = nextPairs
 		if (assets && Object.keys(assets).length > 0) config.assets = nextAssets
-
-		// Track the exotic side's balances from the next refresh.
-		if (normalizeSymbol(pair.token0) !== normalizeSymbol(pair.token1)) {
-			for (const chain of this.runtime.resolvedChains) {
-				const chainName = formatChainKey(chain.chainId)
-				const address = assetRegistry.getAddress(pair.token1, chainName)
-				if (!address) continue
-				const list = (balanceTokens[chainName] ??= [])
-				if (!list.includes(address)) list.push(address)
-			}
-		}
 
 		const pairIndex = nextPairs.length - 1
 		adminStrategies.push({

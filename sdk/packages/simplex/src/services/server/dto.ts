@@ -85,7 +85,7 @@ export interface SetupDefaults {
 
 /**
  * GET /api/setup/orderbook — the orderbook a new config posts to, and the books
- * it lists. The wizard declares one market per book; limit orders price them.
+ * it lists. The wizard checks the enabled chains carry at least one book.
  */
 export interface SetupOrderbook {
 	url: string

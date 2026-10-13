@@ -74,8 +74,8 @@ export interface FillerTomlConfig {
 	/**
 	 * Markets the operator dashboard lists, as `token0`/`token1` symbol pairs.
 	 * They carry no prices and do not gate matching: the filler prices every
-	 * fill from the operator's limit orders. Optional; the browser setup wizard
-	 * writes one per book the orderbook lists. Keys left over from the curve
+	 * fill from the operator's limit orders, and balances are read for every
+	 * token of the orderbook's books. Optional. Keys left over from the curve
 	 * era (`bidPriceCurve`, `askPriceCurve`, `maxOrderSize`, `referenceOnly`)
 	 * are ignored.
 	 */

@@ -105,7 +105,7 @@ export class FXFiller implements FillerStrategy {
 	 * @param configService   Network/config provider for addresses and decimals.
 	 * @param clientManager   Used to get viem PublicClients for chains.
 	 * @param contractService Shared contract interaction service.
-	 * @param pairs           Trading pairs with their bid/ask price policies and per-order caps.
+	 * @param pairs           Markets named in the config. May be empty.
 	 * @param registry        Asset symbol registry resolving pair symbols per chain.
 	 * @param options.confirmationPolicy Optional per-chain confirmation policy for cross-chain orders.
 	 * @param options.fundingVenues  Optional funding venues for on-chain liquidity sourcing.
@@ -128,9 +128,6 @@ export class FXFiller implements FillerStrategy {
 		const { confirmationPolicy, fundingVenues = [], limitOrders } = options ?? {}
 		this.limitOrders = limitOrders
 
-		if (pairs.length === 0) {
-			throw new Error("FXFiller requires at least one trading pair")
-		}
 		const seenPairs = new Set<string>()
 		for (const pair of pairs) {
 			FXFiller.assertPairValid(pair, seenPairs)
@@ -178,18 +175,14 @@ export class FXFiller implements FillerStrategy {
 	}
 
 	/**
-	 * Removes a market from the running engine. At least one market must remain.
-	 * Matching reads the limit orders rather than the pairs, so removing a market
-	 * changes what the dashboard lists, not what the filler fills.
+	 * Removes a market from the running engine. Matching reads the limit orders
+	 * rather than the pairs, so removing a market changes what the dashboard
+	 * lists, not what the filler fills.
 	 */
 	removePair(pair: TradingPair): void {
 		const index = this.pairs.indexOf(pair)
 		if (index < 0) {
 			throw new Error(`FXFiller pair ${pair.token0}/${pair.token1}: not a live market`)
-		}
-		const remaining = this.pairs.filter((_, i) => i !== index)
-		if (remaining.length === 0) {
-			throw new Error("FXFiller requires at least one trading pair — the last market cannot be removed live")
 		}
 		this.pairs.splice(index, 1)
 	}

@@ -138,7 +138,7 @@ An empty list accepts orders from everyone. This route sets the global list only
 
 ## GET /api/strategies
 
-Lists the markets in the config, one per `[[pairs]]` entry. A market does not set prices, and does not decide which orders are filled. Limit orders do both. Adding a market whose two tokens differ makes the solver track its second token's balances.
+Lists the markets in the config, one per `[[pairs]]` entry. `[[pairs]]` is optional. A market does not set prices, and does not decide which orders are filled. Limit orders do both. Balances are read for every token in the orderbook's books, whether or not a market names it.
 
 ```bash lineNumbers
 curl -s $SIMPLEX/api/strategies

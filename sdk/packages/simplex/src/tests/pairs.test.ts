@@ -781,7 +781,7 @@ describe("FXFiller profit gates (fees cover execution; spread independently posi
 		expect(() => filler.addPair(usdtPair())).toThrow(/duplicate market/)
 	})
 
-	it("removePair closes a market and refuses to remove the last one", async () => {
+	it("removePair closes a market, the last one included", async () => {
 		const reference: TradingPair = {
 			token0: "USDC",
 			token1: "ZARP",
@@ -802,7 +802,13 @@ describe("FXFiller profit gates (fees cover execution; spread independently posi
 		filler.removePair(usdcCngn)
 
 		filler.removePair(zarpCngn)
-		expect(() => filler.removePair(reference)).toThrow(/cannot be removed/)
+		filler.removePair(reference)
+		expect(() => filler.removePair(reference)).toThrow(/not a live market/)
+	})
+
+	it("runs with no markets, since [[pairs]] is optional", () => {
+		const filler = gateFiller([], usdcOnBoth(), { fillGas: parseUnits("1", 6), relayer: parseUnits("1", 6) })
+		filler.addPair({ token0: "USDC", token1: "CNGN" })
 	})
 })
 

@@ -131,11 +131,12 @@ export function pickAnchorStable(pairs: Array<{ token0: string; token1: string }
 
 /**
  * Validates the `[[pairs]]` array against the `[assets]` table and built-in
- * symbols. Pure — throws a descriptive error on the first invalid pair.
+ * symbols. Pure — throws a descriptive error on the first invalid pair. An
+ * empty array is valid: `[[pairs]]` is optional.
  */
 export function validatePairConfigs(pairs: PairConfig[], userAssets?: Record<string, AssetDefinition>): void {
-	if (!Array.isArray(pairs) || pairs.length === 0) {
-		throw new Error("pairs: at least one [[pairs]] entry is required")
+	if (!Array.isArray(pairs)) {
+		throw new Error("pairs: [[pairs]] must be an array of tables")
 	}
 
 	const seen = new Set<string>()

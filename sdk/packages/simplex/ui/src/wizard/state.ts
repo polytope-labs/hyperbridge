@@ -127,12 +127,10 @@ export function enabledChains(state: WizardState): ChainDraft[] {
 }
 
 /**
- * The markets the config declares: every book the orderbook lists whose two
- * assets are each deployed on some enabled chain.
- *
- * A pair only says a market exists, for the dashboard's market list; what the
- * filler pays there comes from a limit order, so declaring every book costs
- * nothing.
+ * The markets the enabled chains can trade: every book the orderbook lists
+ * whose two assets are each deployed on some enabled chain. The wizard gates on
+ * this so a chain selection that carries no book is caught before launch. It is
+ * not written to the config: `[[pairs]]` is optional.
  */
 export function orderbookPairs(state: WizardState, defaults: SetupDefaults): PairConfig[] {
 	// Registry spelling by normalized symbol: books write "cNGN", the registry "CNGN".
@@ -182,8 +180,6 @@ export function patchChain(state: WizardState, chainId: number, patch: Partial<C
 export function assembleConfig(state: WizardState, defaults: SetupDefaults): FillerConfig {
 	const chains = enabledChains(state)
 
-	const pairs = orderbookPairs(state, defaults)
-
 	const vaultRows = vaultRowsToToml(state.vaults)
 	const vaults = vaultRows.length > 0 ? vaultRows : undefined
 
@@ -226,7 +222,6 @@ export function assembleConfig(state: WizardState, defaults: SetupDefaults): Fil
 			substratePrivateKey: state.substrateKey.trim(),
 			hyperbridgeWsUrl: state.hyperbridgeWsUrl.trim(),
 		},
-		pairs,
 		orderbook: { url: state.orderbook?.url ?? DEFAULT_ORDERBOOK_URLS.mainnet },
 		chains: chains.map((c) => ({ rpcUrls: c.rpcUrls.map((u) => u.trim()).filter(Boolean) })),
 		...(vaults ? { vault: { vaults } } : {}),

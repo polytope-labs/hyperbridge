@@ -119,8 +119,6 @@ export interface FillerRuntime {
 	engine: FXFiller
 	/** The engine's live pair array (same instance), indexed 1:1 with config.pairs. */
 	tradingPairs: TradingPair[]
-	/** BalanceProvider's live token1 map (chain name to exotic addresses); mutations apply on its next refresh. */
-	balanceTokens: Record<string, string[]>
 	rebalancingService?: RebalancingService
 	resolvedChains: ResolvedChainConfig[]
 	fillerAddress: HexString
@@ -544,25 +542,23 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 		}
 	}
 
-	// Collect the non-USD token of each cross-asset market (its token1, the
-	// book's quote, such as CNGN) for balance tracking; same-token pairs have
-	// no second token. Every pair's token1 is tracked — keying one address per chain would silently
-	// drop all but the last pair's balances.
-	const token1: Record<string, string[]> = {}
-	for (const pair of config.pairs ?? []) {
-		if (normalizeSymbol(pair.token0) === normalizeSymbol(pair.token1)) continue
-		for (const chainName of configuredChainNames) {
-			const address = assetRegistry.getAddress(pair.token1, chainName)
-			if (!address) continue
-			const list = (token1[chainName] ??= [])
-			if (!list.includes(address)) list.push(address)
+	// The balances worth reading are the tokens a limit order can pay out: both sides of
+	// every book the orderbook lists, on each configured chain the registry resolves them on.
+	const bookTokens = async (): Promise<Record<string, string[]>> => {
+		const { books } = await limitOrderService.books()
+		const symbols = new Set(books.flatMap((book) => [normalizeSymbol(book.base), normalizeSymbol(book.quote)]))
+		const tokens: Record<string, string[]> = {}
+		for (const chainId of configService.getConfiguredChainIds()) {
+			const chainName = `EVM-${chainId}`
+			tokens[chainName] = [...symbols].flatMap((symbol) => assetRegistry.getAddress(symbol, chainName) ?? [])
 		}
+		return tokens
 	}
 	const balanceProvider = new BalanceProvider({
 		chainClientManager,
 		configService,
 		fillerAddress: runtimeSigner.address,
-		token1,
+		tokens: bookTokens,
 		vaultBalances: vaultVenue,
 		hyperbridge: intentFiller.hyperbridgeConnection,
 		substratePrivateKey: config.simplex.substratePrivateKey,
@@ -673,7 +669,6 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 		assetRegistry,
 		engine,
 		tradingPairs,
-		balanceTokens: token1,
 		rebalancingService,
 		resolvedChains,
 		fillerAddress: runtimeSigner.address as HexString,

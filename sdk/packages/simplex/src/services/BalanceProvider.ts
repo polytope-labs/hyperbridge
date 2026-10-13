@@ -83,8 +83,12 @@ export interface BalanceProviderOptions {
 	chainClientManager: ChainClientManager
 	configService: FillerConfigService
 	fillerAddress: string
-	/** Exotic token addresses per state machine id — every cross-asset pair's token1 on that chain. */
-	token1: Record<string, string[]>
+	/**
+	 * Token addresses to read beyond USDC and USDT, by state machine id: every token of the
+	 * orderbook's books. Asked on each refresh, so a book the orderbook adds is picked up
+	 * without a restart.
+	 */
+	tokens: () => Promise<Record<string, string[]>>
 	/**
 	 * The filler's Hyperbridge connection, reused rather than dialled again. A second socket to the
 	 * same node doubles the reconnect traffic during an outage for a balance read that is only
@@ -97,8 +101,9 @@ export interface BalanceProviderOptions {
 }
 
 /**
- * Periodically collects wallet balances (native, USDC, USDT, exotic per chain,
- * plus the BRIDGE balance of the substrate account) into a plain snapshot,
+ * Periodically collects wallet balances (native, USDC, USDT and the other tokens
+ * of the orderbook's books per chain, plus the BRIDGE balance of the substrate
+ * account) into a plain snapshot,
  * consumed by the UI JSON API and `wallet.balances()`.
  */
 export class BalanceProvider extends EventEmitter {
@@ -162,8 +167,16 @@ export class BalanceProvider extends EventEmitter {
 			)
 		}
 
+		// USDC and USDT are read without the orderbook, so a failed books read only drops the rest.
+		let tokens: Record<string, string[]> = {}
+		try {
+			tokens = await this.options.tokens()
+		} catch (err) {
+			this.logger.warn({ err }, "Could not read the orderbook's books; reading USDC and USDT balances only")
+		}
+
 		const fxExoticByChain = new Map<number, string[]>()
-		for (const [chainKey, addrs] of Object.entries(this.options.token1)) {
+		for (const [chainKey, addrs] of Object.entries(tokens)) {
 			const id = Number.parseInt(chainKey.replace("EVM-", ""), 10)
 			if (!isNaN(id)) fxExoticByChain.set(id, addrs)
 		}

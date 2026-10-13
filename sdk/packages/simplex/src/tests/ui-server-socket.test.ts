@@ -137,12 +137,10 @@ function operatorContext(): OperatorContext & { configPath: string } {
 			substratePrivateKey: "seed",
 			hyperbridgeWsUrl: "wss://example",
 		},
-		pairs: [],
 		chains: [],
 	}
 	let paused = false
 	return {
-		strategies: [],
 		// Every running filler has limit orders: they are what it prices from.
 		limitOrders: {
 			list: async () => ({ orders: [] }),
@@ -189,7 +187,6 @@ function operatorContext(): OperatorContext & { configPath: string } {
 		startedAt: Date.now(),
 		configPath: join(tmpDir(), "filler-config.toml"),
 		chains: [],
-		strategyTypes: [],
 	}
 }
 

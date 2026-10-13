@@ -6,9 +6,9 @@ import {
 	accountIndexFormatError,
 	assembleConfig,
 	initialState,
-	orderbookPairs,
 	privateKeyFormatError,
 	secretPhraseFormatError,
+	tradeableBooks,
 	type WizardState,
 } from "./state"
 import { StepSigner } from "./steps/Signer"
@@ -86,7 +86,7 @@ function chainRequirements(state: WizardState, defaults: SetupDefaults): string[
 	// carry none of them would boot a filler with nothing to trade.
 	if (state.orderbookError) return [state.orderbookError]
 	if (!state.orderbook) return ["Reading the orderbook's markets…"]
-	if (orderbookPairs(state, defaults).length === 0) {
+	if (tradeableBooks(state, defaults).length === 0) {
 		const books = state.orderbook.books.map((book) => `${book.base}/${book.quote}`).join(", ")
 		return [`None of the orderbook's markets (${books || "none listed"}) trade on the enabled chains.`]
 	}

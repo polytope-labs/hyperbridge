@@ -1,6 +1,5 @@
 import {
 	UiServer,
-	type AdminStrategy,
 	type HaltControl,
 	type OperatorContext,
 	type PauseControl,
@@ -15,8 +14,6 @@ import type { LogRecordDto } from "@/services/server/dto"
 import type { FillerConfigFile } from "@/config/filler-toml"
 import { OrderbookRequestError } from "@/orderbook/client"
 import { SignerType } from "@/services/wallet"
-import type { PairConfig } from "@/config/pairs"
-import type { AssetDefinition } from "@/config/asset-registry"
 import { describe, it, expect, afterEach, vi } from "vitest"
 import { existsSync, mkdtempSync, readFileSync, writeFileSync, mkdirSync } from "fs"
 import { createConnection } from "net"
@@ -102,7 +99,6 @@ function fakeHaltControl(index: number, halted = false): HaltControl & { halted:
 	}
 }
 
-/** pairs[] indices line up with the AdminStrategy pairIndex values used in the tests. */
 function fakeConfig(): FillerConfigFile {
 	return {
 		simplex: {
@@ -112,11 +108,6 @@ function fakeConfig(): FillerConfigFile {
 			substratePrivateKey: "seed",
 			hyperbridgeWsUrl: "wss://example",
 		},
-		pairs: [
-			{ token0: "USDC", token1: "USDC" },
-			{ token0: "USDC", token1: "CNGN" },
-			{ token0: "USDC", token1: "ZARP" },
-		],
 		chains: [{ rpcUrls: ["https://rpc.example"] }],
 	}
 }
@@ -176,7 +167,6 @@ function baseOperator(overrides: Partial<OperatorContext> = {}): TestOperator {
 	return {
 		data,
 		loggers,
-		strategies: [],
 		filler: fakePauseControl(),
 		// Every running filler has limit orders: they are what it prices from.
 		limitOrders: {
@@ -204,7 +194,6 @@ function baseOperator(overrides: Partial<OperatorContext> = {}): TestOperator {
 		startedAt: Date.now(),
 		configPath: join(dataDir, "filler-config.toml"),
 		chains: [8453, 56],
-		strategyTypes: ["USDC/CNGN"],
 		...overrides,
 	}
 }
@@ -224,11 +213,6 @@ describe("UiServer (operator mode)", () => {
 	) {
 		const filler = fakePauseControl()
 		const operator = baseOperator({
-			strategies: [
-				{ index: 0, pairIndex: 0, exotic: "USDC/USDC", token0: "USDC", token1: "USDC", sameToken: true },
-				{ index: 1, pairIndex: 1, exotic: "USDC/CNGN", token0: "USDC", token1: "CNGN", sameToken: false },
-				{ index: 2, pairIndex: 2, exotic: "USDC/ZARP", token0: "USDC", token1: "ZARP", sameToken: false },
-			],
 			filler,
 			balances: testBalanceSource({
 				updatedAt: 123,
@@ -364,7 +348,8 @@ describe("UiServer (operator mode)", () => {
 		})
 		expect(payload.chains).toEqual([8453, 56])
 		expect(payload.watchOnly).toEqual({ "56": true })
-		expect(payload.strategyTypes).toEqual(["USDC/CNGN"])
+		expect(payload).not.toHaveProperty("strategies")
+		expect(payload).not.toHaveProperty("strategyTypes")
 
 		const balances = await fetch(`${base}/api/balances`)
 		expect(await balances.json()).toEqual({
@@ -569,18 +554,11 @@ describe("UiServer (operator mode)", () => {
 		expect((await expectFramingDenied("/api/pause", { method: "POST" })).status).toBe(403)
 	})
 
-	it("returns 404 for unknown strategies and routes", async () => {
+	it("returns 404 for unknown routes, the removed market routes among them", async () => {
 		const { base } = await startServer()
-		expect((await fetch(`${base}/api/strategies/9`, { method: "DELETE", headers: CSRF })).status).toBe(404)
+		expect((await fetch(`${base}/api/strategies`)).status).toBe(404)
+		expect((await fetch(`${base}/api/strategies/1`, { method: "DELETE", headers: CSRF })).status).toBe(404)
 		expect((await fetch(`${base}/api/nope`)).status).toBe(404)
-	})
-
-	it("returns 405 for wrong methods", async () => {
-		const { base } = await startServer()
-		expect((await fetch(`${base}/api/strategies`, { method: "PUT", headers: CSRF, body: "{}" })).status).toBe(405)
-		expect((await fetch(`${base}/api/strategies/1`, { method: "POST", headers: CSRF, body: "{}" })).status).toBe(
-			405,
-		)
 	})
 
 	it("pause/resume toggles the filler and persists the state", async () => {
@@ -1025,215 +1003,6 @@ describe("UiServer (operator mode)", () => {
 		expect(res.logLevel).toBe("info")
 	})
 
-	// A pairs set that passes whole-array validation — fakeConfig's default set
-	// deliberately mirrors the strategy fixtures and is not itself valid.
-	function marketConfig(): FillerConfigFile {
-		const config = fakeConfig()
-		config.pairs = [
-			{ token0: "USDC", token1: "USDC" },
-			{ token0: "USDC", token1: "CNGN" },
-		]
-		return config
-	}
-
-	it("adds a market at runtime: hydrated via the capability and persisted", async () => {
-		const cfg = marketConfig()
-		// The capability path owns config.pairs — the real PairController reassigns
-		// it — so the mock does what the contract now requires of it.
-		const addPair = vi.fn(async (pair: PairConfig) => {
-			cfg.pairs = [...(cfg.pairs ?? []), pair]
-			return {
-				index: 7,
-				pairIndex: 2,
-				exotic: "USDC/EURC",
-				token0: "USDC",
-				token1: "EURC",
-				sameToken: false,
-				referenceOnly: false,
-			}
-		})
-		const { base, operator } = await startServer({ config: cfg, addPair })
-		const body = { token0: "USDC", token1: "EURC" }
-		const res = await fetch(`${base}/api/strategies`, { method: "POST", headers: CSRF, body: JSON.stringify(body) })
-		expect(res.status).toBe(200)
-		const payload = await res.json()
-		expect(payload.applied).toBe(true)
-		expect(payload.restartNeeded).toBe(false)
-		expect(payload.strategy.index).toBe(7)
-		expect(addPair).toHaveBeenCalledWith(body, undefined, 2)
-		expect(operator.config.pairs).toHaveLength(3)
-		const written = parse(readFileSync(operator.configPath!, "utf-8")) as FillerConfigFile
-		expect(written.pairs?.[2]?.token1).toBe("EURC")
-	})
-
-	it("rejects identical and reverse-orientation markets with nothing persisted", async () => {
-		const addPair = vi.fn()
-		const { base, operator } = await startServer({ config: marketConfig(), addPair })
-		for (const [token0, token1] of [
-			["USDC", "CNGN"],
-			["CNGN", "USDC"],
-		]) {
-			const res = await fetch(`${base}/api/strategies`, {
-				method: "POST",
-				headers: CSRF,
-				body: JSON.stringify({ token0, token1, maxOrderSize: "5000", askPriceCurve: ASK_POINTS }),
-			})
-			expect(res.status).toBe(400)
-			expect((await res.json()).error).toMatch(/declared twice|already declared/)
-		}
-		expect(addPair).not.toHaveBeenCalled()
-		expect(operator.config.pairs).toHaveLength(2)
-		expect(existsSync(operator.configPath!)).toBe(false)
-	})
-
-	it("adds a custom-token market, persisting its [assets] entry", async () => {
-		const cfg = marketConfig()
-		const addPair = vi.fn(async (pair: PairConfig, pairAssets?: Record<string, AssetDefinition>) => {
-			cfg.pairs = [...(cfg.pairs ?? []), pair]
-			if (pairAssets) cfg.assets = { ...(cfg.assets ?? {}), ...pairAssets }
-			return null
-		})
-		const { base, operator } = await startServer({ config: cfg, addPair })
-		const assets = { BRZ: { "EVM-8453": "0x5555555555555555555555555555555555555555" } }
-		const res = await fetch(`${base}/api/strategies`, {
-			method: "POST",
-			headers: CSRF,
-			body: JSON.stringify({
-				token0: "USDC",
-				token1: "BRZ",
-				maxOrderSize: "5000",
-				askPriceCurve: [{ amount: "0", price: "5.6" }],
-				assets,
-			}),
-		})
-		expect(res.status).toBe(200)
-		expect(addPair).toHaveBeenCalledTimes(1)
-		expect(addPair.mock.calls[0][1]).toEqual(assets)
-		expect(operator.config.assets?.BRZ).toEqual(assets.BRZ)
-		const written = parse(readFileSync(operator.configPath!, "utf-8")) as FillerConfigFile
-		expect(written.assets?.BRZ?.["EVM-8453"]).toBe("0x5555555555555555555555555555555555555555")
-	})
-
-	it("persists a market for restart when live hydration is unavailable", async () => {
-		const { base, operator } = await startServer({ config: marketConfig() })
-		const res = await fetch(`${base}/api/strategies`, {
-			method: "POST",
-			headers: CSRF,
-			body: JSON.stringify({
-				token0: "USDC",
-				token1: "EURC",
-				maxOrderSize: "5000",
-				askPriceCurve: [{ amount: "0", price: "0.92" }],
-			}),
-		})
-		expect(res.status).toBe(200)
-		const payload = await res.json()
-		expect(payload.applied).toBe(false)
-		expect(payload.restartNeeded).toBe(true)
-		expect(operator.config.pairs).toHaveLength(3)
-	})
-
-	it("removes a market at runtime and remaps later strategies to the right config rows", async () => {
-		const config = marketConfig()
-		config.pairs!.push({ token0: "USDC", token1: "ZARP" })
-		const strategies: AdminStrategy[] = [
-			{
-				index: 0,
-				pairIndex: 0,
-				exotic: "USDC/USDC",
-				token0: "USDC",
-				token1: "USDC",
-				sameToken: true,
-			},
-			{
-				index: 1,
-				pairIndex: 1,
-				exotic: "USDC/CNGN",
-				token0: "USDC",
-				token1: "CNGN",
-				sameToken: false,
-			},
-			{ index: 2, pairIndex: 2, exotic: "USDC/ZARP", token0: "USDC", token1: "ZARP", sameToken: false },
-		]
-		const removePair = vi.fn(async (index: number) => {
-			const position = strategies.findIndex((s) => s.index === index)
-			const { pairIndex } = strategies[position]
-			strategies.splice(position, 1)
-			for (const s of strategies) {
-				if (s.pairIndex > pairIndex) s.pairIndex -= 1
-			}
-			// The controller reassigns config.pairs; the server no longer splices.
-			config.pairs = (config.pairs ?? []).filter((_, i) => i !== pairIndex)
-		})
-		const { base, operator } = await startServer({ config, strategies, removePair })
-		const res = await fetch(`${base}/api/strategies/1`, { method: "DELETE", headers: CSRF })
-		expect(res.status).toBe(200)
-		expect((await res.json()).applied).toBe(true)
-		expect(removePair).toHaveBeenCalledWith(1)
-		expect(operator.config.pairs).toHaveLength(2)
-
-		// The ZARP market now maps to config row 1 — the rows must reindex with it.
-		const written = parse(readFileSync(operator.configPath!, "utf-8")) as FillerConfigFile
-		expect(written.pairs).toHaveLength(2)
-		expect(written.pairs?.[1]?.token1).toBe("ZARP")
-	})
-
-	it("refuses removing an unknown strategy but lets the last market go", async () => {
-		const config = marketConfig()
-		config.pairs = [
-			{ token0: "USDC", token1: "ZARP" },
-			{ token0: "ZARP", token1: "CNGN" },
-		]
-		const strategies: AdminStrategy[] = [
-			{
-				index: 0,
-				pairIndex: 0,
-				exotic: "USDC/ZARP",
-				token0: "USDC",
-				token1: "ZARP",
-				sameToken: false,
-			},
-			{
-				index: 1,
-				pairIndex: 1,
-				exotic: "ZARP/CNGN",
-				token0: "ZARP",
-				token1: "CNGN",
-				sameToken: false,
-			},
-		]
-		const removePair = vi.fn()
-		const { base, operator } = await startServer({ config, strategies, removePair })
-
-		const missing = await fetch(`${base}/api/strategies/99`, { method: "DELETE", headers: CSRF })
-		expect(missing.status).toBe(404)
-		expect(removePair).not.toHaveBeenCalled()
-		expect(operator.config.pairs).toHaveLength(2)
-
-		// A single-market config: [[pairs]] is optional, so the last market can go too.
-		server?.stop()
-		const single = marketConfig()
-		single.pairs = [single.pairs![1]]
-		const { base: base2 } = await startServer({
-			config: single,
-			strategies: [
-				{
-					index: 0,
-					pairIndex: 0,
-					exotic: "USDC/CNGN",
-					token0: "USDC",
-					token1: "CNGN",
-					sameToken: false,
-				},
-			],
-			removePair,
-		})
-		const last = await fetch(`${base2}/api/strategies/0`, { method: "DELETE", headers: CSRF })
-		expect(last.status).toBe(200)
-		expect((await last.json()).applied).toBe(true)
-		expect(removePair).toHaveBeenCalledWith(0)
-	})
-
 	it("serves static SPA files with an index.html fallback", async () => {
 		const uiDistDir = mkdtempSync(join(tmpdir(), "simplex-dist-"))
 		writeFileSync(join(uiDistDir, "index.html"), "<html>spa</html>")
@@ -1262,7 +1031,7 @@ describe("UiServer (operator mode)", () => {
 
 	/** Two chain rows aligned with the operator's running chain ids. */
 	function chainsConfig(): FillerConfigFile {
-		const config = marketConfig()
+		const config = fakeConfig()
 		config.chains = [
 			{ rpcUrls: ["https://base.example"] },
 			{ rpcUrls: ["https://bsc.example"] },
@@ -1775,7 +1544,6 @@ describe("UiServer (init mode)", () => {
 			version: "0.16.2",
 			starting: false,
 		})
-		expect((await fetch(`${base}/api/strategies`)).status).toBe(409)
 		expect((await fetch(`${base}/api/balances`)).status).toBe(409)
 		expect((await fetch(`${base}/api/pause`, { method: "POST", headers: CSRF })).status).toBe(409)
 
@@ -1811,7 +1579,7 @@ describe("UiServer (init mode)", () => {
 		const port = await server.start(0)
 		const base = `http://127.0.0.1:${port}`
 
-		server.enterOperatorMode(baseOperator({ chains: [1], strategyTypes: ["stable"] }))
+		server.enterOperatorMode(baseOperator({ chains: [1] }))
 
 		const status = await (await fetch(`${base}/api/status`)).json()
 		expect(status.mode).toBe("operator")

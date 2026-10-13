@@ -79,22 +79,22 @@ async function handleExistingConfig(outputPath: string): Promise<Prefill | undef
 	const content = readConfigFile(outputPath)
 	try {
 		config = parse(content) as FillerConfigFile
-		// Pre-pair-engine configs ([[strategies]]) are migrated to pairs so an
+		// Configs that predate limit orders ([[strategies]]) are migrated so an
 		// update run offers the old values as prefills instead of failing.
 		if ("strategies" in config) {
 			try {
 				const notes = migrateLegacyConfig(config)
 				if (notes.length > 0) {
 					log.warn(
-						`This config predates the pair engine — migrated for the update run:\n${notes.map((n) => `  - ${n}`).join("\n")}\nReview the pair prompts before writing.`,
+						`This config predates limit orders — migrated for the update run:\n${notes.map((n) => `  - ${n}`).join("\n")}`,
 					)
 				}
 			} catch (error) {
 				// A failed migration must not discard the whole prefill: chains,
-				// signer, substrate and vault values still carry over; the markets
-				// are configured fresh. Skip validation — this prefill has no pairs.
+				// signer, substrate and vault values still carry over. Skip
+				// validation, since the half-migrated config would not pass it.
 				log.warn(
-					`Legacy strategy migration failed (${error instanceof Error ? error.message : String(error)}) — the old markets can't be prefilled; everything else still is.`,
+					`Legacy strategy migration failed (${error instanceof Error ? error.message : String(error)}) — its confirmation policies can't be prefilled; everything else still is.`,
 				)
 				delete (config as Record<string, unknown>).strategies
 				degraded = true

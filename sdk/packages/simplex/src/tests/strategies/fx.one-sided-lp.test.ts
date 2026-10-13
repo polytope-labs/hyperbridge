@@ -1,4 +1,4 @@
-import { FXFiller, type TradingPair } from "@/strategies/fx"
+import { FXFiller } from "@/strategies/fx"
 import { AssetRegistry } from "@/config/asset-registry"
 import { bytes20ToBytes32, type HexString, type Order, type TokenInfo } from "@hyperbridge/sdk"
 import { describe, it, expect } from "vitest"
@@ -15,17 +15,6 @@ const CHAIN = "EVM-97"
 const STABLE = "0x1111111111111111111111111111111111111111" as HexString
 const EXOTIC = "0x2222222222222222222222222222222222222222" as HexString
 const SOLVER = "0x3333333333333333333333333333333333333333" as HexString
-
-/** Builds an exotic-pair set + registry for tests: `token1` addresses traded against USDC and USDT. */
-function exoticPairs(
-	resolver: any,
-	token1: Record<string, HexString>,
-): { pairs: TradingPair[]; registry: AssetRegistry } {
-	const registry = new AssetRegistry(resolver, { EXOTIC: token1 })
-	const pairs: TradingPair[] = ["USDC", "USDT"].map((token0) => ({ token0, token1: "EXOTIC" }))
-	return { pairs, registry }
-}
-
 
 const configService = {
 	getUsdcAsset: () => STABLE,
@@ -75,8 +64,8 @@ async function makeFiller(options: {
 	const contractService = provided ?? makeContractService()
 	const signer = { address: SOLVER } as any
 
-	const { pairs, registry } = exoticPairs(configService, { [CHAIN]: EXOTIC })
-	return new FXFiller(signer, configService, {} as any, contractService, pairs, registry, {
+	const registry = new AssetRegistry(configService, { EXOTIC: { [CHAIN]: EXOTIC } })
+	return new FXFiller(signer, configService, {} as any, contractService, registry, {
 		...fillerOptions,
 		limitOrders: await limitOrderStore(
 			sides.map((side) => ({ base: "USDC", quote: "EXOTIC", side, fillChain: CHAIN, price: "1", size: "100000" })),
@@ -123,19 +112,15 @@ describe("FXFiller one-sided LP", () => {
 		expect(await filler.canFill(makeOrder("f", STABLE, EXOTIC))).toBe(false)
 	})
 
-	// One-sidedness is per pair: two pairs on the same engine can face opposite directions.
+	// One-sidedness is per book: two books on the same engine can face opposite directions.
 	it("gates each book independently", async () => {
 		const OTHER = "0x4444444444444444444444444444444444444444" as HexString
 		const registry = new AssetRegistry(configService, {
 			CNGN2: { [CHAIN]: EXOTIC },
 			ZARP: { [CHAIN]: OTHER },
 		})
-		const pairs: TradingPair[] = [
-			{ token0: "USDC", token1: "CNGN2" },
-			{ token0: "USDC", token1: "ZARP" },
-		]
 		const signer = { address: SOLVER } as any
-		const filler = new FXFiller(signer, configService, {} as any, makeContractService(), pairs, registry, {
+		const filler = new FXFiller(signer, configService, {} as any, makeContractService(), registry, {
 			limitOrders: await limitOrderStore([
 				// Pays CNGN2 out for USDC, and pays USDC out for ZARP.
 				{ base: "USDC", quote: "CNGN2", side: "BID", fillChain: CHAIN, price: "1", size: "100000" },

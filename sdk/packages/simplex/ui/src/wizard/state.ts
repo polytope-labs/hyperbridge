@@ -2,7 +2,7 @@ import { DEFAULT_ORDERBOOK_URLS } from "@/config/defaults"
 import { normalizeSymbol } from "@/config/asset-registry"
 import { vaultRowsToToml, type VaultRowDraft } from "../lib/vault-rows"
 import type { EndpointVerificationState } from "../components/EndpointVerificationStatus"
-import type { ChainDefault, FillerConfig, PairConfig, SetupDefaults, SetupOrderbook } from "../types"
+import type { ChainDefault, FillerConfig, SetupDefaults, SetupOrderbook } from "../types"
 
 export interface ChainDraft {
 	meta: ChainDefault
@@ -80,7 +80,7 @@ export interface WizardState {
 	hyperbridgeWsUrl: string
 	balanceCheck?: { funded: boolean; free: string; decimals: number }
 	chains: ChainDraft[]
-	/** The orderbook's books, read when the wizard opens; the markets come from these. */
+	/** The orderbook's books, read when the wizard opens. */
 	orderbook?: SetupOrderbook
 	orderbookError?: string
 	vaults: VaultDraft[]
@@ -127,25 +127,20 @@ export function enabledChains(state: WizardState): ChainDraft[] {
 }
 
 /**
- * The markets the enabled chains can trade: every book the orderbook lists
- * whose two assets are each deployed on some enabled chain. The wizard gates on
- * this so a chain selection that carries no book is caught before launch. It is
- * not written to the config: `[[pairs]]` is optional.
+ * The books the enabled chains can trade: every book the orderbook lists whose
+ * two assets are each deployed on some enabled chain. The wizard gates on this
+ * so a chain selection that carries no book is caught before launch.
  */
-export function orderbookPairs(state: WizardState, defaults: SetupDefaults): PairConfig[] {
-	// Registry spelling by normalized symbol: books write "cNGN", the registry "CNGN".
-	const available = new Map(
+export function tradeableBooks(state: WizardState, defaults: SetupDefaults): SetupOrderbook["books"] {
+	// Normalized on both sides: books write "cNGN", the registry "CNGN".
+	const available = new Set(
 		enabledChains(state).flatMap((chain) =>
-			(defaults.knownTokens[chain.meta.stateMachineId] ?? []).map(
-				(token) => [normalizeSymbol(token.symbol), token.symbol] as const,
-			),
+			(defaults.knownTokens[chain.meta.stateMachineId] ?? []).map((token) => normalizeSymbol(token.symbol)),
 		),
 	)
-	return (state.orderbook?.books ?? []).flatMap((book) => {
-		const token0 = available.get(normalizeSymbol(book.base))
-		const token1 = available.get(normalizeSymbol(book.quote))
-		return token0 && token1 ? [{ token0, token1 }] : []
-	})
+	return (state.orderbook?.books ?? []).filter(
+		(book) => available.has(normalizeSymbol(book.base)) && available.has(normalizeSymbol(book.quote)),
+	)
 }
 
 /** Users paste keys with and without the 0x prefix; normalize instead of nagging. */

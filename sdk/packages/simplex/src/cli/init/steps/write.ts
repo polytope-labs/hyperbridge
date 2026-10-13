@@ -4,10 +4,7 @@ import { existsSync } from "fs"
 import { resolve } from "path"
 import { isDeepStrictEqual } from "util"
 import { parse } from "toml"
-import { ChainConfigService } from "@hyperbridge/sdk"
 import { assertConfirmationCoverage, validateConfig, type FillerConfigFile, type FillerTomlConfig } from "@/config/filler-toml"
-import { AssetRegistry } from "@/config/asset-registry"
-import { assertPairSymbolsResolve } from "@/config/pairs"
 import { DEFAULT_CONFIRMATION_POLICIES, parseChainKey } from "@/config/interpolated-curve"
 import { DEFAULT_ORDERBOOK_URLS, RETIRED_ORDERBOOK_URLS } from "@/config/defaults"
 import { validateSignerConfig, type SignerConfig } from "@/services/wallet"
@@ -24,17 +21,6 @@ export async function stepWrite(state: WizardState, outputPath: string, prefill?
 	validateSignerConfig(state.signer as SignerConfig)
 	for (const chain of config.chains) validateRpcUrls(chain.rpcUrls)
 	validateConfig(config)
-	// Boot-parity symbol resolution — a registry symbol not deployed on any
-	// selected chain fails here, not first on `simplex run`. Skipped when
-	// passthrough chains exist: their chain ids are unknown offline and a
-	// symbol may resolve only there (boot still enforces).
-	if (state.passthroughChains.length === 0 && config.pairs?.length) {
-		assertPairSymbolsResolve(
-			config.pairs,
-			new AssetRegistry(new ChainConfigService({}), config.assets),
-			state.chains.map((chain) => chain.meta.stateMachineId),
-		)
-	}
 	// Boot-parity confirmation coverage for the selected chains; passthrough
 	// chains keep the softer warnUncoveredPassthroughChains treatment.
 	assertConfirmationCoverage(
@@ -87,9 +73,11 @@ export function assembleConfig(state: WizardState): FillerConfigFile {
 		? JSON.parse(JSON.stringify(state.prefillConfig))
 		: {}
 
-	// A legacy [[strategies]] array must never survive into the output — the
-	// pair engine rejects it at startup (the wizard migrates it to prefills).
+	// Removed sections never survive into the output: [[strategies]] is rejected
+	// at startup (the wizard migrates it to prefills), and [[pairs]] is no longer
+	// read and no longer emitted, so carrying it would fail the round-trip gate.
 	delete (base as Record<string, unknown>).strategies
+	delete (base as Record<string, unknown>).pairs
 
 	// Empty-but-present collections don't survive the TOML emit (there is no
 	// section to write), so they must not survive assembly either — the

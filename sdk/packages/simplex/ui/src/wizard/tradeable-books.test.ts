@@ -3,14 +3,13 @@ import { chainsForNetwork } from "@/cli/init/chains"
 import { validateConfig } from "@/config/filler-toml"
 import { DEFAULT_ORDERBOOK_URLS } from "@/config/defaults"
 import type { SetupDefaults } from "../types"
-import { assembleConfig, initialState, orderbookPairs, type WizardState } from "./state"
+import { assembleConfig, initialState, tradeableBooks, type WizardState } from "./state"
 
 /**
- * The wizard has no markets step: limit orders can name only the books the
- * orderbook lists, so the wizard checks the enabled chains carry one. It writes
- * no `[[pairs]]`: they are optional, and balances follow the books.
+ * Limit orders can name only the books the orderbook lists, so the wizard checks
+ * the enabled chains carry one before launch.
  */
-describe("wizard markets from the orderbook", () => {
+describe("wizard books from the orderbook", () => {
 	const USDC_BASE = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
 	const CNGN_BASE = "0x46C85152bFe9f96829aA94755D9f915F9B10EF5F"
 	const USDT_BSC = "0x55d398326f99059fF775485246999027B3197955"
@@ -51,25 +50,21 @@ describe("wizard markets from the orderbook", () => {
 	}
 
 	it("finds every book whose assets are deployed on an enabled chain", () => {
-		expect(orderbookPairs(wizardWith([8453]), defaults)).toEqual([{ token0: "USDC", token1: "cNGN" }])
+		expect(tradeableBooks(wizardWith([8453]), defaults)).toEqual([books[0]])
 	})
 
 	it("counts an asset on any enabled chain, as boot does, not only the book's own chain", () => {
 		// USDT lives on BSC here and cNGN on Base: the cross-chain market still resolves.
-		expect(orderbookPairs(wizardWith([8453, 56]), defaults)).toEqual([
-			{ token0: "USDC", token1: "cNGN" },
-			{ token0: "USDT", token1: "cNGN" },
-		])
+		expect(tradeableBooks(wizardWith([8453, 56]), defaults)).toEqual(books)
 	})
 
 	it("finds nothing when the enabled chains carry no book", () => {
-		expect(orderbookPairs(wizardWith([1]), defaults)).toEqual([])
+		expect(tradeableBooks(wizardWith([1]), defaults)).toEqual([])
 	})
 
 	it("writes the orderbook section the config cannot boot without", () => {
 		const config = assembleConfig(wizardWith([8453]), defaults)
 		expect(config.orderbook).toEqual({ url: DEFAULT_ORDERBOOK_URLS.mainnet })
-		expect(config.pairs).toBeUndefined()
 		// The check that used to stop the wizard: "an [orderbook] section is required".
 		expect(() => validateConfig(config)).not.toThrow()
 	})

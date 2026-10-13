@@ -177,36 +177,26 @@ triggerPercentage = 0.5
 # "EVM-1"     = ["0x2222222222222222222222222222222222222222"]  # Ethereum-only partner
 # "EVM-42161" = ["0x3333333333333333333333333333333333333333"]  # Arbitrum-only partner
 
-# ===== Markets =====
+# ===== Prices and assets =====
 #
 # Prices do not live in this file. Simplex fills only against the limit orders
 # you post to the orderbook (see [orderbook] below) while it runs: each one
 # names what it takes in, what it pays out for that, and the chain it fills on.
 # An incoming order that matches no limit order is not filled.
 #
-# [[pairs]] is optional and only names markets. It does not gate matching,
-# and it does not decide which balances are read: Simplex reads every token
-# in the orderbook's books on each configured chain. Assets are
-# referenced by symbol from Simplex's built-in registry — no address
+# The dashboard shows balances for every token in the orderbook's books.
+#
+# Assets are referenced by symbol from Simplex's built-in registry — no address
 # configuration needed. The registry ships USDC, USDT, DAI, CNGN (per-chain via
 # the SDK, testnets included) plus curated mainnet deployments of USDR, ZARP,
 # EURC, XSGD, TRYB and BRIDGE, all verified on-chain.
-#
-# One orientation per market: declaring both USDC/CNGN and CNGN/USDC is refused.
-# token0 == token1 is the same-asset cross-chain market.
-#
-# [[pairs]]
-# token0 = "USDC"
-# token1 = "CNGN"
-#
-# [[pairs]]
-# token0 = "USDC"
-# token1 = "USDC"
 #
 # [assets] is an OPTIONAL escape hatch: only needed for assets the registry
 # does not ship, or to override a shipped address for your deployment.
 # [assets.BRZ]
 # "EVM-137" = "0xBrzOnPolygon"
+#
+# A [[pairs]] section from an older config is ignored. You can delete it.
 
 # Per-chain confirmation policies for cross-chain orders (optional).
 # Merged over built-in defaults (ETH, BSC, Polygon, Base, Arbitrum, Unichain);

@@ -150,7 +150,6 @@ async function balanceLimitedBid(ctx: Awaited<ReturnType<typeof build>>, decimal
 			limitOrderSpent: async () => ctx.tally(),
 			cacheService: cache,
 		} as any,
-		[{ token0: "USDC", token1: "CNGN" }],
 		new AssetRegistry(configService, { CNGN: { [chain]: CNGN.toLowerCase() as HexString } }),
 		{ limitOrders: ctx.limitOrders },
 	)

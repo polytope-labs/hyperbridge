@@ -113,7 +113,7 @@ export function validateAssetDefinitions(assets: Record<string, AssetDefinition>
 		for (const [chain, address] of entries) {
 			// Lookups are exact-string matches against resolved chain names
 			// ("EVM-<id>"), so a typo'd key would silently mean "not deployed
-			// on this chain" and the pair would never trade there.
+			// on this chain" and the token would never trade there.
 			if (!/^EVM-\d+$/.test(chain)) {
 				throw new Error(
 					`assets.${symbol}: chain key '${chain}' must be "EVM-<chainId>" (e.g. "EVM-137")`,
@@ -127,7 +127,8 @@ export function validateAssetDefinitions(assets: Record<string, AssetDefinition>
 }
 
 /**
- * Symbol → contract address registry backing the `[[pairs]]` configuration.
+ * Symbol → contract address registry: how a token symbol in a limit order or an
+ * orderbook book becomes a contract on a chain.
  *
  * Resolution merges two layers, most specific winning:
  *  1. the user's `[assets]` table — an *escape hatch* for assets the registry
@@ -139,8 +140,8 @@ export function validateAssetDefinitions(assets: Record<string, AssetDefinition>
  *     address correction there is never shadowed by a parallel table here.
  *
  * Address lookups are per `(symbol, chain)` — a chain where no layer knows the
- * asset simply doesn't trade pairs involving it. The registry holds addresses
- * only; all pricing (including risk sizing) is derived from the pair curves.
+ * asset simply doesn't trade it. The registry holds addresses only; prices come
+ * from the operator's limit orders.
  */
 export class AssetRegistry {
 	private readonly resolver: BuiltinAssetResolver

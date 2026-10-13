@@ -1,13 +1,12 @@
 import { formatUnits } from "viem"
 import { IntentFiller } from "@/core/filler"
-import { FXFiller, type TradingPair } from "@/strategies/fx"
+import { FXFiller } from "@/strategies/fx"
 import type { VaultConfig, FundingVenue } from "@/funding/types"
 import { VaultFundingPlanner } from "@/funding/vault/VaultFundingPlanner"
 import { VaultLiquidityState } from "@/funding/vault/VaultLiquidityState"
 import { TokenSender } from "@/services/TokenSender"
 import { formatChainKey, parseChainKey } from "@/config/interpolated-curve"
 import { AssetRegistry, normalizeSymbol } from "@/config/asset-registry"
-import { assertPairSymbolsResolve, retiredPairKeys } from "@/config/pairs"
 import type { ChainConfig, FillerConfig, HexString } from "@hyperbridge/sdk"
 import {
 	FillerConfigService,
@@ -42,7 +41,7 @@ import { InventoryRecorder } from "@/data/inventory"
 import { chainByChainId } from "@/cli/init/chains"
 import type { SimplexDataStore } from "@/data/types"
 import type { OrderScanner } from "@/scanner/types"
-import type { AdminStrategy, HaltControl } from "@/services/server/UiServer"
+import type { HaltControl } from "@/services/server/UiServer"
 import type { BinanceCexConfig } from "@/services/rebalancers/index"
 import type { Signer } from "@/services/wallet"
 
@@ -81,8 +80,6 @@ export interface FillerRuntime {
 	intentFiller: IntentFiller
 	balanceProvider: BalanceProvider
 	vaultVenue?: VaultFundingPlanner
-	/** The markets this filler serves, for the operator UI. */
-	adminStrategies: AdminStrategy[]
 	/** Self-halt visibility/reset for the trading engine (overfill protection). */
 	haltControls: HaltControl[]
 	/** Live order-activity bridge; emits `event` per stored row. */
@@ -115,10 +112,6 @@ export interface FillerRuntime {
 	assetRegistry: AssetRegistry
 	/** Creates and posts the operator's limit orders. */
 	limitOrders?: LimitOrderService
-	/** The live trading engine. It runs whether or not the config names any pairs. */
-	engine: FXFiller
-	/** The engine's live pair array (same instance), indexed 1:1 with config.pairs. */
-	tradingPairs: TradingPair[]
 	rebalancingService?: RebalancingService
 	resolvedChains: ResolvedChainConfig[]
 	fillerAddress: HexString
@@ -182,15 +175,10 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 		}
 	}
 
-	// Prices come from the operator's limit orders now. A config still carrying
-	// curve keys parses cleanly and quotes nothing, which is a quiet way to lose
-	// an afternoon.
-	const retired = retiredPairKeys(config.pairs ?? [])
-	if (retired.length > 0) {
-		logger.warn(
-			{ keys: retired },
-			"These [[pairs]] keys are no longer read; prices come from limit orders, and the filler fills nothing until one is posted",
-		)
+	// An old config may still carry [[pairs]]. It is ignored, and dropped the next
+	// time the dashboard rewrites the file.
+	if ("pairs" in config) {
+		logger.warn("[[pairs]] is no longer read and can be deleted from the config")
 	}
 
 	logger.info("Resolving chain IDs from RPC endpoints...")
@@ -338,32 +326,6 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 	// SDK chain registry, extended/overridden by the user's [assets] table.
 	const assetRegistry = new AssetRegistry(configService, config.assets)
 
-	// Symbols must resolve to real, distinct deployments on the configured
-	// chains — the same checks the wizard gates run, re-run here against the
-	// chains actually resolved from the RPCs.
-	const configuredChainNames = resolvedChains.map((chain) => `EVM-${chain.chainId}`)
-	if (config.pairs?.length) {
-		assertPairSymbolsResolve(config.pairs, assetRegistry, configuredChainNames)
-	}
-
-	// The operator's market list for the UI server. [[pairs]] only names markets:
-	// prices come from limit orders, so the engine below runs with or without them.
-	const adminStrategies: AdminStrategy[] = []
-	const tradingPairs: TradingPair[] = (config.pairs ?? []).map((pair) => ({
-		token0: pair.token0,
-		token1: pair.token1,
-	}))
-	tradingPairs.forEach((pair, pairIndex) => {
-		adminStrategies.push({
-			index: pairIndex,
-			pairIndex,
-			exotic: `${pair.token0}/${pair.token1}`,
-			token0: pair.token0,
-			token1: pair.token1,
-			sameToken: normalizeSymbol(pair.token0) === normalizeSymbol(pair.token1),
-		})
-	})
-
 	// Orders can be sourced on any configured chain (watch-only ones
 	// included), so each needs a confirmation curve — fail at boot,
 	// not with silently dropped orders at fill time. Same construction the
@@ -383,7 +345,6 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 		configService,
 		chainClientManager,
 		contractService,
-		tradingPairs,
 		assetRegistry,
 		{ confirmationPolicy, fundingVenues, limitOrders: options.data.limitOrders },
 	)
@@ -627,7 +588,6 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 	logger.info(
 		{
 			chains: resolvedChains.map((c) => c.chainId),
-			pairs: (config.pairs ?? []).map((p) => `${p.token0}/${p.token1}`),
 			maxConcurrentOrders: config.simplex.maxConcurrentOrders ?? DEFAULT_MAX_CONCURRENT_ORDERS,
 			watchOnlyChains: watchOnlyChains.length > 0 ? watchOnlyChains : undefined,
 		},
@@ -655,7 +615,6 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 		limitOrders: limitOrderService,
 		balanceProvider,
 		vaultVenue,
-		adminStrategies,
 		haltControls,
 		activity,
 		data: options.data,
@@ -667,8 +626,6 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 		confirmationPolicy,
 		loggers: options.loggers,
 		assetRegistry,
-		engine,
-		tradingPairs,
 		rebalancingService,
 		resolvedChains,
 		fillerAddress: runtimeSigner.address as HexString,

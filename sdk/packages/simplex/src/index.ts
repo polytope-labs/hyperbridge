@@ -39,11 +39,10 @@
 // The controllers are classes you receive from a Simplex, never construct. They
 // are exported as values because that is what they are — exporting them as types
 // made the emitted .d.ts declare runtime bindings that do not exist, so
-// `import { PairController }` type-checked and was undefined at run time.
+// `import { ChainController }` type-checked and was undefined at run time.
 export {
 	Simplex,
 	LimitOrderController,
-	PairController,
 	ChainController,
 	VaultController,
 	AssetController,
@@ -55,7 +54,6 @@ export type {
 	SimplexConfig,
 	SimplexEvents,
 	SimplexStatus,
-	PairView,
 	ChainInput,
 	ChainView,
 } from "@/simplex"
@@ -136,9 +134,6 @@ export type {
 	VaultToml,
 	VaultTomlConfig,
 } from "@/config/filler-toml"
-
-export { validatePairConfigs, pickAnchorStable } from "@/config/pairs"
-export type { PairConfig } from "@/config/pairs"
 
 export {
 	validateAssetDefinitions,

@@ -35,7 +35,6 @@ afterAll(() => {
 function config(): FillerTomlConfig {
 	return {
 		simplex: { substratePrivateKey: SUBSTRATE_SEED, hyperbridgeWsUrl: "ws://127.0.0.1:1" },
-		pairs: [{ token0: "USDC", token1: "USDC" }],
 		chains: [{ rpcUrls: [rpc.url] }],
 		orderbook: { url: "https://orderbook.example/graphql" },
 	}

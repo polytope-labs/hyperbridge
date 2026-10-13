@@ -18,12 +18,6 @@ const minimalConfig = (): FillerTomlConfig => ({
 		substratePrivateKey: "seed phrase here",
 		hyperbridgeWsUrl: "wss://nexus.rpc.polytope.technology",
 	},
-	pairs: [
-		{
-			token0: "USDC",
-			token1: "USDC",
-		},
-	],
 	chains: [{ rpcUrls: ["https://eth-mainnet.g.alchemy.com/v2/key"] }],
 })
 
@@ -71,9 +65,8 @@ describe("validateConfig", () => {
 		expect(() => validateConfig(config)).toThrow(/hyperbridgeWsUrl is required/)
 	})
 
-	it("accepts an empty pairs list: markets arrive as limit orders, not as config", () => {
-		const config = minimalConfig()
-		config.pairs = []
+	it("loads an older config that still carries [[pairs]]", () => {
+		const config = { ...minimalConfig(), pairs: [{ token0: "USDC", token1: "USDC" }] }
 		expect(() => validateConfig(config)).not.toThrow()
 	})
 
@@ -90,33 +83,6 @@ describe("validateConfig", () => {
 		const legacy = minimalConfig()
 		legacy.chains = [{ rpcUrls: ["https://rpc.example"], bundlerUrl: "https://bundler.example" }]
 		expect(() => validateConfig(legacy)).not.toThrow()
-	})
-
-	// Pair rules (same-token invariants, crossed books, anchoring, curve
-	// requirements) are unit-tested in pairs.test.ts; this case only proves
-	// validateConfig forwards `pairs` and `assets` to validatePairConfigs.
-	it("rejects unknown symbols without an [assets] entry, accepts them with one", () => {
-		const unknown = minimalConfig()
-		unknown.pairs!.push({
-			token0: "USDC",
-			token1: "BRZ",
-		})
-		expect(() => validateConfig(unknown)).toThrow(/unknown symbol 'BRZ'/)
-
-		unknown.assets = { BRZ: { "EVM-137": "0x1111111111111111111111111111111111111111" } }
-		expect(() => validateConfig(unknown)).not.toThrow()
-	})
-
-	it("rejects a curve-less venue-priced pair whose quote asset is not a USD stable", () => {
-		const config = minimalConfig()
-		config.pairs!.push(
-			{
-				token0: "USDC",
-				token1: "CNGN",
-			},
-			{ token0: "CNGN", token1: "ZARP" },
-		)
-		expect(() => validateConfig(config)).not.toThrow()
 	})
 
 	it("rejects malformed confirmation policy keys and short point lists", () => {

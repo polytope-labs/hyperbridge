@@ -22,7 +22,6 @@ function toml(minOrderSizeUsd?: number): FillerTomlConfig {
 			hyperbridgeWsUrl: "wss://nexus.rpc.polytope.technology",
 			minOrderSizeUsd,
 		},
-		pairs: [{ token0: "USDC", token1: "USDC" }],
 		chains: [{ rpcUrls: ["https://rpc.example"], bundlerUrl: "https://bundler.example" }],
 	}
 }

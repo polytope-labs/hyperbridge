@@ -49,8 +49,6 @@ curl -s $SIMPLEX/api/status
   "watchOnly": { "56": false, "8453": false },
   "chains": [56, 8453],
   "chainLabels": { "56": "BNB Chain", "8453": "Base" },
-  "strategies": [ { "index": 0, "exotic": "USDC/CNGN" } ],
-  "strategyTypes": ["USDC/CNGN"],
   "configPath": "/home/operator/filler-config.toml",
   "addresses": { "evm": "0x…", "substrate": "5F…" }
 }
@@ -65,7 +63,6 @@ curl -s $SIMPLEX/api/status
 | `watchOnly` | For each chain ID, whether the chain is watched without being filled on. |
 | `chains` | The chain IDs the filler runs on. |
 | `chainLabels` | A display name for each chain ID. |
-| `strategies`, `strategyTypes` | The [markets](/developers/evm/simplex/api/configuration#get-apistrategies) in the config. |
 | `configPath` | The config file that changes made through the API are saved to. Absent when the filler was started from a config object rather than a file. |
 | `addresses` | The solver's EVM address, and its Hyperbridge account. |
 | `halted` | Always empty. Simplex no longer halts itself. |

@@ -3,8 +3,6 @@ import { createPublicClient, http, isAddress } from "viem"
 import { ChainConfigService } from "@hyperbridge/sdk"
 import { privateKeyToAccount } from "viem/accounts"
 import { assertConfirmationCoverage, validateConfig, type FillerConfigFile } from "@/config/filler-toml"
-import { assertPairSymbolsResolve } from "@/config/pairs"
-import { formatChainKey } from "@/config/interpolated-curve"
 import { AssetRegistry, registrySymbols, USD_STABLE_SYMBOLS } from "@/config/asset-registry"
 import { fetchChainId, validateRpcUrls } from "@/services/FillerConfigService"
 import { normaliseSecretPhrase, secretPhraseSigner, SignerType, validateSignerConfig } from "@/services/wallet"
@@ -339,13 +337,6 @@ function gateConfig(body: Record<string, unknown>): GatedConfig | { ok: false; e
 		}
 		for (const chain of config.chains ?? []) validateRpcUrls(chain.rpcUrls)
 		validateConfig(config)
-		if (chainIds.length > 0 && config.pairs?.length) {
-			assertPairSymbolsResolve(
-				config.pairs,
-				new AssetRegistry(new ChainConfigService({}), config.assets),
-				chainIds.map(formatChainKey),
-			)
-		}
 		if (chainIds.length > 0) {
 			assertConfirmationCoverage(config.confirmationPolicies, chainIds)
 		}

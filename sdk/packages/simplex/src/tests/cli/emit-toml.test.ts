@@ -20,12 +20,6 @@ const minimalSameAsset: FillerConfigFile = {
 		substratePrivateKey: "bottom drive obey lake curtain smoke basket hold race lonely fit walk",
 		hyperbridgeWsUrl: "wss://nexus.rpc.polytope.technology",
 	},
-	pairs: [
-		{
-			token0: "USDC",
-			token1: "USDC",
-		},
-	],
 	chains: [
 		{ rpcUrls: ["https://eth-mainnet.g.alchemy.com/v2/someKey"] },
 		{ rpcUrls: ["https://base-mainnet.g.alchemy.com/v2/someKey"] },
@@ -47,17 +41,6 @@ const crossAssetWithCurves: FillerConfigFile = {
 		hyperbridgeWsUrl: "wss://gargantua.rpc.polytope.technology",
 		logging: "info",
 	},
-	pairs: [
-		{
-			token0: "USDC",
-			token1: "CNGN",
-		},
-		// Anchors ZARP through CNGN without opening a ZARP/CNGN market.
-		{
-			token0: "ZARP",
-			token1: "CNGN",
-		},
-	],
 	confirmationPolicies: {
 		"EVM-56": {
 			points: [
@@ -69,8 +52,6 @@ const crossAssetWithCurves: FillerConfigFile = {
 	chains: [{ rpcUrls: ["https://bsc.example/rpc"] }, { rpcUrls: ["https://polygon.example/rpc"] }],
 }
 
-// `side` requires pool pricing with no static curves, so this pair is curve-less
-// with its own price curves.
 const kitchenSink: FillerConfigFile = {
 	orderbook: { url: "https://orderbook.hyperbridge.network/graphql" },
 	simplex: {
@@ -95,12 +76,6 @@ const kitchenSink: FillerConfigFile = {
 	assets: {
 		BRZ: { "EVM-8453": "0x5555555555555555555555555555555555555555" },
 	},
-	pairs: [
-		{
-			token0: "USDC",
-			token1: "CNGN",
-		},
-	],
 	confirmationPolicies: {
 		"EVM-1": {
 			points: [

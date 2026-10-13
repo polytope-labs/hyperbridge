@@ -27,18 +27,6 @@ import { type IncomingOrder, matchLimitOrders, type LimitOrderMatch, whyUnmatche
 import { limitOrderUsdEdges, usdFactorsFrom, usdValueOf } from "@/orderbook/usd"
 
 /**
- * One market the engine will quote, as a pair of registry symbols.
- *
- * A pair declares that the market exists and nothing more: what the filler pays
- * on it comes from the operator's limit orders. `token0 == token1` is the
- * same-asset cross-chain market, where the spread is realized in kind.
- */
-export interface TradingPair {
-	token0: string
-	token1: string
-}
-
-/**
  * Decimal rescale that truncates when precision is lost. The SDK's
  * `adjustDecimals` rounds UP — correct for fees, where under-charging is the
  * failure mode — but profit accounting must round against itself: a credit
@@ -68,17 +56,12 @@ function adjustDecimalsFloor(amount: bigint, fromDecimals: number, toDecimals: n
  * Payouts are bounded by the filler's real balances plus funding-venue
  * withdrawals. Because the IntentGateway releases inputs proportionally to the
  * fraction of outputs provided, partial fills need no extra on-chain logic.
- *
- * `[[pairs]]` markets do not gate matching; they name the markets the operator
- * dashboard lists.
  */
 export class FXFiller implements FillerStrategy {
 	name = "FXFiller"
 	private clientManager: ChainClientManager
 	private contractService: ContractInteractionService
 	private configService: FillerConfigService
-	/** Markets the dashboard lists. Informational only: matching reads the limit orders. */
-	private pairs: TradingPair[]
 	/** Symbol → per-chain address resolution (built-ins + curated + user `[assets]`). */
 	private registry: AssetRegistry
 	private signer: Signer
@@ -105,8 +88,7 @@ export class FXFiller implements FillerStrategy {
 	 * @param configService   Network/config provider for addresses and decimals.
 	 * @param clientManager   Used to get viem PublicClients for chains.
 	 * @param contractService Shared contract interaction service.
-	 * @param pairs           Markets named in the config. May be empty.
-	 * @param registry        Asset symbol registry resolving pair symbols per chain.
+	 * @param registry        Asset symbol registry resolving symbols per chain.
 	 * @param options.confirmationPolicy Optional per-chain confirmation policy for cross-chain orders.
 	 * @param options.fundingVenues  Optional funding venues for on-chain liquidity sourcing.
 	 */
@@ -115,7 +97,6 @@ export class FXFiller implements FillerStrategy {
 		configService: FillerConfigService,
 		clientManager: ChainClientManager,
 		contractService: ContractInteractionService,
-		pairs: TradingPair[],
 		registry: AssetRegistry,
 		options?: {
 			confirmationPolicy?: ConfirmationPolicy
@@ -128,15 +109,9 @@ export class FXFiller implements FillerStrategy {
 		const { confirmationPolicy, fundingVenues = [], limitOrders } = options ?? {}
 		this.limitOrders = limitOrders
 
-		const seenPairs = new Set<string>()
-		for (const pair of pairs) {
-			FXFiller.assertPairValid(pair, seenPairs)
-		}
-
 		this.configService = configService
 		this.clientManager = clientManager
 		this.contractService = contractService
-		this.pairs = pairs
 		this.registry = registry
 		this.fundingVenues = fundingVenues
 
@@ -149,42 +124,6 @@ export class FXFiller implements FillerStrategy {
 					confirmationPolicy.getConfirmationBlocks(chainId, new Decimal(amountUsd)),
 			}
 		}
-	}
-
-	/** Per-pair invariants, shared by the constructor and addPair. Adds the accepted pair's label to `seenPairs`. */
-	private static assertPairValid(pair: TradingPair, seenPairs: Set<string>): void {
-		const label = `${normalizeSymbol(pair.token0)}/${normalizeSymbol(pair.token1)}`
-		const reversed = `${normalizeSymbol(pair.token1)}/${normalizeSymbol(pair.token0)}`
-		if (seenPairs.has(label) || seenPairs.has(reversed)) {
-			throw new Error(
-				`FXFiller pair ${pair.token0}/${pair.token1}: duplicate market (a pair and its reverse are the same market)`,
-			)
-		}
-		seenPairs.add(label)
-	}
-
-	/**
-	 * Adds a market to the running engine. All-or-nothing: the pair passes the
-	 * same duplicate and reverse-orientation checks the constructor enforces
-	 * before it is pushed.
-	 */
-	addPair(pair: TradingPair): void {
-		const seenPairs = new Set(this.pairs.map((p) => `${normalizeSymbol(p.token0)}/${normalizeSymbol(p.token1)}`))
-		FXFiller.assertPairValid(pair, seenPairs)
-		this.pairs.push(pair)
-	}
-
-	/**
-	 * Removes a market from the running engine. Matching reads the limit orders
-	 * rather than the pairs, so removing a market changes what the dashboard
-	 * lists, not what the filler fills.
-	 */
-	removePair(pair: TradingPair): void {
-		const index = this.pairs.indexOf(pair)
-		if (index < 0) {
-			throw new Error(`FXFiller pair ${pair.token0}/${pair.token1}: not a live market`)
-		}
-		this.pairs.splice(index, 1)
 	}
 
 	// =========================================================================

@@ -12,7 +12,6 @@ export const WHY = {
 	substrateKey:
 		"Solver-selection orders are won by submitting signed bids to Hyperbridge. This Substrate account signs those bid extrinsics and must hold BRIDGE tokens for fees — the fees are claimed back automatically after fills.",
 	hyperbridgeWs: "WebSocket endpoint of the Hyperbridge chain, used to submit and track solver bids.",
-	pairs: "Markets name the asset pairs the dashboard lists (USDC/CNGN, USDT/CNGN). They carry no prices: simplex fills only against the limit orders you post from the dashboard once it is running, each stating what it takes in, what it pays out, and on which chain. Assets are referenced by symbol; addresses come from the built-in registry.",
 	confirmations:
 		"Blocks to wait before filling a cross-chain order, scaled by order value — protects you from reorgs unwinding the deposit after you've paid out.",
 	concurrency: "How many orders are processed at once. Lower it if your RPCs rate-limit (429s).",

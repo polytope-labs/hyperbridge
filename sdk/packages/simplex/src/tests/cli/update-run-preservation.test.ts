@@ -36,12 +36,6 @@ describe("CLI wizard update run", () => {
 			gasFeeBump: { maxPriorityFeePerGasBumpPercent: 12, maxFeePerGasBumpPercent: 15 },
 			overfillProtection: { maxOverfillBps: 300, maxConsecutiveClamps: 2 },
 		},
-		pairs: [
-			{
-				token0: "USDC",
-				token1: "USDC",
-			},
-		],
 		chains: [{ rpcUrls: ["https://eth.example/rpc"] }],
 		binance: { apiKey: "bk", apiSecret: "bs", timeout: 9000 },
 		keeper: { intervalMinutes: 45, minSwapUsd: 10 },
@@ -63,9 +57,16 @@ describe("CLI wizard update run", () => {
 		// managed fields (here with the same values, as if the user pressed Enter
 		// through every prompt), then carryPrefillExtras seeds the finetune state.
 		const state = newWizardState()
-		// A pre-pairs config may still carry a legacy [[strategies]] array —
-		// assembleConfig must strip it, the pair engine rejects it at startup.
-		state.prefillConfig = JSON.parse(JSON.stringify({ ...config, strategies: [{ type: "stable" }] }))
+		// An older config may still carry [[strategies]] and [[pairs]]. assembleConfig
+		// must strip both: startup rejects the first, and the emitter no longer writes
+		// the second, so carrying it would trip the round-trip gate.
+		state.prefillConfig = JSON.parse(
+			JSON.stringify({
+				...config,
+				strategies: [{ type: "stable" }],
+				pairs: [{ token0: "USDC", token1: "USDC" }],
+			}),
+		)
 		state.chains = [
 			{
 				meta: INIT_CHAINS.find((c) => c.chainId === 1)!,
@@ -104,12 +105,10 @@ describe("CLI wizard update run", () => {
 		expect(assembled.simplex.gasFeeBump).toEqual(existing.simplex.gasFeeBump)
 	})
 
-	it("leaves the existing markets alone and writes the wizard-managed assets and policies", () => {
+	it("drops a leftover [[pairs]] and writes the wizard-managed assets and policies", () => {
 		const assembled = simulateUpdateRun()
 
-		// The wizard stopped declaring markets: limit orders say what simplex trades,
-		// so an update run carries whatever [[pairs]] the config already had.
-		expect(assembled.pairs).toEqual(existing.pairs)
+		expect("pairs" in assembled).toBe(false)
 		expect(assembled.assets).toEqual(wizardAssets)
 		expect(assembled.confirmationPolicies).toEqual(wizardConfirmationPolicies)
 	})

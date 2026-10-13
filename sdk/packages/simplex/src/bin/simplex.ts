@@ -13,8 +13,6 @@ import { existsSync } from "fs"
 import { validateConfig, type FillerConfigFile } from "@/config/filler-toml"
 import { encryptedConfigStore, readConfigFile, readConfigKey } from "@/config/storage"
 import { parseChainKey } from "@/config/interpolated-curve"
-import type { AssetDefinition } from "@/config/asset-registry"
-import type { PairConfig } from "@/config/pairs"
 import type { FillerRuntime } from "@/core/boot"
 import { Simplex } from "@/simplex"
 import { SqliteDataStore } from "@/data/sqlite"
@@ -178,39 +176,8 @@ async function operatorContextFrom(
 	const substrateAddress = await deriveSubstrateKeyPair(runtime.config.simplex.substratePrivateKey)
 		.then((pair) => pair.address)
 		.catch(() => undefined)
-	// One array instance for /api/status, mutated by the market capabilities below.
-	const strategyTypes = (runtime.config.pairs ?? []).map((p) => `${p.token0}/${p.token1}`)
-	const { engine, tradingPairs, adminStrategies } = runtime
-	const marketCapabilities =
-		engine && tradingPairs
-			? {
-					// Thin wrappers over PairController — the same code path the library's
-					// `simplex.pairs` exposes — so the CLI cannot drift from it again. The
-					// controller validates, registers assets, updates the engine, config
-					// and admin strategies, and persists; only the dashboard's
-					// strategy-index addressing and its status array are adapted here.
-					addPair: async (
-						pair: PairConfig,
-						assets: Record<string, AssetDefinition> | undefined,
-						_pairIndex: number,
-					) => {
-						const view = await simplex.pairs.add(pair, { assets })
-						strategyTypes.push(`${pair.token0}/${pair.token1}`)
-						return adminStrategies.find((s) => s.pairIndex === view.index) ?? null
-					},
-					removePair: async (index: number) => {
-						const strategy = adminStrategies.find((s) => s.index === index)
-						if (!strategy) throw new Error(`Unknown strategy ${index}`)
-						const { pairIndex } = strategy
-						await simplex.pairs.remove(pairIndex)
-						strategyTypes.splice(pairIndex, 1)
-					},
-				}
-			: {}
 	return {
-		...marketCapabilities,
 		addresses: { evm: runtime.fillerAddress, substrate: substrateAddress },
-		strategies: runtime.adminStrategies,
 		filler: runtime.intentFiller,
 		balances: runtime.balanceProvider,
 		haltControls: runtime.haltControls,
@@ -270,7 +237,6 @@ async function operatorContextFrom(
 		configPath: runtime.configPath,
 		writeConfigFile,
 		chains: runtime.resolvedChains.map((c) => c.chainId),
-		strategyTypes,
 	}
 }
 

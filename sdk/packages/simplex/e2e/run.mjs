@@ -81,10 +81,6 @@ reconcileIntervalSecs = 30
 "EVM-97" = ${q(TOKENS["EVM-97"].cNGN.address)}
 "EVM-80002" = ${q(TOKENS["EVM-80002"].cNGN.address)}
 
-[[pairs]]
-token0 = "USDC"
-token1 = "CNGN"
-
 [confirmationPolicies."97"]
 points = [{ amount = "1", value = 1 }, { amount = "100000", value = 2 }]
 

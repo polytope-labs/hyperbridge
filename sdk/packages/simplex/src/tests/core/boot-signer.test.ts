@@ -36,9 +36,6 @@ function config(overrides: Partial<FillerTomlConfig["simplex"]> = {}): FillerTom
 			hyperbridgeWsUrl: "ws://127.0.0.1:1",
 			...overrides,
 		},
-		pairs: [
-			{ token0: "USDC", token1: "USDC" },
-		],
 		chains: [{ rpcUrls: [rpc.url] }],
 		orderbook: { url: "https://orderbook.example/graphql" },
 	}

@@ -10,7 +10,7 @@ import {
 } from "@/services"
 import { SqliteDataStore } from "@/data/sqlite"
 import { createSigner, SignerType, type Signer } from "@/services/wallet"
-import { FXFiller, type TradingPair } from "@/strategies/fx"
+import { FXFiller } from "@/strategies/fx"
 import { AssetRegistry } from "@/config/asset-registry"
 import { ConfirmationPolicy } from "@/config/interpolated-curve"
 import {
@@ -40,20 +40,6 @@ import { INTENT_GATEWAY_V2_ABI } from "@/config/abis/IntentGatewayV2"
 import { ERC20_ABI } from "@/config/abis/ERC20"
 import "../setup"
 import { pimlicoBundlerUrlForChain as bundlerUrl } from "../pimlicoBundler"
-
-/** Builds an exotic-pair set + registry for tests: `token1` addresses traded against USDC and USDT. */
-function exoticPairs(
-	resolver: FillerConfigService,
-	token1: Record<string, HexString>,
-): { pairs: TradingPair[]; registry: AssetRegistry } {
-	const registry = new AssetRegistry(resolver, { EXOTIC: token1 })
-	const pairs: TradingPair[] = ["USDC", "USDT"].map((token0) => ({
-		token0,
-		token1: "EXOTIC",
-	}))
-	return { pairs, registry }
-}
-
 
 // NOTE: This is a live mainnet integration test.
 // It is skipped by default to avoid accidental execution in CI.
@@ -989,18 +975,10 @@ async function createCrossChainFxIntentFiller(
 		},
 	})
 
-	const legacy = exoticPairs(chainConfigService, token1)
-	const fxStrategy = new FXFiller(
-		fillerSigner,
-		chainConfigService,
-		chainClientManager,
-		contractService,
-		legacy.pairs,
-		legacy.registry,
-		{
-			confirmationPolicy,
-		},
-	)
+	const registry = new AssetRegistry(chainConfigService, { EXOTIC: token1 })
+	const fxStrategy = new FXFiller(fillerSigner, chainConfigService, chainClientManager, contractService, registry, {
+		confirmationPolicy,
+	})
 
 	const strategies = [fxStrategy]
 	const bidStorage = new SqliteDataStore(".simplex-data").bids
@@ -1039,15 +1017,8 @@ async function createFxOnlyIntentFiller(
 	const extAsset = exoticTokenOverride ?? chainConfigService.getExtAsset(mainnetId)
 	const token1: Record<string, HexString> = extAsset ? { [mainnetId]: extAsset as HexString } : {}
 
-	const legacy = exoticPairs(chainConfigService, token1)
-	const fxStrategy = new FXFiller(
-		signer,
-		chainConfigService,
-		chainClientManager,
-		contractService,
-		legacy.pairs,
-		legacy.registry,
-	)
+	const registry = new AssetRegistry(chainConfigService, { EXOTIC: token1 })
+	const fxStrategy = new FXFiller(signer, chainConfigService, chainClientManager, contractService, registry)
 
 	const strategies = [fxStrategy]
 	const bidStorage = new SqliteDataStore(".simplex-data").bids

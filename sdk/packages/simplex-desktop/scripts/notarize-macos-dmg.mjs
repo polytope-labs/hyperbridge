@@ -1,7 +1,10 @@
 import { spawnSync } from "node:child_process"
-import { readdir } from "node:fs/promises"
-import { join, resolve } from "node:path"
+import { createHash } from "node:crypto"
+import { createReadStream } from "node:fs"
+import { readFile, readdir, stat, writeFile } from "node:fs/promises"
+import { basename, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
+import { parse, stringify } from "yaml"
 
 function run(command, args) {
 	const result = spawnSync(command, args, { encoding: "utf8" })
@@ -53,6 +56,35 @@ export async function stapleDmg(dmg, { attempts = 5, delayMs = 30_000, runComman
 	}
 }
 
+async function sha512(path) {
+	const hash = createHash("sha512")
+	for await (const chunk of createReadStream(path)) hash.update(chunk)
+	return hash.digest("base64")
+}
+
+/**
+ * Stapling writes the ticket into the DMG, so the hash and size electron-builder
+ * recorded for it in the updater metadata no longer match. Rewrites the DMG's
+ * entry in every metadata file under `root` that lists it.
+ */
+export async function refreshUpdaterMetadata(root, dmg) {
+	const name = basename(dmg)
+	const digest = await sha512(dmg)
+	const { size } = await stat(dmg)
+	const updated = []
+	for (const entry of (await readdir(root)).filter((file) => file.endsWith(".yml"))) {
+		const path = join(root, entry)
+		const metadata = parse(await readFile(path, "utf8"))
+		const listed = (metadata?.files ?? []).filter((file) => file?.url === name)
+		for (const file of listed) Object.assign(file, { sha512: digest, size })
+		if (metadata?.path === name) metadata.sha512 = digest
+		if (listed.length === 0 && metadata?.path !== name) continue
+		await writeFile(path, stringify(metadata))
+		updated.push(entry)
+	}
+	return updated
+}
+
 async function findDmg(root) {
 	const matches = (await readdir(root, { withFileTypes: true }))
 		.filter((entry) => entry.isFile() && entry.name.endsWith(".dmg"))
@@ -62,7 +94,8 @@ async function findDmg(root) {
 }
 
 export async function notarizeMacDmg(root, env = process.env) {
-	const dmg = await findDmg(resolve(root))
+	const directory = resolve(root)
+	const dmg = await findDmg(directory)
 	const output = run("xcrun", notarytoolArguments(dmg, env))
 	let result
 	try {
@@ -74,6 +107,7 @@ export async function notarizeMacDmg(root, env = process.env) {
 		throw new Error(`Apple rejected ${dmg}: ${result.status ?? "unknown status"} (${result.id ?? "no id"})`)
 	}
 	await stapleDmg(dmg)
+	await refreshUpdaterMetadata(directory, dmg)
 	return { dmg, submissionId: result.id }
 }
 

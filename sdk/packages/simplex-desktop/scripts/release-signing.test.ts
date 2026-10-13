@@ -1,9 +1,11 @@
+import { createHash } from "node:crypto"
 import { createRequire } from "node:module"
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { notarytoolArguments, stapleDmg } from "./notarize-macos-dmg.mjs"
+import { parse as parseYaml, stringify as stringifyYaml } from "yaml"
+import { notarytoolArguments, refreshUpdaterMetadata, stapleDmg } from "./notarize-macos-dmg.mjs"
 import { entitlementKeys, teamIdentifier } from "./verify-macos-signatures.mjs"
 import { assertWindowsUpdatePublisher, verifyWindowsUpdateConfig } from "./verify-windows-update-config.mjs"
 
@@ -187,6 +189,37 @@ describe("desktop release signing", () => {
 		)
 		expect(runCommand).toHaveBeenCalledTimes(3)
 		expect(sleep).toHaveBeenCalledTimes(2)
+	})
+
+	it("rewrites the stapled DMG's hash and size in the updater metadata, leaving the zip alone", async () => {
+		const directory = await mkdtemp(join(tmpdir(), "simplex-staple-"))
+		temporaryDirectories.push(directory)
+		const dmg = join(directory, "Simplex-1.0.0-mac-arm64.dmg")
+		await writeFile(dmg, "stapled dmg")
+		const zip = { url: "Simplex-1.0.0-mac-arm64.zip", sha512: "zip-hash", size: 7 }
+		await writeFile(
+			join(directory, "latest-mac.yml"),
+			stringifyYaml({
+				version: "1.0.0",
+				files: [zip, { url: "Simplex-1.0.0-mac-arm64.dmg", sha512: "unstapled", size: 1 }],
+				path: zip.url,
+				sha512: zip.sha512,
+			}),
+		)
+		await writeFile(join(directory, "latest-linux.yml"), stringifyYaml({ version: "1.0.0", files: [] }))
+
+		expect(await refreshUpdaterMetadata(directory, dmg)).toEqual(["latest-mac.yml"])
+
+		const metadata = parseYaml(await readFile(join(directory, "latest-mac.yml"), "utf8"))
+		expect(metadata.files).toEqual([
+			zip,
+			{
+				url: "Simplex-1.0.0-mac-arm64.dmg",
+				sha512: createHash("sha512").update("stapled dmg").digest("base64"),
+				size: "stapled dmg".length,
+			},
+		])
+		expect(metadata.sha512).toBe("zip-hash")
 	})
 
 	it("accepts only Azure Trusted Signing service endpoints", () => {

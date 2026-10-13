@@ -72,6 +72,16 @@ function resolveOrderFeeGasPriceBump(sourceStateMachineId: string, isSameChain: 
 		: DEFAULT_ORDER_FEE_GAS_PRICE_BUMP_PERCENT
 }
 
+/** Optional settings for {@link IntentGateway.create}. */
+export interface IntentGatewayOptions {
+	/**
+	 * Directory, on Node, for the order session keys and cancellation progress the gateway
+	 * persists. Defaults to `./.hyperbridge-cache` under the working directory, which a
+	 * process started from `/` cannot write.
+	 */
+	storagePath?: string
+}
+
 /**
  * High-level facade for the IntentGatewayV2 protocol.
  *
@@ -135,15 +145,21 @@ export class IntentGateway {
 	 * @param dest - Destination chain client.
 	 * @param intentsCoprocessor - Optional coprocessor for bid fetching.
 	 */
-	private constructor(source: IEvmChain, dest: IEvmChain, intentsCoprocessor?: IntentsCoprocessor) {
+	private constructor(
+		source: IEvmChain,
+		dest: IEvmChain,
+		intentsCoprocessor?: IntentsCoprocessor,
+		options: IntentGatewayOptions = {},
+	) {
 		this.source = source
 		this.dest = dest
 		this.intentsCoprocessor = intentsCoprocessor
 		this.bundlerUrl = dest.bundlerUrl
 
-		const sessionKeyStorage = createSessionKeyStorage()
-		const cancellationStorage = createCancellationStorage()
-		const usedUserOpsStorage = createUsedUserOpsStorage()
+		const storage = { basePath: options.storagePath }
+		const sessionKeyStorage = createSessionKeyStorage(storage)
+		const cancellationStorage = createCancellationStorage(storage)
+		const usedUserOpsStorage = createUsedUserOpsStorage(storage)
 		const swap = new Swap()
 		const feeTokenCache = new Map<string, { address: HexString; decimals: number; cachedAt: number }>()
 		const solverCodeCache = new Map<string, string>()
@@ -190,14 +206,16 @@ export class IntentGateway {
 	 * @param source - Source chain for order placement
 	 * @param dest - Destination chain for order fulfillment
 	 * @param intentsCoprocessor - Optional coprocessor for bid fetching and order execution
+	 * @param options - Optional settings; see {@link IntentGatewayOptions}
 	 * @returns Initialized IntentGateway instance
 	 */
 	static async create(
 		source: IEvmChain,
 		dest: IEvmChain,
 		intentsCoprocessor?: IntentsCoprocessor,
+		options?: IntentGatewayOptions,
 	): Promise<IntentGateway> {
-		const instance = new IntentGateway(source, dest, intentsCoprocessor)
+		const instance = new IntentGateway(source, dest, intentsCoprocessor, options)
 		await instance.init()
 		return instance
 	}

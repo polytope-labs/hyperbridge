@@ -27,7 +27,7 @@ function estimator(options: { client?: unknown } = {}) {
 		dest: {
 			client: options.client ?? { getStorageAt: async () => paramsWord(`0x${"d1".repeat(20)}`) },
 			configService: {
-				getCalldispatcherAddress: () => "0xc71251c8b3e7b02697a84363eef6dce8dfbdf333",
+				getCalldispatcherAddress: () => "0xE2C7e576E26E0bE7aC97c6fE925bcDAbD87c4bEd",
 				getSolverAccountAddress: () => undefined,
 			},
 		},

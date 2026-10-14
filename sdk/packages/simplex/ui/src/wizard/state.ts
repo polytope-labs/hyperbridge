@@ -1,7 +1,6 @@
 import { DEFAULT_ORDERBOOK_URLS } from "@/config/defaults"
 import { normalizeSymbol } from "@/config/asset-registry"
 import { vaultRowsToToml, type VaultRowDraft } from "../lib/vault-rows"
-import type { EndpointVerificationState } from "../components/EndpointVerificationStatus"
 import type { ChainDefault, FillerConfig, SetupDefaults, SetupOrderbook } from "../types"
 
 export interface ChainDraft {
@@ -9,8 +8,6 @@ export interface ChainDraft {
 	enabled: boolean
 	rpcUrls: string[]
 	watchOnly: boolean
-	verificationState?: EndpointVerificationState
-	verificationMessage?: string
 }
 
 export type VaultDraft = VaultRowDraft
@@ -84,9 +81,6 @@ export interface WizardState {
 	orderbook?: SetupOrderbook
 	orderbookError?: string
 	vaults: VaultDraft[]
-	allowlistUsers: string[]
-	maxConcurrentOrders: string
-	logging: string
 }
 
 export function initialState(defaults: SetupDefaults): WizardState {
@@ -116,9 +110,6 @@ export function initialState(defaults: SetupDefaults): WizardState {
 				watchOnly: false,
 			})),
 		vaults: [],
-		allowlistUsers: [],
-		maxConcurrentOrders: String(defaults.maxConcurrentOrders),
-		logging: "info",
 	}
 }
 
@@ -180,8 +171,6 @@ export function assembleConfig(state: WizardState, defaults: SetupDefaults): Fil
 
 	const watchOnlyEntries = chains.filter((c) => c.watchOnly).map((c) => [String(c.meta.chainId), true] as const)
 
-	const allowlistUsers = state.allowlistUsers
-
 	const signer =
 		state.signerType === "privateKey"
 			? { type: "privateKey" as const, key: normalizeHexKey(state.signerKey) }
@@ -211,8 +200,7 @@ export function assembleConfig(state: WizardState, defaults: SetupDefaults): Fil
 		simplex: {
 			// The form collects plain strings; the config type wants the signer union / hex addresses.
 			signer: signer as FillerConfig["simplex"]["signer"],
-			maxConcurrentOrders: Number(state.maxConcurrentOrders) || defaults.maxConcurrentOrders,
-			...(state.logging !== "info" ? { logging: state.logging } : {}),
+			maxConcurrentOrders: defaults.maxConcurrentOrders,
 			...(watchOnlyEntries.length > 0 ? { watchOnly: Object.fromEntries(watchOnlyEntries) } : {}),
 			substratePrivateKey: state.substrateKey.trim(),
 			hyperbridgeWsUrl: state.hyperbridgeWsUrl.trim(),
@@ -220,7 +208,6 @@ export function assembleConfig(state: WizardState, defaults: SetupDefaults): Fil
 		orderbook: { url: state.orderbook?.url ?? DEFAULT_ORDERBOOK_URLS.mainnet },
 		chains: chains.map((c) => ({ rpcUrls: c.rpcUrls.map((u) => u.trim()).filter(Boolean) })),
 		...(vaults ? { vault: { vaults } } : {}),
-		...(allowlistUsers.length > 0 ? { allowlist: { users: allowlistUsers } } : {}),
 	}
 }
 

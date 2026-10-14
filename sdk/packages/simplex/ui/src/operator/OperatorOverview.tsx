@@ -1,5 +1,6 @@
 import { type ReactNode, useCallback, useRef, useState } from "react"
 import { api } from "../api"
+import { CopyHash } from "../components/CopyHash"
 import { usePolling } from "../lib/hooks"
 import { formatAmount, formatCompactAmount } from "../lib/format"
 import type { BalanceSnapshot, StatusOperator } from "../types"
@@ -51,6 +52,11 @@ export function OperatorOverview(props: {
 	// Tracked closely while the dialog shows it, otherwise only to spot one left pending.
 	usePolling(loadTopUp, progressOpen ? 5_000 : topUp?.pending ? 15_000 : 30_000)
 	const stablecoinLiquidity = availableStablecoinLiquidity(balances)
+	const nativeSetups = (balances?.chains ?? []).flatMap((row) =>
+		row.nativeSetup
+			? [{ ...row.nativeSetup, chainId: row.chainId, symbol: row.native?.symbol ?? "native gas" }]
+			: [],
+	)
 
 	return (
 		<div className="operator-overview">
@@ -68,6 +74,27 @@ export function OperatorOverview(props: {
 					</button>
 				</div>
 			) : null}
+
+			{nativeSetups.map((setup) => {
+				const label = status.chainLabels?.[String(setup.chainId)] ?? `Chain ${setup.chainId}`
+				const amount = setup.required.toLocaleString(undefined, { maximumSignificantDigits: 2 })
+				return (
+					<div className="operator-alert" data-tone="warning" key={setup.chainId}>
+						<div>
+							<strong>
+								{label} needs about {amount} {setup.symbol} to finish setup
+							</strong>
+							<p>
+								Its {setup.feeToken} can't pay for its own first approval, so that one transaction is
+								paid in {setup.symbol}. The paymaster covers gas after that.
+							</p>
+						</div>
+						{status.addresses ? (
+							<CopyHash value={status.addresses.evm} copyLabel="Copy filler wallet address" />
+						) : null}
+					</div>
+				)
+			})}
 
 			<section className="operator-metrics" aria-label="Runtime summary">
 				<Metric label="Enabled networks" value={String(status.chains.length)} />

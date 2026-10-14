@@ -34,7 +34,7 @@ interface TokenOption {
 type SelectedToken = TokenOption & { permit2Allowance: bigint }
 
 /** Gas ceiling for the one-time ERC-20 approve tx (typical approves need ~45-55k). */
-const APPROVE_TX_GAS = 60_000n
+export const APPROVE_TX_GAS = 60_000n
 
 /**
  * Builds the paymaster fields for a PackedUserOperation using the SimplexPaymaster.

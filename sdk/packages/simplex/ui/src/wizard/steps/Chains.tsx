@@ -1,8 +1,6 @@
 import * as Collapsible from "@radix-ui/react-collapsible"
-import { api } from "../../api"
-import { ChainCollapseTrigger, isHeaderControl, useChainPanels } from "../../components/ChainPanel"
+import { ChainCollapseTrigger, useChainPanels } from "../../components/ChainPanel"
 import { ChainLogo } from "../../components/ChainLogo"
-import { EndpointVerificationStatus } from "../../components/EndpointVerificationStatus"
 import { loadOrderbook } from "../orderbook"
 import { patchChain, type ChainDraft } from "../state"
 import type { StepProps } from "../Wizard"
@@ -11,40 +9,6 @@ export function StepChains({ state, setState }: StepProps) {
 	const panels = useChainPanels()
 
 	const patch = (chainId: number, changes: Partial<ChainDraft>) => setState((s) => patchChain(s, chainId, changes))
-
-	const verifyChain = async (chain: ChainDraft) => {
-		patch(chain.meta.chainId, {
-			verificationState: "checking",
-			verificationMessage: "Checking RPC endpoints…",
-		})
-		const urls = chain.rpcUrls.map((u) => u.trim()).filter(Boolean)
-		try {
-			const rpc = await api.post<{ ok: boolean; results: Array<{ error?: string }>; error?: string }>(
-				"/api/setup/validate-rpc",
-				{ urls, expectedChainId: chain.meta.chainId },
-			)
-			if (!rpc.ok) {
-				const firstError = rpc.error ?? rpc.results.find((r) => r.error)?.error ?? "RPC check failed"
-				patch(chain.meta.chainId, {
-					verificationState: "error",
-					verificationMessage: `RPC could not be verified: ${firstError}`,
-				})
-				return
-			}
-		} catch (err) {
-			const message = err instanceof Error ? err.message : String(err)
-			patch(chain.meta.chainId, {
-				verificationState: "error",
-				verificationMessage: `RPC could not be verified: ${message}`,
-			})
-			return
-		}
-
-		patch(chain.meta.chainId, {
-			verificationState: "success",
-			verificationMessage: "RPC connection is ready.",
-		})
-	}
 
 	return (
 		<div className="wizard-sections chains-step">
@@ -62,16 +26,11 @@ export function StepChains({ state, setState }: StepProps) {
 					className="card chain-configuration"
 					data-enabled={chain.enabled}
 					key={chain.meta.chainId}
-					open={panels.isOpen(chain.meta.chainId, chain.enabled)}
+					// Closed until the chevron opens it, even once the chain is enabled.
+					open={panels.isOpen(chain.meta.chainId, false)}
 					onOpenChange={(open) => panels.setOpen(chain.meta.chainId, open)}
 				>
-					<div
-						className="chain-configuration-header"
-						onClick={(e) => {
-							if (isHeaderControl(e)) return
-							panels.setOpen(chain.meta.chainId, !panels.isOpen(chain.meta.chainId, chain.enabled))
-						}}
-					>
+					<div className="chain-configuration-header">
 						<div className="chain-identity">
 							<ChainLogo label={chain.meta.label} />
 							<div>
@@ -83,10 +42,7 @@ export function StepChains({ state, setState }: StepProps) {
 								<input
 									type="checkbox"
 									checked={chain.enabled}
-									onChange={(e) => {
-										patch(chain.meta.chainId, { enabled: e.target.checked })
-										panels.setOpen(chain.meta.chainId, e.target.checked)
-									}}
+									onChange={(e) => patch(chain.meta.chainId, { enabled: e.target.checked })}
 								/>
 								<span className="chain-enable-switch" aria-hidden="true" />
 								<span>Enable fills</span>
@@ -120,8 +76,6 @@ export function StepChains({ state, setState }: StepProps) {
 													rpcUrls: chain.rpcUrls.map((u, i) =>
 														i === index ? e.target.value : u,
 													),
-													verificationState: undefined,
-													verificationMessage: undefined,
 												})
 											}
 										/>
@@ -131,8 +85,6 @@ export function StepChains({ state, setState }: StepProps) {
 												onClick={() =>
 													patch(chain.meta.chainId, {
 														rpcUrls: chain.rpcUrls.filter((_, i) => i !== index),
-														verificationState: undefined,
-														verificationMessage: undefined,
 													})
 												}
 											>
@@ -150,8 +102,6 @@ export function StepChains({ state, setState }: StepProps) {
 									onClick={() =>
 										patch(chain.meta.chainId, {
 											rpcUrls: [...chain.rpcUrls, ""],
-											verificationState: undefined,
-											verificationMessage: undefined,
 										})
 									}
 								>
@@ -166,22 +116,7 @@ export function StepChains({ state, setState }: StepProps) {
 								</p>
 							</div>
 
-						<div className="chain-configuration-actions">
-							<div className="chain-verification-control">
-								<button
-									type="button"
-									disabled={
-										!chain.rpcUrls[0]?.trim() || chain.verificationState === "checking"
-									}
-									onClick={() => verifyChain(chain)}
-								>
-									{chain.verificationState === "checking" ? "Verifying…" : "Verify"}
-								</button>
-								<EndpointVerificationStatus
-									state={chain.verificationState}
-									message={chain.verificationMessage}
-								/>
-							</div>
+							<div className="chain-configuration-actions">
 								<label className="chain-watch-toggle">
 									<input
 										type="checkbox"

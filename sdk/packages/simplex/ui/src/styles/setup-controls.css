@@ -579,12 +579,13 @@
 	height: 0.9rem;
 }
 
-/* The whole header row opens and closes its chain; the chevron is the keyboard path. */
-.chain-configuration-header {
+/* On the operator page the whole header row opens and closes its chain; the chevron is the
+   keyboard path. The setup wizard's cards open only from the chevron. */
+.operator-chain-settings .chain-configuration-header {
 	cursor: pointer;
 }
 
-.chain-configuration-header:hover {
+.operator-chain-settings .chain-configuration-header:hover {
 	background: rgba(255, 255, 255, 0.035);
 }
 

@@ -20,7 +20,7 @@ import {
 	type FeeTokenBalance,
 	type PaymasterResult,
 } from "../types"
-import { signEip2612Permit } from "../permit"
+import { resolvePermitDomain, signEip2612Permit } from "../permit"
 import { randomPermit2Nonce, signPermit2Transfer } from "../permit2"
 import { SIMPLEX_PAYMASTER_ABI } from "@/config/abis/SimplexPaymaster"
 import type { Signer } from "@/services/wallet/types"
@@ -106,7 +106,7 @@ export async function buildSimplexPaymasterData(
 		// The bootstrap op pays for itself with a permit when the token has one, so the
 		// approve it carries in its own callData needs no native. Only when that is
 		// unavailable does the allowance have to be installed by a funded tx first.
-		if (permitBootstrap && (await tokenSupportsPermit(client, tokenAddress))) {
+		if (permitBootstrap && (await tokenSupportsPermit(client, tokenAddress, chainId))) {
 			const pm = await buildPermitMode(
 				client,
 				signer,
@@ -174,7 +174,7 @@ export async function resolvePendingPermit2Approval(
 	return {
 		token: selected.address,
 		spender: permit2,
-		permitCapable: await tokenSupportsPermit(client, selected.address),
+		permitCapable: await tokenSupportsPermit(client, selected.address, configService.getChainId(chain)),
 	}
 }
 
@@ -479,32 +479,11 @@ async function sendApproveTx(
 	await client.waitForTransactionReceipt({ hash, confirmations: 2 })
 }
 
-/** Probes for EIP-2612 support via the version() getter permit tokens expose. */
-async function tokenSupportsPermit(client: PublicClient, tokenAddress: HexString): Promise<boolean> {
-	try {
-		await client.readContract({
-			address: tokenAddress,
-			abi: [
-				{
-					inputs: [],
-					name: "version",
-					outputs: [{ type: "string" }],
-					stateMutability: "view",
-					type: "function",
-				},
-			] as const,
-			functionName: "version",
-		})
-		return true
-	} catch (error) {
-		// Same discrimination as paymasterSupportsPermit2: only a contract revert /
-		// empty return proves the token has no version() — a transport error must
-		// propagate, or a 429 would masquerade as "no permit" and strand a solver
-		// with no native on the funded-approve path it was trying to avoid.
-		const isRevert =
-			error instanceof BaseError &&
-			error.walk((e) => e instanceof ContractFunctionRevertedError || e instanceof ContractFunctionZeroDataError)
-		if (isRevert) return false
-		throw error
-	}
+/**
+ * Whether the token has an EIP-2612 permit Simplex can sign: its `DOMAIN_SEPARATOR` matches a
+ * domain shape we know how to build. A transport error propagates rather than reading as "no
+ * permit", or a 429 would strand a solver with no native on the funded-approve path.
+ */
+async function tokenSupportsPermit(client: PublicClient, tokenAddress: HexString, chainId: number): Promise<boolean> {
+	return (await resolvePermitDomain(client, tokenAddress, chainId)) !== null
 }

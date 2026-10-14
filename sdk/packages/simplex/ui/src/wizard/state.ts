@@ -1,7 +1,6 @@
 import { DEFAULT_ORDERBOOK_URLS } from "@/config/defaults"
 import { normalizeSymbol } from "@/config/asset-registry"
 import { vaultRowsToToml, type VaultRowDraft } from "../lib/vault-rows"
-import type { EndpointVerificationState } from "../components/EndpointVerificationStatus"
 import type { ChainDefault, FillerConfig, SetupDefaults, SetupOrderbook } from "../types"
 
 export interface ChainDraft {
@@ -9,8 +8,6 @@ export interface ChainDraft {
 	enabled: boolean
 	rpcUrls: string[]
 	watchOnly: boolean
-	verificationState?: EndpointVerificationState
-	verificationMessage?: string
 }
 
 export type VaultDraft = VaultRowDraft

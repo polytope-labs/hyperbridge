@@ -127,7 +127,7 @@ const STEPS: Array<{
 	{
 		id: "chains",
 		title: "Chains",
-		description: "Select execution networks and verify the RPC endpoints behind each one.",
+		description: "Select execution networks and the RPC endpoints behind each one.",
 		component: StepChains,
 		requirements: chainRequirements,
 	},

@@ -24,8 +24,9 @@ export function isHeaderControl(event: MouseEvent): boolean {
 }
 
 /**
- * The keyboard and screen-reader way to open a chain card. Clicking anywhere
- * on the row does the same, but a row cannot be a button: it holds the switch.
+ * The keyboard and screen-reader way to open a chain card. On the operator page,
+ * clicking anywhere on the row does the same, but a row cannot be a button: it
+ * holds the switch.
  */
 export function ChainCollapseTrigger({ label }: { label: string }) {
 	return (

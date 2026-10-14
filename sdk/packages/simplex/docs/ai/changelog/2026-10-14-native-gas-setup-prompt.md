@@ -1,4 +1,4 @@
-# 2026-10-14 — Prompt for the native gas a chain needs to finish setup
+# 2026-10-14 — Native gas setup prompt, and chevron-only chain cards in the setup wizard
 
 The paymaster pays every sponsored transaction's gas through Permit2. That needs a one-time
 Permit2 approval of the fee token. A token with an EIP-2612 permit pays for that approval
@@ -31,3 +31,14 @@ check is best-effort: a failure leaves `nativeSetup` unset for that refresh.
   attempt, or as the funded approve ahead of the first sponsored transaction on that chain.
 - Setup wizard, Review step: when BNB Chain is enabled, the funding line adds that BNB Chain also
   needs a little BNB for a one-time approval.
+
+## Setup wizard chain cards open only from the chevron
+
+On the wizard's Chains step, a chain card stays closed until its chevron is clicked. Turning on
+"Enable fills" no longer opens it, and neither does a click elsewhere on the header row. The
+row's pointer cursor and hover now apply only on the operator Chains page, which keeps its
+whole-row toggle. If an enabled chain lacks an RPC endpoint, the Continue blocker names the chain.
+
+The wizard's Verify button is gone, along with `verificationState` and `verificationMessage` on
+its `ChainDraft`. The operator Chains page keeps its "Verify endpoints" button and the
+`/api/setup/validate-rpc` route.

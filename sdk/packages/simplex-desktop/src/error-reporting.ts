@@ -40,9 +40,22 @@ export function rendererReportingOrigin(env: NodeJS.ProcessEnv = process.env): s
 	return UI_DSN && errorReportingEnabled(env) ? sentryIngestOrigin(UI_DSN) : undefined
 }
 
-/** Must run before the app is ready so startup failures are captured. */
-export function startDesktopErrorReporting(version: string, packaged: boolean): void {
-	if (!DESKTOP_DSN || !errorReportingEnabled()) return
+/**
+ * Child-process exits sent as events. With no minidumps, these replace native
+ * crash reports for the renderer, GPU and utility processes: process type,
+ * reason and exit code, but no memory.
+ */
+const CHILD_PROCESS_EVENTS: Array<"crashed" | "oom" | "abnormal-exit" | "launch-failed" | "integrity-failure"> = [
+	"crashed",
+	"oom",
+	"abnormal-exit",
+	"launch-failed",
+	"integrity-failure",
+]
+
+/** Must run before the app is ready so startup failures are captured. Returns whether reporting is on. */
+export function startDesktopErrorReporting(version: string, packaged: boolean): boolean {
+	if (!DESKTOP_DSN || !errorReportingEnabled()) return false
 	// dist/main.js.map ships in the asar, so stacks arrive already mapped to src/.
 	process.setSourceMapsEnabled(true)
 	Sentry.init({
@@ -53,14 +66,41 @@ export function startDesktopErrorReporting(version: string, packaged: boolean): 
 		sendDefaultPii: false,
 		// Tracing is not used; skipping OpenTelemetry keeps the bundled main process free of loader hooks.
 		skipOpenTelemetrySetup: true,
-		integrations: (defaults) => defaults.filter((integration) => !EXCLUDED_INTEGRATIONS.has(integration.name)),
+		integrations: (defaults) => [
+			...defaults.filter(
+				(integration) => !EXCLUDED_INTEGRATIONS.has(integration.name) && integration.name !== "ChildProcess",
+			),
+			Sentry.childProcessIntegration({ events: CHILD_PROCESS_EVENTS }),
+		],
 		beforeBreadcrumb: (breadcrumb) => scrubBreadcrumb(breadcrumb),
 		beforeSend: (event) => scrubEvent(event),
 	})
+	return true
 }
 
 export function reportDesktopError(error: unknown): void {
 	Sentry.captureException(error)
+}
+
+/** The solver died or stopped answering while it was meant to be running. */
+export function reportSolverFailure(
+	status: { state: string; detail?: string },
+	previous: { state: string; version?: string },
+): void {
+	Sentry.captureMessage(`Simplex solver ${status.state === "unreachable" ? "became unreachable" : "stopped"}`, {
+		level: "error",
+		tags: { "solver.previous_state": previous.state, "solver.version": previous.version ?? "unknown" },
+		extra: { detail: status.detail },
+	})
+}
+
+/** The previous desktop session ended without a clean quit. */
+export function reportUncleanExit(previous: { version?: string; startedAt?: string; platform?: string }): void {
+	Sentry.captureMessage("Previous Simplex Desktop session ended without a clean quit", {
+		level: "fatal",
+		tags: { "previous.version": previous.version ?? "unknown" },
+		extra: { previousStartedAt: previous.startedAt, previousPlatform: previous.platform },
+	})
 }
 
 /** Delivers queued events before the process exits. */

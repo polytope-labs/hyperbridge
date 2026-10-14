@@ -49,6 +49,21 @@ The desktop removes the `SentryMinidump`/`ElectronMinidump` (process memory),
 `RendererEventLoopBlock` integrations. It uses `IPCMode.Classic` and skips OpenTelemetry. The
 renderer reports through the UI's own `@sentry/react`, not through an Electron preload.
 
+## Crashes without minidumps
+
+The desktop collects no minidumps, so three reports stand in for them:
+
+- **Child processes:** `childProcessIntegration({ events })` sends an event when a renderer, GPU
+  or utility process exits as `crashed`, `oom`, `abnormal-exit`, `launch-failed` or
+  `integrity-failure`. Sentry's default sends `crashed` and `oom` only with minidumps.
+- **Solver:** `reportSolverFailure` fires where the "Simplex solver stopped" notification does
+  (`shouldNotifySolverFailure`). It is tagged with the solver's previous state and version.
+- **Main process:** `session-marker.ts` writes `running-session.json` to userData at launch and
+  removes it on `will-quit`. A marker left at the next launch is reported as a `fatal` "ended
+  without a clean quit", tagged with the previous version. A marker older than the OS boot time
+  (`os.uptime()`) is ignored, because a shutdown or restart ended that session. Windows does not
+  always emit `will-quit` at shutdown. The marker is only written while reporting is on.
+
 ## CI
 
 `publish-simplex.yml` passes the UI variables to the npm build. `publish-simplex-desktop.yml`

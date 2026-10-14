@@ -10,7 +10,6 @@ import usdc from "../assets/tokens/usdc.png"
 import usdr from "../assets/tokens/usdr.png"
 import usdt from "../assets/tokens/usdt.png"
 import zarp from "../assets/tokens/zarp.png"
-import bridge from "../assets/tokens/bridge.png"
 import { ChainLogo } from "./ChainLogo"
 
 const TOKEN_ICONS: Record<string, string> = {
@@ -20,7 +19,6 @@ const TOKEN_ICONS: Record<string, string> = {
 	ETH: eth,
 	EURC: eurc,
 	BNB: bnb,
-	BRIDGE: bridge,
 	MATIC: matic,
 	USDC: usdc,
 	USDR: usdr,

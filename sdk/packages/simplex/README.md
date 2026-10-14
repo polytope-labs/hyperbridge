@@ -1,62 +1,53 @@
 # @hyperbridge/simplex
 
-Automated intent solver for the Hyperbridge IntentGateway. Install the desktop app, run the
-standalone binary, or embed the engine in your own Node application.
+[![npm](https://img.shields.io/npm/v/@hyperbridge/simplex.svg)](https://www.npmjs.com/package/@hyperbridge/simplex)
+[![node](https://img.shields.io/node/v/@hyperbridge/simplex.svg)](https://nodejs.org)
+[![license](https://img.shields.io/npm/l/@hyperbridge/simplex.svg)](https://github.com/polytope-labs/hyperbridge/blob/main/sdk/packages/simplex/LICENSE)
 
-Full documentation:
-[docs.hyperbridge.network/developers/sdk/simplex](https://docs.hyperbridge.network/developers/sdk/simplex/)
+An automated solver for [Hyperbridge](https://hyperbridge.network) intents.
 
-## Desktop app (Recommended)
+Simplex watches the IntentGateway on the chains you configure. It prices each swap against the
+limit orders you post to the HyperFX orderbook, then bids for and fills the swaps you have priced.
 
-[Download Simplex Desktop](https://github.com/polytope-labs/hyperbridge/releases?q=simplex-desktop-v&expanded=true)
-for macOS, Windows, or Linux. Choose the newest stable `simplex-desktop-v…` release and its installer
-for your platform. The app bundles this package and the matching Node runtime, opens the setup wizard
-on first launch, and keeps the solver running from the system tray. macOS and Windows install
-authenticated updates; Linux updates remain manual until release metadata is independently signed.
+Embed it in your own Node service, or run it as a ready-made app:
 
-The desktop app and `@hyperbridge/simplex` always use the same version. Its bundle identifier is
-`network.hyperbridge.simplex` and its installed product name is **Simplex**.
+- **Library**: call `Simplex.start()` in your process, with your own signer and storage.
+- **CLI**: `simplex` sets itself up in the browser and serves a local dashboard.
+- **Desktop app**: installers for macOS, Windows and Linux.
+- **Docker**: the [`polytopelabs/simplex`](https://hub.docker.com/r/polytopelabs/simplex) image.
 
-A fresh desktop config is stored at:
-
-- macOS: `~/Library/Application Support/Simplex/filler-config.toml`
-- Windows: `%APPDATA%\Simplex\filler-config.toml`
-- Linux: `$XDG_CONFIG_HOME/Simplex/filler-config.toml`, or `~/.config/Simplex/filler-config.toml`
-
-`filler-config.toml` contains private keys and credentials in plaintext. New files are mode `0600`
-on Unix, but software running as the operator can still read them. Keep the file out of source
-control and broadly shared backups. `simplex.substratePrivateKey` is required in every signer mode,
-so Turnkey and MPC Vault operators still have a raw Substrate key on disk.
-
-The browser-installable PWA remains the remote/mobile dashboard for an existing solver. It is a UI
-shell, not a packaged solver, and is not the preferred local installation.
-
-See the [installation guide](https://docs.hyperbridge.network/developers/evm/simplex/installation/)
-for installer names, lifecycle details, and the advanced Docker and npm paths.
-
-## Advanced: embed as a library
+## Install
 
 ```bash
 npm install @hyperbridge/simplex
 ```
 
+Requires Node.js 22.16 or later.
+
+## Quick start
+
 ```ts
-import { Simplex, privateKeySigner } from "@hyperbridge/simplex"
+import { Simplex, privateKeySigner, type SimplexConfig } from "@hyperbridge/simplex"
 import { SqliteDataStore } from "@hyperbridge/simplex/sqlite"
+
+const config: SimplexConfig = {
+    simplex: {
+        maxConcurrentOrders: 5,
+        substratePrivateKey: process.env.SUBSTRATE_KEY!,
+        hyperbridgeWsUrl: "wss://nexus.rpc.polytope.technology",
+    },
+    chains: [{ rpcUrls: ["https://base.example"] }, { rpcUrls: ["https://ethereum.example"] }],
+    orderbook: { url: "https://orderbook.hyperfx.finance/mainnet/graphql" },
+}
 
 const simplex = await Simplex.start({
     config,
     signer: privateKeySigner(process.env.SOLVER_KEY as `0x${string}`),
     data: new SqliteDataStore("./simplex-data"),
+    logger: process.stdout,
 })
 
-simplex.on("order:filled", ({ orderId, profitUsd }) => {
-    console.log(`filled ${orderId} for $${profitUsd}`)
-})
-
-// Every runtime control the dashboard offers is a method — nothing needs a restart.
-// Prices come from limit orders posted to the HyperFX orderbook: 10,000 USDC in for
-// 13,900,000 CNGN out, filled on Base, for swaps from Ethereum or Base.
+// Pay out 13,900,000 cNGN on Base for 10,000 USDC, to swaps from Ethereum or Base.
 await simplex.limitOrders.create({
     fillChain: "EVM-8453",
     tokenIn: "USDC",
@@ -65,148 +56,91 @@ await simplex.limitOrders.create({
     amountOut: "13900000",
     acceptedSources: ["EVM-1", "EVM-8453"],
 })
-await simplex.chains.setRpcUrls(8453, ["https://base-new.example"])
 
+simplex.on("order:filled", ({ orderId, profitUsd }) => {
+    console.log(`filled ${orderId} for $${profitUsd}`)
+})
+
+// When you are done:
 await simplex.stop()
 ```
 
-`Simplex.start` takes a plain config object — no TOML file required — and returns once the solver is
-running. The config must name an `orderbook`; it carries no prices, and the solver fills only against
-the limit orders you create while it runs. It logs nothing until you point `logger` at a sink, so importing the package never writes to
-your stdout.
+`Simplex.start` resolves once the solver is running. The config holds no prices. Simplex fills only
+against the limit orders you create, so a fresh solver quotes nothing until you post one.
 
-Signing is an interface, not a setting. `Signer` is an identity and three operations — sign this
-typed data, this EIP-7702 authorization, this transaction — with no viem types on it, so satisfying
-it never means matching this package's viem version. `privateKeySigner`, `secretPhraseSigner`,
-`turnkeySigner` and `mpcVaultSigner` ship with the package, `viemSigner` adapts any viem account (a
-`toAccount` wrapper around an HSM or a remote signing service included), and your own implementation
-is a first-class citizen. Persistence is pluggable the same way: the default
-store is in-memory, `SqliteDataStore` is durable, and `SimplexDataStore` is a small async interface
-you can implement over Postgres, Redis or anything else. A solver that submits bids should use a
-durable store, since bid records are how locked deposits are found again for retraction.
+## Features
 
-See [Running as a library](https://docs.hyperbridge.network/developers/sdk/simplex).
+- **Priced by your limit orders.** No price feeds. Each order says what you take in, what you pay
+  out, and on which chain.
+- **Bring your own signer.** `Signer` is a small interface with no viem types. Simplex ships
+  `privateKeySigner`, `secretPhraseSigner`, `turnkeySigner` and `mpcVaultSigner`, and `viemSigner`
+  wraps any viem account.
+- **Bring your own storage.** The default store is in memory. `SqliteDataStore` is durable, and
+  `SimplexDataStore` is a small interface you can implement over any database. Use a durable store
+  when bidding, because bid records are how locked deposits are found again.
+- **Live control.** Limit orders, chains, vaults, assets and rebalancing all change at runtime
+  through `simplex.limitOrders`, `simplex.chains` and the other controllers. Nothing needs a restart.
+- **Typed events.** Subscribe to `order:detected`, `order:filled`, `limit-order:filled` and more.
+- **Quiet by default.** Simplex logs nothing until you pass `logger`, so it never writes to your
+  stdout uninvited.
 
-## Advanced: npm binary and Docker
+## Command line
 
 ```bash
 npm install -g @hyperbridge/simplex
 simplex
 ```
 
-The scope matters: the bare `simplex` name on npm is an unrelated package. The installed command is
-still `simplex`. Prefer a container? The same binary ships as
-[`polytopelabs/simplex`](https://hub.docker.com/r/polytopelabs/simplex) — quickstart on the Docker
-Hub page.
+Install the scoped package. The bare `simplex` package on npm is unrelated.
 
-With no config present, `simplex` opens a local browser wizard that walks through the minimum setup
-(chains, RPCs, signer, Hyperbridge account), validates every endpoint live,
-writes a commented `filler-config.toml` (mode 600) and starts the solver in the same process.
-`simplex init` is the equivalent terminal wizard.
-
-With a config present (`./filler-config.toml`, `$SIMPLEX_HOME/config.toml`, or `-c <path>`),
-`simplex` runs the solver directly.
-
-### Web UI
-
-The solver serves a local web UI at `127.0.0.1:8686` by default:
-
-- setup wizard (when no config exists) — private key, secret phrase, MPCVault or Turnkey signer, chains and endpoints
-- status, pause/resume (persists across restarts), graceful stop, balances per chain
-- live activity feed (orders detected/filled/skipped, bids, rebalances) streamed over SSE
-- limit orders: post, inspect with the fills that drew them down, and cancel
-- operations: manual vault sweep/redeem, runtime allowlist editing, log level switch, rebalancing trigger view, masked config view
-
-Flags:
+With no config, `simplex` opens a setup wizard in your browser. The wizard writes
+`filler-config.toml` and starts the solver. With a config, `simplex` starts the solver and serves its
+dashboard at `http://127.0.0.1:8686`.
 
 ```bash
-simplex run -c filler-config.toml            # UI on 127.0.0.1:8686
-simplex run -c filler-config.toml --ui 9000  # custom port
-simplex run -c filler-config.toml --no-ui    # headless
-simplex run --no-open                        # start the wizard, don't launch a browser
-simplex run --log-format json                # NDJSON on stdout instead of colourised lines
+simplex run -c filler-config.toml           # run with an existing config
+simplex run -c filler-config.toml --no-ui   # run without the dashboard
+simplex init                                # set up in the terminal instead
 ```
 
-`--no-open` and `--log-format json` are for running the solver under a supervisor. The wizard still
-starts and still reports its URL under `--no-open`; only the browser launch is skipped. `json` makes
-every line simplex writes to stdout one JSON object, with no ANSI escapes, which is what a captured log
-file needs. (One caveat: `@polkadot/api` prints a plain-text line to stdout if the Hyperbridge runtime
-upgrades while the solver is running, so parse defensively.)
+The same binary runs in Docker as
+[`polytopelabs/simplex`](https://hub.docker.com/r/polytopelabs/simplex).
 
-The limit-order API:
+## Desktop app
 
-```bash
-curl http://127.0.0.1:8686/api/orderbook/books           # books, dust floors, tokens per chain
-curl http://127.0.0.1:8686/api/limit-orders?status=open  # also ?chain= and ?book=
-curl -X POST http://127.0.0.1:8686/api/limit-orders \
-    -H "Content-Type: application/json" -H "X-Simplex-UI: 1" \
-    -d '{"fillChain": "EVM-8453", "tokenIn": "USDC", "amountIn": "10000",
-         "tokenOut": "CNGN", "amountOut": "13900000", "acceptedSources": ["EVM-1", "EVM-8453"]}'
-curl http://127.0.0.1:8686/api/limit-orders/<id>          # { order, fills, bids }
-curl -X DELETE http://127.0.0.1:8686/api/limit-orders/<id> -H "X-Simplex-UI: 1"
-```
+Simplex Desktop bundles this package with its own Node runtime. It runs the setup wizard on first
+launch and keeps the solver running from the system tray.
+[Download it for macOS, Windows or Linux](https://docs.hyperbridge.network/developers/evm/simplex/installation/).
 
-Amounts are whole tokens as decimal strings. `acceptedSources` must name at least one source chain,
-and `ttlSecs` is optional (default `[orderbook] defaultTtlSecs`, or 365 days). Orders live in
-`bids.db`, not the config file: a fill draws an order down and reposts the rest, and it lapses when
-its TTL runs out. See the
-[limit orders guide](https://docs.hyperbridge.network/developers/evm/simplex/limit-orders/).
+## Security
 
-The server is unauthenticated — mutating requests need the `X-Simplex-UI: 1` header (CSRF
-hygiene), and both the wizard and the operator UI bind loopback unless told otherwise. Only bind
-another interface (e.g. `--ui 0.0.0.0:8686`, which the docker image does inside its own network
-namespace) on a trusted network.
+- `filler-config.toml` holds private keys in plain text. It is written with mode `0600`, but keep it
+  out of source control and shared backups.
+- The dashboard has no login. It listens only on `127.0.0.1` by default. Do not expose it on a
+  network you do not trust. To reach it from a phone, use
+  [remote access](https://docs.hyperbridge.network/developers/evm/simplex/api/remote-access/).
 
-Loopback is machine-local, not user-local. On a shared machine, another OS user may be able to reach
-the unauthenticated TCP UI and invoke operator actions. Prefer `--ui-socket` in an owner-only
-directory or the authenticated, opt-in tunnel when other local users are not trusted. The generated
-`filler-config.toml` stores signing keys in plaintext; it is written atomically with mode `0600` on
-Unix, but must still be kept out of source control and broadly shared backups.
+## Documentation
 
-## Remote access from a phone
-
-The UI is loopback-only, and most operator machines sit behind NAT. Remote access keeps an
-outbound SSH tunnel from simplex to a relay ([polytope-labs/simplex-tunnel](https://github.com/polytope-labs/simplex-tunnel),
-hosted at `simplex.tunnel.polytope.technology`) that leases this simplex a stable public port.
-A phone's SSH client connects to that port with a local port forward, and the browser opens
-`http://localhost:8686`.
-
-The phone's SSH session terminates in an SSH server embedded in simplex, not in sshd and not in
-the relay, so the relay only ever carries ciphertext. That server accepts public-key auth against
-the devices paired in the UI and `direct-tcpip` channels to the UI bind, and nothing else: no
-shell, exec, PTY or other destinations.
-
-It is off by default. Turn it on and pair devices under **Operations > Remote access** in the UI;
-the choice is written to `[simplex.tunnel]` in the config. To pair, create a key in the phone's SSH
-app and paste its public key into the panel, so the private key never leaves the phone; for apps
-that cannot make their own, simplex can generate a pair instead and shows the private key exactly
-once, as text and as a QR code. Either way the panel shows the host, port, username, host-key
-fingerprint and local forward to enter in the SSH app (Blink and Termius on iOS, ConnectBot and
-JuiceSSH on Android). A paired key opens the whole dashboard, including the
-Send and treasury tools, so keep it on the device and revoke it from the same panel if the
-device is lost. Keys live under `<data-dir>/tunnel/` in plain OpenSSH formats.
-
-The hosted relay's host key is pinned in the binary, so first contact is verified. A self-hosted
-relay is pinned on first contact unless `relayHostKey` in `[simplex.tunnel]` names its fingerprint.
-
-The tunnel is best-effort: it retries with backoff and never affects filling. It only runs in
-operator mode, never while the setup wizard holds secrets.
+- [Library guide](https://docs.hyperbridge.network/developers/sdk/simplex/)
+- [API reference](https://docs.hyperbridge.network/developers/sdk/api/simplex/)
+- [Configuration](https://docs.hyperbridge.network/developers/evm/simplex/configuration/)
+- [Limit orders](https://docs.hyperbridge.network/developers/evm/simplex/limit-orders/)
+- [Dashboard](https://docs.hyperbridge.network/developers/evm/simplex/dashboard/) and
+  [HTTP API](https://docs.hyperbridge.network/developers/evm/simplex/api/overview/)
+- [Troubleshooting](https://docs.hyperbridge.network/developers/evm/simplex/troubleshooting/)
 
 ## Development
 
+This package lives in the [Hyperbridge monorepo](https://github.com/polytope-labs/hyperbridge) at
+`sdk/packages/simplex`.
+
 ```bash
 pnpm install
-pnpm build            # library + CLI bundles, then the vite web UI into dist/ui
+pnpm build   # library, CLI and dashboard
 pnpm test
-pnpm cli run -c filler-config.toml
-pnpm ui:dev           # web UI dev server with /api proxied to a running solver
 ```
-
-The build emits two shapes from one source tree: the library entry points
-(`dist/index.js`, `dist/sqlite.js`) leave dependencies external so a consumer resolves one copy of
-`viem` and `decimal.js`, while the CLI (`dist/bin/simplex.js`) bundles everything into a single file
-so a global install or the docker image runs without a dependency tree.
 
 ## License
 
-Apache-2.0
+[Apache-2.0](https://github.com/polytope-labs/hyperbridge/blob/main/sdk/packages/simplex/LICENSE)

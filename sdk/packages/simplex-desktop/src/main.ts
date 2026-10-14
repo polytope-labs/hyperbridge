@@ -1,4 +1,5 @@
 import { existsSync } from "node:fs"
+import { uptime } from "node:os"
 import { dirname, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import {
@@ -19,6 +20,15 @@ import electronUpdater from "electron-updater"
 import type { OperatorNotification } from "@hyperbridge/simplex"
 import { ensureDaemon, probeHealth, type DaemonLaunch } from "./daemon"
 import { installSessionSecurity, installWebContentsSecurity, rendererWebPreferences } from "./desktop-security"
+import {
+	flushDesktopErrorReports,
+	rendererReportingOrigin,
+	reportDesktopError,
+	reportSolverFailure,
+	reportUncleanExit,
+	startDesktopErrorReporting,
+} from "./error-reporting"
+import { markSessionEnded, markSessionStarted, previousUncleanSession } from "./session-marker"
 import { assertResources, resourcePaths, socketPathFor, userDataOverrideFromArgv } from "./desktop-paths"
 import { latestLogPath, loginItemExecutable, LoginItemController } from "./login-item"
 import { DesktopNotificationClient, desktopNotificationUrl } from "./notification-client"
@@ -79,6 +89,8 @@ let updateStatus: UpdateStatus = { state: "disabled", channel: "stable" }
 const userDataSwitch = app.commandLine.getSwitchValue("user-data-dir")
 const userDataOverride = userDataSwitch ? resolve(userDataSwitch) : userDataOverrideFromArgv()
 if (userDataOverride) app.setPath("userData", userDataOverride)
+// After the userData override: Sentry queues undelivered reports under it.
+const errorReportingActive = startDesktopErrorReporting(app.getVersion(), app.isPackaged)
 
 async function simplexPackageRoot(): Promise<string> {
 	const manifest = import.meta.resolve("@hyperbridge/simplex/package.json")
@@ -90,6 +102,7 @@ function errorMessage(error: unknown): string {
 }
 
 function reportActionError(title: string, error: unknown): void {
+	reportDesktopError(error)
 	dialog.showErrorBox(title, errorMessage(error))
 }
 
@@ -204,7 +217,36 @@ function onSolverStatusChanged(next: SolverStatus, previous: SolverStatus): void
 		intentionalStop = false
 		return
 	}
-	if (shouldNotifySolverFailure(previous, next, intentionalStop)) notifySolverFailure(next)
+	if (shouldNotifySolverFailure(previous, next, intentionalStop)) {
+		notifySolverFailure(next)
+		reportSolverFailure(next, previous)
+	}
+}
+
+/** Reports a previous session that ended without a clean quit, then marks this one as running. */
+function trackDesktopSession(): void {
+	if (!errorReportingActive) return
+	const directory = app.getPath("userData")
+	try {
+		const bootedAtMs = Date.now() - uptime() * 1_000
+		const previous = previousUncleanSession(directory, bootedAtMs)
+		if (previous) reportUncleanExit(previous)
+		markSessionStarted(directory, {
+			version: app.getVersion(),
+			startedAt: new Date().toISOString(),
+			platform: process.platform,
+		})
+	} catch (error) {
+		console.warn(`Simplex could not track its session for crash reports: ${errorMessage(error)}`)
+	}
+	const endSession = () => {
+		try {
+			markSessionEnded(directory)
+		} catch {
+			// A leftover marker only produces one spurious report on the next launch.
+		}
+	}
+	app.on("will-quit", endSession)
 }
 
 async function startOrAttachSolver(fatal: boolean, background = false): Promise<boolean> {
@@ -521,7 +563,7 @@ async function prepareDesktop(): Promise<void> {
 			access: vault,
 		}),
 	)
-	installSessionSecurity(session.defaultSession)
+	installSessionSecurity(session.defaultSession, rendererReportingOrigin())
 	loginItem = new LoginItemController({
 		app,
 		platform: process.platform,
@@ -622,9 +664,10 @@ async function prepareDesktop(): Promise<void> {
 function reportStartupError(error: unknown): void {
 	const message = errorMessage(error)
 	console.error(`Simplex could not start: ${message}`)
+	reportDesktopError(error)
 	dialog.showErrorBox("Simplex could not start", message)
 	quitting = true
-	app.quit()
+	void flushDesktopErrorReports().finally(() => app.quit())
 }
 
 if (!app.requestSingleInstanceLock()) {
@@ -639,6 +682,7 @@ if (!app.requestSingleInstanceLock()) {
 				dialog.showErrorBox("Could not open link", "Simplex could not open this link in your default browser."),
 		)
 	})
+	trackDesktopSession()
 	app.on("second-instance", () => void safeShowWindow())
 	app.on("activate", () => void safeShowWindow())
 	app.on("before-quit", () => {

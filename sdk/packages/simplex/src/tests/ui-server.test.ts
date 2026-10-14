@@ -333,6 +333,13 @@ describe("UiServer (operator mode)", () => {
 		const health = await fetch(`${base}/health`)
 		expect(await health.json()).toEqual({ status: "ok", mode: "operator", pid: process.pid })
 
+		vi.stubEnv("SIMPLEX_ERROR_REPORTING", "off")
+		try {
+			expect(await (await fetch(`${base}/health`)).json()).toMatchObject({ errorReporting: false })
+		} finally {
+			vi.unstubAllEnvs()
+		}
+
 		const status = await fetch(`${base}/api/status`)
 		expect(status.status).toBe(200)
 		const payload = await status.json()

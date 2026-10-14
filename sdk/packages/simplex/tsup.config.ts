@@ -46,7 +46,12 @@ export default defineConfig([
 	 * because it has no such boundary.
 	 */
 	{
-		entry: { index: "src/index.ts", sqlite: "src/data/sqlite/index.ts", "config-storage": "src/config/storage.ts" },
+		entry: {
+			index: "src/index.ts",
+			sqlite: "src/data/sqlite/index.ts",
+			"config-storage": "src/config/storage.ts",
+			"error-reporting": "src/config/error-reporting.ts",
+		},
 		format: ["esm", "cjs"],
 		...KEEP_NODE_PROTOCOL,
 		dts: true,

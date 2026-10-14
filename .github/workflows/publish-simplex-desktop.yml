@@ -92,6 +92,13 @@ jobs:
           pnpm --dir packages/simplex-desktop build
         env:
           CI: "true"
+          # Only trusted releases report errors and upload UI source maps; validation
+          # builds bake no DSN, so they never send anything.
+          SIMPLEX_DESKTOP_SENTRY_DSN: ${{ steps.release_mode.outputs.sign_artifacts == 'true' && secrets.SIMPLEX_DESKTOP_SENTRY_DSN || '' }}
+          SIMPLEX_UI_SENTRY_DSN: ${{ steps.release_mode.outputs.sign_artifacts == 'true' && secrets.SIMPLEX_UI_SENTRY_DSN || '' }}
+          SIMPLEX_UI_SENTRY_PROJECT: ${{ steps.release_mode.outputs.sign_artifacts == 'true' && vars.SIMPLEX_UI_SENTRY_PROJECT || '' }}
+          SENTRY_ORG: ${{ vars.SENTRY_ORG }}
+          SENTRY_AUTH_TOKEN: ${{ steps.release_mode.outputs.sign_artifacts == 'true' && secrets.SENTRY_AUTH_TOKEN || '' }}
 
       - name: Verify portable release inputs
         run: node packages/simplex-desktop/scripts/e2e/assert-artifacts.mjs

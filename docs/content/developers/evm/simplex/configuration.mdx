@@ -296,3 +296,11 @@ blockScanIntervalSeconds = 0.5
 ```
 
 Orders are still evaluated against the confirmation policy after they are seen, so a shorter interval brings detection forward but does not change how long a cross-chain order waits before it can be filled.
+
+## Error reporting
+
+The desktop app and the dashboard from the official npm package send crash and error reports to Sentry, so the Simplex team can fix failures it would not otherwise see. Docker images and builds you make yourself send nothing.
+
+Reports never include your config, keys or balances. Before a report leaves the machine, Simplex strips recovery phrases, private keys and other long tokens, file paths, and the path and query of any non-local URL, which is where RPC providers put API keys. Native crash dumps, screenshots and stack-frame variables are never collected. When a desktop process crashes, the solver stops unexpectedly, or the app closed without quitting last time, the report says only which process ended, how, and on which version.
+
+To turn reporting off, set `SIMPLEX_ERROR_REPORTING=off` in the environment that starts Simplex. The solver then tells the dashboard not to report. The desktop app reads the variable at launch, stops reporting from its own process, and blocks the dashboard window from reaching Sentry.

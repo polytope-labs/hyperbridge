@@ -1,16 +1,18 @@
 import { defineConfig } from "tsup"
 
 export default defineConfig({
-	entry: { main: "src/main.ts" },
+	entry: { bootstrap: "src/bootstrap.ts", main: "src/main.ts" },
 	format: ["esm"],
 	platform: "node",
 	target: "node24",
 	bundle: true,
+	splitting: false,
 	clean: true,
 	sourcemap: true,
 	// Electron is supplied by the host runtime. Bundle electron-updater so the
 	// packaged main process has no undeclared dependency on a workspace symlink.
-	external: ["electron"],
+	// Keep main separate so bootstrap can enable source maps before Node loads it.
+	external: ["electron", "./main.js"],
 	noExternal: [
 		"electron-updater",
 		"@hyperbridge/simplex/config-storage",

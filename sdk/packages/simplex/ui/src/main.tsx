@@ -18,7 +18,7 @@ import "./styles/pwa.css"
 import "./styles/drawer.css"
 import "./styles/desktop-access.css"
 
-startErrorReporting()
+void startErrorReporting()
 
 if (import.meta.env.PROD && "serviceWorker" in navigator) {
 	navigator.serviceWorker.register("./sw.js", { scope: "./" }).catch(() => {

@@ -56,8 +56,7 @@ const CHILD_PROCESS_EVENTS: Array<"crashed" | "oom" | "abnormal-exit" | "launch-
 /** Must run before the app is ready so startup failures are captured. Returns whether reporting is on. */
 export function startDesktopErrorReporting(version: string, packaged: boolean): boolean {
 	if (!DESKTOP_DSN || !errorReportingEnabled()) return false
-	// dist/main.js.map ships in the asar, so stacks arrive already mapped to src/.
-	process.setSourceMapsEnabled(true)
+	// bootstrap enables source maps before loading main.js; its map ships in the asar.
 	Sentry.init({
 		dsn: DESKTOP_DSN,
 		release: `simplex-desktop@${version}`,

@@ -26,16 +26,17 @@ async function solverAllowsReporting(): Promise<boolean> {
 	}
 }
 
-export function startErrorReporting(): void {
+export async function startErrorReporting(): Promise<void> {
 	if (!DSN) return
-	const allowed = solverAllowsReporting()
+	// Sessions and client reports bypass beforeSend, so permission gates the entire SDK.
+	if (!(await solverAllowsReporting())) return
 	Sentry.init({
 		dsn: DSN,
 		release: RELEASE,
 		environment: isNativeDesktopProtocol(window.location.protocol) ? "desktop" : "web",
 		sendDefaultPii: false,
 		beforeBreadcrumb: (breadcrumb) => scrubBreadcrumb(breadcrumb),
-		beforeSend: async (event) => ((await allowed) ? scrubEvent(event) : null),
+		beforeSend: (event) => scrubEvent(event),
 	})
 }
 

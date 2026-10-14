@@ -25,8 +25,12 @@ const MNEMONIC_WORDS = new Set(wordlist)
 const MNEMONIC_MIN_WORDS = 12
 const REDACTED = "[redacted]"
 const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]", "local"])
-const URL_PATTERN = /\b(?:https?|wss?|simplex):\/\/[^\s"'<>`]+/gi
-const WORD_RUN_PATTERN = /\b[a-z]+(?:\s+[a-z]+){11,}\b/g
+const URL_PATTERN = /\b(?:https?|wss?|simplex|file):\/\/[^\s"'<>`]+/i
+// Quoted paths may contain spaces. Match URLs first so local API routes remain readable.
+const FILE_PATH_PATTERN = /(?<=["'])(?:[a-z]:[\\/]|\\\\|\/)[^"'<>`\r\n]+|(?:[a-z]:[\\/]|\\\\|(?<![\w/])\/)[^\s"'<>`]+/
+const LOCATION_PATTERN = new RegExp(`${URL_PATTERN.source}|${FILE_PATH_PATTERN.source}`, "gi")
+// Also catches phrases rendered as JSON word arrays or comma-separated words.
+const WORD_RUN_PATTERN = /\b[a-z]+(?:[\s"',\[\]]+[a-z]+){11,}\b/gi
 // Private keys, signatures, API tokens, base58/base64 secrets and long file paths
 // (which name the operator's home directory). A 0x address stays readable.
 const LONG_TOKEN_PATTERN = /[A-Za-z0-9+/_=-]{32,}/g
@@ -35,6 +39,7 @@ const ADDRESS_PATTERN = /^0x[0-9a-fA-F]{40}$/
 function scrubUrl(raw: string): string {
 	try {
 		const url = new URL(raw)
+		if (url.protocol === "file:") return REDACTED
 		// RPC providers carry API keys in the path or query; local solver routes do not.
 		const path = LOOPBACK_HOSTS.has(url.hostname) ? url.pathname : url.pathname === "/" ? "" : `/${REDACTED}`
 		return `${url.protocol}//${url.host}${path}${url.search || url.hash ? `?${REDACTED}` : ""}`
@@ -45,7 +50,7 @@ function scrubUrl(raw: string): string {
 
 function containsMnemonic(run: string): boolean {
 	let consecutive = 0
-	for (const word of run.split(/\s+/)) {
+	for (const word of run.toLowerCase().split(/[\s"',\[\]]+/)) {
 		consecutive = MNEMONIC_WORDS.has(word) ? consecutive + 1 : 0
 		if (consecutive >= MNEMONIC_MIN_WORDS) return true
 	}
@@ -54,7 +59,9 @@ function containsMnemonic(run: string): boolean {
 
 /** Removes recovery phrases, key material and provider URLs from one string. */
 export function scrubText(text: string): string {
-	const withoutUrls = text.replace(URL_PATTERN, scrubUrl)
+	const withoutUrls = text.replace(LOCATION_PATTERN, (location) =>
+		URL_PATTERN.test(location) ? scrubUrl(location) : REDACTED,
+	)
 	const withoutMnemonics = withoutUrls.replace(WORD_RUN_PATTERN, (run) => (containsMnemonic(run) ? REDACTED : run))
 	return withoutMnemonics.replace(LONG_TOKEN_PATTERN, (token) => (ADDRESS_PATTERN.test(token) ? token : REDACTED))
 }
@@ -113,8 +120,12 @@ export function scrubEvent<T extends ScrubbableEvent>(event: T): T {
 
 function scrubDeep(value: unknown, seen = new WeakSet<object>()): unknown {
 	if (typeof value === "string") return scrubText(value)
-	if (!value || typeof value !== "object" || seen.has(value)) return value
+	if (!value || typeof value !== "object") return value
+	if (seen.has(value)) return REDACTED
 	seen.add(value)
-	if (Array.isArray(value)) return value.map((item) => scrubDeep(item, seen))
+	if (Array.isArray(value)) {
+		if (containsMnemonic(value.map((item) => (typeof item === "string" ? item : "")).join(" "))) return REDACTED
+		return value.map((item) => scrubDeep(item, seen))
+	}
 	return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, scrubDeep(item, seen)]))
 }

@@ -13,16 +13,16 @@ desktop builds and Docker images bake no DSN and send nothing.
 | `SENTRY_AUTH_TOKEN`, `SENTRY_ORG`, `SIMPLEX_UI_SENTRY_PROJECT` | `ui/vite.config.ts` | When all three are set, `@sentry/vite-plugin` uploads hidden UI source maps and deletes them from `dist/ui`. Without them, the UI build emits no maps. |
 
 Releases are `simplex-ui@<version>` and `simplex-desktop@<version>`. The desktop main process
-needs no upload: `dist/main.js.map` already ships in the asar, and
-`process.setSourceMapsEnabled(true)` maps stacks before they are sent.
+needs no upload: `dist/main.js.map` ships in the asar. The app enters through
+`dist/bootstrap.js`, which enables source maps before dynamically loading `main.js`.
 
 ## Runtime opt-out
 
 `SIMPLEX_ERROR_REPORTING=off` (also `0`, `false`, `no`):
 
-- The solver's `/health` adds `errorReporting: false`. The UI's `beforeSend` waits for
-  `/health` and drops every event unless it allows reporting. A failed probe drops events too,
-  but a locked desktop's `423` does not.
+- The solver's `/health` adds `errorReporting: false`. The UI waits for `/health` before
+  initializing Sentry, including session reporting. Opt-out and failed probes leave the SDK
+  inactive; a locked desktop's `423` allows initialization because the shell enforces opt-out.
 - Desktop main skips `Sentry.init` and leaves Sentry out of the renderer CSP. With no ingest
   origin in `connect-src`, the window cannot report.
 
@@ -35,11 +35,12 @@ processes. `scrubEvent` and `scrubBreadcrumb` rewrite these fields:
 - `request.url`. Request data, cookies, the query string and every header except `User-Agent`
   are dropped.
 
-`scrubText` replaces with `[redacted]`:
+The text and recursive scrubbers replace with `[redacted]`:
 
-- 12 or more consecutive BIP-39 words;
+- 12 or more consecutive BIP-39 words, regardless of case, including serialized or structured word arrays;
 - tokens of 32 or more characters (keys, hashes, base58 and base64 secrets, long file paths),
   except 0x addresses;
+- absolute Windows, UNC and POSIX file paths, including quoted paths with spaces;
 - the path and query of non-loopback URLs.
 
 Stack frames, event ids and trace ids are left alone so grouping and source maps still work.

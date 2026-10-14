@@ -44,6 +44,37 @@ describe("error reporting", () => {
 		expect(scrubText(sentence)).toBe(sentence)
 	})
 
+	it("redacts mixed-case and serialized recovery phrases", () => {
+		for (const phrase of [MNEMONIC.toUpperCase(), JSON.stringify(MNEMONIC.split(" "))]) {
+			expect(scrubText(phrase)).not.toMatch(/abandon/i)
+		}
+		const event = scrubEvent({ extra: { mnemonic: MNEMONIC.toUpperCase().split(" ") } })
+		expect(JSON.stringify(event)).not.toMatch(/abandon/i)
+	})
+
+	it("redacts Windows, UNC and POSIX file paths without removing solver routes", () => {
+		for (const path of [
+			String.raw`C:\Users\alice\AppData\Roaming\Simplex\config.toml`,
+			String.raw`\\server\alice\config.toml`,
+			"/Users/alice/config.toml",
+			"/home/alice/.config/Simplex/config.toml",
+			"file:///Users/alice/config.toml",
+			String.raw`C:\Users\Alice Smith\config.toml`,
+		]) {
+			expect(scrubText(`EACCES: permission denied, open '${path}'`)).toBe(
+				"EACCES: permission denied, open '[redacted]'",
+			)
+		}
+		expect(scrubText("GET http://127.0.0.1:8686/api/status")).toBe("GET http://127.0.0.1:8686/api/status")
+	})
+
+	it("does not retain secrets through repeated references or cycles", () => {
+		const shared: Record<string, unknown> = { key: PRIVATE_KEY }
+		shared.self = shared
+		const event = scrubEvent({ extra: { first: shared, second: shared } })
+		expect(JSON.stringify(event)).not.toContain(PRIVATE_KEY)
+	})
+
 	it("scrubs free text but keeps identifiers and stack frames", () => {
 		const eventId = "042cb5f47baf45248fae745717a6249f"
 		const frames = [{ filename: "app:///dist/main.js", abs_path: `simplex://local/assets/${"a".repeat(40)}.js` }]

@@ -86,9 +86,20 @@ export const THRESHOLD_USD = 2n
 /**
  * Simplex paymaster verification gas when prefunding through Permit2 — the mode every
  * op but a first-time delegation uses. Measured at ~135k on Ethereum and BSC forks
- * (EOA and delegated senders).
+ * (EOA and delegated senders). Polygon gets {@link permit2VerificationGasLimit}'s override.
  */
 export const VERIFICATION_GAS_LIMIT_PERMIT2 = 200_000n
+/**
+ * Polygon's Permit2 limit. HyperFX bids there failed with AA33 at 200k, as
+ * `Permit2Failed(USDC, "TRANSFER_FROM_FAILED")`, and rundler's estimate passed only
+ * from 225k.
+ */
+const PERMIT2_VERIFICATION_GAS_BY_CHAIN: Record<number, bigint> = { 137: 300_000n }
+
+/** The Permit2-mode paymaster verification gas for a chain. */
+export function permit2VerificationGasLimit(chainId: number): bigint {
+	return PERMIT2_VERIFICATION_GAS_BY_CHAIN[chainId] ?? VERIFICATION_GAS_LIMIT_PERMIT2
+}
 /**
  * Simplex paymaster verification gas when executing an EIP-2612 permit during
  * validation — the bootstrap mode, reachable only via `permitBootstrap`. Higher than

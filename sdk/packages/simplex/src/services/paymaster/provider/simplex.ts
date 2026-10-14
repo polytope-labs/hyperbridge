@@ -14,7 +14,7 @@ import type { FillerConfigService } from "@/services/FillerConfigService"
 import {
 	RECOMMENDED_AMOUNT_USD,
 	VERIFICATION_GAS_LIMIT_PERMIT,
-	VERIFICATION_GAS_LIMIT_PERMIT2,
+	permit2VerificationGasLimit,
 	PERMIT2_DEADLINE_SECONDS,
 	POST_OP_GAS_LIMIT_SIMPLEX,
 	type FeeTokenBalance,
@@ -336,7 +336,7 @@ async function buildPermit2Mode(
 	return {
 		paymaster: p.spender,
 		paymasterData,
-		paymasterVerificationGasLimit: VERIFICATION_GAS_LIMIT_PERMIT2,
+		paymasterVerificationGasLimit: permit2VerificationGasLimit(p.chainId),
 		paymasterPostOpGasLimit: POST_OP_GAS_LIMIT_SIMPLEX,
 	}
 }

@@ -30,6 +30,16 @@ starts with `approve(Permit2, max)` and the op asks the paymaster for PERMIT mod
 Permit2. The native fallback sends the original calls without the approve. The BRIDGE top-up uses
 the same `submitCalls`, so it gets this too.
 
+## Polygon's Permit2 limit is 300k
+
+HyperFX bids on Polygon failed with AA33 at the 200k Permit2-mode paymaster limit, as
+`Permit2Failed(USDC, "TRANSFER_FROM_FAILED")`; rundler's estimate passed only from 225k.
+`permit2VerificationGasLimit(chainId)` in `services/paymaster/types.ts` returns 300k on Polygon
+and `VERIFICATION_GAS_LIMIT_PERMIT2` (200k) elsewhere. The paymaster data and the EntryPoint
+deposit check both use it. A fork replay of the failing bid's paymaster call used 136,553 gas, so
+the 300k is headroom for the conditions that op hit rather than a measured need. At ~136k actual
+use it still keeps an op above the bundler's 0.4 verification-efficiency floor.
+
 ## Validation on a Polygon fork
 
 - A 7702-delegated solver holding only USDT0 passed the paymaster's PERMIT-mode validation in

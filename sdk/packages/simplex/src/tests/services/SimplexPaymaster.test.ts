@@ -273,6 +273,26 @@ describe("buildSimplexPaymasterData Permit2 authorization", () => {
 		expect(typedData.types.EIP712Domain.map((f) => f.name)).toEqual(["name", "chainId", "verifyingContract"])
 	})
 
+	it("gives Polygon's Permit2 mode a 300k verification limit and every other chain 200k", async () => {
+		const client = mockClient({ permit2Allowance: maxUint256, native: 0n })
+		const polygon = { ...makeConfigService(), getChainId: () => 137 } as unknown as FillerConfigService
+		const onPolygon = sponsored(
+			await buildSimplexPaymasterData(
+				client,
+				mockWalletClient().walletClient,
+				mockSigner().signer,
+				SOLVER,
+				PAYMASTER,
+				"EVM-137",
+				polygon,
+			),
+		)
+		expect(slice(onPolygon.paymasterData, 0, 1)).toBe("0x02")
+		expect(onPolygon.paymasterVerificationGasLimit).toBe(300_000n)
+		const onBsc = await build(client, mockWalletClient().walletClient)
+		expect(onBsc.paymasterVerificationGasLimit).toBe(VERIFICATION_GAS_LIMIT_PERMIT2)
+	})
+
 	it("bootstraps with exactly one approve(Permit2, max) and then uses PERMIT2 mode", async () => {
 		const { walletClient, writeContract } = mockWalletClient()
 

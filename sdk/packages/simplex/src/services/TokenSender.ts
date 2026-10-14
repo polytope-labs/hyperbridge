@@ -4,10 +4,11 @@ import type { VaultToml } from "@/config/filler-toml"
 import type { ChainClientManager } from "@/services/ChainClientManager"
 import type { FillerConfigService } from "@/services/FillerConfigService"
 import { paymasterReserveForToken } from "@/services/paymaster"
+import { resolvePendingPermit2Approval } from "@/services/paymaster/provider/simplex"
 import type { UserOpSender } from "@/services/UserOpSender"
 import { type Logger , moduleLogger} from "@/services/Logger"
 import { encodeERC7821ExecuteBatch, type ERC7821Call, type HexString } from "@hyperbridge/sdk"
-import { encodeFunctionData, isAddress, parseUnits } from "viem"
+import { encodeFunctionData, isAddress, maxUint256, parseUnits } from "viem"
 
 
 export interface SendTokenParams {
@@ -198,14 +199,17 @@ export class TokenSender {
 	 */
 	async submitCalls(chain: string, calls: ERC7821Call[]): Promise<{ txHash: HexString; sponsored: boolean }> {
 		if (this.userOpSender?.canSponsor(chain)) {
+			const bootstrap = await this.permit2Bootstrap(chain)
+			const batch = bootstrap ? [bootstrap, ...calls] : calls
 			const result = await this.userOpSender.trySendSponsored({
 				chain,
-				callData: encodeERC7821ExecuteBatch(calls),
+				callData: encodeERC7821ExecuteBatch(batch),
 				gas: {
 					verificationGasLimit: 60_000n,
-					callGasLimit: 450_000n * BigInt(calls.length),
+					callGasLimit: 450_000n * BigInt(batch.length),
 					preVerificationGas: 150_000n,
 				},
+				permitBootstrap: !!bootstrap,
 			})
 			if (result) return { txHash: result.txHash, sponsored: true }
 			this.logger.warn({ chain }, "Sponsored send unavailable, sending native tx")
@@ -232,5 +236,38 @@ export class TokenSender {
 		const receipt = await publicClient.waitForTransactionReceipt({ hash: tx, confirmations: 1, timeout: 60_000 })
 		if (receipt.status !== "success") throw new Error(`Send tx reverted: ${tx}`)
 		return { txHash: tx, sponsored: false }
+	}
+
+	/**
+	 * The `approve(Permit2, max)` to run first when the wallet has never approved Permit2 for its fee
+	 * token on this chain, and that token has an EIP-2612 permit. The op then pays its gas with a permit
+	 * and installs the approval, so a wallet with no native can still send; later ops use Permit2.
+	 * Undefined otherwise, or when the check fails, and the send goes ahead as before.
+	 */
+	private async permit2Bootstrap(chain: string): Promise<ERC7821Call | undefined> {
+		const paymaster = this.configService?.getSimplexPaymasterAddress(chain)
+		if (!this.configService || !paymaster) return undefined
+		try {
+			const pending = await resolvePendingPermit2Approval(
+				this.clientManager.getPublicClient(chain),
+				this.solver,
+				paymaster,
+				chain,
+				this.configService,
+			)
+			if (!pending?.permitCapable) return undefined
+			return {
+				target: pending.token,
+				value: 0n,
+				data: encodeFunctionData({
+					abi: ERC20_ABI,
+					functionName: "approve",
+					args: [pending.spender, maxUint256],
+				}),
+			}
+		} catch (error) {
+			this.logger.warn({ chain, error }, "Could not check whether this send must install the Permit2 approval")
+			return undefined
+		}
 	}
 }

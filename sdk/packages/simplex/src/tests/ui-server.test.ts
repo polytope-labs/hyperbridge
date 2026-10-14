@@ -1048,7 +1048,10 @@ describe("UiServer (operator mode)", () => {
 
 	describe("enabling fills", () => {
 		const refreshed = { updatedAt: 456, status: "fresh" as const, chains: [], issues: [] }
-		const refreshable = () => Object.assign(testBalanceSource(), { refresh: vi.fn().mockResolvedValue(refreshed) })
+		const refreshable = () =>
+			Object.assign(testBalanceSource(), {
+				refresh: vi.fn().mockResolvedValue(refreshed),
+			}) as unknown as Required<OperatorContext["balances"]> & { refresh: ReturnType<typeof vi.fn> }
 		const enable = (base: string, body: unknown) =>
 			fetch(`${base}/api/chains/enable-fills`, { method: "POST", headers: CSRF, body: JSON.stringify(body) })
 

@@ -56,8 +56,7 @@ export function StepChains({ state, setState }: StepProps) {
 						className="card chain-configuration"
 						data-enabled={chain.enabled}
 						key={chain.meta.chainId}
-						// Closed until the chevron opens it, even once the chain is enabled.
-						open={panels.isOpen(chain.meta.chainId, false)}
+						open={panels.isOpen(chain.meta.chainId)}
 						onOpenChange={(open) => panels.setOpen(chain.meta.chainId, open)}
 					>
 						<div className="chain-configuration-header">

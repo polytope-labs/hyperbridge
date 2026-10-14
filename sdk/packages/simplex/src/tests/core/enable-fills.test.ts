@@ -68,7 +68,7 @@ describe("ChainController.enableFills", () => {
 		})
 		const { controller, intentFiller } = controllerFor()
 		await expect(controller.enableFills(56)).rejects.toThrow(
-			"The filler wallet needs USDT and about 0.00014 BNB on BNB Chain before it can fill there",
+			"The filler wallet needs at least 1 USDT and about 0.00014 BNB on BNB Chain before it can fill there",
 		)
 		expect(intentFiller.enableFills).not.toHaveBeenCalled()
 	})

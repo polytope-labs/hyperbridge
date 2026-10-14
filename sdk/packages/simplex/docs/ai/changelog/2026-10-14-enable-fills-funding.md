@@ -13,10 +13,14 @@ chain and delegated to the SolverAccount there.
   it. That is USDC on Ethereum, Arbitrum, Base and Polygon, and USDT on BNB Chain.
 - `nativeSetup`: native the paymaster's one-time Permit2 approval still needs, from
   `nativeSetupNeed`. Only set where the paymaster's token has no permit, which today is BNB Chain.
-- `funded`: the wallet holds the fee token and needs no setup native.
+  Before the wallet holds the fee token, the approval is judged on the fee token itself, through
+  the new `token` argument of `nativeSetupNeed` and `resolvePendingPermit2Approval`. So BNB Chain
+  asks for USDT and BNB together.
+- `funded`: the wallet holds at least one fee token, the least the paymaster charges from, and
+  needs no setup native.
 - `delegated`: the wallet is delegated to the SolverAccount, which is what "fills enabled" shows.
 
-`fundingShortfall` turns an unfunded read into "USDT and about 0.00014 BNB". The fee token address
+`fundingShortfall` turns an unfunded read into "at least 1 USDT and about 0.00014 BNB". The fee token address
 is cached per chain.
 
 ## Setup wizard
@@ -37,6 +41,7 @@ is cached per chain.
 - `POST /api/chains/enable-fills` calls it and answers with refreshed balances.
   `GET /api/balances?refresh=1` re-reads every chain first.
 - Each `ChainBalanceRow` carries `funding`, computed on every balance refresh.
+- Chain cards on both Chains pages start closed; enabling fills never opens one.
 - On the Chains settings page, a running chain's "Enable fills" switch reflects `delegated` and
   enables fills at once, once funded. It cannot be switched back off; limit orders decide where the
   solver fills. A chain added on that page still starts after a restart.

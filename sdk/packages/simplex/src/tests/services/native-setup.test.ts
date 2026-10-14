@@ -84,6 +84,11 @@ describe("nativeSetupNeed", () => {
 		expect(await nativeSetupNeed(client(undefined), config(), WALLET, "EVM-56", 0n)).toBeNull()
 	})
 
+	it("judges the token it is given, for a wallet that holds none yet", async () => {
+		await nativeSetupNeed(client(undefined), config(), WALLET, "EVM-56", 0n, USDT)
+		expect(vi.mocked(resolvePendingPermit2Approval).mock.calls[0][5]).toBe(USDT)
+	})
+
 	it("asks nothing on a chain without a paymaster", async () => {
 		expect(await nativeSetupNeed(client(undefined), config(null), WALLET, "EVM-56", 0n)).toBeNull()
 		expect(resolvePendingPermit2Approval).not.toHaveBeenCalled()

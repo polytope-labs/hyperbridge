@@ -2,7 +2,7 @@ import { formatUnits, type PublicClient } from "viem"
 import type { HexString } from "@hyperbridge/sdk"
 import { ERC20_ABI } from "@/config/abis/ERC20"
 import { EVM_HOST } from "@/config/abis/EvmHost"
-import type { ChainFunding } from "@/services/chain-funding"
+import { MIN_FEE_TOKEN_BALANCE, type ChainFunding } from "@/services/chain-funding"
 import type { FillerConfigService } from "@/services/FillerConfigService"
 import { isDelegatedTo, nativeSetupNeed } from "@/services/native-setup"
 
@@ -33,11 +33,22 @@ export async function readChainFunding(
 		nativeBalance ?? client.getBalance({ address: wallet }),
 		client.getCode({ address: wallet }),
 	])
-	const nativeSetup = await nativeSetupNeed(client, configService, wallet, chain, native)
+	const held = Number(formatUnits(balance, feeToken.decimals))
+	const holdsFeeToken = held >= MIN_FEE_TOKEN_BALANCE
+	// Before the fee token arrives, its setup is judged on the fee token itself, so a chain whose
+	// token has no permit (BNB Chain) asks for the token and the native together.
+	const nativeSetup = await nativeSetupNeed(
+		client,
+		configService,
+		wallet,
+		chain,
+		native,
+		holdsFeeToken ? undefined : feeToken.address,
+	)
 	return {
-		feeToken: { symbol: feeToken.symbol, balance: Number(formatUnits(balance, feeToken.decimals)) },
+		feeToken: { symbol: feeToken.symbol, balance: held },
 		nativeSetup,
-		funded: balance > 0n && !nativeSetup,
+		funded: holdsFeeToken && !nativeSetup,
 		delegated: isDelegatedTo(code, configService.getSolverAccountContractAddress(chain)),
 	}
 }

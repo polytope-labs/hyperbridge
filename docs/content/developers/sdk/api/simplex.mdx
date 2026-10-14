@@ -528,7 +528,8 @@ enableFills(chainId: number): Promise<void>
 
 **Throws:** If the chain is not running, the solver was started without a `signer`, or delegation
 fails. It also throws while the wallet lacks the gateway fee token on the chain (USDC, or USDT on BNB
-Chain), or the native the paymaster's one-time setup needs there. The message names what is missing.
+Chain), or the native the paymaster's one-time setup needs there. It needs at least one fee token,
+the least the paymaster charges from. The message names what is missing.
 
 
 ## VaultController

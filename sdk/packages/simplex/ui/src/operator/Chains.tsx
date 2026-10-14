@@ -63,14 +63,14 @@ export function Chains(props: {
 						className="card chain-configuration"
 						data-enabled={chain.enabled}
 						key={chain.meta.chainId}
-						open={panels.isOpen(chain.meta.chainId, chain.enabled)}
+						open={panels.isOpen(chain.meta.chainId)}
 						onOpenChange={(open) => panels.setOpen(chain.meta.chainId, open)}
 					>
 						<div
 							className="chain-configuration-header"
 							onClick={(e) => {
 								if (isHeaderControl(e)) return
-								panels.setOpen(chain.meta.chainId, !panels.isOpen(chain.meta.chainId, chain.enabled))
+								panels.setOpen(chain.meta.chainId, !panels.isOpen(chain.meta.chainId))
 							}}
 						>
 							<div className="chain-identity">
@@ -118,7 +118,6 @@ export function Chains(props: {
 										onChange={(e) => {
 											if (live) return void enableFills(chain.meta.chainId)
 											toggleChain(chain, e.target.checked)
-											panels.setOpen(chain.meta.chainId, e.target.checked)
 										}}
 									/>
 									<span className="chain-enable-switch" aria-hidden="true" />

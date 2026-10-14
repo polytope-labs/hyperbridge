@@ -18,8 +18,8 @@ export interface NativeSetupNeed {
  * Every sponsored transaction pays its gas through Permit2, which needs a one-time approval of the fee
  * token. A token with an EIP-2612 permit pays for that approval itself. One without, like USDC and USDT
  * on BNB Chain, needs an ordinary transaction paid in native, folded into the delegation when the wallet
- * has not delegated yet. Null when the wallet already holds enough native, the approval is in place, or
- * it holds no fee token yet.
+ * has not delegated yet. Null when the wallet already holds enough native or the approval is in place.
+ * Without `token`, also null while the wallet holds no fee token; `token` names the one it will pay with.
  */
 export async function nativeSetupNeed(
 	client: PublicClient,
@@ -27,6 +27,7 @@ export async function nativeSetupNeed(
 	wallet: HexString,
 	chain: string,
 	nativeBalance: bigint,
+	token?: HexString,
 ): Promise<NativeSetupNeed | null> {
 	const paymaster = configService.getSimplexPaymasterAddress(chain)
 	if (!paymaster) return null
@@ -35,7 +36,7 @@ export async function nativeSetupNeed(
 	const gasPrice = await client.getGasPrice()
 	if (nativeBalance >= (DELEGATION_TX_GAS_FLOOR + BATCHED_APPROVE_GAS) * gasPrice) return null
 
-	const pending = await resolvePendingPermit2Approval(client, wallet, paymaster, chain, configService)
+	const pending = await resolvePendingPermit2Approval(client, wallet, paymaster, chain, configService, token)
 	if (!pending || pending.permitCapable) return null
 
 	const code = await client.getCode({ address: wallet })

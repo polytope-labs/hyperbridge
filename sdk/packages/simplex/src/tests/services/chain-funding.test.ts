@@ -58,9 +58,22 @@ describe("readChainFunding", () => {
 		})
 	})
 
-	it("is not funded without the fee token", async () => {
+	it("is not funded with less than one fee token", async () => {
+		const funding = await readChainFunding(client(parseUnits("0.5", 18)), config, WALLET, nextChain())
+		expect(funding).toMatchObject({ feeToken: { balance: 0.5 }, funded: false, delegated: false })
+	})
+
+	it("asks for the fee token and the setup native together before either arrives", async () => {
+		vi.mocked(nativeSetupNeed).mockResolvedValue({ required: 0.000142, feeToken: "USDT" })
 		const funding = await readChainFunding(client(0n), config, WALLET, nextChain())
-		expect(funding).toMatchObject({ funded: false, delegated: false })
+		// Judged on the fee token itself, since the wallet holds none for the paymaster to pick.
+		expect(vi.mocked(nativeSetupNeed).mock.calls[0][5]).toBe(USDT)
+		expect(fundingShortfall(funding, "BNB")).toBe("at least 1 USDT and about 0.00014 BNB")
+	})
+
+	it("leaves the paymaster to pick its token once the wallet holds the fee token", async () => {
+		await readChainFunding(client(parseUnits("5", 18)), config, WALLET, nextChain())
+		expect(vi.mocked(nativeSetupNeed).mock.calls[0][5]).toBeUndefined()
 	})
 
 	it("is not funded while the paymaster's setup still needs native", async () => {
@@ -91,7 +104,7 @@ describe("fundingShortfall", () => {
 	const funding = (balance: number, required?: number): ChainFunding => ({
 		feeToken: { symbol: "USDT", balance },
 		nativeSetup: required ? { required, feeToken: "USDT" } : null,
-		funded: balance > 0 && !required,
+		funded: balance >= 1 && !required,
 		delegated: false,
 	})
 
@@ -100,9 +113,10 @@ describe("fundingShortfall", () => {
 	})
 
 	it.each([
-		[funding(0), "USDT"],
+		[funding(0), "at least 1 USDT"],
+		[funding(0.5), "at least 1 USDT"],
 		[funding(250, 0.000142), "about 0.00014 BNB"],
-		[funding(0, 0.000142), "USDT and about 0.00014 BNB"],
+		[funding(0, 0.000142), "at least 1 USDT and about 0.00014 BNB"],
 	])("names what is missing", (shortfall, text) => {
 		expect(fundingShortfall(shortfall, "BNB")).toBe(text)
 	})

@@ -136,6 +136,9 @@ describe("operator chain settings", () => {
 	it("shows RPC fields alone and saves edits through the rendered Chains panel", async () => {
 		await renderChains()
 		await act(async () => fillsSwitch("Ethereum").click())
+		// Enabling a chain leaves its card closed; the chevron opens it.
+		expect(card("Ethereum").querySelector('input[type="text"]')).toBeNull()
+		await act(async () => card("Ethereum").querySelector<HTMLButtonElement>(".chain-collapse-trigger")?.click())
 		const fields = () => Array.from(card("Ethereum").querySelectorAll<HTMLInputElement>('input[type="text"]'))
 		// Every text field on the card is an RPC endpoint: there is no bundler to enter.
 		expect(fields().map((input) => input.value)).toEqual(dto.catalog[0].defaultRpcUrls)
@@ -264,7 +267,7 @@ describe("operator chain settings", () => {
 		await renderChains(usdc(0))
 		expect(fillsSwitch("Base").disabled).toBe(true)
 		expect(fillsSwitch("Base").checked).toBe(false)
-		expect(card("Base").textContent).toContain("Needs USDC")
+		expect(card("Base").textContent).toContain("Needs at least 1 USDC")
 	})
 
 	it("names the BNB a chain still needs for the paymaster's setup", async () => {

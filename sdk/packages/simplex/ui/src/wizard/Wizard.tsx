@@ -15,7 +15,6 @@ import { StepSigner } from "./steps/Signer"
 import { StepSubstrate } from "./steps/Substrate"
 import { StepChains } from "./steps/Chains"
 import { StepTreasury } from "./steps/Treasury"
-import { StepAdvanced } from "./steps/Advanced"
 import { StepReview } from "./steps/Review"
 import hyperfxLogo from "../assets/hyperfx-logo.webp"
 import { InstallAppButton } from "../components/InstallAppButton"
@@ -136,13 +135,6 @@ const STEPS: Array<{
 		title: "Treasury",
 		description: "Optionally connect vaults that keep idle liquidity productive and available for fills.",
 		component: StepTreasury,
-		requirements: () => [],
-	},
-	{
-		id: "advanced",
-		title: "Advanced",
-		description: "Tune concurrency, logging, and access policy—or keep the safe defaults.",
-		component: StepAdvanced,
 		requirements: () => [],
 	},
 	{

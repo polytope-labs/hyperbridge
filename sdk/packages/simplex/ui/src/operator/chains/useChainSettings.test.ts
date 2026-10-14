@@ -267,7 +267,7 @@ describe("operator chain settings", () => {
 		await renderChains(usdc(0))
 		expect(fillsSwitch("Base").disabled).toBe(true)
 		expect(fillsSwitch("Base").checked).toBe(false)
-		expect(card("Base").textContent).toContain("Needs at least 1 USDC")
+		expect(card("Base").textContent).toContain("Needs at least 5 USDC")
 	})
 
 	it("names the BNB a chain still needs for the paymaster's setup", async () => {

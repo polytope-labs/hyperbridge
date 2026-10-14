@@ -16,11 +16,13 @@ chain and delegated to the SolverAccount there.
   Before the wallet holds the fee token, the approval is judged on the fee token itself, through
   the new `token` argument of `nativeSetupNeed` and `resolvePendingPermit2Approval`. So BNB Chain
   asks for USDT and BNB together.
-- `funded`: the wallet holds at least one fee token, the least the paymaster charges from, and
-  needs no setup native.
+- `funded`: the wallet holds at least `MIN_FEE_TOKEN_BALANCE` (5) of the fee token and needs no
+  setup native. Five is `RECOMMENDED_AMOUNT_USD`, what one Permit2 signature lets the paymaster
+  take for an op's gas. Polygon's actual prefund was about 0.06 to 0.15 USDC per op at 600 gwei
+  on 2026-10-14, refunded down to the real cost after the op.
 - `delegated`: the wallet is delegated to the SolverAccount, which is what "fills enabled" shows.
 
-`fundingShortfall` turns an unfunded read into "at least 1 USDT and about 0.00014 BNB". The fee token address
+`fundingShortfall` turns an unfunded read into "at least 5 USDT and about 0.00014 BNB". The fee token address
 is cached per chain.
 
 ## Setup wizard

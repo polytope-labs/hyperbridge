@@ -1,7 +1,7 @@
 import * as Collapsible from "@radix-ui/react-collapsible"
 import { useState } from "react"
 import { nativeTokenSymbol } from "@/cli/init/chains"
-import { fundingShortfall } from "@/services/chain-funding"
+import { fundingShortfall, MIN_FEE_TOKEN_BALANCE } from "@/services/chain-funding"
 import { api } from "../api"
 import { ChainCollapseTrigger, isHeaderControl, useChainPanels } from "../components/ChainPanel"
 import { ChainLogo } from "../components/ChainLogo"
@@ -231,7 +231,8 @@ export function Chains(props: {
 				</div>
 				<p className="hint">
 					Endpoint changes and newly added chains apply after a restart. On a running chain, Enable fills
-					applies at once, once the wallet holds the gateway fee token there.
+					applies at once, once the wallet holds at least {MIN_FEE_TOKEN_BALANCE} of the gateway fee token
+					there.
 				</p>
 			</div>
 		</div>

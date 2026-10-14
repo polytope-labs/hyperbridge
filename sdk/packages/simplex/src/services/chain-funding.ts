@@ -1,7 +1,11 @@
 import type { NativeSetupNeed } from "@/services/native-setup"
+import { RECOMMENDED_AMOUNT_USD } from "@/services/paymaster/types"
 
-/** The paymaster charges a fee token only once the wallet holds at least one whole unit of it. */
-export const MIN_FEE_TOKEN_BALANCE = 1
+/**
+ * The fee token a chain needs before fills are enabled: what one Permit2 signature lets the
+ * paymaster take for an op's gas. It takes far less in practice and refunds what goes unused.
+ */
+export const MIN_FEE_TOKEN_BALANCE = Number(RECOMMENDED_AMOUNT_USD)
 
 /** Whether a chain can fill: the gateway fee token, the native its paymaster setup needs, and the delegation. */
 export interface ChainFunding {
@@ -9,13 +13,13 @@ export interface ChainFunding {
 	feeToken: { symbol: string; balance: number }
 	/** Native the paymaster's one-time setup still needs, when the paymaster's token has no permit. */
 	nativeSetup: NativeSetupNeed | null
-	/** The wallet holds at least one fee token and any native its setup needs. */
+	/** The wallet holds {@link MIN_FEE_TOKEN_BALANCE} of the fee token and any native its setup needs. */
 	funded: boolean
 	/** The wallet is delegated to the SolverAccount here, so fills are enabled. */
 	delegated: boolean
 }
 
-/** What `funding` still lacks, as "at least 1 USDT and about 0.00014 BNB"; undefined once it is funded. */
+/** What `funding` still lacks, as "at least 5 USDT and about 0.00014 BNB"; undefined once it is funded. */
 export function fundingShortfall(funding: ChainFunding, nativeSymbol: string): string | undefined {
 	if (funding.funded) return undefined
 	const needs = [

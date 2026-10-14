@@ -1,7 +1,7 @@
 import * as Collapsible from "@radix-ui/react-collapsible"
 import { useCallback, useRef } from "react"
 import { nativeTokenSymbol } from "@/cli/init/chains"
-import { fundingShortfall } from "@/services/chain-funding"
+import { fundingShortfall, MIN_FEE_TOKEN_BALANCE } from "@/services/chain-funding"
 import { api } from "../../api"
 import { ChainCollapseTrigger, useChainPanels } from "../../components/ChainPanel"
 import { ChainLogo } from "../../components/ChainLogo"
@@ -37,9 +37,9 @@ export function StepChains({ state, setState }: StepProps) {
 			<section className="card chain-funding-intro">
 				<h2>Fund the filler wallet</h2>
 				<p className="hint">
-					Enable fills on the chains you will fill on. Each needs the gateway fee token there: USDC, or USDT
-					on BNB Chain. The paymaster takes gas from it. BNB Chain also needs a little BNB once, for a
-					one-time approval.
+					Enable fills on the chains you will fill on. Each needs at least {MIN_FEE_TOKEN_BALANCE} of the
+					gateway fee token there: USDC, or USDT on BNB Chain. The paymaster takes gas from it. BNB Chain also
+					needs a little BNB once, for a one-time approval.
 				</p>
 				{wallet ? (
 					<div className="review-account-value">

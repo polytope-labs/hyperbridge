@@ -410,6 +410,16 @@ export class IntentFiller {
 	}
 
 	/**
+	 * Delegates the wallet on a chain that is already running, so it can fill without a
+	 * restart. Rejects when the delegation fails.
+	 */
+	public async enableFills(chainId: number): Promise<void> {
+		const chain = `EVM-${chainId}`
+		if (!(await this.contractService.isSolverSelectionActive(chain))) return
+		await this.setupSolverSelection([chain], { requireAll: true })
+	}
+
+	/**
 	 * Removes a chain. Stops the scanner first so nothing new is queued, then
 	 * drains what is already in flight — dropping the queue under a running fill
 	 * would strand it mid-execution.

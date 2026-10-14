@@ -10,7 +10,6 @@ export interface ChainDraft {
 	rpcUrls: string[]
 	/** Not editable. Hyperbridge's bundler the chain fills through, empty where it runs none. */
 	bundlerUrl: string
-	watchOnly: boolean
 	running: boolean
 	verificationState?: EndpointVerificationState
 	verificationMessage?: string
@@ -25,7 +24,6 @@ function seedDrafts(dto: ChainsDto): ChainDraft[] {
 			enabled: Boolean(row),
 			rpcUrls: row ? [...row.rpcUrls] : meta.defaultRpcUrls?.length ? [...meta.defaultRpcUrls] : [""],
 			bundlerUrl: meta.hyperbridgeBundlerUrl ?? "",
-			watchOnly: row?.watchOnly ?? false,
 			running: row?.running ?? false,
 		}
 	})
@@ -36,7 +34,6 @@ function seedDrafts(dto: ChainsDto): ChainDraft[] {
 			enabled: true,
 			rpcUrls: [...row.rpcUrls],
 			bundlerUrl: row.bundlerUrl,
-			watchOnly: row.watchOnly,
 			running: row.running,
 		})
 	}
@@ -122,7 +119,8 @@ export function useChainSettings() {
 					.map((chain) => ({
 						chainId: chain.meta.chainId,
 						rpcUrls: chain.rpcUrls.map((url) => url.trim()).filter(Boolean),
-						watchOnly: chain.watchOnly,
+						// Limit orders choose where to fill, so only a chain no bundler serves is watched only.
+						watchOnly: !chain.bundlerUrl,
 					})),
 			})
 			setSaved(true)

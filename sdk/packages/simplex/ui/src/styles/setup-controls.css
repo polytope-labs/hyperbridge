@@ -83,6 +83,29 @@
 	margin-top: 0.15rem;
 }
 
+.chain-source[data-funded="false"] {
+	color: var(--warn);
+}
+
+.chain-source-error {
+	color: var(--err);
+}
+
+button.chain-check-again {
+	min-height: 0;
+	margin-left: 0.5rem;
+	padding: 0;
+	border: 0;
+	background: transparent !important;
+	color: var(--focus);
+	font-size: inherit;
+	font-weight: 500;
+}
+
+button.chain-check-again:hover:not(:disabled) {
+	color: var(--text);
+}
+
 .chain-warning {
 	display: flex;
 	align-items: flex-start;

@@ -38,9 +38,8 @@ export async function nativeSetupNeed(
 	const pending = await resolvePendingPermit2Approval(client, wallet, paymaster, chain, configService)
 	if (!pending || pending.permitCapable) return null
 
-	const solverAccount = configService.getSolverAccountContractAddress(chain)
 	const code = await client.getCode({ address: wallet })
-	const delegated = !!solverAccount && code?.toLowerCase() === concat(["0xef0100", solverAccount]).toLowerCase()
+	const delegated = isDelegatedTo(code, configService.getSolverAccountContractAddress(chain))
 	const cost = (delegated ? APPROVE_TX_GAS : DELEGATION_TX_GAS_FLOOR + BATCHED_APPROVE_GAS) * gasPrice
 	if (nativeBalance >= cost) return null
 
@@ -49,4 +48,9 @@ export async function nativeSetupNeed(
 		required: Number(formatEther(cost * 2n)),
 		feeToken: pending.token.toLowerCase() === usdc.toLowerCase() ? "USDC" : "USDT",
 	}
+}
+
+/** Whether `code` is an EIP-7702 delegation to `solverAccount`. */
+export function isDelegatedTo(code: HexString | undefined, solverAccount: HexString | undefined): boolean {
+	return !!solverAccount && code?.toLowerCase() === concat(["0xef0100", solverAccount]).toLowerCase()
 }

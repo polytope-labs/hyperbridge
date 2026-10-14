@@ -7,7 +7,9 @@ import type { VaultBalancePosition } from "@/funding/types"
 import type { ChainClientManager } from "./ChainClientManager"
 import type { FillerConfigService } from "./FillerConfigService"
 import { moduleLogger, type Logger } from "./Logger"
-import { nativeSetupNeed, type NativeSetupNeed } from "./native-setup"
+import { readChainFunding } from "./read-chain-funding"
+import type { ChainFunding } from "./chain-funding"
+import type { NativeSetupNeed } from "./native-setup"
 import { deriveSubstrateKeyPair } from "./substrate-key"
 
 export interface ChainBalanceRow {
@@ -20,6 +22,8 @@ export interface ChainBalanceRow {
 	assets: AssetBalanceRow[]
 	/** Set when the paymaster cannot sponsor this chain until the wallet holds some native gas. */
 	nativeSetup?: NativeSetupNeed
+	/** Whether the wallet can fill here, and whether fills are enabled. Absent when it could not be read. */
+	funding?: ChainFunding
 }
 
 export type AssetBalanceStatus = "fresh" | "partial" | "unavailable"
@@ -235,14 +239,15 @@ export class BalanceProvider extends EventEmitter {
 			const native = await client.getBalance({ address: fillerAddr })
 			const symbol = nativeTokenSymbol(chainId)
 			row.native = { symbol, amount: Number.parseFloat(formatUnits(native, 18)) }
-			// Best-effort: a failed check only means no setup prompt this round, not a missing balance.
-			const setup = await nativeSetupNeed(client, this.options.configService, fillerAddr, chain, native).catch(
+			// Best-effort: a failed check only means no fill status this round, not a missing balance.
+			const funding = await readChainFunding(client, this.options.configService, fillerAddr, chain, native).catch(
 				(err) => {
-					this.logger.debug({ err, chainId }, "Could not check whether the chain needs native gas for setup")
+					this.logger.debug({ err, chainId }, "Could not read whether the chain can fill")
 					return null
 				},
 			)
-			if (setup) row.nativeSetup = setup
+			if (funding) row.funding = funding
+			if (funding?.nativeSetup) row.nativeSetup = funding.nativeSetup
 		} catch (err) {
 			issues.push({ chainId, source: "native", message: errorMessage(err) })
 		}

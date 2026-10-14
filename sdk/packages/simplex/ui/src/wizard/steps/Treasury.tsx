@@ -1,9 +1,8 @@
 import { VaultRowsEditor } from "../../components/VaultRowsEditor"
-import { enabledChains } from "../state"
 import type { StepProps } from "../Wizard"
 
 export function StepTreasury({ state, setState, defaults, goToStep }: StepProps) {
-	const chains = enabledChains(state)
+	const chains = state.chains
 
 	return (
 		<div className="wizard-sections treasury-step">

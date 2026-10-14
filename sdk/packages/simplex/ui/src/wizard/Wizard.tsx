@@ -5,6 +5,7 @@ import { loadOrderbook } from "./orderbook"
 import {
 	accountIndexFormatError,
 	assembleConfig,
+	fillChains,
 	initialState,
 	privateKeyFormatError,
 	secretPhraseFormatError,
@@ -73,14 +74,17 @@ function substrateRequirements(state: WizardState): string[] {
 }
 
 function chainRequirements(state: WizardState, defaults: SetupDefaults): string[] {
-	const enabled = state.chains.filter((chain) => chain.enabled)
-	if (enabled.length === 0) return ["Enable fills for at least one chain."]
-	const issues = enabled.flatMap((chain) => {
-		const missing: string[] = []
-		if (!chain.rpcUrls[0]?.trim()) missing.push(`Enter the RPC endpoint for ${chain.meta.label}.`)
-		return missing
-	})
-	if (issues.length > 0) return issues
+	// Every chain is watched, so each needs an endpoint whether or not it fills.
+	const missingRpc = state.chains
+		.filter((chain) => !chain.rpcUrls[0]?.trim())
+		.map((chain) => `Enter the RPC endpoint for ${chain.meta.label}.`)
+	if (missingRpc.length > 0) return missingRpc
+	const filling = fillChains(state)
+	if (filling.length === 0) return ["Enable fills on at least one chain."]
+	const unfunded = filling
+		.filter((chain) => !chain.funding?.funded)
+		.map((chain) => `Fund the wallet on ${chain.meta.label}, or turn its fills off.`)
+	if (unfunded.length > 0) return unfunded
 	// The markets come from the orderbook's books, so a chain selection that can
 	// carry none of them would boot a filler with nothing to trade.
 	if (state.orderbookError) return [state.orderbookError]
@@ -126,7 +130,7 @@ const STEPS: Array<{
 	{
 		id: "chains",
 		title: "Chains",
-		description: "Select execution networks and the RPC endpoints behind each one.",
+		description: "Simplex watches every chain. Fund the wallet and enable fills where you will fill.",
 		component: StepChains,
 		requirements: chainRequirements,
 	},

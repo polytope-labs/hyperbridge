@@ -128,6 +128,38 @@ describe("setup API", () => {
 		expect(bad.ok).toBe(false)
 	})
 
+	it("reads a chain's funding through the endpoints the wizard holds for it", async () => {
+		const funding = {
+			feeToken: { symbol: "USDT", balance: 250 },
+			nativeSetup: null,
+			funded: true,
+			delegated: false,
+		}
+		const readFunding = vi.fn().mockResolvedValue(funding)
+		const { base } = await startInitServer({ deps: { readFunding } })
+		const res = await post(base, "chain-funding", {
+			chainId: 56,
+			rpcUrls: ["https://bsc.example", " "],
+			address: TEST_ADDRESS,
+		})
+		expect(res.status).toBe(200)
+		expect(await res.json()).toEqual(funding)
+		expect(readFunding).toHaveBeenCalledWith(56, ["https://bsc.example"], TEST_ADDRESS)
+	})
+
+	it.each([
+		[{ chainId: 97, rpcUrls: ["https://bsc.example"], address: TEST_ADDRESS }, "Unknown chain"],
+		[{ chainId: 56, rpcUrls: ["https://bsc.example"], address: "0x1234" }, "EVM address"],
+		[{ chainId: 56, rpcUrls: [], address: TEST_ADDRESS }, "rpcUrls"],
+	])("refuses a funding read it cannot make (%#)", async (body, error) => {
+		const readFunding = vi.fn()
+		const { base } = await startInitServer({ deps: { readFunding } })
+		const res = await post(base, "chain-funding", body)
+		expect(res.status).toBe(400)
+		expect((await res.json()).error).toContain(error)
+		expect(readFunding).not.toHaveBeenCalled()
+	})
+
 	it("reports missing bytecode for empty addresses", async () => {
 		rpc = await startMockRpc({ code: "0x" })
 		const { base } = await startInitServer()

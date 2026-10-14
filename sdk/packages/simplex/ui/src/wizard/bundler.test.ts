@@ -19,14 +19,16 @@ describe("wizard bundlers", () => {
 		for (const chain of initialState(defaults).chains) expect(chain).not.toHaveProperty("bundlerUrl")
 	})
 
-	it("writes no bundler for any enabled chain", () => {
+	it("writes every chain, each without a bundler, whichever have fills enabled", () => {
 		const state = initialState(defaults)
 		const enabled = new Set([1, 8453, 56])
 		const config = assembleConfig(
 			{ ...state, chains: state.chains.map((chain) => ({ ...chain, enabled: enabled.has(chain.meta.chainId) })) },
 			defaults,
 		)
-		expect(config.chains).toHaveLength(3)
+		// Simplex watches every chain; fills follow the funded chains the limit orders name.
+		expect(config.chains).toHaveLength(defaults.chains.length)
+		expect(config.simplex.watchOnly).toBeUndefined()
 		for (const chain of config.chains) expect(chain).not.toHaveProperty("bundlerUrl")
 	})
 })

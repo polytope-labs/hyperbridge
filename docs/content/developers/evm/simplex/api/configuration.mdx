@@ -1,6 +1,6 @@
 ---
 title: Configuration
-description: Read the running config, and change the chains, the order allowlist and the markets over the solver's HTTP API.
+description: Read the running config, and change the chains and the order allowlist over the solver's HTTP API.
 ---
 
 # Configuration
@@ -8,6 +8,8 @@ description: Read the running config, and change the chains, the order allowlist
 These routes read and change the solver's configuration while it runs. The dashboard's **Operations** page uses them.
 
 Changes made here are written back to the config file, so they survive a restart. Each response says whether that worked, as `persisted`. It is `false` when the filler was started from a config object rather than a file, or when the file could not be written.
+
+A `[[pairs]]` section left in an older config is ignored. It is dropped the next time the file is rewritten, and you can delete it yourself.
 
 The [configuration guide](/developers/evm/simplex/configuration) explains the settings themselves.
 
@@ -120,7 +122,6 @@ Every chain is checked the way a restart would check it, and a failure answers `
 - Each RPC URL that is new for its chain must answer, and must report that chain's ID.
 - A chain Hyperbridge runs no [bundler](/developers/evm/simplex/configuration#bundler) for must be watch-only.
 - Each chain needs a confirmation policy. Mainnet chains have built-in ones, and testnet chains get a default.
-- Every market's tokens must still resolve on the new chain set.
 - A chain that still has a vault in the treasury cannot be dropped. Remove the vault first.
 
 ## PUT /api/allowlist
@@ -135,49 +136,6 @@ curl -s -X PUT $SIMPLEX/api/allowlist \
 ```
 
 An empty list accepts orders from everyone. This route sets the global list only. Per-source-chain lists under `[allowlist.bySource]` are left as they are. An invalid address answers `400`.
-
-## GET /api/strategies
-
-Lists the markets in the config, one per `[[pairs]]` entry. A market does not set prices, and does not decide which orders are filled. Limit orders do both. Adding a market whose two tokens differ makes the solver track its second token's balances.
-
-```bash lineNumbers
-curl -s $SIMPLEX/api/strategies
-```
-
-```json lineNumbers
-{
-  "strategies": [
-    { "index": 0, "exotic": "USDC/CNGN", "token0": "USDC", "token1": "CNGN", "sameToken": false }
-  ]
-}
-```
-
-`index` is what [`DELETE /api/strategies/:index`](#delete-apistrategiesindex) takes. `sameToken` is `true` for a market such as `USDC/USDC`.
-
-## POST /api/strategies
-
-Adds a market. Both tokens must be symbols in the asset registry. To add a token the registry does not know, define it in `assets`, with its address on each chain.
-
-```bash lineNumbers
-curl -s -X POST $SIMPLEX/api/strategies \
-    -H 'Content-Type: application/json' -H 'X-Simplex-UI: 1' \
-    -d '{ "token0": "USDC", "token1": "MYTOKEN",
-          "assets": { "MYTOKEN": { "EVM-8453": "0x…" } } }'
-# → { "applied": true, "restartNeeded": false, "persisted": true, "strategy": { "index": 1, ... } }
-```
-
-The new market applies straight away. A symbol that is already defined cannot be redefined while the solver runs, and trying answers `400`.
-
-## DELETE /api/strategies/:index
-
-Removes a market. It never touches funds.
-
-```bash lineNumbers
-curl -s -X DELETE -H 'X-Simplex-UI: 1' $SIMPLEX/api/strategies/1
-# → { "applied": true, "restartNeeded": false, "persisted": true }
-```
-
-An unknown index answers `404`. The last market cannot be removed while the solver runs. Edit the config and restart instead.
 
 ## Validation probes
 

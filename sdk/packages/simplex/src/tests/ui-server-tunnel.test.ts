@@ -78,11 +78,9 @@ function operatorContext(tunnel?: TunnelControls): OperatorContext & { configPat
 			substratePrivateKey: "seed",
 			hyperbridgeWsUrl: "wss://example",
 		},
-		pairs: [],
 		chains: [],
 	}
 	return {
-		strategies: [],
 		// Every running filler has limit orders: they are what it prices from.
 		limitOrders: {
 			list: async () => ({ orders: [] }),
@@ -126,7 +124,6 @@ function operatorContext(tunnel?: TunnelControls): OperatorContext & { configPat
 		startedAt: Date.now(),
 		configPath: join(dataDir, "filler-config.toml"),
 		chains: [],
-		strategyTypes: [],
 	}
 }
 

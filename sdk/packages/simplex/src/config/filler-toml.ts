@@ -3,7 +3,6 @@ import { isAddress } from "viem"
 import type { HexString } from "@hyperbridge/sdk"
 import { ConfirmationPolicy, DEFAULT_CONFIRMATION_POLICIES } from "@/config/interpolated-curve"
 import { validateAssetDefinitions, type AssetDefinition } from "@/config/asset-registry"
-import { validatePairConfigs, type PairConfig } from "@/config/pairs"
 import type { SignerConfig } from "@/services/wallet"
 import { MIN_BLOCK_SCAN_INTERVAL_SECONDS } from "@/services/FillerConfigService"
 import { MIN_ORDER_TTL_SECONDS } from "@/orderbook/types"
@@ -71,15 +70,6 @@ export interface FillerTomlConfig {
 	 * (SDK chain registry) + curated USDR, ZARP, EURC, XSGD, TRYB and BRIDGE.
 	 */
 	assets?: Record<string, AssetDefinition>
-	/**
-	 * Markets the operator dashboard lists, as `token0`/`token1` symbol pairs.
-	 * They carry no prices and do not gate matching: the filler prices every
-	 * fill from the operator's limit orders. Optional; the browser setup wizard
-	 * writes one per book the orderbook lists. Keys left over from the curve
-	 * era (`bidPriceCurve`, `askPriceCurve`, `maxOrderSize`, `referenceOnly`)
-	 * are ignored.
-	 */
-	pairs?: PairConfig[]
 	/**
 	 * Per-chain confirmation policies for cross-chain orders, keyed by chain id.
 	 * Merged over built-in defaults (ETH, BSC, Polygon, Base, Arbitrum,
@@ -296,11 +286,11 @@ function validateOrderbookConfig(orderbook: OrderbookConfig): void {
 }
 
 export function validateConfig(config: FillerTomlConfig, cliWatchOnly = false): void {
-	// The [[strategies]] array was removed when the pair engine subsumed the
-	// stable strategy — fail loudly so stale configs are migrated, not ignored.
+	// The [[strategies]] array was removed when limit orders took over pricing.
+	// Fail loudly so stale configs are migrated, not ignored.
 	if ("strategies" in config) {
 		throw new Error(
-			"[[strategies]] was removed — declare top-level [[pairs]] instead (a same-token pair like USDC/USDC with an ask curve below par replaces the stable strategy; engine settings moved to [confirmationPolicies])",
+			"[[strategies]] was removed — simplex prices every fill from the limit orders you post. Run `simplex init` to migrate this config; per-strategy confirmation policies move to [confirmationPolicies]",
 		)
 	}
 
@@ -385,16 +375,8 @@ export function validateConfig(config: FillerTomlConfig, cliWatchOnly = false): 
 	}
 	validateOrderbookConfig(config.orderbook)
 
-	// Asset registry and trading pairs — the entire trading configuration.
 	if (config.assets) {
 		validateAssetDefinitions(config.assets)
-	}
-	// Markets are not declared up front any more: the operator's limit orders say
-	// what simplex trades, and those are created while it runs. A config may carry
-	// [[pairs]] and they are still validated, but an empty list is a filler waiting
-	// for its first market rather than a misconfiguration.
-	if ((config.pairs?.length ?? 0) > 0) {
-		validatePairConfigs(config.pairs!, config.assets)
 	}
 
 	// Per-chain confirmation policies (merged over built-in defaults at

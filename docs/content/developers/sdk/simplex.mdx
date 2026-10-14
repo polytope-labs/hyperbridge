@@ -330,7 +330,7 @@ named in `config.orderbook`, and matches every incoming swap against all of its 
 order that matches nothing is not filled; there is no fallback price.
 
 ```ts lineNumbers
-// The pairs the orderbook lists, its dust floor per token, and the tokens it knows per chain.
+// The books the orderbook lists, its dust floor per token, and the tokens it knows per chain.
 const { books, minOrderSizes, chains } = await simplex.limitOrders.books()
 
 const { order, result } = await simplex.limitOrders.create({
@@ -401,23 +401,6 @@ feed.on("tick", async ({ mid }) => {
 })
 ```
 
-### Markets
-
-`config.pairs` and `simplex.pairs` name the markets the dashboard lists, and a cross-asset pair's
-`token1` is added to the balances the solver tracks. They do not gate matching: the matcher reads the
-limit orders alone, so adding or removing a pair does not change what the solver fills. A config
-with no pairs is valid.
-
-```ts lineNumbers
-simplex.pairs.list() // [{ index, token0, token1, sameToken }]
-await simplex.pairs.add({ token0: "USDC", token1: "CNGN" })
-await simplex.pairs.remove(0)
-```
-
-`add` is validated against the same rules boot applies — no duplicate or reversed market, and every
-symbol must resolve on a configured chain. `remove` refuses the last pair; indices shift down, so
-remove from the highest index first if you are closing several.
-
 ### Chains
 
 ```ts lineNumbers
@@ -472,6 +455,7 @@ await simplex.rebalancing.trigger()
 
 ```ts lineNumbers
 simplex.wallet.address
+// Native, USDC, USDT and every token in the orderbook's books, per chain.
 simplex.wallet.balances()
 await simplex.wallet.send({
     chain: "EVM-8453",
@@ -684,14 +668,10 @@ The validators are pure and run the same rules boot does, so you can gate a conf
 database, an API — before committing to a start:
 
 ```ts lineNumbers
-import {
-    validateConfig,
-    validatePairConfigs,
-} from "@hyperbridge/simplex"
+import { validateConfig } from "@hyperbridge/simplex"
 
-// Both throw with a descriptive message.
+// Throws with a descriptive message.
 validateConfig(config)
-if (config.pairs?.length) validatePairConfigs(config.pairs, config.assets)
 ```
 
 `validateConfig` refuses a config with no `orderbook` section, and one whose `defaultTtlSecs` is

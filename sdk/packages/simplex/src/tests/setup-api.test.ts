@@ -65,12 +65,6 @@ describe("setup API", () => {
 				substratePrivateKey: "bottom drive obey lake curtain smoke basket hold race lonely fit walk",
 				hyperbridgeWsUrl: "wss://nexus.rpc.polytope.technology",
 			},
-			pairs: [
-				{
-					token0: "USDC",
-					token1: "USDC",
-				},
-			],
 			// A bundler an older config named, with a provider key in it: never written back or shown.
 			chains: [{ rpcUrls: [rpcUrl], bundlerUrl: "https://api.pimlico.io/v2/1/rpc?apikey=secretpimlicokey" }],
 			orderbook: { url: "https://orderbook.example/graphql" },
@@ -359,7 +353,7 @@ describe("setup API", () => {
 		await vi.waitFor(() => expect(onSaveAndStart).toHaveBeenCalledTimes(1))
 		const [bootedConfig, toml, path] = onSaveAndStart.mock.calls[0]
 		expect(path).toBe(configPath)
-		expect(toml).toContain("[[pairs]]")
+		expect(toml).toContain("[orderbook]")
 		expect(JSON.parse(JSON.stringify(bootedConfig))).toEqual(JSON.parse(JSON.stringify(config)))
 	})
 

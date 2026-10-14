@@ -9,7 +9,7 @@ import {
 	type FillerConfig as FillerServiceConfig,
 } from "@/services"
 import { createSigner, SignerType } from "@/services/wallet"
-import { FXFiller, type TradingPair } from "@/strategies/fx"
+import { FXFiller } from "@/strategies/fx"
 import { AssetRegistry } from "@/config/asset-registry"
 import { VaultFundingPlanner } from "@/funding/vault/VaultFundingPlanner"
 import { ERC4626_ABI } from "@/config/abis/Erc4626"
@@ -44,15 +44,6 @@ import { privateKeyToAccount } from "viem/accounts"
 import "../setup"
 import { pimlicoBundlerUrlForChain as bundlerUrl } from "../pimlicoBundler"
 import { ERC20_ABI } from "@/config/abis/ERC20"
-
-/** Same-token USDC/USDC + USDT/USDT pairs at a flat 50 bps spread (ask price 0.995). */
-function sameTokenPairs(maxOrderSize: number): TradingPair[] {
-	return ["USDC", "USDT"].map((symbol) => ({
-		token0: symbol,
-		token1: symbol,
-	}))
-}
-
 
 // ============================================================================
 // StreamingYieldVault deployments (ERC-4626, owner = test wallet)
@@ -401,7 +392,6 @@ async function createIntentFiller(
 		chainConfigService,
 		chainClientManager,
 		contractService,
-		sameTokenPairs(10000),
 		new AssetRegistry(chainConfigService),
 		{ confirmationPolicy, fundingVenues },
 	)

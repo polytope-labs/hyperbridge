@@ -10,7 +10,7 @@ import {
 } from "@/services"
 import { SqliteDataStore } from "@/data/sqlite"
 import { createSigner, SignerType } from "@/services/wallet"
-import { FXFiller, type TradingPair } from "@/strategies/fx"
+import { FXFiller } from "@/strategies/fx"
 import { AssetRegistry } from "@/config/asset-registry"
 import {
 	type ChainConfig,
@@ -50,20 +50,6 @@ import { privateKeyToAccount } from "viem/accounts"
 import "../setup"
 import { pimlicoBundlerUrlForChain as bundlerUrl } from "../pimlicoBundler"
 import { ERC20_ABI } from "@/config/abis/ERC20"
-
-/** Builds an exotic-pair set + registry for tests: `token1` addresses traded against USDC and USDT. */
-function exoticPairs(
-	resolver: FillerConfigService,
-	token1: Record<string, HexString>,
-): { pairs: TradingPair[]; registry: AssetRegistry } {
-	const registry = new AssetRegistry(resolver, { EXOTIC: token1 })
-	const pairs: TradingPair[] = ["USDC", "USDT"].map((token0) => ({
-		token0,
-		token1: "EXOTIC",
-	}))
-	return { pairs, registry }
-}
-
 
 // ── Self-funding ─────────────────────────────────────────────────────────────
 //
@@ -519,9 +505,9 @@ async function createFxIntentFiller(
 		[exoticChainId]: chainConfigService.getUsdcAsset(exoticChainId),
 	}
 
-	const legacy = exoticPairs(chainConfigService, token1)
+	const registry = new AssetRegistry(chainConfigService, { EXOTIC: token1 })
 	const strategies = [
-		new FXFiller(signer, chainConfigService, chainClientManager, contractService, legacy.pairs, legacy.registry, {
+		new FXFiller(signer, chainConfigService, chainClientManager, contractService, registry, {
 			confirmationPolicy,
 			limitOrders,
 		}),

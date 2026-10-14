@@ -28,6 +28,7 @@ function makeProvider(
 	client = fakeClient(),
 	vaultBalances?: VaultBalanceSource,
 	configOverrides: Partial<FillerConfigService> = {},
+	tokens: () => Promise<Record<string, string[]>> = async () => ({ "EVM-8453": [EXOTIC] }),
 ) {
 	const chainClientManager = { getPublicClient: vi.fn().mockReturnValue(client) } as unknown as ChainClientManager
 	const configService = {
@@ -42,7 +43,7 @@ function makeProvider(
 		chainClientManager,
 		configService,
 		fillerAddress: "0x1111111111111111111111111111111111111111",
-		token1: { "EVM-8453": [EXOTIC] },
+		tokens,
 		vaultBalances,
 	})
 }
@@ -121,6 +122,23 @@ describe("BalanceProvider", () => {
 		expect(snapshot.issues).toEqual([
 			{ chainId: 8453, source: "native", message: "rpc down" },
 		])
+	})
+
+	it("reads the tokens of a book the orderbook adds on the next refresh", async () => {
+		let tokens: Record<string, string[]> = {}
+		const provider = makeProvider(fakeClient(), undefined, {}, async () => tokens)
+		expect((await provider.refresh()).chains[0].exotics).toBeUndefined()
+
+		tokens = { "EVM-8453": [EXOTIC] }
+		expect((await provider.refresh()).chains[0].exotics).toEqual([{ symbol: "cNGN", amount: 10 }])
+	})
+
+	it("still reads USDC and USDT when the orderbook's books cannot be read", async () => {
+		const provider = makeProvider(fakeClient(), undefined, {}, () => Promise.reject(new Error("orderbook down")))
+
+		const snapshot = await provider.refresh()
+		expect(snapshot.chains[0].assets.map((asset) => asset.symbol)).toEqual(["USDC", "USDT"])
+		expect(snapshot.status).toBe("fresh")
 	})
 
 	it("combines wallet and vault balances without hiding reserved or unavailable liquidity", async () => {

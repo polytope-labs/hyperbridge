@@ -3,8 +3,7 @@ import type { VaultSweepResult } from "@/funding/vault/VaultFundingPlanner"
 import type { HexString, Order } from "@hyperbridge/sdk"
 import { bootFiller, type FillerRuntime } from "@/core/boot"
 import { formatChainKey } from "@/config/interpolated-curve"
-import { normalizeSymbol, type AssetDefinition } from "@/config/asset-registry"
-import { assertPairSymbolsResolve, validatePairConfigs, type PairConfig } from "@/config/pairs"
+import type { AssetDefinition } from "@/config/asset-registry"
 import { assertConfirmationCoverage, type VaultToml } from "@/config/filler-toml"
 import type { ChainConfirmationPolicy, FillerTomlConfig, RebalancingConfig } from "@/config/filler-toml"
 import { resolveChainConfigs, validateRpcUrls, type AllowlistConfig } from "@/services/FillerConfigService"
@@ -173,14 +172,6 @@ const EVENT_MAP: Record<string, keyof SimplexEvents> = {
 // Views
 // ===========================================================================
 
-export interface PairView {
-	index: number
-	token0: string
-	token1: string
-	/** token0 === token1: the same-asset cross-chain market. */
-	sameToken: boolean
-}
-
 export interface ChainView {
 	chainId: number
 	stateMachineId: string
@@ -210,14 +201,12 @@ export interface SimplexStatus {
 	uptimeSec: number
 	chains: number[]
 	watchOnly: Record<number, boolean>
-	pairs: number
 }
 
 // ===========================================================================
 // Controllers
 // ===========================================================================
 
-/** Trading pairs of the running engine. Every mutation binds on the next order. */
 /**
  * The operator's limit orders: what simplex offers to pay, and what the
  * orderbook advertises on its behalf.
@@ -323,7 +312,7 @@ export class LimitOrderController {
 		return this.indexed
 	}
 
-	/** The pairs the orderbook lists, the smallest payout each token may carry, and its tokens per chain. */
+	/** The books the orderbook lists, the smallest payout each token may carry, and its tokens per chain. */
 	books(): Promise<{ books: Book[]; minOrderSizes: TokenMinSize[]; chains: ChainInfo[] }> {
 		return this.service.books()
 	}
@@ -372,105 +361,6 @@ type LimitOrderEmitter = <
 	event: E,
 	payload: SimplexEvents[E],
 ) => void
-
-export class PairController {
-	constructor(
-		private runtime: FillerRuntime,
-		private persist: () => void | Promise<void>,
-	) {}
-
-	private get pairs(): PairConfig[] {
-		return this.runtime.config.pairs ?? []
-	}
-
-	list(): PairView[] {
-		return this.pairs.map((pair, index) => ({
-			index,
-			token0: pair.token0,
-			token1: pair.token1,
-			sameToken: normalizeSymbol(pair.token0) === normalizeSymbol(pair.token1),
-		}))
-	}
-
-	/**
-	 * Opens a new market on the running engine.
-	 *
-	 * Validated against the same rules boot applies, so a pair accepted here is
-	 * one a restart would also accept. New `assets` are registered first, because
-	 * the pair's symbols have to resolve before the market can be hydrated.
-	 */
-	async add(pair: PairConfig, options?: { assets?: Record<string, AssetDefinition> }): Promise<PairView> {
-		const { engine, assetRegistry, adminStrategies, balanceTokens, config } = this.runtime
-
-		const assets = options?.assets
-		const nextAssets = { ...(config.assets ?? {}), ...(assets ?? {}) }
-		const nextPairs = [...this.pairs, pair]
-		validatePairConfigs(nextPairs, nextAssets)
-
-		if (assets && Object.keys(assets).length > 0) assetRegistry.addAssets(assets)
-		assertPairSymbolsResolve(
-			[pair],
-			assetRegistry,
-			this.runtime.resolvedChains.map((chain) => formatChainKey(chain.chainId)),
-		)
-
-		const tradingPair = { token0: pair.token0, token1: pair.token1 }
-		// Pushes into the engine's live array — the same instance as
-		// `tradingPairs`, so config.pairs indexes stay aligned.
-		engine.addPair(tradingPair)
-		config.pairs = nextPairs
-		if (assets && Object.keys(assets).length > 0) config.assets = nextAssets
-
-		// Track the exotic side's balances from the next refresh.
-		if (normalizeSymbol(pair.token0) !== normalizeSymbol(pair.token1)) {
-			for (const chain of this.runtime.resolvedChains) {
-				const chainName = formatChainKey(chain.chainId)
-				const address = assetRegistry.getAddress(pair.token1, chainName)
-				if (!address) continue
-				const list = (balanceTokens[chainName] ??= [])
-				if (!list.includes(address)) list.push(address)
-			}
-		}
-
-		const pairIndex = nextPairs.length - 1
-		adminStrategies.push({
-			index: adminStrategies.reduce((max, s) => Math.max(max, s.index), -1) + 1,
-			pairIndex,
-			exotic: `${pair.token0}/${pair.token1}`,
-			token0: pair.token0,
-			token1: pair.token1,
-			sameToken: normalizeSymbol(pair.token0) === normalizeSymbol(pair.token1),
-		})
-
-		await this.persist()
-		return this.list()[pairIndex]
-	}
-
-	/** Closes a market. Orders already in flight against it still complete. */
-	async remove(index: number): Promise<void> {
-		const { engine, tradingPairs, adminStrategies, config } = this.runtime
-		if (index < 0 || index >= this.pairs.length) throw new Error(`Unknown pair ${index}`)
-
-		// Splices the engine's live array (same instance as tradingPairs).
-		engine.removePair(tradingPairs[index])
-		config.pairs = this.pairs.filter((_, i) => i !== index)
-
-		const position = adminStrategies.findIndex((s) => s.pairIndex === index)
-		if (position >= 0) adminStrategies.splice(position, 1)
-		// config.pairs lost an entry, so later pairs shift down.
-		for (const strategy of adminStrategies) {
-			if (strategy.pairIndex > index) strategy.pairIndex -= 1
-		}
-
-		await this.persist()
-	}
-
-	private livePair(index: number) {
-		const pair = this.runtime.tradingPairs[index]
-		if (!pair) throw new Error(`Unknown pair ${index}`)
-		return pair
-	}
-}
 
 /** The chain set of the running filler. */
 export class ChainController {
@@ -872,7 +762,7 @@ export class RebalanceController {
  *
  * Start one with {@link Simplex.start}, which boots every service, delegates the
  * filler account where solver selection is active, and begins scanning the
- * configured chains. The instance is the whole control surface: trading pairs,
+ * configured chains. The instance is the whole control surface: limit orders,
  * chains, vaults, assets, wallet and rebalancing are reachable as controllers,
  * and everything the filler does is observable through {@link SimplexEvents}.
  *
@@ -884,7 +774,6 @@ export class RebalanceController {
  * More than one instance can run in one process. They share no state.
  */
 export class Simplex extends EventEmitter {
-	readonly pairs: PairController
 	readonly chains: ChainController
 	readonly vaults: VaultController
 	readonly assets: AssetController
@@ -904,7 +793,6 @@ export class Simplex extends EventEmitter {
 		super()
 		this.logger = runtime.loggers.get("simplex")
 		const persist = () => this.persistConfig()
-		this.pairs = new PairController(runtime, persist)
 		this.chains = new ChainController(runtime, persist, runtime.orderScanner, ownedScanners.orders !== undefined)
 		this.vaults = new VaultController(runtime, persist)
 		this.assets = new AssetController(runtime, persist)
@@ -1098,7 +986,6 @@ export class Simplex extends EventEmitter {
 			uptimeSec: (Date.now() - this.runtime.startedAt) / 1000,
 			chains: this.runtime.resolvedChains.map((chain) => chain.chainId),
 			watchOnly: this.runtime.intentFiller.getWatchOnly(),
-			pairs: this.runtime.config.pairs?.length ?? 0,
 		}
 	}
 

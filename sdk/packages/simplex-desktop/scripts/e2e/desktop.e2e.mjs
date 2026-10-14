@@ -279,12 +279,10 @@ function operatorFixture(socketPath, options = {}) {
 			substratePrivateKey: FIXTURE_SEED,
 			hyperbridgeWsUrl: "wss://example.invalid",
 		},
-		pairs: [],
 		chains: [],
 		orderbook: { url: "https://orderbook.example/graphql" },
 	}
 	const operator = {
-		strategies: [],
 		filler: {
 			pause() {},
 			resume() {},
@@ -321,7 +319,6 @@ function operatorFixture(socketPath, options = {}) {
 		startedAt: Date.now(),
 		configPath: join(dirname(socketPath), "filler-config.toml"),
 		chains: [],
-		strategyTypes: [],
 		// Every running filler has limit orders: they are what it prices from.
 		limitOrders: {
 			list: async () => [],
@@ -767,17 +764,6 @@ test("configured startup owns the socket before filling and relaunch attaches wh
 			substratePrivateKey: TEST_SEED,
 			hyperbridgeWsUrl: `ws://127.0.0.1:${blackhole.port}`,
 		},
-		pairs: [
-			{
-				token0: "USDC",
-				token1: "USDC",
-				maxOrderSize: "100000",
-				askPriceCurve: [
-					{ amount: "100", price: "0.99" },
-					{ amount: "100000", price: "0.999" },
-				],
-			},
-		],
 		chains: [
 			{
 				rpcUrls: [`http://127.0.0.1:${blackhole.port}`],
@@ -1203,17 +1189,6 @@ test("first run writes a valid private config under Electron userData", async (t
 			substratePrivateKey: TEST_SEED,
 			hyperbridgeWsUrl: "ws://127.0.0.1:9",
 		},
-		pairs: [
-			{
-				token0: "USDC",
-				token1: "USDC",
-				maxOrderSize: "100000",
-				askPriceCurve: [
-					{ amount: "100", price: "0.99" },
-					{ amount: "100000", price: "0.999" },
-				],
-			},
-		],
 		chains: [{ rpcUrls: ["http://127.0.0.1:9"] }],
 		orderbook: { url: "https://orderbook.example/graphql" },
 	}
@@ -1234,7 +1209,7 @@ test("first run writes a valid private config under Electron userData", async (t
 	const written = await decryptedTestConfig(userDataDir)
 	assert.match(written, /WARNING: contains secrets/)
 	assert.match(written, /\[simplex\.signer\]/)
-	assert.match(written, /\[\[pairs\]\]/)
+	assert.match(written, /\[orderbook\]/)
 	assert.equal(written.match(new RegExp(TEST_KEY, "g"))?.length, 1)
 	if (process.platform !== "win32") assert.equal((await stat(configPath)).mode & 0o777, 0o600)
 	await delay(250)

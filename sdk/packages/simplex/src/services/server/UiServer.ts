@@ -7,8 +7,7 @@ import { resolve as resolvePath } from "node:path"
 import type { Duplex } from "node:stream"
 import { formatChainKey, parseChainKey } from "@/config/interpolated-curve"
 import { hyperbridgeBundlerUrl } from "@/config/bundlers"
-import { AssetRegistry, registrySymbols, validateAssetDefinitions, type AssetDefinition } from "@/config/asset-registry"
-import { assertPairSymbolsResolve, validatePairConfigs, type PairConfig } from "@/config/pairs"
+import { AssetRegistry, registrySymbols } from "@/config/asset-registry"
 import { VaultFundingPlanner, type VaultSweepResult } from "@/funding/vault/VaultFundingPlanner"
 import { chainByChainId, chainsForNetwork, INIT_CHAINS, nativeTokenSymbol, type InitNetwork } from "@/cli/init/chains"
 import { TESTNET_CONFIRMATION_POINTS } from "@/cli/init/state"
@@ -67,7 +66,6 @@ import {
 import {
 	LOG_LEVELS,
 	LOG_LEVEL_RANK,
-	type AdminStrategyDto,
 	type ChainRowDto,
 	type ChainsDto,
 	type ConfigDto,
@@ -113,20 +111,6 @@ function openSseStream(req: IncomingMessage, res: ServerResponse, clients: Set<S
 	res.once("error", cleanup)
 }
 
-/** One market the engine serves, as the operator's market list shows it. */
-export interface AdminStrategy {
-	/** Stable identifier for the API. */
-	index: number
-	/** Position in the TOML `[[pairs]]` array. */
-	pairIndex: number
-	/** Pair label, e.g. "USDC/CNGN" (display-only). */
-	exotic?: string
-	token0: string
-	token1: string
-	/** Same-asset cross-chain market, where the spread is realized in kind. */
-	sameToken?: boolean
-}
-
 export type UiMode = "init" | "operator"
 
 /**
@@ -159,7 +143,6 @@ export interface HaltControl {
 }
 
 export interface OperatorContext {
-	strategies: AdminStrategy[]
 	filler: PauseControl
 	balances: Pick<BalanceProvider, "getSnapshot" | "on" | "off">
 	haltControls: HaltControl[]
@@ -219,18 +202,6 @@ export interface OperatorContext {
 	applyAllowlist(allowlist: AllowlistConfig | undefined): void
 	/** Applies rebalancing settings to the running filler; trigger checks read them live. */
 	applyRebalancing(rebalancing: FillerTomlConfig["rebalancing"]): void
-	/**
-	 * Hydrates a validated new market into the running engine and returns its
-	 * editable-curve view (null for venue-priced pairs). `assets` registers new
-	 * custom tokens on the live registry first. Absent when no engine ran at boot.
-	 */
-	addPair?: (
-		pair: PairConfig,
-		assets: Record<string, AssetDefinition> | undefined,
-		pairIndex: number,
-	) => Promise<AdminStrategy | null>
-	/** Removes a live market by strategy index; later strategies' pairIndex shift down with config.pairs. */
-	removePair?: (index: number) => Promise<void>
 	/** First RPC URL for a running chain (state machine id) — backs the custom-token verify probe. */
 	rpcUrlFor?: (chain: string) => string | undefined
 	/**
@@ -255,7 +226,6 @@ export interface OperatorContext {
 	/** Desktop persistence encrypts every config edit before it reaches disk. */
 	writeConfigFile?: (path: string, content: string) => void
 	chains: number[]
-	strategyTypes: string[]
 	/** Filler accounts, shown permanently on the dashboard for funding. */
 	addresses?: { evm: string; substrate?: string }
 }
@@ -1030,22 +1000,6 @@ export class UiServer {
 			return sendJson(res, 405, { error: "Method not allowed" })
 		}
 
-		if (path === "/api/strategies") {
-			if (this.mode !== "operator") return sendJson(res, 409, { error: "Filler is not running" })
-			if (method === "GET") {
-				return sendJson(res, 200, { strategies: this.operator!.strategies.map(serializeStrategy) })
-			}
-			if (method === "POST") return this.handleMarketAdd(req, res)
-			return sendJson(res, 405, { error: "Method not allowed" })
-		}
-
-		const strategyMatch = path.match(/^\/api\/strategies\/(\d+)$/)
-		if (strategyMatch) {
-			if (this.mode !== "operator") return sendJson(res, 409, { error: "Filler is not running" })
-			if (method === "DELETE") return this.handleMarketRemove(res, Number(strategyMatch[1]))
-			return sendJson(res, 405, { error: "Method not allowed" })
-		}
-
 		if (path === "/api/pause" || path === "/api/resume") {
 			if (this.mode !== "operator") return sendJson(res, 409, { error: "Filler is not running" })
 			if (method !== "POST") return sendJson(res, 405, { error: "Method not allowed" })
@@ -1547,8 +1501,6 @@ export class UiServer {
 			work: op.filler.getWorkSnapshot(),
 			watchOnly: op.filler.getWatchOnly(),
 			chains: op.chains,
-			strategies: op.strategies.map((s) => ({ index: s.index, exotic: s.exotic })),
-			strategyTypes: op.strategyTypes,
 			configPath: op.configPath,
 			addresses: op.addresses,
 			chainLabels: Object.fromEntries(op.chains.map((id) => [id, chainLabel(id)])),
@@ -1581,112 +1533,6 @@ export class UiServer {
 			return sendJson(res, 400, { error: "Invalid JSON body" })
 		}
 		return this.handleLimitOrders(res, () => this.operator!.limitOrders.create(body))
-	}
-
-	private async handleMarketAdd(req: IncomingMessage, res: ServerResponse): Promise<void> {
-		const op = this.operator!
-		let body: {
-			token0?: string
-			token1?: string
-			assets?: Record<string, AssetDefinition>
-		}
-		try {
-			body = JSON.parse(await readBody(req))
-		} catch {
-			return sendJson(res, 400, { error: "Invalid JSON body" })
-		}
-		if (!body.token0?.trim() || !body.token1?.trim()) {
-			return sendJson(res, 400, { error: "token0 and token1 are required" })
-		}
-
-		const candidate: PairConfig = { token0: body.token0.trim(), token1: body.token1.trim() }
-		const assets = body.assets && Object.keys(body.assets).length > 0 ? body.assets : undefined
-		const mergedAssets = { ...(op.config.assets ?? {}) }
-		const next = [...(op.config.pairs ?? []), candidate]
-		try {
-			if (assets) {
-				validateAssetDefinitions(assets)
-				// Redefining a known symbol under a running engine would silently
-				// repoint its fills to another contract.
-				const known = new AssetRegistry(new ChainConfigService({}), op.config.assets)
-				for (const symbol of Object.keys(assets)) {
-					if (known.hasSymbol(symbol)) {
-						throw new Error(`assets: '${symbol}' is already defined and cannot be redefined at runtime`)
-					}
-				}
-				Object.assign(mergedAssets, assets)
-			}
-			validatePairConfigs(next, mergedAssets)
-			const registry = new AssetRegistry(new ChainConfigService({}), mergedAssets)
-			assertPairSymbolsResolve(
-				next,
-				registry,
-				op.chains.map((id) => formatChainKey(id)),
-			)
-		} catch (err) {
-			return sendJson(res, 400, { error: err instanceof Error ? err.message : String(err) })
-		}
-
-		let strategy: AdminStrategy | null = null
-		try {
-			if (op.addPair) strategy = await op.addPair(candidate, assets, (op.config.pairs ?? []).length)
-		} catch (err) {
-			return sendJson(res, 400, { error: err instanceof Error ? err.message : String(err) })
-		}
-
-		// The capability path owns the config: PairController reassigned
-		// `config.pairs` (and assets) itself. Writing `next` over it would be a
-		// second source of truth that only agrees by construction — mutate here
-		// solely in the restart-needed fallback, where nothing else will.
-		if (!op.addPair) {
-			op.config.pairs = next
-			if (assets) op.config.assets = mergedAssets
-		}
-		const persisted = this.persistConfig()
-		const applied = Boolean(op.addPair)
-		this.logger.warn(
-			{
-				pair: `${candidate.token0}/${candidate.token1}`,
-				applied,
-				customAssets: assets ? Object.keys(assets) : undefined,
-			},
-			"Market added by operator",
-		)
-		return sendJson(res, 200, {
-			applied,
-			restartNeeded: !applied,
-			persisted,
-			strategy: strategy ? serializeStrategy(strategy) : null,
-		})
-	}
-
-	/**
-	 * DELETE /api/strategies/:index — removes a market. The remaining config
-	 * must still validate (at least one market) before
-	 * anything mutates. Funds are never touched: vault treasury is per-asset
-	 * and stays configured regardless of markets.
-	 */
-	private async handleMarketRemove(res: ServerResponse, index: number): Promise<void> {
-		const op = this.operator!
-		const strategy = op.strategies.find((s) => s.index === index)
-		if (!strategy) return sendJson(res, 404, { error: `Unknown strategy ${index}` })
-		const pairs = op.config.pairs ?? []
-		const { pairIndex } = strategy
-		try {
-			const remaining = pairs.filter((_, i) => i !== pairIndex)
-			if (remaining.length === 0) {
-				throw new Error("The last market cannot be removed live — edit the config and restart instead")
-			}
-			validatePairConfigs(remaining, op.config.assets)
-			await op.removePair?.(index)
-		} catch (err) {
-			return sendJson(res, 400, { error: err instanceof Error ? err.message : String(err) })
-		}
-		if (!op.removePair) pairs.splice(pairIndex, 1)
-		const persisted = this.persistConfig()
-		const applied = Boolean(op.removePair)
-		this.logger.warn({ pair: `${strategy.token0}/${strategy.token1}`, applied }, "Market removed by operator")
-		return sendJson(res, 200, { applied, restartNeeded: !applied, persisted })
 	}
 
 	/**
@@ -1819,10 +1665,6 @@ export class UiServer {
 
 		try {
 			assertConfirmationCoverage(confirmationPolicies, chainIds)
-			if (op.config.pairs?.length) {
-				const registry = new AssetRegistry(new ChainConfigService({}), op.config.assets)
-				assertPairSymbolsResolve(op.config.pairs, registry, chainIds.map(formatChainKey))
-			}
 			// Funding venues hydrate per chain at boot: one left on a dropped
 			// chain would fall back to a default RPC or fail the next start.
 			for (const chainId of removed) {
@@ -2052,7 +1894,7 @@ export class UiServer {
 	 * wallet balance falls short.
 	 */
 	private sendTokenOptions(op: OperatorContext): Record<string, SendTokenOption[]> {
-		// The same symbol registry the trading engine resolves pairs with:
+		// The same symbol registry the trading engine resolves tokens with:
 		// built-ins from the SDK chain registry plus the config's [assets] table.
 		const registry = new AssetRegistry(new ChainConfigService({}), op.config.assets)
 		const symbols = [
@@ -2308,16 +2150,6 @@ export class UiServer {
 		const persisted = this.persistConfig()
 		this.logger.warn({ userCount: users.length }, "Allowlist updated from the UI")
 		return sendJson(res, 200, { users, persisted })
-	}
-}
-
-function serializeStrategy(strategy: AdminStrategy): AdminStrategyDto {
-	return {
-		index: strategy.index,
-		exotic: strategy.exotic,
-		token0: strategy.token0,
-		token1: strategy.token1,
-		sameToken: strategy.sameToken ?? false,
 	}
 }
 

@@ -3,18 +3,12 @@ import { Decimal } from "decimal.js"
 import { parseUnits } from "viem"
 import { bytes20ToBytes32, ChainConfigService, type HexString, type Order, type TokenInfo } from "@hyperbridge/sdk"
 import { AssetRegistry, validateAssetDefinitions, type BuiltinAssetResolver } from "@/config/asset-registry"
-import {
-	assertPairSymbolsResolve,
-	pickAnchorStable,
-	validatePairConfigs,
-	type PairAddressResolver,
-} from "@/config/pairs"
-import { FXFiller, type TradingPair } from "@/strategies/fx"
+import { FXFiller } from "@/strategies/fx"
 import type { LimitOrderStore } from "@/data/types"
 import { limitOrderStore } from "./helpers/limit-orders"
 
-// Pure unit tests for the asset registry, [[pairs]] validation, and the
-// pairs-driven FX engine's order gating (mocked services).
+// Pure unit tests for the asset registry and the FX engine's order gating
+// (mocked services).
 
 const CHAIN = "EVM-56"
 const OTHER_CHAIN = "EVM-8453"
@@ -167,91 +161,6 @@ describe("AssetRegistry", () => {
 	})
 })
 
-describe("validatePairConfigs", () => {
-	const assets = { CNGN: { [CHAIN]: CNGN } }
-	const CURVE = [{ amount: "0", price: "1500" }]
-	const SIZE = "5000"
-
-	it("accepts arbitrary well-formed pairs", () => {
-		expect(() =>
-			validatePairConfigs(
-				[
-					{ token0: "USDC", token1: "CNGN" },
-					{ token0: "USDT", token1: "CNGN" },
-					{ token0: "ZARP", token1: "CNGN" },
-				],
-				assets,
-			),
-		).not.toThrow()
-	})
-
-	it("accepts crossed and zero-spread two-sided books — sides are quoted independently", () => {
-		// Each side fills at its own curve; crossing only makes a full round
-		// trip lose money. The wizards warn instead of rejecting.
-		expect(() =>
-			validatePairConfigs(
-				[
-					{
-						token0: "USDC",
-						token1: "CNGN",
-					},
-				],
-				assets,
-			),
-		).not.toThrow()
-		expect(() =>
-			validatePairConfigs(
-				[{ token0: "USDC", token1: "CNGN" }],
-				assets,
-			),
-		).not.toThrow()
-	})
-
-	it("accepts registry-shipped symbols with no [assets] config at all", () => {
-		// ZARP anchors through CNGN (via USDC/CNGN), EURC directly via USDC/EURC.
-		expect(() =>
-			validatePairConfigs([
-				{ token0: "USDC", token1: "CNGN" },
-				{ token0: "ZARP", token1: "CNGN" },
-				{ token0: "USDC", token1: "EURC" },
-				{ token0: "EURC", token1: "XSGD" },
-			]),
-		).not.toThrow()
-	})
-
-	it("rejects unknown symbols and duplicates", () => {
-		expect(() =>
-			validatePairConfigs([{ token0: "USDC", token1: "WAT" }], assets),
-		).toThrow(/unknown symbol/)
-		expect(() =>
-			validatePairConfigs(
-				[
-					{ token0: "USDC", token1: "CNGN" },
-					{ token0: "usdc", token1: "cngn" },
-				],
-				assets,
-			),
-		).toThrow(/declared twice/)
-		// The reverse orientation is the same market — accepting both would make
-		// leg matching declaration-order dependent (and price legs in the wrong unit).
-		expect(() =>
-			validatePairConfigs(
-				[
-					{ token0: "USDC", token1: "CNGN" },
-					{ token0: "CNGN", token1: "USDC" },
-				],
-				assets,
-			),
-		).toThrow(/already declared/)
-	})
-
-})
-
-// ---------------------------------------------------------------------------
-// FX engine pair matching and construction. Payout sizing at a pair's own rate
-// is covered by the exposure-cap and profit-gates suites.
-// ---------------------------------------------------------------------------
-
 function makeContractService(): any {
 	const cache = new Map<string, unknown>()
 	const decimals: Record<string, number> = {
@@ -281,7 +190,7 @@ function makeContractService(): any {
 	}
 }
 
-function makeFiller(pairs: TradingPair[], limitOrders?: LimitOrderStore) {
+function makeFiller(limitOrders?: LimitOrderStore) {
 	const configService = {
 		...resolver,
 		getMaxOverfillBps: () => 500n,
@@ -292,7 +201,7 @@ function makeFiller(pairs: TradingPair[], limitOrders?: LimitOrderStore) {
 		ZARP: { [CHAIN]: ZARP },
 	})
 	const signer = { address: SOLVER } as any
-	return new FXFiller(signer, configService, {} as any, makeContractService(), pairs, registry, { limitOrders })
+	return new FXFiller(signer, configService, {} as any, makeContractService(), registry, { limitOrders })
 }
 
 function makeOrder(id: string, input: TokenInfo, output: TokenInfo): Order {
@@ -313,31 +222,9 @@ function makeOrder(id: string, input: TokenInfo, output: TokenInfo): Order {
 
 const size = (n: string) => new Decimal(n)
 
-describe("FXFiller pairs engine", () => {
-	it("rejects duplicate and reverse-duplicate engine pairs", () => {
-		const registry = new AssetRegistry(resolver as any, { CNGN: { [CHAIN]: CNGN } })
-		const signer = { address: SOLVER } as any
-		const build = (pairs: TradingPair[]) =>
-			new FXFiller(
-				signer,
-				{ getMaxOverfillBps: () => 500n, getMaxConsecutiveClamps: () => 3 } as any,
-				{} as any,
-				makeContractService(),
-				pairs,
-				registry,
-			)
-		expect(() =>
-			build([
-				{ token0: "USDC", token1: "CNGN" },
-				{ token0: "CNGN", token1: "USDC" },
-			]),
-		).toThrow(/duplicate market/)
-	})
-
-	it("rejects orders whose legs match no configured pair", async () => {
-		const filler = makeFiller([
-			{ token0: "USDC", token1: "CNGN" },
-		])
+describe("FXFiller order gating", () => {
+	it("rejects orders no limit order serves", async () => {
+		const filler = makeFiller()
 		const order = makeOrder(
 			"no-pair",
 			{ token: bytes20ToBytes32(USDT), amount: parseUnits("100", 6) },
@@ -346,11 +233,10 @@ describe("FXFiller pairs engine", () => {
 		expect(await filler.canFill(order)).toBe(false)
 	})
 
-	it("accepts same-chain cross-asset orders — only same-token pairs are chain-restricted", async () => {
+	it("accepts same-chain cross-asset orders — only same-token orders are chain-restricted", async () => {
 		// makeOrder is source == destination: an on-chain USDC→CNGN swap. The
 		// same-chain rejection applies to same-token self-swaps, never to FX.
 		const filler = makeFiller(
-			[{ token0: "USDC", token1: "CNGN" }],
 			await limitOrderStore([
 				{ base: "USDC", quote: "CNGN", side: "BID", fillChain: CHAIN, price: "1500", size: "1500000" },
 			]),
@@ -379,9 +265,6 @@ describe("FXFiller same-token markets (cross-chain only)", () => {
 		getMaxConsecutiveClamps: () => 3,
 	} as any
 	const signer = { address: SOLVER } as any
-	const usdcUsdc = (): TradingPair[] => [
-		{ token0: "USDC", token1: "USDC" },
-	]
 
 	function sameTokenOrder(source: string, destination: string): Order {
 		return {
@@ -404,7 +287,7 @@ describe("FXFiller same-token markets (cross-chain only)", () => {
 	}
 
 	it("accepts a cross-chain same-token order (the same-asset transfer market)", async () => {
-		const filler = new FXFiller(signer, cfg, {} as any, makeContractService(), usdcUsdc(), new AssetRegistry(cfg), {
+		const filler = new FXFiller(signer, cfg, {} as any, makeContractService(), new AssetRegistry(cfg), {
 			limitOrders: await limitOrderStore([
 				{
 					base: "USDC",
@@ -421,7 +304,7 @@ describe("FXFiller same-token markets (cross-chain only)", () => {
 	})
 
 	it("does not serve a chain the order never declared", async () => {
-		const filler = new FXFiller(signer, cfg, {} as any, makeContractService(), usdcUsdc(), new AssetRegistry(cfg), {
+		const filler = new FXFiller(signer, cfg, {} as any, makeContractService(), new AssetRegistry(cfg), {
 			limitOrders: await limitOrderStore([
 				{
 					base: "USDC",
@@ -467,7 +350,6 @@ describe("FXFiller profit gates (fees cover execution; spread independently posi
 
 	// contractService + clientManager mocked just enough to drive calculateProfitability.
 	function gateFiller(
-		pairs: TradingPair[],
 		registry: AssetRegistry,
 		estimate: { fillGas: bigint; relayer: bigint },
 		options?: {
@@ -519,7 +401,7 @@ describe("FXFiller profit gates (fees cover execution; spread independently posi
 		}
 		const clientManager = { getPublicClient: () => destClient } as any
 		const config = { ...cfg, getMinOrderSizeUsd: () => options?.minOrderSizeUsd ?? 20 }
-		return new FXFiller(signer, config, clientManager, contractService, pairs, registry, {
+		return new FXFiller(signer, config, clientManager, contractService, registry, {
 			fundingVenues: (options?.fundingVenues ?? []) as any,
 			limitOrders: options?.limitOrders,
 		})
@@ -548,7 +430,6 @@ describe("FXFiller profit gates (fees cover execution; spread independently posi
 
 	it("gate 1: rejects when fees do not cover fill gas + relayer fee", async () => {
 		const filler = gateFiller(
-			[{ token0: "USDC", token1: "CNGN" }],
 			usdcOnBoth(),
 			{ fillGas: parseUnits("2", 6), relayer: parseUnits("3", 6) }, // exec cost = $5
 		)
@@ -563,7 +444,6 @@ describe("FXFiller profit gates (fees cover execution; spread independently posi
 
 	it("gate 1: passes when fees cover execution and the FX spread is positive", async () => {
 		const filler = gateFiller(
-			[{ token0: "USDC", token1: "CNGN" }],
 			usdcOnBoth(),
 			{ fillGas: parseUnits("2", 6), relayer: parseUnits("3", 6) },
 			{
@@ -605,7 +485,7 @@ describe("FXFiller profit gates (fees cover execution; spread independently posi
 				parseUnits("4", 6),
 			)
 		const fx = async (minOrderSizeUsd?: number) =>
-			gateFiller([{ token0: "USDC", token1: "CNGN" }], usdcOnBoth(), estimate, {
+			gateFiller(usdcOnBoth(), estimate, {
 				limitOrders: await book(),
 				minOrderSizeUsd,
 			})
@@ -671,11 +551,7 @@ describe("FXFiller profit gates (fees cover execution; spread independently posi
 	it("gate 2: rejects a same-token order whose realized spread is zero", async () => {
 		// The book is healthy (ask 0.999) but the ORDER demands a 1:1 payout —
 		// the realized spread on this fill is zero, so the per-leg gate refuses.
-		const filler = gateFiller(
-			[{ token0: "USDC", token1: "USDC" }],
-			new AssetRegistry(cfg),
-			{ fillGas: parseUnits("1", 6), relayer: parseUnits("1", 6) },
-		)
+		const filler = gateFiller(new AssetRegistry(cfg), { fillGas: parseUnits("1", 6), relayer: parseUnits("1", 6) })
 		const o = order(
 			"g2-fail",
 			{ token: bytes20ToBytes32(USDC), amount: parseUnits("1000", 6) },
@@ -694,14 +570,7 @@ describe("FXFiller profit gates (fees cover execution; spread independently posi
 		const registry = new AssetRegistry(cfg, {
 			CNGN: { [SRC]: CNGN, [DST]: CNGN6 },
 		})
-		const filler = gateFiller(
-			[
-				{ token0: "USDC", token1: "CNGN" },
-				{ token0: "CNGN", token1: "CNGN" },
-			],
-			registry,
-			{ fillGas: parseUnits("1", 6), relayer: parseUnits("1", 6) },
-		)
+		const filler = gateFiller(registry, { fillGas: parseUnits("1", 6), relayer: parseUnits("1", 6) })
 		const o = order(
 			"floor-dust",
 			{ token: bytes20ToBytes32(CNGN), amount: parseUnits("1000", 18) + 1n }, // 1000.000000000000000001
@@ -713,7 +582,6 @@ describe("FXFiller profit gates (fees cover execution; spread independently posi
 
 	it("gate 2: passes a same-token order with a below-par spread and covering fees", async () => {
 		const filler = gateFiller(
-			[{ token0: "USDC", token1: "USDC" }],
 			new AssetRegistry(cfg),
 			{ fillGas: parseUnits("1", 6), relayer: parseUnits("1", 6) },
 			{
@@ -732,28 +600,15 @@ describe("FXFiller profit gates (fees cover execution; spread independently posi
 		expect(await filler.calculateProfitability(o)).toBeGreaterThan(0)
 	})
 
-	// Two arbitrary NON-USD tokens: ZARP/CNGN. token0=ZARP, curves in CNGN-per-ZARP.
-	// Pricing and sizing work in the pair's own units; the USDC/ZARP anchor
-	// pair exists so confirmation depth can price ZARP in USD.
+	// Two arbitrary non-USD tokens, ZARP and CNGN, both resolved through [assets].
 	const zarpCngnRegistry = () =>
 		new AssetRegistry(cfg, { ZARP: { [SRC]: ZARP, [DST]: ZARP }, CNGN: { [SRC]: CNGN, [DST]: CNGN } })
-	const usdcZarpAnchor = (): TradingPair => ({
-		token0: "USDC",
-		token1: "ZARP", // mid 18 ZARP per USDC → ZARP ≈ $1/18
-	})
 
 	it("rejects an order when a leg demands more than its own ask curve yields", async () => {
 		// The USDC/CNGN leg demands 1.6M CNGN but the 1450 ask pays at most
 		// 1.45M for 1000 USDC. Each leg is checked against its own curve only —
 		// the comfortably-within-curve ZARP/CNGN leg cannot rescue the order.
-		const filler = gateFiller(
-			[
-				{ token0: "USDC", token1: "CNGN" },
-				{ token0: "ZARP", token1: "CNGN" },
-			],
-			zarpCngnRegistry(),
-			{ fillGas: parseUnits("1", 6), relayer: parseUnits("1", 6) },
-		)
+		const filler = gateFiller(zarpCngnRegistry(), { fillGas: parseUnits("1", 6), relayer: parseUnits("1", 6) })
 		const o = order(
 			"beyond-curve",
 			{ token: bytes20ToBytes32(USDC), amount: parseUnits("1000", 6) },
@@ -763,106 +618,5 @@ describe("FXFiller profit gates (fees cover execution; spread independently posi
 		o.inputs.push({ token: bytes20ToBytes32(ZARP), amount: parseUnits("1000", 18) })
 		o.output.assets.push({ token: bytes20ToBytes32(CNGN), amount: parseUnits("40000", 18) }) // ≤ 1000 × 95
 		expect(await filler.calculateProfitability(o)).toBe(0)
-	})
-
-	it("addPair rejects a duplicate and its reverse", async () => {
-		const filler = gateFiller(
-			[{ token0: "USDC", token1: "CNGN" }],
-			usdcOnBoth(),
-			{ fillGas: parseUnits("1", 6), relayer: parseUnits("1", 6) },
-		)
-		filler.addPair({
-			token0: "USDC",
-			token1: "USDT",
-		})
-
-		const usdtPair = () => ({ token0: "USDT", token1: "USDC" })
-		expect(() => filler.addPair({ ...usdtPair(), token0: "USDC", token1: "USDT" })).toThrow(/duplicate market/)
-		expect(() => filler.addPair(usdtPair())).toThrow(/duplicate market/)
-	})
-
-	it("removePair closes a market and refuses to remove the last one", async () => {
-		const reference: TradingPair = {
-			token0: "USDC",
-			token1: "ZARP",
-		}
-		const zarpCngn: TradingPair = {
-			token0: "ZARP",
-			token1: "CNGN",
-		}
-		const usdcCngn: TradingPair = {
-			token0: "USDC",
-			token1: "CNGN",
-		}
-		const filler = gateFiller([reference, zarpCngn], zarpCngnRegistry(), {
-			fillGas: parseUnits("1", 6),
-			relayer: parseUnits("1", 6),
-		})
-		filler.addPair(usdcCngn)
-		filler.removePair(usdcCngn)
-
-		filler.removePair(zarpCngn)
-		expect(() => filler.removePair(reference)).toThrow(/cannot be removed/)
-	})
-})
-
-describe("pickAnchorStable", () => {
-	it("prefers USDC when no stable has a market against the symbol", () => {
-		expect(pickAnchorStable([{ token0: "CNGN", token1: "CNGN" }], "CNGN")).toBe("USDC")
-	})
-
-	it("skips a stable with an existing orientation, in either direction", () => {
-		expect(pickAnchorStable([{ token0: "USDC", token1: "CNGN" }], "CNGN")).toBe("USDT")
-		expect(pickAnchorStable([{ token0: "CNGN", token1: "USDC" }], "CNGN")).toBe("USDT")
-	})
-
-	it("returns null when every stable is taken", () => {
-		const pairs = [
-			{ token0: "USDC", token1: "CNGN" },
-			{ token0: "USDT", token1: "CNGN" },
-			{ token0: "CNGN", token1: "DAI" },
-		]
-		expect(pickAnchorStable(pairs, "CNGN")).toBeNull()
-	})
-})
-
-describe("assertPairSymbolsResolve", () => {
-	const resolver = (addresses: Record<string, Record<string, string>>): PairAddressResolver => ({
-		getAddress: (symbol, chain) => addresses[symbol.trim().toUpperCase()]?.[chain] ?? null,
-	})
-
-	it("accepts symbols that resolve somewhere and to distinct contracts", () => {
-		const registry = resolver({
-			USDC: { "EVM-8453": "0x1111111111111111111111111111111111111111" },
-			CNGN: { "EVM-8453": "0x2222222222222222222222222222222222222222" },
-		})
-		expect(() =>
-			assertPairSymbolsResolve(
-				[{ token0: "USDC", token1: "CNGN" }],
-				registry,
-				["EVM-8453", "EVM-1"],
-			),
-		).not.toThrow()
-	})
-
-	it("rejects a symbol deployed on none of the configured chains", () => {
-		const registry = resolver({
-			USDC: { "EVM-8453": "0x1111111111111111111111111111111111111111" },
-			CNGN: { "EVM-56": "0x2222222222222222222222222222222222222222" },
-		})
-		expect(() =>
-			assertPairSymbolsResolve([{ token0: "USDC", token1: "CNGN" }], registry, ["EVM-8453"]),
-		).toThrow(/'CNGN' does not resolve/)
-	})
-
-	it("rejects two symbols aliasing the same contract on a chain", () => {
-		const shared = "0x1111111111111111111111111111111111111111"
-		const registry = resolver({
-			USDC: { "EVM-8453": shared },
-			FAKE: { "EVM-8453": shared },
-		})
-		expect(() =>
-			assertPairSymbolsResolve([{ token0: "USDC", token1: "FAKE" }], registry, ["EVM-8453"]),
-		).toThrow(/both resolve to/)
 	})
 })

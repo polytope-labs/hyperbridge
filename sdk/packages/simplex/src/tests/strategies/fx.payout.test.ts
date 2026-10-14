@@ -1,4 +1,4 @@
-import { FXFiller, type TradingPair } from "@/strategies/fx"
+import { FXFiller } from "@/strategies/fx"
 import { AssetRegistry } from "@/config/asset-registry"
 import { bytes20ToBytes32, type HexString, type Order, type TokenInfo } from "@hyperbridge/sdk"
 import { describe, it, expect } from "vitest"
@@ -121,14 +121,12 @@ async function makeFiller(options: {
 	const record = (fields: Record<string, unknown>, message: string) => options.logged?.push({ message, fields })
 	const logger = { trace: record, debug: record, info: record, warn: record, error: record, fatal: record }
 	const registry = new AssetRegistry(configService, { EXOTIC: { [CHAIN]: EXOTIC } })
-	const pairs: TradingPair[] = [{ token0: "USDC", token1: "EXOTIC" }]
 	const signer = { address: SOLVER } as any
 	return new FXFiller(
 		signer,
 		options.logged ? { ...configService, loggers: { get: () => logger } } : configService,
 		makeClientManager(options.balances),
 		options.contractService,
-		pairs,
 		registry,
 		{
 			limitOrders:

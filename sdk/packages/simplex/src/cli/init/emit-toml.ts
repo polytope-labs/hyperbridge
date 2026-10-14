@@ -3,7 +3,6 @@ import { chmodSync, renameSync, unlinkSync, writeFileSync } from "node:fs"
 import { dirname, join, basename } from "node:path"
 import { randomBytes } from "node:crypto"
 import type { FillerConfigFile, ChainConfirmationPolicy } from "@/config/filler-toml"
-import type { PairConfig } from "@/config/pairs"
 
 /**
  * Atomically writes the filler config: the content lands in a same-directory
@@ -215,10 +214,6 @@ export function emitFillerToml(config: FillerConfigFile, options: EmitOptions = 
 		}
 	}
 
-	for (const pair of config.pairs ?? []) {
-		emitPair(push, pair)
-	}
-
 	emitConfirmationPolicies(push, config.confirmationPolicies)
 
 	config.chains.forEach((chain, index) => {
@@ -231,19 +226,6 @@ export function emitFillerToml(config: FillerConfigFile, options: EmitOptions = 
 	})
 
 	return `${out.join("\n").trimEnd()}\n`
-}
-
-function emitPair(push: (line?: string) => void, pair: PairConfig): void {
-	const sameToken = pair.token0.trim().toUpperCase() === pair.token1.trim().toUpperCase()
-	if (sameToken) {
-		push(`# Same-asset cross-chain market: ${pair.token0} on one chain for ${pair.token1} on another.`)
-	} else {
-		push(`# Cross-asset market. Prices come from the limit orders you post, not from here.`)
-	}
-	push("[[pairs]]")
-	push(kv("token0", pair.token0))
-	push(kv("token1", pair.token1))
-	push()
 }
 
 function emitConfirmationPolicies(

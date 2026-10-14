@@ -85,7 +85,7 @@ export interface SetupDefaults {
 
 /**
  * GET /api/setup/orderbook — the orderbook a new config posts to, and the books
- * it lists. The wizard declares one market per book; limit orders price them.
+ * it lists. The wizard checks the enabled chains carry at least one book.
  */
 export interface SetupOrderbook {
 	url: string
@@ -120,8 +120,6 @@ export interface StatusOperator {
 	work: SolverWork
 	watchOnly: Record<number, boolean>
 	chains: number[]
-	strategies: Array<{ index: number; exotic?: string }>
-	strategyTypes: string[]
 	/** Absent when the filler was started from a config object rather than a file. */
 	configPath?: string
 	addresses?: { evm: string; substrate?: string }
@@ -154,16 +152,6 @@ export interface VaultSweepDto {
 		walletBalance?: string
 		threshold?: string
 	}[]
-}
-
-/** GET /api/strategies rows; PUT /api/strategies/:index(/curves) response */
-export interface AdminStrategyDto {
-	index: number
-	/** Display label, e.g. "USDC/CNGN" (reference pairs carry a " (reference)" suffix). */
-	exotic?: string
-	token0: string
-	token1: string
-	sameToken: boolean
 }
 
 /** GET /api/chains rows; one per `[[chains]]` entry in the running config. */

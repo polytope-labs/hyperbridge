@@ -228,6 +228,13 @@ jobs:
 
             - name: Build simplex
               run: pnpm --filter="@hyperbridge/simplex" build
+              env:
+                  # Bakes the web UI's Sentry DSN and uploads its source maps (deleted
+                  # from dist before packing). Operators opt out with SIMPLEX_ERROR_REPORTING=off.
+                  SIMPLEX_UI_SENTRY_DSN: ${{ secrets.SIMPLEX_UI_SENTRY_DSN }}
+                  SIMPLEX_UI_SENTRY_PROJECT: ${{ vars.SIMPLEX_UI_SENTRY_PROJECT }}
+                  SENTRY_ORG: ${{ vars.SENTRY_ORG }}
+                  SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
 
             # pnpm rewrites the `workspace:*` dependency on @hyperbridge/sdk to its
             # concrete version as it packs. That version existing on npm is not enough:

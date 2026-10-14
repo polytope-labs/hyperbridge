@@ -40,6 +40,16 @@
 				"default": "./dist/config-storage.cjs"
 			}
 		},
+		"./error-reporting": {
+			"import": {
+				"types": "./dist/error-reporting.d.ts",
+				"default": "./dist/error-reporting.js"
+			},
+			"require": {
+				"types": "./dist/error-reporting.d.cts",
+				"default": "./dist/error-reporting.cjs"
+			}
+		},
 		"./package.json": "./package.json"
 	},
 	"files": [
@@ -51,7 +61,7 @@
 		"prepublishOnly": "npm run build",
 		"test": "pnpm run codegen && vitest --watch=false --maxConcurrency=1",
 		"test:data": "pnpm run codegen && vitest --watch=false --maxConcurrency=1 src/tests/data",
-		"test:unit": "pnpm run codegen && vitest --watch=false --maxConcurrency=1 src/tests/cli src/tests/logger.test.ts src/tests/pairs.test.ts ui/src",
+		"test:unit": "pnpm run codegen && vitest --watch=false --maxConcurrency=1 src/tests/cli src/tests/error-reporting.test.ts src/tests/logger.test.ts src/tests/pairs.test.ts ui/src",
 		"test:filler": "pnpm run codegen && vitest --watch=false --maxConcurrency=1 --testTimeout=1000000 src/tests/strategies/fx.payout.test.ts src/tests/quorum-public-client.test.ts",
 		"test:stable-testnet": "pnpm run codegen && vitest --watch=false --maxConcurrency=1 --testTimeout=1000000 src/tests/strategies/stable.testnet.test.ts",
 		"test:fx": "pnpm run codegen && vitest --watch=false --maxConcurrency=1 --testTimeout=1000000 src/tests/strategies/fx.mainnet.test.ts",
@@ -72,6 +82,8 @@
 	},
 	"devDependencies": {
 		"@biomejs/biome": "^1.9.4",
+		"@sentry/react": "10.73.0",
+		"@sentry/vite-plugin": "5.4.0",
 		"@tailwindcss/vite": "^4.3.3",
 		"@types/node": "^22.13.5",
 		"@types/qrcode": "^1.5.6",

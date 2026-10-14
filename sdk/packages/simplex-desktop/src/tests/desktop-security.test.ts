@@ -7,6 +7,7 @@ import {
 	installWebContentsSecurity,
 	isTrustedRendererUrl,
 	RENDERER_CSP,
+	rendererCsp,
 	rendererWebPreferences,
 	responseHeadersWithCsp,
 } from "../desktop-security"
@@ -83,6 +84,20 @@ describe("desktop renderer security", () => {
 		expect(RENDERER_CSP).toContain("style-src 'self' 'unsafe-inline'")
 		expect(RENDERER_CSP).not.toContain("'unsafe-eval'")
 		expect(RENDERER_CSP).not.toContain("script-src 'unsafe-inline'")
+	})
+
+	it("admits exactly one canonical Sentry ingest origin for renderer error reports", () => {
+		expect(rendererCsp()).toBe(RENDERER_CSP)
+		const csp = rendererCsp("https://o1.ingest.us.sentry.io")
+		expect(csp).toContain("connect-src 'self' https://o1.ingest.us.sentry.io;")
+		expect(csp.replace(" https://o1.ingest.us.sentry.io", "")).toBe(RENDERER_CSP)
+		for (const origin of [
+			"http://o1.ingest.us.sentry.io",
+			"https://o1.ingest.us.sentry.io/",
+			"https://*.sentry.io",
+		]) {
+			expect(() => rendererCsp(origin), origin).toThrow()
+		}
 	})
 
 	it("denies permissions except clipboard writes from the trusted renderer", () => {

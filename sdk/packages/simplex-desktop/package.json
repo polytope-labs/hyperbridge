@@ -35,6 +35,7 @@
 	"devDependencies": {
 		"@biomejs/biome": "^1.9.4",
 		"@hyperbridge/simplex": "workspace:*",
+		"@sentry/electron": "7.18.0",
 		"@simplewebauthn/server": "14.0.0",
 		"@types/node": "^22.13.5",
 		"electron": "44.3.0",

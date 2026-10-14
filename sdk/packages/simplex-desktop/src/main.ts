@@ -19,6 +19,12 @@ import electronUpdater from "electron-updater"
 import type { OperatorNotification } from "@hyperbridge/simplex"
 import { ensureDaemon, probeHealth, type DaemonLaunch } from "./daemon"
 import { installSessionSecurity, installWebContentsSecurity, rendererWebPreferences } from "./desktop-security"
+import {
+	flushDesktopErrorReports,
+	rendererReportingOrigin,
+	reportDesktopError,
+	startDesktopErrorReporting,
+} from "./error-reporting"
 import { assertResources, resourcePaths, socketPathFor, userDataOverrideFromArgv } from "./desktop-paths"
 import { latestLogPath, loginItemExecutable, LoginItemController } from "./login-item"
 import { DesktopNotificationClient, desktopNotificationUrl } from "./notification-client"
@@ -79,6 +85,8 @@ let updateStatus: UpdateStatus = { state: "disabled", channel: "stable" }
 const userDataSwitch = app.commandLine.getSwitchValue("user-data-dir")
 const userDataOverride = userDataSwitch ? resolve(userDataSwitch) : userDataOverrideFromArgv()
 if (userDataOverride) app.setPath("userData", userDataOverride)
+// After the userData override: Sentry queues undelivered reports under it.
+startDesktopErrorReporting(app.getVersion(), app.isPackaged)
 
 async function simplexPackageRoot(): Promise<string> {
 	const manifest = import.meta.resolve("@hyperbridge/simplex/package.json")
@@ -90,6 +98,7 @@ function errorMessage(error: unknown): string {
 }
 
 function reportActionError(title: string, error: unknown): void {
+	reportDesktopError(error)
 	dialog.showErrorBox(title, errorMessage(error))
 }
 
@@ -521,7 +530,7 @@ async function prepareDesktop(): Promise<void> {
 			access: vault,
 		}),
 	)
-	installSessionSecurity(session.defaultSession)
+	installSessionSecurity(session.defaultSession, rendererReportingOrigin())
 	loginItem = new LoginItemController({
 		app,
 		platform: process.platform,
@@ -622,9 +631,10 @@ async function prepareDesktop(): Promise<void> {
 function reportStartupError(error: unknown): void {
 	const message = errorMessage(error)
 	console.error(`Simplex could not start: ${message}`)
+	reportDesktopError(error)
 	dialog.showErrorBox("Simplex could not start", message)
 	quitting = true
-	app.quit()
+	void flushDesktopErrorReports().finally(() => app.quit())
 }
 
 if (!app.requestSingleInstanceLock()) {

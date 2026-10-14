@@ -24,7 +24,7 @@ const EXTERNAL_HOSTS = new Set(
 	}),
 )
 
-export const RENDERER_CSP = [
+const RENDERER_CSP_DIRECTIVES = [
 	"default-src 'none'",
 	"base-uri 'none'",
 	"connect-src 'self'",
@@ -39,7 +39,21 @@ export const RENDERER_CSP = [
 	"script-src 'self'",
 	"style-src 'self' 'unsafe-inline'",
 	"worker-src 'self'",
-].join("; ")
+]
+
+export const RENDERER_CSP = RENDERER_CSP_DIRECTIVES.join("; ")
+
+/** Admits exactly one HTTPS Sentry ingest origin, so the shared UI can report errors. */
+export function rendererCsp(reportingOrigin?: string): string {
+	if (!reportingOrigin) return RENDERER_CSP
+	const origin = new URL(reportingOrigin)
+	if (origin.protocol !== "https:" || origin.origin !== reportingOrigin || !/^[a-z0-9.-]+$/.test(origin.hostname)) {
+		throw new Error(`Simplex error-reporting origin must be a canonical HTTPS origin: ${reportingOrigin}`)
+	}
+	return RENDERER_CSP_DIRECTIVES.map((directive) =>
+		directive === "connect-src 'self'" ? `connect-src 'self' ${reportingOrigin}` : directive,
+	).join("; ")
+}
 
 export function isTrustedRendererUrl(rawUrl: string): boolean {
 	try {
@@ -89,11 +103,12 @@ export function rendererWebPreferences(isPackaged: boolean): WebPreferences {
 
 export function responseHeadersWithCsp(
 	responseHeaders: Record<string, string[]> | undefined,
+	csp: string = RENDERER_CSP,
 ): Record<string, string[]> {
 	const headers = Object.fromEntries(
 		Object.entries(responseHeaders ?? {}).filter(([name]) => name.toLowerCase() !== "content-security-policy"),
 	)
-	headers["Content-Security-Policy"] = [RENDERER_CSP]
+	headers["Content-Security-Policy"] = [csp]
 	return headers
 }
 
@@ -106,7 +121,8 @@ function canWriteClipboard(webContents: WebContents | null, requestingUrl: strin
 	)
 }
 
-export function installSessionSecurity(session: Session): void {
+export function installSessionSecurity(session: Session, reportingOrigin?: string): void {
+	const csp = rendererCsp(reportingOrigin)
 	session.setPermissionCheckHandler((webContents, permission, requestingOrigin) => {
 		return permission === CLIPBOARD_WRITE_PERMISSION && canWriteClipboard(webContents, requestingOrigin)
 	})
@@ -115,7 +131,7 @@ export function installSessionSecurity(session: Session): void {
 	})
 	session.webRequest.onHeadersReceived((details, callback) => {
 		if (details.resourceType === "mainFrame" && isTrustedRendererUrl(details.url)) {
-			callback({ responseHeaders: responseHeadersWithCsp(details.responseHeaders) })
+			callback({ responseHeaders: responseHeadersWithCsp(details.responseHeaders, csp) })
 			return
 		}
 		callback({})

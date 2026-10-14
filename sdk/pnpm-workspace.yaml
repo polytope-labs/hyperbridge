@@ -17,6 +17,8 @@ allowBuilds:
   '@biomejs/biome': true
   '@cosmology/protobufjs': true
   '@nestjs/core': true
+  # Downloads the sentry-cli binary the Simplex UI build uses to upload source maps.
+  '@sentry/cli': true
   bufferutil: true
   cpu-features: false
   es5-ext: false

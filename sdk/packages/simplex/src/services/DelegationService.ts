@@ -15,10 +15,10 @@ const DELEGATION_INDICATOR_PREFIX = "0xef0100"
 /**
  * Fixed gas limit for set-code (0x04) txs.
  */
-const DELEGATION_TX_GAS_FLOOR = 650_000n
+export const DELEGATION_TX_GAS_FLOOR = 650_000n
 
 /** Extra gas for an ERC-20 approve folded into the delegation tx. */
-const BATCHED_APPROVE_GAS = 60_000n
+export const BATCHED_APPROVE_GAS = 60_000n
 
 /** callGasLimit for an op carrying `approve(Permit2, max)` through ERC-7821. */
 const BOOTSTRAP_CALL_GAS_LIMIT = 150_000n

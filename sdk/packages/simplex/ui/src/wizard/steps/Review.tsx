@@ -119,6 +119,10 @@ export function StepReview({ state, defaults }: StepProps) {
 							<p>
 								Fund with USDC or USDT on every enabled chain.
 								 Gas is covered by the paymaster.
+								{/* BNB Chain's USDC and USDT have no permit, so their first Permit2 approval is paid in BNB. */}
+								{enabled.some((chain) => chain.meta.chainId === 56)
+									? " BNB Chain also needs a little BNB for a one-time approval."
+									: null}
 							</p>
 							<div className="review-account-value">
 								<CopyHash value={evmAddress} chars={42} copyLabel="Copy filler wallet address" />

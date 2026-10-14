@@ -7,7 +7,7 @@ import {
 	packPaymasterAndData,
 	POST_OP_GAS_LIMIT_SIMPLEX,
 	VERIFICATION_GAS_LIMIT_PERMIT,
-	VERIFICATION_GAS_LIMIT_PERMIT2,
+	permit2VerificationGasLimit,
 } from "./types"
 import type { FeeTokenBalance, PaymasterOptions, PaymasterDataResult } from "./types"
 
@@ -48,7 +48,9 @@ export async function buildPaymasterAndData(options: PaymasterOptions): Promise<
 	const shortfall = await depositShortfall(
 		options,
 		simplexAddr,
-		(permitBootstrap ? VERIFICATION_GAS_LIMIT_PERMIT : VERIFICATION_GAS_LIMIT_PERMIT2) + POST_OP_GAS_LIMIT_SIMPLEX,
+		(permitBootstrap
+			? VERIFICATION_GAS_LIMIT_PERMIT
+			: permit2VerificationGasLimit(configService.getChainId(chain))) + POST_OP_GAS_LIMIT_SIMPLEX,
 	)
 	if (shortfall) {
 		return { paymasterAndData: "0x" as HexString, type: "none", reason: shortfall }

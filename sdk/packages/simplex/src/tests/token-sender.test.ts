@@ -1,11 +1,19 @@
 import { describe, expect, it, vi } from "vitest"
-import { decodeAbiParameters, decodeFunctionData, parseAbi } from "viem"
+import { decodeAbiParameters, decodeFunctionData, encodeFunctionData, maxUint256, parseAbi } from "viem"
 
 const ERC7821_EXECUTE_ABI = parseAbi(["function execute(bytes32 mode, bytes executionData)"])
 import { ERC20_ABI } from "@/config/abis/ERC20"
 import { ERC4626_ABI } from "@/config/abis/Erc4626"
 import { TokenSender } from "@/services/TokenSender"
 import type { ChainClientManager } from "@/services/ChainClientManager"
+import { resolvePendingPermit2Approval } from "@/services/paymaster/provider/simplex"
+
+// Whether a send must install the Permit2 approval is the paymaster provider's call; each test
+// that cares says what it found. Left unset, nothing is pending and sends go out as they always did.
+vi.mock("@/services/paymaster/provider/simplex", async (importOriginal) => ({
+	...(await importOriginal<typeof import("@/services/paymaster/provider/simplex")>()),
+	resolvePendingPermit2Approval: vi.fn(),
+}))
 
 const SOLVER = "0x5b2c3e25243634732eE94525Ae98aEc404c82506" as const
 const RECIPIENT = "0x1111111111111111111111111111111111111111" as const
@@ -60,10 +68,10 @@ function makeVaultSender(opts: {
 	return { sender, sendTransaction }
 }
 
-/** The two calls of a batched send, decoded. */
-function batchOf(sendTransaction: ReturnType<typeof vi.fn>) {
-	const tx = sendTransaction.mock.calls[0][0]
-	const outer = decodeFunctionData({ abi: ERC7821_EXECUTE_ABI, data: tx.data })
+/** The calls of a batched send, decoded from its first native tx or from the given ERC-7821 callData. */
+function batchOf(sendTransaction: ReturnType<typeof vi.fn>, callData?: `0x${string}`) {
+	const data = callData ?? sendTransaction.mock.calls[0][0].data
+	const outer = decodeFunctionData({ abi: ERC7821_EXECUTE_ABI, data })
 	const [calls] = decodeAbiParameters(
 		[
 			{
@@ -251,5 +259,97 @@ describe("TokenSender", () => {
 			"Insufficient token balance",
 		)
 		expect(sendTransaction).not.toHaveBeenCalled()
+	})
+})
+
+describe("TokenSender sponsored batches", () => {
+	const FEE_TOKEN = "0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359" as const
+	const PERMIT2 = "0x000000000022D473030F116dDEE9F6B43aC78BA3" as const
+	const PAYMASTER = "0xe99acFe0f5fC4C8ea54A187D8D3b05f136150095" as const
+	const transfer = {
+		target: TOKEN,
+		value: 0n,
+		data: encodeFunctionData({ abi: ERC20_ABI, functionName: "transfer", args: [RECIPIENT, 25_000_000n] }),
+	}
+
+	function makeSponsoredSender(sponsored: { txHash: `0x${string}` } | null = { txHash: "0xsponsored" }) {
+		const sendTransaction = vi.fn().mockResolvedValue("0xnative")
+		const trySendSponsored = vi.fn().mockResolvedValue(sponsored)
+		const clientManager = {
+			getPublicClient: () => ({ waitForTransactionReceipt: vi.fn().mockResolvedValue({ status: "success" }) }),
+			getWalletClient: () => ({ sendTransaction, chain: undefined }),
+		} as unknown as ChainClientManager
+		const sender = new TokenSender(
+			clientManager,
+			SOLVER,
+			() => [],
+			{ canSponsor: () => true, trySendSponsored } as never,
+			{ getSimplexPaymasterAddress: () => PAYMASTER } as never,
+		)
+		return { sender, trySendSponsored, sendTransaction }
+	}
+
+	/** The calls inside a sponsored op's ERC-7821 `execute` callData. */
+	function sponsoredBatch(trySendSponsored: ReturnType<typeof vi.fn>) {
+		const { callData } = trySendSponsored.mock.calls[0][0]
+		return batchOf(trySendSponsored, callData)
+	}
+
+	it("pays with a permit and installs the Permit2 approval when the wallet has none", async () => {
+		vi.mocked(resolvePendingPermit2Approval).mockResolvedValueOnce({
+			token: FEE_TOKEN,
+			spender: PERMIT2,
+			permitCapable: true,
+		})
+		const { sender, trySendSponsored, sendTransaction } = makeSponsoredSender()
+
+		expect(await sender.submitCalls("EVM-137", [transfer])).toEqual({ txHash: "0xsponsored", sponsored: true })
+
+		const request = trySendSponsored.mock.calls[0][0]
+		expect(request.permitBootstrap).toBe(true)
+		expect(request.gas.callGasLimit).toBe(900_000n)
+		const [approve, sent] = sponsoredBatch(trySendSponsored)
+		expect(approve.target).toBe(FEE_TOKEN)
+		expect(decodeFunctionData({ abi: ERC20_ABI, data: approve.data }).args).toEqual([PERMIT2, maxUint256])
+		expect(sent.target).toBe(TOKEN)
+		expect(sendTransaction).not.toHaveBeenCalled()
+	})
+
+	it.each([
+		["the fee token has no permit", { token: FEE_TOKEN, spender: PERMIT2, permitCapable: false }],
+		["the approval is already in place", null],
+	])("sends the batch unchanged when %s", async (_case, pending) => {
+		vi.mocked(resolvePendingPermit2Approval).mockResolvedValueOnce(pending as never)
+		const { sender, trySendSponsored } = makeSponsoredSender()
+
+		await sender.submitCalls("EVM-137", [transfer])
+
+		const request = trySendSponsored.mock.calls[0][0]
+		expect(request.permitBootstrap).toBe(false)
+		expect(sponsoredBatch(trySendSponsored).map((call) => call.target)).toEqual([TOKEN])
+	})
+
+	it("sends the batch unchanged when the approval check fails", async () => {
+		vi.mocked(resolvePendingPermit2Approval).mockRejectedValueOnce(new Error("429 Too Many Requests"))
+		const { sender, trySendSponsored } = makeSponsoredSender()
+
+		await sender.submitCalls("EVM-137", [transfer])
+
+		expect(trySendSponsored.mock.calls[0][0].permitBootstrap).toBe(false)
+	})
+
+	it("leaves the bootstrap approve out of the native fallback", async () => {
+		vi.mocked(resolvePendingPermit2Approval).mockResolvedValueOnce({
+			token: FEE_TOKEN,
+			spender: PERMIT2,
+			permitCapable: true,
+		})
+		const { sender, sendTransaction } = makeSponsoredSender(null)
+
+		expect(await sender.submitCalls("EVM-137", [transfer])).toEqual({ txHash: "0xnative", sponsored: false })
+
+		const tx = sendTransaction.mock.calls[0][0]
+		expect(tx.to).toBe(TOKEN)
+		expect(decodeFunctionData({ abi: ERC20_ABI, data: tx.data }).functionName).toBe("transfer")
 	})
 })

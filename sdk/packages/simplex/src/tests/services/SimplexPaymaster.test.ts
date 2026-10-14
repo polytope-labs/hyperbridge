@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from "vitest"
 import {
 	encodePacked,
+	hashDomain,
 	hashTypedData,
 	keccak256,
 	encodeAbiParameters,
@@ -81,9 +82,9 @@ function mockClient(opts: {
 	permit2Capable?: boolean
 	/** Set false to make PERMIT2() throw a transport (non-contract) error. */
 	permit2Transport?: boolean
-	/** Whether the fee token exposes version() — i.e. implements EIP-2612. */
+	/** Whether the fee token has an EIP-2612 permit: a DOMAIN_SEPARATOR matching its domain. */
 	permit?: boolean
-	/** Set true to make the token's version() probe throw a transport error. */
+	/** Set true to make the token's DOMAIN_SEPARATOR probe throw a transport error. */
 	permitTransport?: boolean
 }): PublicClient {
 	return {
@@ -136,7 +137,7 @@ function mockClient(opts: {
 					if (spender === PERMIT2.toLowerCase()) return token?.permit2Allowance ?? opts.permit2Allowance ?? 0n
 					return opts.paymasterAllowance ?? 0n
 				}
-				case "version":
+				case "DOMAIN_SEPARATOR":
 					if (opts.permitTransport) {
 						throw new ContractFunctionExecutionError(
 							new HttpRequestError({
@@ -144,21 +145,35 @@ function mockClient(opts: {
 								status: 429,
 								details: "Too Many Requests",
 							}),
-							{ abi: [], functionName: "version" } as never,
+							{ abi: [], functionName: "DOMAIN_SEPARATOR" } as never,
 						)
 					}
-					if (opts.permit) return "2"
-					// A token without version() reverts the read; viem wraps it the same
+					if (opts.permit) {
+						return hashDomain({
+							domain: { name: "USD Coin", version: "2", chainId: 56n, verifyingContract: address },
+							types: {
+								EIP712Domain: [
+									{ name: "name", type: "string" },
+									{ name: "version", type: "string" },
+									{ name: "chainId", type: "uint256" },
+									{ name: "verifyingContract", type: "address" },
+								],
+							},
+						})
+					}
+					// A token without a permit reverts the read; viem wraps it the same
 					// way as the PERMIT2 probe above, and only the revert in the cause
 					// chain lets tokenSupportsPermit treat it as "no permit".
 					throw new ContractFunctionExecutionError(
 						new ContractFunctionRevertedError({
 							abi: [],
-							functionName: "version",
+							functionName: "DOMAIN_SEPARATOR",
 							message: "execution reverted",
 						}),
-						{ abi: [], functionName: "version" } as never,
+						{ abi: [], functionName: "DOMAIN_SEPARATOR" } as never,
 					)
+				case "version":
+					return "2"
 				case "name":
 					return "USD Coin"
 				case "nonces":
@@ -256,6 +271,26 @@ describe("buildSimplexPaymasterData Permit2 authorization", () => {
 			deadline,
 		})
 		expect(typedData.types.EIP712Domain.map((f) => f.name)).toEqual(["name", "chainId", "verifyingContract"])
+	})
+
+	it("gives Polygon's Permit2 mode a 300k verification limit and every other chain 200k", async () => {
+		const client = mockClient({ permit2Allowance: maxUint256, native: 0n })
+		const polygon = { ...makeConfigService(), getChainId: () => 137 } as unknown as FillerConfigService
+		const onPolygon = sponsored(
+			await buildSimplexPaymasterData(
+				client,
+				mockWalletClient().walletClient,
+				mockSigner().signer,
+				SOLVER,
+				PAYMASTER,
+				"EVM-137",
+				polygon,
+			),
+		)
+		expect(slice(onPolygon.paymasterData, 0, 1)).toBe("0x02")
+		expect(onPolygon.paymasterVerificationGasLimit).toBe(300_000n)
+		const onBsc = await build(client, mockWalletClient().walletClient)
+		expect(onBsc.paymasterVerificationGasLimit).toBe(VERIFICATION_GAS_LIMIT_PERMIT2)
 	})
 
 	it("bootstraps with exactly one approve(Permit2, max) and then uses PERMIT2 mode", async () => {
@@ -357,7 +392,7 @@ describe("buildSimplexPaymasterData Permit2 authorization", () => {
 	it("propagates a transport error from the permit probe rather than treating it as no-permit", async () => {
 		const { walletClient, writeContract } = mockWalletClient()
 
-		// A 429 on version() must not masquerade as "no permit" — that would send a
+		// A 429 on DOMAIN_SEPARATOR() must not masquerade as "no permit" — that would send a
 		// solver holding zero native into a funded approve it cannot pay for, instead
 		// of the txless PERMIT mode a healthy probe would have picked.
 		await expect(

@@ -271,7 +271,7 @@ export class DelegationService {
 			// usage.
 			//
 			// Only the account side is tuned here: the paymaster packs its own limit
-			// (VERIFICATION_GAS_LIMIT_PERMIT2, 200k), charged to the paymaster frame.
+			// (permit2VerificationGasLimit: 200k, 300k on Polygon), charged to the paymaster frame.
 			const code = await this.clientManager.getPublicClient(chain).getCode({
 				address: this.signer.address as HexString,
 			})

@@ -1,13 +1,7 @@
 import { SubstrateEvent } from "@subql/types"
 import { Option } from "@polkadot/types"
 import { Call } from "@polkadot/types/interfaces"
-import type {
-	PalletCollectiveVotes,
-	PalletConvictionVotingVoteAccountVote,
-	PalletConvictionVotingVoteVoting,
-	PalletPreimageRequestStatus,
-	PalletReferendaReferendumInfoConvictionVotingTally,
-} from "@polkadot/types/lookup"
+import type { Codec } from "@polkadot/types/types"
 import { bnToU8a, compactAddLength, stringToU8a, u8aConcat } from "@polkadot/util"
 import { blake2AsHex } from "@polkadot/util-crypto"
 import {
@@ -23,10 +17,17 @@ import {
 	GovernanceVoteCall,
 	GovernanceWhitelistedCall,
 } from "@/configs/src/types"
+import type {
+	AccountVote,
+	CollectiveVotes,
+	PreimageRequestStatus,
+	ReferendumInfo as ReferendumInfoValue,
+	ReferendumTally,
+	Voting,
+} from "@/types/governance"
 
 type ApiAt = Awaited<ReturnType<typeof api.at>>
-type ReferendumInfo = Option<PalletReferendaReferendumInfoConvictionVotingTally>
-type Tally = { ayes: bigint; nays: bigint; support: bigint }
+type ReferendumInfo = Option<ReferendumInfoValue>
 
 interface EventPosition {
 	id: string
@@ -78,7 +79,7 @@ export class GovernanceService {
 		return blake2AsHex(encoded, 256)
 	}
 
-	static tally(info: ReferendumInfo): Tally | undefined {
+	static tally(info: ReferendumInfo): ReferendumTally | undefined {
 		if (info.isNone || !info.unwrap().isOngoing) return undefined
 		const { ayes, nays, support } = info.unwrap().asOngoing.tally
 		return { ayes: ayes.toBigInt(), nays: nays.toBigInt(), support: support.toBigInt() }
@@ -151,9 +152,15 @@ export class GovernanceService {
 		// Undelegated carries no target, so the delegatees are taken from the delegations it ends.
 		const previousTargets =
 			event.event.method === "Undelegated"
-				? (await GovernanceDelegation.getByFields([["delegator", "=", who], ["active", "=", true]])).map(
-						(delegation) => delegation.target,
-					)
+				? (
+						await GovernanceDelegation.getByFields(
+							[
+								["delegator", "=", who],
+								["active", "=", true],
+							],
+							{ limit: 100 },
+						)
+					).map((delegation) => delegation.target)
 				: []
 		const accounts = new Set([who, ...(event.event.method === "Delegated" ? [target] : []), ...previousTargets])
 
@@ -168,13 +175,16 @@ export class GovernanceService {
 	 */
 	static async syncVoting(account: string, apiAt: ApiAt, position: EventPosition): Promise<void> {
 		const voting = (await apiAt.query.convictionVoting.votingFor.entries(account)).map(([key, value]) => ({
-			track: (key.args[1] as unknown as { toNumber(): number }).toNumber(),
-			voting: value as unknown as PalletConvictionVotingVoteVoting,
+			track: Number(key.args[1].toString()),
+			voting: value as Voting,
 		}))
 
 		await this.syncDelegations(account, voting, position)
 
-		const casting = new Map(
+		const casting = new Map<
+			number,
+			{ track: number; vote: AccountVote; delegations: Voting["asCasting"]["delegations"] }
+		>(
 			voting
 				.filter(({ voting }) => voting.isCasting)
 				.flatMap(({ track, voting }) => {
@@ -222,7 +232,7 @@ export class GovernanceService {
 		}
 	}
 
-	static voteFields(vote: PalletConvictionVotingVoteAccountVote) {
+	static voteFields(vote: AccountVote) {
 		if (vote.isStandard) {
 			const { vote: direction, balance } = vote.asStandard
 			const byte = direction.toU8a()[0]
@@ -248,14 +258,20 @@ export class GovernanceService {
 	}
 
 	static voteKey(vote: GovernanceVote): string {
-		return [vote.kind, vote.aye, vote.conviction, vote.balance, vote.ayeBalance, vote.nayBalance, vote.abstainBalance].join(
-			":",
-		)
+		return [
+			vote.kind,
+			vote.aye,
+			vote.conviction,
+			vote.balance,
+			vote.ayeBalance,
+			vote.nayBalance,
+			vote.abstainBalance,
+		].join(":")
 	}
 
 	static async syncDelegations(
 		account: string,
-		voting: { track: number; voting: PalletConvictionVotingVoteVoting }[],
+		voting: { track: number; voting: Voting }[],
 		position: EventPosition,
 	): Promise<void> {
 		const delegating = new Map(
@@ -263,10 +279,19 @@ export class GovernanceService {
 				.filter(({ voting }) => voting.isDelegating)
 				.map(({ track, voting }) => {
 					const { target, conviction, balance } = voting.asDelegating
-					return [track, { target: target.toString(), conviction: conviction.index, balance: balance.toBigInt() }]
+					return [
+						track,
+						{ target: target.toString(), conviction: conviction.index, balance: balance.toBigInt() },
+					]
 				}),
 		)
-		const active = await GovernanceDelegation.getByFields([["delegator", "=", account], ["active", "=", true]])
+		const active = await GovernanceDelegation.getByFields(
+			[
+				["delegator", "=", account],
+				["active", "=", true],
+			],
+			{ limit: 100 },
+		)
 		const unchanged = new Set(
 			active
 				.filter((delegation) => {
@@ -339,7 +364,7 @@ export class GovernanceService {
 					)[0]
 		if (!motion) return
 
-		const voting = await apiAt.query.technicalCollective.voting<Option<PalletCollectiveVotes>>(hash)
+		const voting = await apiAt.query.technicalCollective.voting<Option<CollectiveVotes>>(hash)
 		if (voting.isSome) {
 			const { ayes, nays, end } = voting.unwrap()
 			motion.ayes = ayes.map((account) => account.toString())
@@ -360,7 +385,11 @@ export class GovernanceService {
 		}).save()
 	}
 
-	static async newMotion(args: Record<string, unknown>, apiAt: ApiAt, position: EventPosition): Promise<GovernanceMotion> {
+	static async newMotion(
+		args: Record<string, unknown>,
+		apiAt: ApiAt,
+		position: EventPosition,
+	): Promise<GovernanceMotion> {
 		const hash = String(args.proposalHash)
 		const call = await apiAt.query.technicalCollective.proposalOf<Option<Call>>(hash)
 		return GovernanceMotion.create({
@@ -406,10 +435,10 @@ export class GovernanceService {
 
 		if (event.event.method === "Noted") {
 			const apiAt = await this.apiAt(position)
-			const status = await apiAt.query.preimage.requestStatusFor<Option<PalletPreimageRequestStatus>>(hash)
+			const status = await apiAt.query.preimage.requestStatusFor<Option<PreimageRequestStatus>>(hash)
 			const length = status.isSome ? this.preimageLength(status.unwrap()) : undefined
 			if (length !== undefined) {
-				const data = await apiAt.query.preimage.preimageFor<Option<any>>([hash, length])
+				const data = await apiAt.query.preimage.preimageFor<Option<Codec>>([hash, length])
 				preimage.length = length
 				preimage.data = data.isSome ? data.unwrap().toHex() : undefined
 			}
@@ -420,7 +449,7 @@ export class GovernanceService {
 		await preimage.save()
 	}
 
-	static preimageLength(status: PalletPreimageRequestStatus): number | undefined {
+	static preimageLength(status: PreimageRequestStatus): number | undefined {
 		if (status.isUnrequested) return status.asUnrequested.len.toNumber()
 		const length = status.asRequested.maybeLen
 		return length.isSome ? length.unwrap().toNumber() : undefined
@@ -450,9 +479,12 @@ export class GovernanceService {
 
 		const spend = await GovernanceTreasurySpend.get(String(index))
 		if (!spend) return
-		spend.state = { Paid: "Paid", PaymentFailed: "Failed", SpendProcessed: "Processed", AssetSpendVoided: "Voided" }[
-			event.event.method
-		]!
+		spend.state = {
+			Paid: "Paid",
+			PaymentFailed: "Failed",
+			SpendProcessed: "Processed",
+			AssetSpendVoided: "Voided",
+		}[event.event.method]!
 		if (args.paymentId !== undefined) spend.paymentId = String(args.paymentId)
 		spend.updatedBlock = position.blockNumber
 		await spend.save()
@@ -463,9 +495,9 @@ export class GovernanceService {
 		return value.lookup?.hash ?? value.legacy?.hash
 	}
 
-	static eventTally(tally: unknown): Tally | undefined {
+	static eventTally(tally: unknown): ReferendumTally | undefined {
 		if (!tally) return undefined
-		const { ayes, nays, support } = tally as Record<keyof Tally, string | number>
+		const { ayes, nays, support } = tally as Record<keyof ReferendumTally, string | number>
 		return { ayes: BigInt(ayes), nays: BigInt(nays), support: BigInt(support) }
 	}
 

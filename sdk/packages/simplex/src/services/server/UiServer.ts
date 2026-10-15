@@ -145,7 +145,8 @@ export interface HaltControl {
 
 export interface OperatorContext {
 	filler: PauseControl
-	balances: Pick<BalanceProvider, "getSnapshot" | "on" | "off">
+	/** `refresh` re-reads every chain now; absent, the snapshot is served as last refreshed. */
+	balances: Pick<BalanceProvider, "getSnapshot" | "on" | "off"> & Partial<Pick<BalanceProvider, "refresh">>
 	haltControls: HaltControl[]
 	/** The running config; runtime edits (curves, allowlist, log level) are persisted back into it at configPath. */
 	/**
@@ -227,6 +228,8 @@ export interface OperatorContext {
 	/** Desktop persistence encrypts every config edit before it reaches disk. */
 	writeConfigFile?: (path: string, content: string) => void
 	chains: number[]
+	/** Delegates the wallet on a running chain so it fills without a restart; rejects while unfunded. */
+	enableFills?: (chainId: number) => Promise<void>
 	/** Filler accounts, shown permanently on the dashboard for funding. */
 	addresses?: { evm: string; substrate?: string }
 }
@@ -1016,7 +1019,11 @@ export class UiServer {
 		if (path === "/api/balances") {
 			if (this.mode !== "operator") return sendJson(res, 409, { error: "Filler is not running" })
 			if (method !== "GET") return sendJson(res, 405, { error: "Method not allowed" })
-			return sendJson(res, 200, this.operator!.balances.getSnapshot())
+			// `?refresh=1` re-reads every chain first, for a page waiting on a deposit to land.
+			const refresh = new URL(req.url ?? "/", "http://localhost").searchParams.get("refresh") === "1"
+			const balances = this.operator!.balances
+			if (refresh && balances.refresh) return sendJson(res, 200, await balances.refresh())
+			return sendJson(res, 200, balances.getSnapshot())
 		}
 
 		if (path === "/api/notifications") {
@@ -1298,6 +1305,12 @@ export class UiServer {
 					: undefined,
 			}
 			return sendJson(res, 200, configDto)
+		}
+
+		if (path === "/api/chains/enable-fills") {
+			if (this.mode !== "operator") return sendJson(res, 409, { error: "Filler is not running" })
+			if (method !== "POST") return sendJson(res, 405, { error: "Method not allowed" })
+			return this.handleEnableFills(req, res)
 		}
 
 		if (path === "/api/chains") {
@@ -1601,6 +1614,29 @@ export class UiServer {
 			: "mainnet"
 		const dto: ChainsDto = { chains, catalog: chainsForNetwork(network), network, globalWatchOnly }
 		return sendJson(res, 200, dto)
+	}
+
+	/**
+	 * POST /api/chains/enable-fills — delegates the wallet on a running chain now, so it
+	 * fills without a restart. Answers with the refreshed balances, whose `fills` show it.
+	 */
+	private async handleEnableFills(req: IncomingMessage, res: ServerResponse): Promise<void> {
+		const op = this.operator!
+		if (!op.enableFills) return sendJson(res, 409, { error: "This filler cannot enable fills while running" })
+		let chainId: number
+		try {
+			chainId = Number((JSON.parse(await readBody(req)) as { chainId?: unknown }).chainId)
+		} catch {
+			return sendJson(res, 400, { error: "Invalid JSON body" })
+		}
+		if (!Number.isInteger(chainId) || chainId <= 0) return sendJson(res, 400, { error: "Provide a chainId" })
+		try {
+			await op.enableFills(chainId)
+		} catch (err) {
+			return sendJson(res, 409, { error: err instanceof Error ? err.message : String(err) })
+		}
+		this.logger.info({ chainId }, "Fills enabled by operator")
+		return sendJson(res, 200, op.balances.refresh ? await op.balances.refresh() : op.balances.getSnapshot())
 	}
 
 	/**

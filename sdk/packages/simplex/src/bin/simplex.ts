@@ -238,6 +238,7 @@ async function operatorContextFrom(
 		configPath: runtime.configPath,
 		writeConfigFile,
 		chains: runtime.resolvedChains.map((c) => c.chainId),
+		enableFills: (chainId) => simplex.chains.enableFills(chainId),
 	}
 }
 

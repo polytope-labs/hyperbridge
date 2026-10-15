@@ -3,7 +3,7 @@ import { act, createElement } from "react"
 import { createRoot, type Root } from "react-dom/client"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { chainsForNetwork } from "@/cli/init/chains"
-import type { ChainRowDto, ChainsDto } from "../../types"
+import type { BalanceSnapshot, ChainFunding, ChainRowDto, ChainsDto } from "../../types"
 import { Chains } from "../Chains"
 import { useChainSettings } from "./useChainSettings"
 
@@ -23,6 +23,36 @@ function Harness() {
 async function mount() {
 	await act(async () => root.render(createElement(Harness)))
 }
+
+/** Renders the Chains panel with Base's funding as the balances report it. */
+async function renderChains(baseFunding?: ChainFunding, onBalancesChanged = () => {}) {
+	const balances = baseFunding
+		? ({ chains: [{ chainId: 8453, assets: [], funding: baseFunding }] } as unknown as BalanceSnapshot)
+		: undefined
+	await act(async () => root.render(createElement(Chains, { balances, onBalancesChanged })))
+}
+
+function card(label: string) {
+	const found = Array.from(container.querySelectorAll(".chain-configuration")).find(
+		(card) => card.querySelector("h2")?.textContent === label,
+	)
+	if (!found) throw new Error(`Missing ${label} card`)
+	return found
+}
+
+function fillsSwitch(label: string) {
+	const toggle = card(label).querySelector<HTMLInputElement>('.chain-enable-toggle input[type="checkbox"]')
+	if (!toggle) throw new Error(`Missing ${label} switch`)
+	return toggle
+}
+
+const usdc = (balance: number, overrides: Partial<ChainFunding> = {}): ChainFunding => ({
+	feeToken: { symbol: "USDC", balance },
+	nativeSetup: null,
+	funded: balance > 0,
+	delegated: false,
+	...overrides,
+})
 
 function chain(chainId: number) {
 	const row = model.chains.find((row) => row.meta.chainId === chainId)
@@ -80,6 +110,7 @@ beforeEach(() => {
 				}
 				return new Response(JSON.stringify({ ok: true }))
 			}
+			if (path === "/api/chains/enable-fills") return new Response(JSON.stringify({ chains: [] }))
 			if (path === "/api/chains") return new Response(JSON.stringify(dto))
 			if (path === "/api/setup/validate-rpc") return new Response(JSON.stringify({ ok: true, results: [] }))
 			throw new Error(`Unexpected request: ${path}`)
@@ -103,15 +134,12 @@ const HYPERBRIDGE_BUNDLER = {
 
 describe("operator chain settings", () => {
 	it("shows RPC fields alone and saves edits through the rendered Chains panel", async () => {
-		await act(async () => root.render(createElement(Chains)))
-		const card = Array.from(container.querySelectorAll(".chain-configuration")).find(
-			(card) => card.querySelector("h2")?.textContent === "Ethereum",
-		)
-		if (!card) throw new Error("Missing Ethereum card")
-		const toggle = card.querySelector<HTMLInputElement>('input[type="checkbox"]')
-		if (!toggle) throw new Error("Missing enable switch")
-		await act(async () => toggle.click())
-		const fields = () => Array.from(card.querySelectorAll<HTMLInputElement>('input[type="text"]'))
+		await renderChains()
+		await act(async () => fillsSwitch("Ethereum").click())
+		// Enabling a chain leaves its card closed; the chevron opens it.
+		expect(card("Ethereum").querySelector('input[type="text"]')).toBeNull()
+		await act(async () => card("Ethereum").querySelector<HTMLButtonElement>(".chain-collapse-trigger")?.click())
+		const fields = () => Array.from(card("Ethereum").querySelectorAll<HTMLInputElement>('input[type="text"]'))
 		// Every text field on the card is an RPC endpoint: there is no bundler to enter.
 		expect(fields().map((input) => input.value)).toEqual(dto.catalog[0].defaultRpcUrls)
 		expect(container.textContent).not.toMatch(/bundler|alchemy/i)
@@ -145,7 +173,6 @@ describe("operator chain settings", () => {
 				expect(draft).toMatchObject({
 					enabled: true,
 					rpcUrls: dto.chains[0].rpcUrls,
-					watchOnly: true,
 					running: true,
 				})
 			} else {
@@ -190,7 +217,7 @@ describe("operator chain settings", () => {
 	it("will not enable a chain Hyperbridge runs no bundler for", async () => {
 		dto.catalog = [{ ...dto.catalog[0], hyperbridgeBundlerUrl: undefined }]
 		dto.chains = []
-		await act(async () => root.render(createElement(Chains)))
+		await renderChains()
 		const toggle = container.querySelector<HTMLInputElement>('.chain-enable-toggle input[type="checkbox"]')
 		if (!toggle) throw new Error("Missing enable switch")
 		expect(toggle.disabled).toBe(true)
@@ -223,7 +250,8 @@ describe("operator chain settings", () => {
 		expect(savedChains).toEqual({
 			chains: [
 				{ chainId: 1, rpcUrls, watchOnly: false },
-				{ chainId: 8453, rpcUrls: savedBaseRpcUrls, watchOnly: true },
+				// Limit orders choose where to fill, so a chain with a bundler is never saved watch-only.
+				{ chainId: 8453, rpcUrls: savedBaseRpcUrls, watchOnly: false },
 			],
 		})
 		expect(model.saved).toBe(true)
@@ -234,5 +262,41 @@ describe("operator chain settings", () => {
 			running: true,
 		})
 		expect(chain(42161).rpcUrls).toEqual(dto.catalog.find((meta) => meta.chainId === 42161)?.defaultRpcUrls)
+	})
+	it("locks fills on a running chain until the wallet holds the fee token there", async () => {
+		await renderChains(usdc(0))
+		expect(fillsSwitch("Base").disabled).toBe(true)
+		expect(fillsSwitch("Base").checked).toBe(false)
+		expect(card("Base").textContent).toContain("Needs at least 5 USDC")
+	})
+
+	it("names the BNB a chain still needs for the paymaster's setup", async () => {
+		await renderChains(
+			usdc(250, {
+				feeToken: { symbol: "USDT", balance: 250 },
+				funded: false,
+				nativeSetup: { required: 0.000142, feeToken: "USDT" },
+			}),
+		)
+		expect(fillsSwitch("Base").disabled).toBe(true)
+		expect(card("Base").textContent).toContain("Needs about 0.00014")
+	})
+
+	it("enables fills on a funded running chain at once, then reloads the balances", async () => {
+		const reload = vi.fn()
+		await renderChains(usdc(250), reload)
+		expect(fillsSwitch("Base").disabled).toBe(false)
+		await act(async () => fillsSwitch("Base").click())
+		const call = requests.mock.calls.find(([path]) => path === "/api/chains/enable-fills")
+		expect(call?.[1].method).toBe("POST")
+		expect(JSON.parse(call?.[1].body as string)).toEqual({ chainId: 8453 })
+		expect(reload).toHaveBeenCalled()
+	})
+
+	it("shows fills enabled once the wallet is delegated, with nothing left to switch", async () => {
+		await renderChains(usdc(250, { delegated: true }))
+		expect(fillsSwitch("Base").checked).toBe(true)
+		expect(fillsSwitch("Base").disabled).toBe(true)
+		expect(card("Base").textContent).toContain("Fills enabled")
 	})
 })

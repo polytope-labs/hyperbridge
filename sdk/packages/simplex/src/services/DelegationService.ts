@@ -15,10 +15,10 @@ const DELEGATION_INDICATOR_PREFIX = "0xef0100"
 /**
  * Fixed gas limit for set-code (0x04) txs.
  */
-const DELEGATION_TX_GAS_FLOOR = 650_000n
+export const DELEGATION_TX_GAS_FLOOR = 650_000n
 
 /** Extra gas for an ERC-20 approve folded into the delegation tx. */
-const BATCHED_APPROVE_GAS = 60_000n
+export const BATCHED_APPROVE_GAS = 60_000n
 
 /** callGasLimit for an op carrying `approve(Permit2, max)` through ERC-7821. */
 const BOOTSTRAP_CALL_GAS_LIMIT = 150_000n
@@ -271,7 +271,7 @@ export class DelegationService {
 			// usage.
 			//
 			// Only the account side is tuned here: the paymaster packs its own limit
-			// (VERIFICATION_GAS_LIMIT_PERMIT2, 200k), charged to the paymaster frame.
+			// (permit2VerificationGasLimit: 200k, 300k on Polygon), charged to the paymaster frame.
 			const code = await this.clientManager.getPublicClient(chain).getCode({
 				address: this.signer.address as HexString,
 			})

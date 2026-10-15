@@ -60,3 +60,4 @@ export type {
 	WalletTxDto,
 } from "@/services/server/dto"
 export type { NotificationStatus } from "@/services/server/NotificationService"
+export type { ChainFunding } from "@/services/chain-funding"

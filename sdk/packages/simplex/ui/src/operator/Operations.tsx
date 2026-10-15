@@ -7,7 +7,7 @@ import { Chains } from "./Chains"
 import { RemoteAccess } from "./RemoteAccess"
 import { NotificationSettings } from "./NotificationSettings"
 import { useAction, usePolling } from "../lib/hooks"
-import type { ConfigDto } from "../types"
+import type { BalanceSnapshot, ConfigDto } from "../types"
 
 export type OperationsPanel = "allowlist" | "chains" | "notifications" | "remote"
 
@@ -18,6 +18,9 @@ export type OperationsPanel = "allowlist" | "chains" | "notifications" | "remote
  */
 export function Operations(props: {
 	chains: number[]
+	balances: BalanceSnapshot | undefined
+	/** Reloads the balances, after fills are enabled on a chain. */
+	onBalancesChanged: () => void
 	/** A sheet to open on arrival (the Wallet's vault editor sends operators here to enable a chain). */
 	initialPanel?: OperationsPanel
 	/** Called once `initialPanel` has been opened, so it is not re-applied on the next visit. */
@@ -146,7 +149,7 @@ export function Operations(props: {
 				title="Chains & endpoints"
 				description="Manage the networks and providers used by this running filler."
 			>
-				<Chains />
+				<Chains balances={props.balances} onBalancesChanged={props.onBalancesChanged} />
 			</OperatorSheet>
 
 			{message && <p className="hint">✓ {message}</p>}

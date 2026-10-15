@@ -38,9 +38,10 @@ const AMPLE = SIMPLEX_REQUIRED * 2n
 
 function configService(
 	entryPoint: HexString | null = ENTRY_POINT,
-	opts: { simplexConfigured?: boolean } = {},
+	opts: { simplexConfigured?: boolean; chainId?: number } = {},
 ): FillerConfigService {
 	return {
+		getChainId: () => opts.chainId ?? 8453,
 		getSimplexPaymasterAddress: () => (opts.simplexConfigured === false ? undefined : SIMPLEX),
 		getUsdcAsset: () => USDC,
 		getUsdcDecimals: () => 6,
@@ -101,6 +102,20 @@ describe("buildPaymasterAndData deposit-aware selection", () => {
 			`simplex: EntryPoint deposit ${SIMPLEX_REQUIRED - 1n} < ${SIMPLEX_REQUIRED} required`,
 		)
 		expect(buildSimplexPaymasterData).not.toHaveBeenCalled()
+	})
+
+	it("prices Polygon's deposit gate against its higher Permit2 limit", async () => {
+		// Polygon's Permit2 limit is 300k: a deposit that covers the 200k bar elsewhere falls short there.
+		const polygonRequired = requiredFor(300_000n + POST_OP_GAS_LIMIT_SIMPLEX)
+		const polygon = configService(ENTRY_POINT, { chainId: 137 })
+		const short = await buildPaymasterAndData(
+			options(client({ simplexDeposit: polygonRequired - 1n }), { configService: polygon }),
+		)
+		expect(short.reason).toBe(`simplex: EntryPoint deposit ${polygonRequired - 1n} < ${polygonRequired} required`)
+		const enough = await buildPaymasterAndData(
+			options(client({ simplexDeposit: polygonRequired }), { configService: polygon }),
+		)
+		expect(enough.type).toBe("simplex")
 	})
 
 	it("prices a bootstrap op against the higher PERMIT limit and passes the flag on", async () => {

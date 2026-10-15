@@ -636,6 +636,8 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 					solver: runtimeSigner.address as HexString,
 					substratePublicKey: toHex((await deriveSubstrateKeyPair(config.simplex.substratePrivateKey)).publicKey),
 					hyperbridge: intentFiller.hyperbridgeConnection,
+					// Lets the dashboard show the new BRIDGE balance as soon as a top-up is delivered.
+					refreshBridgeBalance: () => balanceProvider.refreshHyperbridgeBalance(),
 					loggers: options.loggers,
 				})
 			: undefined

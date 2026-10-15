@@ -26,7 +26,9 @@ const execFileAsync = promisify(execFile)
 const require = createRequire(import.meta.url)
 const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..")
 const simplexRoot = resolve(packageRoot, "../simplex")
-const desktopVersion = JSON.parse(await readFile(join(packageRoot, "package.json"), "utf8")).version
+// Published-release fixtures must advertise the installed version, which can lag the checkout.
+const desktopVersion =
+	process.env.SIMPLEX_TEST_VERSION || JSON.parse(await readFile(join(packageRoot, "package.json"), "utf8")).version
 const packagedExecutable = process.env.SIMPLEX_TEST_EXECUTABLE
 const electronExecutable = packagedExecutable || require("electron")
 const reloadCount = Number(process.env.SIMPLEX_TEST_RELOADS || 20)

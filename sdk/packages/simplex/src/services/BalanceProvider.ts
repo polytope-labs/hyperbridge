@@ -7,6 +7,9 @@ import type { VaultBalancePosition } from "@/funding/types"
 import type { ChainClientManager } from "./ChainClientManager"
 import type { FillerConfigService } from "./FillerConfigService"
 import { moduleLogger, type Logger } from "./Logger"
+import { readChainFunding } from "./read-chain-funding"
+import type { ChainFunding } from "./chain-funding"
+import type { NativeSetupNeed } from "./native-setup"
 import { deriveSubstrateKeyPair } from "./substrate-key"
 
 export interface ChainBalanceRow {
@@ -17,6 +20,10 @@ export interface ChainBalanceRow {
 	exotics?: Array<{ symbol: string; amount: number }>
 	/** Canonical token balances, including funds held in configured ERC-4626 vaults. */
 	assets: AssetBalanceRow[]
+	/** Set when the paymaster cannot sponsor this chain until the wallet holds some native gas. */
+	nativeSetup?: NativeSetupNeed
+	/** Whether the wallet can fill here, and whether fills are enabled. Absent when it could not be read. */
+	funding?: ChainFunding
 }
 
 export type AssetBalanceStatus = "fresh" | "partial" | "unavailable"
@@ -232,6 +239,15 @@ export class BalanceProvider extends EventEmitter {
 			const native = await client.getBalance({ address: fillerAddr })
 			const symbol = nativeTokenSymbol(chainId)
 			row.native = { symbol, amount: Number.parseFloat(formatUnits(native, 18)) }
+			// Best-effort: a failed check only means no fill status this round, not a missing balance.
+			const funding = await readChainFunding(client, this.options.configService, fillerAddr, chain, native).catch(
+				(err) => {
+					this.logger.debug({ err, chainId }, "Could not read whether the chain can fill")
+					return null
+				},
+			)
+			if (funding) row.funding = funding
+			if (funding?.nativeSetup) row.nativeSetup = funding.nativeSetup
 		} catch (err) {
 			issues.push({ chainId, source: "native", message: errorMessage(err) })
 		}
@@ -381,33 +397,44 @@ export class BalanceProvider extends EventEmitter {
 		}
 	}
 
+	private hyperbridgeAccount?: { coprocessor: IntentsCoprocessor; address: string }
+
+	/**
+	 * Re-reads the filler's BRIDGE balance on Hyperbridge, outside the once-a-minute interval:
+	 * a BRIDGE top-up calls it the moment its delivery lands, so the dashboard's reload shows
+	 * the new balance. A failed read leaves the last snapshot in place. No-op while tracking
+	 * is not initialized (no Hyperbridge key).
+	 */
+	async refreshHyperbridgeBalance(): Promise<void> {
+		const hyperbridge = this.hyperbridgeAccount
+		if (!hyperbridge) return
+		try {
+			// Queried over HTTP, so a websocket outage does not stall the balance read; a failed
+			// request leaves the last snapshot in place and the next tick picks it up.
+			const api = await hyperbridge.coprocessor.queryApi()
+			const account = (await api.query.system.account(hyperbridge.address)) as any
+			const decimals = (api.registry.chainDecimals as number[])[0] ?? 12
+
+			const free = Number.parseFloat(formatUnits(BigInt(account.data.free.toString()), decimals))
+			const reserved = Number.parseFloat(formatUnits(BigInt(account.data.reserved.toString()), decimals))
+
+			this.snapshot = { ...this.snapshot, hyperbridge: { address: hyperbridge.address, free, reserved } }
+		} catch (err) {
+			this.logger.warn({ err }, "Failed to fetch Hyperbridge balance")
+		}
+	}
+
 	private async trackHyperbridgeBalance(): Promise<void> {
 		const coprocessor = await this.options.hyperbridge!
 		const keypair = await deriveSubstrateKeyPair(this.options.substratePrivateKey!)
 		const address = keypair.address
+		this.hyperbridgeAccount = { coprocessor, address }
 
-		const fetchBalance = async () => {
-			try {
-				// Queried over HTTP, so a websocket outage does not stall the balance read; a failed
-				// request leaves the last snapshot in place and the next tick picks it up.
-				const api = await coprocessor.queryApi()
-				const account = (await api.query.system.account(address)) as any
-				const decimals = (api.registry.chainDecimals as number[])[0] ?? 12
-
-				const free = Number.parseFloat(formatUnits(BigInt(account.data.free.toString()), decimals))
-				const reserved = Number.parseFloat(formatUnits(BigInt(account.data.reserved.toString()), decimals))
-
-				this.snapshot = { ...this.snapshot, hyperbridge: { address, free, reserved } }
-			} catch (err) {
-				this.logger.warn({ err }, "Failed to fetch Hyperbridge balance")
-			}
-		}
-
-		await fetchBalance()
+		await this.refreshHyperbridgeBalance()
 		// stop() may have run while the awaits above were in flight; a timer
 		// installed now would outlive the provider.
 		if (this.stopped) return
-		this.hyperbridgeInterval = setInterval(fetchBalance, this.intervalMs)
+		this.hyperbridgeInterval = setInterval(() => void this.refreshHyperbridgeBalance(), this.intervalMs)
 		this.logger.info({ address }, "Hyperbridge balance tracking initialized")
 	}
 }

@@ -2,15 +2,12 @@ import * as Collapsible from "@radix-ui/react-collapsible"
 import { type MouseEvent, useState } from "react"
 import { ChevronDownIcon } from "./InterfaceIcons"
 
-/**
- * Which chain cards are expanded. A card follows its chain's enabled state
- * until the operator opens or closes it by hand.
- */
+/** Which chain cards are expanded. Every card starts closed; enabling a chain does not open it. */
 export function useChainPanels() {
-	const [overrides, setOverrides] = useState<Record<number, boolean>>({})
+	const [open, setOpenState] = useState<Record<number, boolean>>({})
 	return {
-		isOpen: (chainId: number, enabled: boolean) => overrides[chainId] ?? enabled,
-		setOpen: (chainId: number, open: boolean) => setOverrides((current) => ({ ...current, [chainId]: open })),
+		isOpen: (chainId: number) => open[chainId] ?? false,
+		setOpen: (chainId: number, next: boolean) => setOpenState((current) => ({ ...current, [chainId]: next })),
 	}
 }
 
@@ -24,8 +21,9 @@ export function isHeaderControl(event: MouseEvent): boolean {
 }
 
 /**
- * The keyboard and screen-reader way to open a chain card. Clicking anywhere
- * on the row does the same, but a row cannot be a button: it holds the switch.
+ * The keyboard and screen-reader way to open a chain card. On the operator page,
+ * clicking anywhere on the row does the same, but a row cannot be a button: it
+ * holds the switch.
  */
 export function ChainCollapseTrigger({ label }: { label: string }) {
 	return (

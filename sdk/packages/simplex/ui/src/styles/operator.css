@@ -245,6 +245,11 @@ button.operator-nav-item[data-active="true"] {
 	background: rgba(255, 122, 137, 0.035);
 }
 
+.operator-alert[data-tone="warning"] {
+	border-left-color: var(--warn);
+	background: color-mix(in srgb, var(--warn) 3.5%, transparent);
+}
+
 .operator-alert strong {
 	font-size: 0.8125rem;
 	font-weight: 500;

@@ -1,10 +1,12 @@
 import type { IncomingMessage, ServerResponse } from "node:http"
-import { createPublicClient, http, isAddress } from "viem"
+import { createPublicClient, fallback, http, isAddress, type Hex } from "viem"
 import { ChainConfigService } from "@hyperbridge/sdk"
 import { privateKeyToAccount } from "viem/accounts"
 import { assertConfirmationCoverage, validateConfig, type FillerConfigFile } from "@/config/filler-toml"
 import { AssetRegistry, registrySymbols, USD_STABLE_SYMBOLS } from "@/config/asset-registry"
-import { fetchChainId, validateRpcUrls } from "@/services/FillerConfigService"
+import { fetchChainId, FillerConfigService, validateRpcUrls } from "@/services/FillerConfigService"
+import type { ChainFunding } from "@/services/chain-funding"
+import { readChainFunding } from "@/services/read-chain-funding"
 import { normaliseSecretPhrase, secretPhraseSigner, SignerType, validateSignerConfig } from "@/services/wallet"
 import { deriveSubstrateKeyPair, generateSubstrateKey } from "@/services/substrate-key"
 import { ERC20_ABI } from "@/config/abis/ERC20"
@@ -24,6 +26,7 @@ import type { SetupContext, UiServer } from "./UiServer"
 export interface SetupDeps {
 	fetchChainId?: typeof fetchChainId
 	rpcRequest?: (url: string, method: string, params: unknown[]) => Promise<unknown>
+	readFunding?: (chainId: number, rpcUrls: string[], wallet: Hex) => Promise<ChainFunding>
 }
 
 const logger = getLogger("setup")
@@ -52,6 +55,7 @@ export function resolveSetupDeps(deps?: SetupDeps): Required<SetupDeps> {
 	return {
 		fetchChainId: deps?.fetchChainId ?? fetchChainId,
 		rpcRequest: deps?.rpcRequest ?? defaultRpcRequest,
+		readFunding: deps?.readFunding ?? defaultReadFunding,
 	}
 }
 
@@ -144,6 +148,8 @@ export async function handleSetupRequest(
 				return sendJson(res, 200, await substrateKey(body))
 			case "check-substrate-balance":
 				return sendJson(res, 200, await checkSubstrateBalance(body))
+			case "chain-funding":
+				return sendJson(res, 200, await chainFunding(body, deps))
 			case "preview": {
 				const result = gateConfig(body)
 				if ("error" in result) return sendJson(res, 400, result)
@@ -272,6 +278,26 @@ async function substrateKey(body: Record<string, unknown>) {
 		return { address: pair.address }
 	}
 	return generateSubstrateKey()
+}
+
+/** Reads one chain's funding through the wizard's RPCs, before any filler exists. */
+async function defaultReadFunding(chainId: number, rpcUrls: string[], wallet: Hex): Promise<ChainFunding> {
+	const configService = new FillerConfigService([{ chainId, rpcUrls }])
+	const client = createPublicClient({ transport: fallback(rpcUrls.map((url) => http(url))) })
+	return readChainFunding(client, configService, wallet, `EVM-${chainId}`)
+}
+
+/** Whether the wallet can fill on a chain the wizard offers: its fee token, setup gas and delegation. */
+async function chainFunding(body: Record<string, unknown>, deps: Required<SetupDeps>): Promise<ChainFunding> {
+	const chainId = Number(body.chainId)
+	if (chainByChainId(chainId)?.network !== "mainnet") throw new Error(`Unknown chain: ${String(body.chainId)}`)
+	const wallet = String(body.address ?? "")
+	if (!isAddress(wallet)) throw new Error("address must be an EVM address")
+	const rpcUrls = validateRpcUrls(
+		(Array.isArray(body.rpcUrls) ? body.rpcUrls : []).map((url) => String(url).trim()).filter(Boolean),
+	)
+	// Several reads in sequence (fee token, balances, gas price, allowance), so twice a single probe's budget.
+	return withTimeout(deps.readFunding(chainId, rpcUrls, wallet), PROBE_TIMEOUT_MS * 2, "Balance check")
 }
 
 async function checkSubstrateBalance(body: Record<string, unknown>) {

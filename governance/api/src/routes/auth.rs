@@ -9,6 +9,7 @@ use axum::{
 	response::IntoResponse,
 	Json,
 };
+use percent_encoding::percent_decode_str;
 use serde::Deserialize;
 use serde_json::{json, Value};
 use sp_core::crypto::{AccountId32, Ss58Codec};
@@ -20,6 +21,7 @@ use crate::{
 };
 
 const AUTH_COOKIE: &str = "auth-token";
+const CONNECTED_COOKIE: &str = "connected-account";
 const SESSION_SECONDS: i64 = 30 * 24 * 60 * 60;
 
 /// The signed in account, from the session cookie or the bearer token server side rendering sends.
@@ -28,15 +30,22 @@ pub struct Session {
 	pub address: String,
 }
 
+/// A cookie's raw value from the request.
+fn cookie<'a>(headers: &'a HeaderMap, name: &str) -> Option<&'a str> {
+	headers
+		.get_all(COOKIE)
+		.iter()
+		.filter_map(|value| value.to_str().ok())
+		.flat_map(|cookies| cookies.split(';'))
+		.find_map(|cookie| cookie.trim().strip_prefix(name)?.strip_prefix('='))
+}
+
 fn session_token(headers: &HeaderMap) -> Option<String> {
-	let values = |name| headers.get_all(name).iter().filter_map(|value| value.to_str().ok());
-	let bearer = values(AUTHORIZATION).find_map(|value| value.strip_prefix("Bearer "));
-	let cookie = || {
-		values(COOKIE)
-			.flat_map(|cookies| cookies.split(';'))
-			.find_map(|cookie| cookie.trim().strip_prefix(AUTH_COOKIE)?.strip_prefix('='))
-	};
-	bearer.or_else(cookie).map(str::to_owned)
+	let bearer = headers
+		.get(AUTHORIZATION)
+		.and_then(|value| value.to_str().ok())
+		.and_then(|value| value.strip_prefix("Bearer "));
+	bearer.or_else(|| cookie(headers, AUTH_COOKIE)).map(str::to_owned)
 }
 
 #[async_trait]
@@ -57,6 +66,25 @@ impl FromRequestParts<AppState> for Session {
 			.await?
 			.ok_or_else(ApiError::unauthorized)?;
 		Ok(Session { token, address: row.get(0) })
+	}
+}
+
+/// The account a visitor picked in the frontend. Picking an account needs no signature, so this
+/// only says whose public profile to show; anything that writes needs a `Session`.
+pub struct ConnectedAccount(pub String);
+
+#[async_trait]
+impl FromRequestParts<AppState> for ConnectedAccount {
+	type Rejection = ApiError;
+
+	async fn from_request_parts(parts: &mut Parts, _: &AppState) -> Result<Self, Self::Rejection> {
+		let account = cookie(&parts.headers, CONNECTED_COOKIE)
+			.and_then(|value| percent_decode_str(value).decode_utf8().ok())
+			.and_then(|value| serde_json::from_str::<Value>(&value).ok())
+			.and_then(|account| account["address"].as_str().map(str::to_owned))
+			.filter(|address| AccountId32::from_ss58check(address).is_ok())
+			.ok_or_else(ApiError::unauthorized)?;
+		Ok(ConnectedAccount(account))
 	}
 }
 

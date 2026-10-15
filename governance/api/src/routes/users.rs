@@ -5,7 +5,10 @@ use axum::{
 use serde::Deserialize;
 use serde_json::{json, Value};
 
-use super::{auth::Session, posts, referenda, with_param, AppState};
+use super::{
+	auth::{ConnectedAccount, Session},
+	posts, referenda, with_param, AppState,
+};
 use crate::{
 	error::{ApiError, ApiResult},
 	primitives::{author, Page},
@@ -33,8 +36,17 @@ pub async fn status(session: Option<Session>) -> Json<Value> {
 	Json(json!({ "isLoggedIn": session.is_some() }))
 }
 
-pub async fn me(State(state): State<AppState>, session: Session) -> ApiResult<Json<Value>> {
-	Ok(Json(profile(&state, &session.address).await?))
+/// The visitor's own profile, for a signed in session or else for the account they connected.
+pub async fn me(
+	State(state): State<AppState>,
+	session: Option<Session>,
+	connected: Option<ConnectedAccount>,
+) -> ApiResult<Json<Value>> {
+	let address = session
+		.map(|session| session.address)
+		.or(connected.map(|ConnectedAccount(address)| address))
+		.ok_or_else(ApiError::unauthorized)?;
+	Ok(Json(profile(&state, &address).await?))
 }
 
 pub async fn user(

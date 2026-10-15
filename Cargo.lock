@@ -8756,6 +8756,7 @@ dependencies = [
  "form_urlencoded",
  "futures",
  "hex",
+ "percent-encoding",
  "rand 0.8.5",
  "reqwest 0.11.27",
  "serde",

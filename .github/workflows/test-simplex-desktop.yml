@@ -19,6 +19,11 @@ on:
             - "sdk/packages/simplex/ui/src/app/DesktopAccess.tsx"
             - ".github/workflows/test-simplex-desktop.yml"
     workflow_dispatch:
+        inputs:
+            test_published_windows:
+                description: Also test the installed Windows v0.17.4 release
+                type: boolean
+                default: false
 
 jobs:
     macos-provisioning-profile:
@@ -154,6 +159,12 @@ jobs:
             fail-fast: false
             matrix:
                 include:
+                    - runner: macos-15
+                      target: darwin-arm64
+                    - runner: ubuntu-latest
+                      target: linux-x64
+                    - runner: ubuntu-24.04-arm
+                      target: linux-arm64
                     - runner: windows-latest
                       target: win32-x64
         defaults:
@@ -200,8 +211,19 @@ jobs:
                   pnpm --dir packages/simplex-desktop build:native
                   node -e 'const n = require("./packages/simplex-desktop/build/native/darwin-" + process.arch + "/mac-passkeys.node"); if (n.capabilities("example.com").available) throw new Error("Unsigned Node process must not authorize passkeys")'
 
+            - name: Run cross-platform desktop tests
+              run: pnpm --dir packages/simplex-desktop test
+
+            - name: Run Electron E2E on Linux
+              if: runner.os == 'Linux'
+              run: xvfb-run -a pnpm --dir packages/simplex-desktop test:e2e
+
+            - name: Run Electron E2E on macOS and Windows
+              if: runner.os != 'Linux'
+              run: pnpm --dir packages/simplex-desktop test:e2e
+
             - name: Download and install published Windows build
-              if: runner.os == 'Windows'
+              if: runner.os == 'Windows' && inputs.test_published_windows == true
               shell: pwsh
               env:
                   GH_TOKEN: ${{ github.token }}
@@ -224,15 +246,8 @@ jobs:
                   if (-not $browser) { throw 'No browser available for Windows passkey coverage' }
                   "SIMPLEX_PASSKEY_BROWSER=$browser" >> $env:GITHUB_ENV
 
-            - name: Run cross-platform desktop tests
-              run: pnpm --dir packages/simplex-desktop test
-
-            - name: Run Electron E2E on Linux
-              if: runner.os == 'Linux'
-              run: xvfb-run -a pnpm --dir packages/simplex-desktop test:e2e
-
-            - name: Run Electron E2E on macOS and Windows
-              if: runner.os != 'Linux'
-              run: pnpm --dir packages/simplex-desktop exec node --import tsx --test --test-name-pattern="password account survives" --test-timeout=300000 scripts/e2e/desktop.e2e.mjs
+            - name: Reproduce lifecycle and reload stress on published Windows build
+              if: runner.os == 'Windows' && inputs.test_published_windows == true
+              run: pnpm --dir packages/simplex-desktop exec node --import tsx --test --test-name-pattern="password account survives|custom protocol reconnects|passkeys register" --test-timeout=300000 scripts/e2e/desktop.e2e.mjs
               env:
                   TSX_TSCONFIG_PATH: ../simplex/tsconfig.json

@@ -1,4 +1,4 @@
-# Simplex: Sentry error reporting
+# Simplex Desktop crash recovery and error reporting
 
 The Simplex web UI and the Simplex Desktop main process report errors to Sentry. Only builds
 that CI gives a DSN report: desktop releases and the npm package. Local builds, validation
@@ -71,3 +71,50 @@ The desktop collects no minidumps, so three reports stand in for them:
 passes all of them to the prepare build, but only when `sign_artifacts` is true.
 `SIMPLEX_UI_SENTRY_DSN`, `SIMPLEX_DESKTOP_SENTRY_DSN` and `SENTRY_AUTH_TOKEN` are repository
 secrets. `SENTRY_ORG` and `SIMPLEX_UI_SENTRY_PROJECT` are repository variables.
+
+## Local diagnostics and recovery
+
+Desktop health, status and control requests reject interrupted responses, enforce an absolute
+deadline, and cap responses at 64 KiB. A failed request no longer leaves supervision permanently
+waiting on the same promise. Renderer API streams retain their existing streaming behavior.
+
+A renderer crash reloads the dashboard once per window. Subsequent crashes offer an explicit
+retry; **Show Simplex** can also reload a crashed renderer. Recovery waits for Chromium teardown,
+stops during app exit or update installation, and never restarts the detached solver.
+If the renderer dies during initial navigation, its rejected page load does not quit the desktop;
+the same recovery handles it. Other initial page-load errors remain fatal startup errors.
+
+OS secure-storage availability checks share one native request and return unavailable after five
+seconds. A stalled check cannot indefinitely hide the password login form or accumulate native
+requests on retries. OS-protected background keys and passkeys remain unavailable until the native
+check completes; password-protected config storage remains encrypted.
+
+Unexpected solver disappearance triggers the native alert and solver error report on every OS,
+including Windows, where process exit removes the named pipe. Accepted desktop dashboard stop
+requests and native stop actions remain quiet, as does a shutdown observed in the stopping state.
+A stop initiated elsewhere that completes between probes can still appear unexpected.
+
+Local diagnostics live under `<userData>/diagnostics`, alongside the existing `logs` directory.
+Desktop and solver diagnostics each retain five files, at most 1 MiB per file; individual details
+are limited to 16,384 characters. Files are created mode `0600` on Unix and use the shared secret scrubber
+before writing. They remain enabled when remote error reporting is off. **Open Data Directory**
+provides access; these files are not uploaded as attachments.
+
+The desktop bundles `solver-diagnostics.js` and packages it outside the asar as
+`desktop/solver-diagnostics.mjs`. Node loads it with `--import` before loading the solver. It
+records handled `console.error` failures and observes fatal exceptions and unhandled rejections
+without suppressing Node's failure exit. The shell records child exit codes/signals while it owns
+the child handle. Writes are synchronous so an immediate `process.exit` preserves the event;
+logging failures do not stop filling. Solver stdio remains detached from Electron.
+
+Native aborts, operating-system kills and power loss cannot run JavaScript diagnostics. No raw
+stderr capture or memory dumps are added; OS crash records are still needed for those failures.
+The existing Sentry session marker can report an unclean desktop exit on a later launch when
+remote reporting is enabled. These changes cannot recover evidence from an older installed build.
+
+## Validation
+
+Desktop CI tests the branch build on macOS, Windows and Linux (x64 and arm64).
+The optional `test_published_windows` workflow input also installs the published Windows
+v0.17.4 release and runs password-reopen, passkey and reload/reconnect reproduction tests.
+Those baseline tests do not validate fixes absent from the published release.

@@ -60,6 +60,9 @@ a restored older backup also still accepts the passkey it recorded, so replaceme
 
 Passkeys require secure OS storage. Mac native passkeys also require Apple signing, a provisioning
 profile, and the configured associated domain; Windows requires browser platform WebAuthn support.
+Storage availability checks return unavailable after five seconds, so a stalled OS check does not
+indefinitely hide password login. Password-protected configuration remains encrypted; OS-backed
+passkeys and background resume require a completed availability check.
 If the device prompt is unavailable or cancelled, retry or choose another sign-in method. A request expires
 after two minutes and can also be cancelled from Simplex. Linux passkey integration is not
 implemented.
@@ -104,11 +107,16 @@ The tray and application menus deliberately provide two separate exit commands:
 
 The app polls the private socket every three seconds. Its tray icon, native menu, tooltip, and window
 title distinguish setup, running, paused, stopping, stopped, and unreachable states. It requires two
-consecutive failed probes before declaring a running solver unreachable. A transport failure raises
-an operating-system notification; clean socket removal is shown as stopped without calling it a
-crash, because it may be a deliberate dashboard stop. Restart is operator-controlled and remains
+consecutive failed probes before declaring a running solver unreachable. Interrupted responses fail
+within a bounded deadline so later polls continue. Unexpected disappearance raises an operating-system
+notification, including Windows named-pipe removal. Accepted desktop dashboard and native-menu stop
+requests, and an observed stopping state, suppress that notification. Restart is operator-controlled and remains
 disabled while graceful shutdown drains in-flight work, so the shell cannot start a second filler on
 the same signer.
+
+If the dashboard renderer crashes, Electron reloads it once without restarting the solver. Another
+renderer crash in that window offers **Reload dashboard** or **Later**. **Show Simplex** also retries
+a crashed dashboard. Recovery is disabled while quitting or installing an update.
 
 While the solver is actively filling and Electron remains open, its `powerSaveBlocker` prevents app
 suspension. The native menu says whether sleep prevention is on. Pausing or stopping the solver
@@ -140,9 +148,13 @@ stable/beta channel selector while preserving the platform Edit and Window roles
 shortcuts. Update controls are available only in an installed build; development launches never
 contact the release feed.
 
-Simplex does not upload crash reports. Solver diagnostics remain in rotating NDJSON launch logs under
-`<userData>/logs`; five launches are retained, and **Open Current Log** opens the newest one. This
-avoids a remote crash-reporting path that could accidentally capture config contents or key material.
+Solver activity remains in NDJSON launch logs under `<userData>/logs`; five launches are retained,
+and **Open Current Log** opens the newest one. Scrubbed desktop errors and solver fatal errors are
+written separately under `<userData>/diagnostics`, accessible through **Open Data Directory**.
+Each source retains five files of up to 1 MiB. Local diagnostics work without a Sentry DSN and with
+`SIMPLEX_ERROR_REPORTING=off`. Builds with a DSN may also send scrubbed error events as described in
+[Crash recovery and error reporting](../../../docs/ai/changelog/2026-10-14-simplex-desktop-crash-recovery.md).
+No native memory dumps are collected.
 
 Desktop removal leaves Electron's user-data directory in place. Neither this shell nor its installer
 contract deletes operator databases, logs, or configuration.
@@ -228,12 +240,13 @@ The staging script follows Node's binary-verification procedure: it verifies the
 and installs only `node` or `node.exe`. `darwin-universal` verifies both macOS slices independently
 before merging them with `lipo`.
 
-The desktop process requires the three solver resources plus the status variants derived from the
+The desktop process requires the runtime resources plus the status variants derived from the
 PWA logo, and fails before creating a window if any is missing:
 
 - `resources/node/<platform>-<arch>/node` in development, or `node.exe` on Windows;
 - `@hyperbridge/simplex/dist/bin/simplex.js`;
 - `@hyperbridge/simplex/dist/ui/index.html`.
+- `dist/solver-diagnostics.js` in development, or `desktop/solver-diagnostics.mjs` in packaged resources.
 - `resources/tray/<state>.png` in development, with 18px macOS `Template` and 36px `Template@2x`
   variants; packaged builds place them under `desktop/tray` in Electron resources.
 

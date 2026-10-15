@@ -33,6 +33,7 @@ import { assertResources, resourcePaths, socketPathFor, userDataOverrideFromArgv
 import { latestLogPath, loginItemExecutable, LoginItemController } from "./login-item"
 import { DesktopNotificationClient, desktopNotificationUrl } from "./notification-client"
 import { handleSimplexProtocol } from "./protocol"
+import { RendererRecovery } from "./renderer-recovery"
 import { DesktopVault } from "./security/vault"
 import { deviceKeyStore } from "./security/device-key-store"
 import { BrowserPasskeys } from "./security/passkeys"
@@ -69,6 +70,7 @@ const STATUS_POLL_INTERVAL_MS = 3_000
 const STOP_TIMEOUT_MS = 30_000
 
 let mainWindow: BrowserWindow | undefined
+let rendererRecovery: RendererRecovery | undefined
 let tray: Tray | undefined
 let daemonLaunch: DaemonLaunch | undefined
 let supervisor: SolverSupervisor | undefined
@@ -90,7 +92,7 @@ const userDataSwitch = app.commandLine.getSwitchValue("user-data-dir")
 const userDataOverride = userDataSwitch ? resolve(userDataSwitch) : userDataOverrideFromArgv()
 if (userDataOverride) app.setPath("userData", userDataOverride)
 // After the userData override: Sentry queues undelivered reports under it.
-const errorReportingActive = startDesktopErrorReporting(app.getVersion(), app.isPackaged)
+const errorReportingActive = startDesktopErrorReporting(app.getVersion(), app.isPackaged, app.getPath("userData"))
 
 async function simplexPackageRoot(): Promise<string> {
 	const manifest = import.meta.resolve("@hyperbridge/simplex/package.json")
@@ -262,6 +264,7 @@ async function startOrAttachSolver(fatal: boolean, background = false): Promise<
 			...daemonLaunch,
 			configKey: daemonLaunch.configKey ? Buffer.from(daemonLaunch.configKey) : undefined,
 		}
+		intentionalStop = false
 		supervisor.setStatus({ state: "starting" })
 		try {
 			await ensureDaemon({ launch })
@@ -388,11 +391,13 @@ async function stopAndQuit(): Promise<void> {
 
 async function createWindow(notificationPath?: string): Promise<void> {
 	if (mainWindow && !mainWindow.isDestroyed()) {
-		if (mainWindow.isMinimized()) mainWindow.restore()
-		mainWindow.show()
-		mainWindow.focus()
-		if (notificationPath) {
-			void mainWindow
+		const window = mainWindow
+		if (window.isMinimized()) window.restore()
+		window.show()
+		window.focus()
+		await rendererRecovery?.show()
+		if (notificationPath && !window.isDestroyed() && !quitting && !installingUpdate) {
+			void window
 				.loadURL(desktopNotificationUrl(notificationPath))
 				.catch((error) => console.error(`Simplex could not open the notification page: ${errorMessage(error)}`))
 		}
@@ -422,6 +427,30 @@ async function createWindow(notificationPath?: string): Promise<void> {
 		webPreferences: rendererWebPreferences(app.isPackaged),
 	})
 	mainWindow = window
+	const recovery = new RendererRecovery({
+		canRecover: () =>
+			!quitting &&
+			!installingUpdate &&
+			!window.isDestroyed() &&
+			!window.webContents.isDestroyed() &&
+			window.webContents.isCrashed(),
+		reload: () => window.loadURL("simplex://local/"),
+		prompt: async () => {
+			const result = await dialog.showMessageBox(window, {
+				type: "error",
+				title: "Simplex dashboard stopped",
+				message: "The dashboard stopped again.",
+				detail: "Reload the dashboard to try again. The solver runs separately and has not been restarted.",
+				buttons: ["Reload dashboard", "Later"],
+				defaultId: 0,
+				cancelId: 1,
+			})
+			return result.response === 0
+		},
+		report: reportDesktopError,
+	})
+	rendererRecovery = recovery
+	let rendererFailed = false
 	const invalidateMacAccess = () => {
 		if (process.platform === "darwin") vault?.cancelPendingAccess()
 	}
@@ -432,16 +461,34 @@ async function createWindow(notificationPath?: string): Promise<void> {
 		window.hide()
 	})
 	window.once("closed", () => {
-		if (mainWindow === window) mainWindow = undefined
+		if (mainWindow === window) {
+			mainWindow = undefined
+			rendererRecovery = undefined
+		}
 	})
 	window.on("hide", invalidateMacAccess)
 	window.webContents.on("did-start-navigation", (_event, _url, isSameDocument, isMainFrame) => {
 		if (isMainFrame && !isSameDocument) invalidateMacAccess()
 	})
-	window.webContents.on("render-process-gone", invalidateMacAccess)
+	window.webContents.on("render-process-gone", (_event, details) => {
+		if (
+			details.reason !== "clean-exit" &&
+			!window.webContents.isDestroyed() &&
+			window.webContents.isCrashed()
+		)
+			rendererFailed = true
+		invalidateMacAccess()
+		void recovery.crashed(details.reason, details.exitCode)
+	})
 	window.once("ready-to-show", () => window.show())
 	refreshNativeUi()
-	await window.loadURL(notificationPath ? desktopNotificationUrl(notificationPath) : "simplex://local/")
+	try {
+		await window.loadURL(notificationPath ? desktopNotificationUrl(notificationPath) : "simplex://local/")
+	} catch (error) {
+		// A renderer crash also rejects its pending navigation. Recovery owns that
+		// failure; treating it as a fatal startup error would quit before the reload.
+		if (!rendererFailed) throw error
+	}
 }
 
 async function showWindow(notificationPath?: string): Promise<void> {
@@ -492,7 +539,13 @@ async function prepareDesktop(): Promise<void> {
 		}
 	}
 	if (process.platform === "darwin") app.dock?.setIcon(applicationIconPath)
-	daemonLaunch = { nodePath: resources.node, solverPath: resources.solver, socketPath, dataDir: dataDirectory }
+	daemonLaunch = {
+		nodePath: resources.node,
+		solverPath: resources.solver,
+		socketPath,
+		dataDir: dataDirectory,
+		diagnosticsPath: resources.diagnostics,
+	}
 	vault = new DesktopVault({
 		dataDir: dataDirectory,
 		passkeys:
@@ -561,6 +614,9 @@ async function prepareDesktop(): Promise<void> {
 			uiDistDir: dirname(resources.ui),
 			desktopVersion: app.getVersion(),
 			access: vault,
+			onSolverStop: () => {
+				intentionalStop = true
+			},
 		}),
 	)
 	installSessionSecurity(session.defaultSession, rendererReportingOrigin())

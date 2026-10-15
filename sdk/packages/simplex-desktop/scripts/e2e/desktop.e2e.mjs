@@ -7,7 +7,7 @@ import { mkdtemp, readFile, readdir, readlink, realpath, rm, stat, writeFile } f
 import { request as httpRequest } from "node:http"
 import { tmpdir } from "node:os"
 import { dirname, join, resolve } from "node:path"
-import { fileURLToPath } from "node:url"
+import { fileURLToPath, pathToFileURL } from "node:url"
 import test from "node:test"
 import { promisify } from "node:util"
 import { _electron, chromium } from "playwright-core"
@@ -367,6 +367,131 @@ function operatorFixture(socketPath, options = {}) {
 		clientCount: () => server.sseClients.size,
 	}
 }
+
+test("renderer crashes recover without restarting the solver and repeated crashes require a retry", async (t) => {
+	const userDataDir = await temporaryUserData("renderer-recovery")
+	const socketPath = socketPathFor(userDataDir)
+	let electronApp
+	t.after(async () => cleanupDesktop(electronApp, userDataDir))
+	;({ electronApp } = await launchDesktop(userDataDir))
+	const before = await waitForHealth(socketPath, "init")
+	await electronApp.evaluate(
+		({ BrowserWindow }) =>
+			new Promise((resolve) => {
+				const contents = BrowserWindow.getAllWindows()[0].webContents
+				contents.once("did-finish-load", () => resolve())
+				contents.forcefullyCrashRenderer()
+			}),
+	)
+	assert.equal(
+		await electronApp.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].webContents.isCrashed()),
+		false,
+	)
+	assert.equal((await waitForHealth(socketPath, "init")).pid, before.pid)
+	await electronApp.evaluate(
+		({ BrowserWindow, dialog }) =>
+			new Promise((resolve) => {
+				const original = dialog.showMessageBox
+				dialog.showMessageBox = async () => {
+					dialog.showMessageBox = original
+					resolve()
+					return { response: 1, checkboxChecked: false }
+				}
+				BrowserWindow.getAllWindows()[0].webContents.forcefullyCrashRenderer()
+			}),
+	)
+	assert.equal(
+		await electronApp.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].webContents.isCrashed()),
+		true,
+	)
+	await electronApp.evaluate(
+		({ BrowserWindow, Menu }) =>
+			new Promise((resolve) => {
+				BrowserWindow.getAllWindows()[0].webContents.once("did-finish-load", () => resolve())
+				Menu.getApplicationMenu().getMenuItemById("show-simplex").click()
+			}),
+	)
+	assert.equal((await waitForHealth(socketPath, "init")).pid, before.pid)
+	const files = await readdir(join(userDataDir, "diagnostics"))
+	const content = (
+		await Promise.all(files.map((file) => readFile(join(userDataDir, "diagnostics", file), "utf8")))
+	).join("")
+	assert.match(content, /Dashboard renderer exited/)
+})
+
+test("a renderer crash during initial navigation recovers without quitting the desktop", async (t) => {
+	const userDataDir = await temporaryUserData("startup-renderer")
+	t.after(() => cleanupDesktop(undefined, userDataDir))
+	const wrapper = join(userDataDir, "startup-fault.cjs")
+	const resultPath = join(userDataDir, "startup-result.json")
+	await writeFile(
+		wrapper,
+		`const { app, BrowserWindow, dialog, protocol } = require("electron");
+const { writeFileSync } = require("node:fs");
+const result = { injected: false, recovered: false, startupErrors: [] };
+const handle = protocol.handle.bind(protocol);
+protocol.handle = (scheme, handler) => handle(scheme, async request => {
+  if (request.url === "simplex://local/" && !result.injected) {
+    result.injected = true;
+    setTimeout(() => BrowserWindow.getAllWindows()[0].webContents.forcefullyCrashRenderer(), 10);
+    await new Promise(resolve => setTimeout(resolve, 250));
+  }
+  return handler(request);
+});
+dialog.showErrorBox = (title, message) => result.startupErrors.push({ title, message });
+app.on("web-contents-created", (_event, contents) => {
+  contents.on("did-finish-load", () => {
+    if (result.injected) { result.recovered = true; setImmediate(() => app.quit()); }
+  });
+});
+app.on("will-quit", () => writeFileSync(${JSON.stringify(resultPath)}, JSON.stringify(result)));
+setTimeout(() => app.quit(), 10_000).unref();
+import(${JSON.stringify(pathToFileURL(join(packageRoot, "dist/bootstrap.js")).href)});
+`,
+	)
+	const args = directElectronArguments(wrapper, userDataDir)
+	await execFileAsync(electronExecutable, args, {
+		cwd: packageRoot,
+		timeout: 20_000,
+		env: { ...process.env, SIMPLEX_ERROR_REPORTING: "off" },
+	})
+	assert.deepEqual(JSON.parse(await readFile(resultPath, "utf8")), {
+		injected: true,
+		recovered: true,
+		startupErrors: [],
+	})
+})
+
+test("password login remains available when OS storage never finishes its availability check", async (t) => {
+	const userDataDir = await temporaryUserData("storage-stall")
+	let electronApp
+	t.after(() => cleanupDesktop(electronApp, userDataDir))
+	const wrapper = join(userDataDir, "storage-stall.cjs")
+	await writeFile(
+		wrapper,
+		`const { safeStorage } = require("electron");
+globalThis.storageChecks = 0;
+safeStorage.isAsyncEncryptionAvailable = () => {
+  globalThis.storageChecks++;
+  return new Promise(() => {});
+};
+import(${JSON.stringify(pathToFileURL(join(packageRoot, "dist/bootstrap.js")).href)});
+`,
+	)
+	electronApp = await _electron.launch({
+		executablePath: electronExecutable,
+		args: desktopArguments(wrapper, userDataDir),
+		cwd: packageRoot,
+		env: { ...process.env, SIMPLEX_ERROR_REPORTING: "off" },
+	})
+	const page = await electronApp.firstWindow()
+	await page.locator("#desktop-password").waitFor({ timeout: 15_000 })
+	await unlockDesktop(page)
+	assert.equal(await electronApp.evaluate(() => globalThis.storageChecks), 1)
+	const credentials = JSON.parse(await readFile(join(userDataDir, "desktop-vault.json"), "utf8"))
+	assert.ok(credentials.wrappedKey)
+	assert.equal(credentials.deviceKey, undefined)
+})
 
 test("window close, app quit, hard crash, and second launch preserve one detached solver", async (t) => {
 	const userDataDir = await temporaryUserData("lifecycle")

@@ -91,6 +91,29 @@ describe("simplex protocol proxy", () => {
 		expect(await response.json()).toEqual({ path: "/api/status", version: "old-solver" })
 	})
 
+	it("records only accepted dashboard stop requests", async () => {
+		let status = 202
+		let stops = 0
+		const socketPath = await listen((_request, response) => response.writeHead(status).end())
+		const options = {
+			socketPath,
+			uiDistDir: uiFixture(),
+			onSolverStop: () => {
+				stops++
+			},
+		}
+		for (const [method, path, code] of [
+			["POST", "/api/stop", 403],
+			["GET", "/api/stop", 200],
+			["POST", "/api/pause", 200],
+			["POST", "/api/stop", 202],
+		] as const) {
+			status = code
+			await (await handleSimplexProtocol(new Request(`simplex://local${path}`, { method }), options)).text()
+		}
+		expect(stops).toBe(1)
+	})
+
 	it("blocks solver APIs until desktop unlock, while still serving the unlock UI", async () => {
 		let requests = 0
 		const socketPath = await listen((_request, response) => {

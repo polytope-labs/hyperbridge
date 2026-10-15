@@ -1,4 +1,5 @@
 import * as Sentry from "@sentry/electron/main"
+import { createDiagnosticLog, monitorFatalErrors, type DiagnosticLog } from "./diagnostic-log"
 import {
 	ERROR_REPORTING_ENV,
 	errorReportingDisabled,
@@ -13,6 +14,7 @@ declare const __SIMPLEX_UI_SENTRY_DSN__: string | undefined
 
 const DESKTOP_DSN = typeof __SIMPLEX_DESKTOP_SENTRY_DSN__ === "string" ? __SIMPLEX_DESKTOP_SENTRY_DSN__ : ""
 const UI_DSN = typeof __SIMPLEX_UI_SENTRY_DSN__ === "string" ? __SIMPLEX_UI_SENTRY_DSN__ : ""
+let diagnosticLog: DiagnosticLog = () => {}
 
 /**
  * Integrations that could ship key material or wallet contents off the machine:
@@ -54,7 +56,9 @@ const CHILD_PROCESS_EVENTS: Array<"crashed" | "oom" | "abnormal-exit" | "launch-
 ]
 
 /** Must run before the app is ready so startup failures are captured. Returns whether reporting is on. */
-export function startDesktopErrorReporting(version: string, packaged: boolean): boolean {
+export function startDesktopErrorReporting(version: string, packaged: boolean, dataDir: string): boolean {
+	diagnosticLog = createDiagnosticLog(dataDir, "desktop")
+	monitorFatalErrors(diagnosticLog)
 	if (!DESKTOP_DSN || !errorReportingEnabled()) return false
 	// bootstrap enables source maps before loading main.js; its map ships in the asar.
 	Sentry.init({
@@ -78,6 +82,7 @@ export function startDesktopErrorReporting(version: string, packaged: boolean): 
 }
 
 export function reportDesktopError(error: unknown): void {
+	diagnosticLog("error", error)
 	Sentry.captureException(error)
 }
 
@@ -86,6 +91,10 @@ export function reportSolverFailure(
 	status: { state: string; detail?: string },
 	previous: { state: string; version?: string },
 ): void {
+	diagnosticLog(
+		"solver-failure",
+		`previous=${previous.state} state=${status.state} detail=${status.detail ?? "unknown"}`,
+	)
 	Sentry.captureMessage(`Simplex solver ${status.state === "unreachable" ? "became unreachable" : "stopped"}`, {
 		level: "error",
 		tags: { "solver.previous_state": previous.state, "solver.version": previous.version ?? "unknown" },

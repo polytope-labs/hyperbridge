@@ -4,6 +4,8 @@ mod error;
 mod import;
 mod primitives;
 mod routes;
+mod subsquare;
+mod verify;
 
 use std::{env, sync::Arc};
 
@@ -19,13 +21,20 @@ async fn main() -> anyhow::Result<()> {
 	dotenv::dotenv().ok();
 	tracing_subscriber::fmt::init();
 
+	let args = env::args().collect::<Vec<_>>();
+	let site = args.get(2).map(String::as_str).unwrap_or("https://hyperbridge.subsquare.io");
+
+	// `verify [site] [api]` compares a running API with a SubSquare site and exits
+	if args.get(1).map(String::as_str) == Some("verify") {
+		let api = args.get(3).map(String::as_str).unwrap_or("http://localhost:7071");
+		return verify::run(api, site).await;
+	}
+
 	let database_url = env::var("DATABASE_URL").context("DATABASE_URL is not set")?;
 	let db = db::connect(&database_url).await?;
 
 	// `import [site]` copies a SubSquare site's off-chain content into the forum and exits
-	let args = env::args().collect::<Vec<_>>();
 	if args.get(1).map(String::as_str) == Some("import") {
-		let site = args.get(2).map(String::as_str).unwrap_or("https://hyperbridge.subsquare.io");
 		return import::run(&db, site).await;
 	}
 

@@ -70,7 +70,7 @@ async fn vote_context(state: &AppState, index: i32) -> ApiResult<(i32, i32)> {
 		.db
 		.query_opt(
 			"SELECT r.track, CASE WHEN r.is_final THEN
-				(SELECT max(block_number) FROM governance_referendum_events WHERE referendum_id = r.id AND name <> 'Executed')
+				(SELECT max(block_number) FROM governance_referendum_events WHERE referendum_id = r.id AND changes_state AND name <> 'Executed')
 				ELSE (SELECT (value #>> '{}')::int FROM governance._metadata WHERE key = 'lastProcessedHeight') END
 			FROM governance_referendums r WHERE r.index = $1",
 			&[&index],

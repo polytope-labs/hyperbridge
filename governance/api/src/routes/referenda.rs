@@ -30,7 +30,12 @@ fn query(filter: &str) -> String {
 		LEFT JOIN governance_tracks t ON t.id = r.track::text
 		{}
 		WHERE {filter}",
-		post_joins("governance_referendum_events", "referendum_id = r.id", PostKind::Referendum, "r.index"),
+		post_joins(
+			"governance_referendum_events",
+			"referendum_id = r.id AND changes_state",
+			PostKind::Referendum,
+			"r.index"
+		),
 	)
 }
 
@@ -212,15 +217,19 @@ pub async fn detail(
 	let mut detail = referendum(&row);
 	let proposer = detail["proposer"].as_str().unwrap_or_default().to_owned();
 	let proposal_hash = detail["onchainData"]["proposalHash"].clone();
-	let timeline =
-		timeline(&state.db, "governance_referendum_events", "referendum_id", index.to_string())
-			.await?
-			.into_iter()
-			.map(|(name, args, indexer)| {
-				let args = timeline_args(&name, args, &proposer, &proposal_hash);
-				json!({ "name": name, "args": args, "indexer": indexer })
-			})
-			.collect::<Vec<_>>();
+	let timeline = timeline(
+		&state.db,
+		"governance_referendum_events",
+		"referendum_id = $1 AND changes_state",
+		index.to_string(),
+	)
+	.await?
+	.into_iter()
+	.map(|(name, args, indexer)| {
+		let args = timeline_args(&name, args, &proposer, &proposal_hash);
+		json!({ "name": name, "args": args, "indexer": indexer })
+	})
+	.collect::<Vec<_>>();
 
 	detail["onchainData"]["timeline"] = timeline.into();
 	detail["authors"] = json!([detail["proposer"]]);

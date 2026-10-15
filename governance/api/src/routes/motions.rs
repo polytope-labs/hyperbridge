@@ -130,14 +130,15 @@ pub async fn detail(
 		.await?
 		.ok_or_else(|| ApiError::not_found("Motion"))?;
 
-	let timeline = timeline(&state.db, "governance_motion_events", "motion_id", index.to_string())
-		.await?
-		.into_iter()
-		.map(|(method, args, indexer)| {
-			let args = timeline_args(&method, args);
-			json!({ "type": "event", "method": method, "args": args, "indexer": indexer })
-		})
-		.collect::<Vec<_>>();
+	let timeline =
+		timeline(&state.db, "governance_motion_events", "motion_id = $1", index.to_string())
+			.await?
+			.into_iter()
+			.map(|(method, args, indexer)| {
+				let args = timeline_args(&method, args);
+				json!({ "type": "event", "method": method, "args": args, "indexer": indexer })
+			})
+			.collect::<Vec<_>>();
 
 	let mut detail = motion(&row);
 	detail["onchainData"]["timeline"] = timeline.into();

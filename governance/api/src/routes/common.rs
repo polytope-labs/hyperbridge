@@ -77,11 +77,12 @@ pub fn post_fields(row: &Row, kind: PostKind, number: i64, proposer: &str) -> Ma
 	fields
 }
 
-/// An item's events in order, as their name, args and position.
+/// An item's events in order, as their name, args and position. `filter` picks the item's events
+/// and takes its id as `$1`.
 pub async fn timeline(
 	db: &Client,
 	events: &str,
-	item_column: &str,
+	filter: &str,
 	id: String,
 ) -> ApiResult<Vec<(String, Value, Indexer)>> {
 	let rows = db
@@ -89,7 +90,7 @@ pub async fn timeline(
 			&format!(
 				"SELECT name, args, block_number AS e_block, block_hash AS e_hash, extrinsic_index AS e_extrinsic,
 					event_index AS e_event, ms(timestamp) AS e_ms
-				FROM {events} WHERE {item_column} = $1 ORDER BY block_number, event_index"
+				FROM {events} WHERE {filter} ORDER BY block_number, event_index"
 			),
 			&[&id],
 		)

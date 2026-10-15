@@ -1,9 +1,11 @@
 use anyhow::Context;
-use reqwest::{header::REFERER, Client};
 use serde_json::Value;
 use tokio_postgres::Client as Db;
 
-use crate::primitives::{comment_id, post_id, PostKind};
+use crate::{
+	primitives::{comment_id, post_id, PostKind},
+	subsquare::SubSquareApi,
+};
 
 /// Where each kind of post lives in SubSquare's API, and the field holding its number.
 const SECTIONS: [(PostKind, &str, &str); 4] = [
@@ -17,7 +19,7 @@ const SECTIONS: [(PostKind, &str, &str); 4] = [
 /// discussions, comments and reactions. Running it again updates what it brought over before, so it
 /// can be repeated right before switching over.
 pub async fn run(db: &Db, site: &str) -> anyhow::Result<()> {
-	let source = Source { client: Client::new(), site: site.trim_end_matches('/').to_owned() };
+	let source = SubSquareApi::site(site);
 
 	for (kind, route, number_field) in SECTIONS {
 		let (mut posts, mut comments) = (0, 0);
@@ -65,41 +67,6 @@ pub async fn run(db: &Db, site: &str) -> anyhow::Result<()> {
 	)
 	.await?;
 	Ok(())
-}
-
-struct Source {
-	client: Client,
-	site: String,
-}
-
-impl Source {
-	/// SubSquare only serves some routes to requests that come from its own pages.
-	async fn get(&self, path: &str) -> anyhow::Result<Value> {
-		let url = format!("{}/api/{path}", self.site);
-		let response =
-			self.client.get(&url).header(REFERER, format!("{}/", self.site)).send().await?;
-		response
-			.error_for_status()?
-			.json()
-			.await
-			.with_context(|| format!("reading {url}"))
-	}
-
-	async fn all(&self, path: &str) -> anyhow::Result<Vec<Value>> {
-		let separator = if path.contains('?') { '&' } else { '?' };
-		let mut items = Vec::new();
-		for page in 1.. {
-			let response = self.get(&format!("{path}{separator}page={page}&page_size=100")).await?;
-			let batch = response["items"].as_array().cloned().unwrap_or_default();
-			let total = response["total"].as_u64().unwrap_or_default() as usize;
-			let done = batch.is_empty() || items.len() + batch.len() >= total;
-			items.extend(batch);
-			if done {
-				break;
-			}
-		}
-		Ok(items)
-	}
 }
 
 async fn import_post(db: &Db, kind: PostKind, number: i64, post: &Value) -> anyhow::Result<()> {

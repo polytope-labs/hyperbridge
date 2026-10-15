@@ -10,12 +10,13 @@ mod users;
 use std::sync::Arc;
 
 use axum::{
+	http::{Method, Uri},
 	routing::{get, patch, post, put},
 	Router,
 };
 use tokio_postgres::Client;
 
-use crate::primitives::Paging;
+use crate::{error::ApiError, primitives::Paging};
 
 #[derive(Clone)]
 pub struct AppState {
@@ -61,7 +62,13 @@ pub fn router(state: AppState) -> Router {
 				.route(&format!("/{prefix}/:id/comments/:comment/replies"), post(comments::reply))
 				.route(&format!("/{prefix}/:id/reaction"), put(posts::react).delete(posts::unreact))
 		});
-	router.with_state(state)
+	router.fallback(unknown_route).with_state(state)
+}
+
+/// Logs requests for routes this API does not serve, so pages relying on them are easy to find.
+async fn unknown_route(method: Method, uri: Uri) -> ApiError {
+	tracing::warn!(target: crate::LOG_TARGET, "No route for {method} {uri}");
+	ApiError::not_found("Route")
 }
 
 /// Query string pairs in order. SubSquare repeats keys such as `referendum_index` to send a list.

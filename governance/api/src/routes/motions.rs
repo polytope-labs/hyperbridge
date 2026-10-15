@@ -51,6 +51,12 @@ fn motion(row: &Row) -> Value {
 	let ayes = row.get::<_, Value>("ayes");
 	let nays = row.get::<_, Value>("nays");
 	let count = |votes: &Value| votes.as_array().map(Vec::len).unwrap_or_default();
+	// SubSquare passes the final event's fields as they are, the motion hash and its dispatch
+	// result
+	let state_data = match parse(row.get("result")) {
+		Value::Null => Value::Null,
+		result => json!([row.get::<_, String>("hash"), result]),
+	};
 
 	let mut post = post_fields(row, PostKind::Motion, index.into(), &proposer);
 	post.extend([
@@ -77,7 +83,7 @@ fn motion(row: &Row) -> Value {
 					"end": row.get::<_, Option<i32>>("end"),
 				},
 				"tally": { "yesVotes": count(&ayes), "noVotes": count(&nays) },
-				"state": { "state": state, "data": parse(row.get("result")), "indexer": indexer(row, "l") },
+				"state": { "state": state, "data": state_data, "indexer": indexer(row, "l") },
 				"isFinal": is_final,
 			}),
 		),

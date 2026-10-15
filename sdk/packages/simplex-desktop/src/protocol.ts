@@ -112,6 +112,7 @@ export async function handleSimplexProtocol(
 		socketPath: string
 		uiDistDir: string
 		desktopVersion?: string
+		onSolverStop?: () => void
 		access?: { isUnlocked(): boolean; handle(request: Request): Promise<Response> }
 	},
 ): Promise<Response> {
@@ -124,7 +125,9 @@ export async function handleSimplexProtocol(
 				headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
 			})
 		}
-		return proxyToSimplex(request, options.socketPath, undefined, options.desktopVersion)
+		const response = await proxyToSimplex(request, options.socketPath, undefined, options.desktopVersion)
+		if (request.method === "POST" && url.pathname === "/api/stop" && response.ok) options.onSolverStop?.()
+		return response
 	}
 	if (request.method !== "GET" && request.method !== "HEAD") {
 		return new Response(JSON.stringify({ error: "Method not allowed" }), {

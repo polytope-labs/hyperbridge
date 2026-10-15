@@ -47,6 +47,7 @@ describe("desktop paths", () => {
 			node: "/workspace/simplex-desktop/resources/node/linux-arm64/node",
 			solver: "/workspace/simplex/dist/bin/simplex.js",
 			ui: "/workspace/simplex/dist/ui/index.html",
+			diagnostics: "/workspace/simplex-desktop/dist/solver-diagnostics.js",
 		})
 
 		expect(
@@ -62,6 +63,7 @@ describe("desktop paths", () => {
 			node: "C:\\app\\resources\\runtime\\node.exe",
 			solver: "C:\\app\\resources\\simplex\\dist\\bin\\simplex.js",
 			ui: "C:\\app\\resources\\simplex\\dist\\ui\\index.html",
+			diagnostics: "C:\\app\\resources\\desktop\\solver-diagnostics.mjs",
 		})
 	})
 
@@ -70,12 +72,15 @@ describe("desktop paths", () => {
 		const node = join(directory, "node")
 		const solver = join(directory, "simplex.js")
 		const ui = join(directory, "index.html")
+		const diagnostics = join(directory, "solver-diagnostics.mjs")
 		writeFileSync(node, "node")
-		expect(() => assertResources({ node, solver, ui })).toThrow(/solver resource is missing/)
+		expect(() => assertResources({ node, solver, ui, diagnostics })).toThrow(/solver resource is missing/)
 		mkdirSync(join(directory, "nested"), { recursive: true })
 		writeFileSync(solver, "solver")
-		expect(() => assertResources({ node, solver, ui })).toThrow(/ui resource is missing/)
+		expect(() => assertResources({ node, solver, ui, diagnostics })).toThrow(/ui resource is missing/)
 		writeFileSync(ui, "ui")
-		expect(() => assertResources({ node, solver, ui })).not.toThrow()
+		expect(() => assertResources({ node, solver, ui, diagnostics })).toThrow(/diagnostics resource is missing/)
+		writeFileSync(diagnostics, "diagnostics")
+		expect(() => assertResources({ node, solver, ui, diagnostics })).not.toThrow()
 	})
 })

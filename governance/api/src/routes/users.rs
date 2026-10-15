@@ -1,14 +1,14 @@
 use axum::{
-	extract::{Path, State},
+	extract::{Path, RawQuery, State},
 	Json,
 };
 use serde::Deserialize;
 use serde_json::{json, Value};
 
-use super::{auth::Session, AppState};
+use super::{auth::Session, posts, referenda, with_param, AppState};
 use crate::{
 	error::{ApiError, ApiResult},
-	primitives::author,
+	primitives::{author, Page},
 };
 
 /// An account's public profile. Wallet accounts have no username or email, so those come from the
@@ -75,4 +75,49 @@ pub async fn avatars(
 			)
 			.collect(),
 	))
+}
+
+/// How much an account has done, for the tabs of its profile. Nexus has no democracy, council, tips
+/// or bounties pallets, so those are always zero.
+pub async fn counts(
+	State(state): State<AppState>,
+	Path(address): Path<String>,
+) -> ApiResult<Json<Value>> {
+	let row = state
+		.db
+		.query_one(
+			"SELECT
+				(SELECT count(*) FROM posts WHERE kind = 0 AND author = $1 AND NOT hidden) AS discussions,
+				(SELECT count(*) FROM comments WHERE author = $1 AND NOT deleted) AS comments,
+				(SELECT count(*) FROM governance_referendums WHERE proposer = $1) AS referenda,
+				(SELECT count(*) FROM governance_motions WHERE proposer = $1) AS motions",
+			&[&address],
+		)
+		.await?;
+	Ok(Json(json!({
+		"discussions": row.get::<_, i64>("discussions"),
+		"comments": row.get::<_, i64>("comments"),
+		"openGov": { "referenda": row.get::<_, i64>("referenda") },
+		"techComm": { "proposals": row.get::<_, i64>("motions") },
+		"treasury": { "tips": 0, "proposals": 0, "bounties": 0 },
+		"democracy": { "proposals": 0, "externals": 0, "referendums": 0 },
+		"council": { "motions": 0 },
+		"polkassemblyDiscussions": 0,
+	})))
+}
+
+pub async fn referenda(
+	state: State<AppState>,
+	Path(address): Path<String>,
+	RawQuery(query): RawQuery,
+) -> ApiResult<Json<Page<Value>>> {
+	referenda::list(state, RawQuery(Some(with_param(query, &format!("proposer={address}"))))).await
+}
+
+pub async fn discussions(
+	state: State<AppState>,
+	Path(address): Path<String>,
+	RawQuery(query): RawQuery,
+) -> ApiResult<Json<Page<Value>>> {
+	posts::list(state, RawQuery(Some(with_param(query, &format!("author={address}"))))).await
 }

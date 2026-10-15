@@ -52,25 +52,30 @@ pub async fn list(
 	let params = Params::new(query);
 	let paging = params.paging(10);
 	let labels = Value::from(params.get("label").map(|label| vec![label]).unwrap_or_default());
+	// Active discussions are those started or commented on in the last week
+	let active =
+		if params.flag("active") { "AND last_activity > NOW() - INTERVAL '7 days'" } else { "" };
+	let author = params.get("author").map(str::to_owned);
+	let discussions = format!(
+		"SELECT * FROM ({DISCUSSIONS} AND p.labels @> $1 AND ($2::text IS NULL OR p.author = $2)) d
+		CROSS JOIN LATERAL (SELECT GREATEST(to_timestamp(d.created_ms / 1000.0),
+			to_timestamp(d.comment_ms / 1000.0)) AS last_activity) a WHERE TRUE {active}"
+	);
 
 	let rows = state
 		.db
 		.query(
 			&format!(
-				"{DISCUSSIONS} AND p.labels @> $1 ORDER BY GREATEST(p.created_at, to_timestamp(c.last_ms / 1000.0)) DESC
-				LIMIT {} OFFSET {}",
+				"{discussions} ORDER BY last_activity DESC LIMIT {} OFFSET {}",
 				paging.page_size,
 				paging.offset()
 			),
-			&[&labels],
+			&[&labels, &author],
 		)
 		.await?;
 	let total = state
 		.db
-		.query_one(
-			"SELECT count(*) FROM posts WHERE kind = 0 AND NOT hidden AND labels @> $1",
-			&[&labels],
-		)
+		.query_one(&format!("SELECT count(*) FROM ({discussions}) items"), &[&labels, &author])
 		.await?
 		.get::<_, i64>(0);
 	Ok(Json(paging.page(rows.iter().map(discussion).collect(), total)))

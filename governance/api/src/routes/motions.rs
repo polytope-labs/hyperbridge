@@ -95,13 +95,15 @@ pub async fn list(
 	State(state): State<AppState>,
 	RawQuery(query_string): RawQuery,
 ) -> ApiResult<Json<Page<Value>>> {
-	let paging = Params::new(query_string).paging(10);
+	let params = Params::new(query_string);
+	let paging = params.paging(10);
+	let filter = if params.flag("ongoing") { "NOT m.is_final" } else { "TRUE" };
 	let rows = state
 		.db
 		.query(
 			&format!(
 				"{} ORDER BY m.is_final, m.updated_block DESC LIMIT {} OFFSET {}",
-				query("TRUE"),
+				query(filter),
 				paging.page_size,
 				paging.offset()
 			),
@@ -110,7 +112,7 @@ pub async fn list(
 		.await?;
 	let total = state
 		.db
-		.query_one("SELECT count(*) FROM governance_motions", &[])
+		.query_one(&format!("SELECT count(*) FROM governance_motions m WHERE {filter}"), &[])
 		.await?
 		.get::<_, i64>(0);
 	Ok(Json(paging.page(rows.iter().map(motion).collect(), total)))

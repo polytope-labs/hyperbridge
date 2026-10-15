@@ -10,7 +10,7 @@ use super::{
 		decimal, item_index, last_event, parse, post_fields, post_joins, timeline, POST_COLUMNS,
 	},
 	posts::post_reactions,
-	AppState, Params,
+	with_param, AppState, Params,
 };
 use crate::{
 	error::{ApiError, ApiResult},
@@ -144,6 +144,10 @@ pub async fn list(
 		values.push(Box::new(indexes));
 		filters.push(format!("r.index = ANY(${})", values.len()));
 	}
+	if let Some(proposer) = params.get("proposer") {
+		values.push(Box::new(proposer.to_owned()));
+		filters.push(format!("r.proposer = ${}", values.len()));
+	}
 	if let Some(track) = params.get("track").and_then(|track| track.parse::<i32>().ok()) {
 		values.push(Box::new(track));
 		filters.push(format!("r.track = ${}", values.len()));
@@ -226,6 +230,18 @@ pub async fn detail(
 }
 
 pub async fn summary(State(state): State<AppState>) -> ApiResult<Json<Value>> {
+	stage_counts(&state, None).await
+}
+
+pub async fn track_summary(
+	State(state): State<AppState>,
+	Path(track): Path<i32>,
+) -> ApiResult<Json<Value>> {
+	stage_counts(&state, Some(track)).await
+}
+
+/// How many referenda are at each stage, across every track or within one.
+async fn stage_counts(state: &AppState, track: Option<i32>) -> ApiResult<Json<Value>> {
 	let row = state
 		.db
 		.query_one(
@@ -235,9 +251,9 @@ pub async fn summary(State(state): State<AppState>) -> ApiResult<Json<Value>> {
 					count(*) FILTER (WHERE NOT r.is_final AND {CONFIRMING}) AS confirming,
 					count(*) FILTER (WHERE NOT r.is_final AND NOT {DECIDING}) AS preparing,
 					count(*) AS total
-				FROM governance_referendums r"
+				FROM governance_referendums r WHERE $1::int IS NULL OR r.track = $1"
 			),
-			&[],
+			&[&track],
 		)
 		.await?;
 	Ok(Json(json!({
@@ -247,6 +263,27 @@ pub async fn summary(State(state): State<AppState>) -> ApiResult<Json<Value>> {
 		"preparingCount": row.get::<_, i64>("preparing"),
 		"total": row.get::<_, i64>("total"),
 	})))
+}
+
+pub async fn track_detail(
+	State(state): State<AppState>,
+	Path(id): Path<i32>,
+) -> ApiResult<Json<Value>> {
+	let row = state
+		.db
+		.query_opt("SELECT info FROM governance_tracks WHERE id = $1::int::text", &[&id])
+		.await?
+		.ok_or_else(|| ApiError::not_found("Track"))?;
+	Ok(Json(track(id, row.get(0))))
+}
+
+/// The referenda of one track, the same list with the track from the path.
+pub async fn track_list(
+	state: State<AppState>,
+	Path(id): Path<i32>,
+	RawQuery(query): RawQuery,
+) -> ApiResult<Json<Page<Value>>> {
+	list(state, RawQuery(Some(with_param(query, &format!("track={id}"))))).await
 }
 
 pub async fn tracks(State(state): State<AppState>) -> ApiResult<Json<Vec<Value>>> {

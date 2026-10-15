@@ -8,8 +8,10 @@ use axum::{
 use futures::stream;
 use serde_json::{json, Value};
 
-use super::{referenda::track_counts, AppState, Params};
-use crate::error::ApiResult;
+use super::{
+	motions, posts, referenda, referenda::track_counts, spends, with_param, AppState, Params,
+};
+use crate::{error::ApiResult, primitives::Page};
 
 /// The last block the governance indexer has processed.
 async fn indexed_height(state: &AppState) -> ApiResult<i64> {
@@ -72,4 +74,34 @@ pub async fn summary(State(state): State<AppState>) -> ApiResult<Json<Value>> {
 		"treasurySpends": count("spends", "active_spends"),
 		"gov2ReferendaTracks": track_counts(&state).await?,
 	})))
+}
+
+// The overview lists only what is live: open referenda, motions and spends, and recent discussions
+
+pub async fn overview_referenda(
+	state: State<AppState>,
+	RawQuery(query): RawQuery,
+) -> ApiResult<Json<Page<Value>>> {
+	referenda::list(state, RawQuery(Some(with_param(query, "ongoing=true")))).await
+}
+
+pub async fn overview_motions(
+	state: State<AppState>,
+	RawQuery(query): RawQuery,
+) -> ApiResult<Json<Page<Value>>> {
+	motions::list(state, RawQuery(Some(with_param(query, "ongoing=true")))).await
+}
+
+pub async fn overview_spends(
+	state: State<AppState>,
+	RawQuery(query): RawQuery,
+) -> ApiResult<Json<Page<Value>>> {
+	spends::list(state, RawQuery(Some(with_param(query, "ongoing=true")))).await
+}
+
+pub async fn overview_discussions(
+	state: State<AppState>,
+	RawQuery(query): RawQuery,
+) -> ApiResult<Json<Page<Value>>> {
+	posts::list(state, RawQuery(Some(with_param(query, "active=true")))).await
 }

@@ -5,6 +5,7 @@ mod common;
 mod motions;
 mod posts;
 mod referenda;
+mod spends;
 mod users;
 mod votes;
 
@@ -38,6 +39,20 @@ pub fn router(state: AppState) -> Router {
 		.route("/inspect/scan-height", get(chain::scan_height))
 		.route("/stream/scan-height", get(chain::scan_height_stream))
 		.route("/overview/summary", get(chain::summary))
+		.route("/overview/recent/summary", get(chain::summary))
+		.route("/overview/referenda", get(chain::overview_referenda))
+		.route("/overview/tc-motions", get(chain::overview_motions))
+		.route("/overview/treasury-spends", get(chain::overview_spends))
+		.route("/overview/discussions", get(chain::overview_discussions))
+		.route("/gov2/tracks/:id", get(referenda::track_detail))
+		.route("/gov2/tracks/:id/referendums", get(referenda::track_list))
+		.route("/gov2/tracks/:id/referendums/summary", get(referenda::track_summary))
+		.route("/treasury/spends", get(spends::list))
+		.route("/treasury/spends/summary", get(spends::summary))
+		.route("/treasury/spends/:id", get(spends::detail).patch(posts::edit))
+		.route("/users/:address/counts", get(users::counts))
+		.route("/users/:address/gov2/referendums", get(users::referenda))
+		.route("/users/:address/posts", get(users::discussions))
 		.route("/gov2/tracks", get(referenda::tracks))
 		.route("/gov2/tracks/summary", get(referenda::tracks_summary))
 		.route("/gov2/referendums", get(referenda::list))
@@ -79,6 +94,14 @@ async fn unknown_route(method: Method, uri: Uri) -> ApiError {
 
 /// Query string pairs in order. SubSquare repeats keys such as `referendum_index` to send a list.
 pub struct Params(Vec<(String, String)>);
+
+/// A query string with one more `key=value` pair, for routes that narrow another route's list.
+pub fn with_param(query: Option<String>, pair: &str) -> String {
+	match query.filter(|query| !query.is_empty()) {
+		Some(query) => format!("{query}&{pair}"),
+		None => pair.to_owned(),
+	}
+}
 
 impl Params {
 	pub fn new(query: Option<String>) -> Self {

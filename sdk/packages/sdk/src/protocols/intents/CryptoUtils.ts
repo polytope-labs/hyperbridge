@@ -18,6 +18,7 @@ import ERC7821ABI from "@/abis/erc7281"
 import type { IntentGatewayContext } from "./types"
 import { ERC7821_BATCH_MODE } from "./types"
 import type { BundlerMethod } from "./types"
+import { BundlerRpcError } from "./bundlerRetry"
 
 /**
  * EIP-712 type hash of `SelectSolver(bytes32 commitment,bytes32 userOpHash)`.
@@ -430,26 +431,58 @@ export class CryptoUtils {
 	 * @param params - Array of parameters for the RPC call.
 	 * @returns Resolves with the `result` field of the bundler's JSON-RPC response,
 	 *   typed as `T`.
-	 * @throws If the bundler URL is not configured or the bundler returns an error.
+	 * @throws If the bundler URL is not configured. Otherwise a {@link BundlerRpcError} when
+	 *   the request fails in transit, the bundler returns a JSON-RPC error, or the response
+	 *   is an HTTP error.
 	 */
 	async sendBundler<T = unknown>(method: BundlerMethod, params: unknown[] = []): Promise<T> {
 		if (!this.ctx.bundlerUrl) {
 			throw new Error("Bundler URL not configured")
 		}
 
-		const response = await fetch(this.ctx.bundlerUrl, {
-			method: "POST",
-			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
-		})
-
-		const result = await response.json()
-
-		if (result.error) {
-			throw new Error(`Bundler error: ${result.error.message || JSON.stringify(result.error)}`)
+		const body = JSON.stringify({ jsonrpc: "2.0", id: 1, method, params })
+		let response: Response
+		try {
+			response = await fetch(this.ctx.bundlerUrl, {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body,
+			})
+		} catch (error) {
+			throw new BundlerRpcError(`Bundler error: ${error instanceof Error ? error.message : String(error)}`, {
+				transport: true,
+				cause: error,
+			})
 		}
 
-		return result.result
+		let result: { result?: T; error?: { code?: number; message?: string; data?: unknown } }
+		try {
+			result = await response.json()
+		} catch (error) {
+			// A body that is not JSON, such as a proxy's error page, or one cut off in transit.
+			let reason = error instanceof Error ? error.message : String(error)
+			if (response.status >= 400) {
+				reason = `HTTP ${response.status}${response.statusText ? ` ${response.statusText}` : ""}`
+			}
+			throw new BundlerRpcError(`Bundler error: ${reason}`, {
+				httpStatus: response.status,
+				transport: !(error instanceof SyntaxError),
+				cause: error,
+			})
+		}
+
+		if (result.error) {
+			throw new BundlerRpcError(`Bundler error: ${result.error.message || JSON.stringify(result.error)}`, {
+				code: result.error.code,
+				data: result.error.data,
+				httpStatus: response.status,
+			})
+		}
+		if (response.status >= 400) {
+			throw new BundlerRpcError(`Bundler error: HTTP ${response.status}`, { httpStatus: response.status })
+		}
+
+		return result.result as T
 	}
 
 	/**

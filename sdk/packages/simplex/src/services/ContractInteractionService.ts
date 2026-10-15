@@ -20,6 +20,7 @@ import {
 	readLegPartialFill,
 	encodePhantomBidDeclaration,
 	bytes20ToBytes32,
+	type BundlerRetryEvent,
 } from "@hyperbridge/sdk"
 import { ERC20_ABI } from "@/config/abis/ERC20"
 import { SOLVER_ACCOUNT_ABI } from "@/config/abis/SolverAccount"
@@ -335,6 +336,7 @@ export class ContractInteractionService {
 				// No bid without the bundler's own figures: an op signed with the SDK's
 				// fixed fallback limits does not execute, so a failed estimate skips the order.
 				requireBundlerEstimate: true,
+				onBundlerRetry: this.logBundlerRetry(order),
 			})
 
 			this.logger.info({ orderId: order.id }, "Caching gas estimate")
@@ -365,6 +367,18 @@ export class ContractInteractionService {
 			this.logger.error({ err: error, orderId: order.id }, "Error estimating gas, not bidding on this order")
 			throw new Error(`Failed to estimate gas: ${error instanceof Error ? error.message : "Unknown error"}`)
 		}
+	}
+
+	/**
+	 * Logs a bundler gas estimate for `order` that failed transiently and is sent again
+	 * (the SDK retries a network failure, a JSON-RPC internal error, or an HTTP 429 or 5xx).
+	 */
+	private logBundlerRetry(order: Order): (retry: BundlerRetryEvent) => void {
+		return ({ attempt, maxAttempts, delayMs, error }) =>
+			this.logger.warn(
+				{ orderId: order.id, attempt, maxAttempts, delayMs, err: error },
+				"Bundler gas estimate failed transiently, retrying",
+			)
 	}
 
 	/**
@@ -874,7 +888,10 @@ export class ContractInteractionService {
 		// the bundler to admit it, not to bundle it. Priced on this op, at the bundle's price.
 		let preVerificationGas = cachedEstimate.preVerificationGas
 		try {
-			preVerificationGas = await sdkHelper.estimateBidPreVerificationGas(bidGas)
+			preVerificationGas = await sdkHelper.estimateBidPreVerificationGas({
+				...bidGas,
+				onBundlerRetry: this.logBundlerRetry(order),
+			})
 		} catch (err) {
 			this.logger.warn(
 				{ orderId: order.id, err, preVerificationGas: preVerificationGas.toString() },

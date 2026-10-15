@@ -659,8 +659,11 @@ async estimateFillOrder(params: EstimateFillOrderParams): Promise<FillOrderEstim
 | `params.maxPriorityFeePerGasBumpPercent` | `number` | Optional bump percentage for priority fee |
 | `params.maxFeePerGasBumpPercent` | `number` | Optional bump percentage for max fee |
 | `params.requireBundlerEstimate` | `boolean` | Throw when the configured bundler fails to estimate the fill, instead of returning fixed gas limits. Defaults to `false` |
+| `params.onBundlerRetry` | `(event: BundlerRetryEvent) => void` | Called before each retry of a transiently failed bundler estimate, with `attempt`, `maxAttempts`, `delayMs` and `error`. Defaults to a `console.warn` |
 
 **Returns:** `Promise<FillOrderEstimate>` — All gas components, EIP-1559 fee values, total cost in wei, and total cost in fee token
+
+A bundler estimate that fails transiently (a network failure, a JSON-RPC `-32603` internal error, or an HTTP 429 or 5xx) is sent up to three times in all, 250 ms and then 750 ms apart. A rejection of the operation, such as an `AA..` revert or invalid params, fails on the first attempt.
 
 The estimate runs against the destination chain's configured EntryPoint. Fees are priced for a rundler bundler, such as the ones Hyperbridge runs. They are the fees the bundler suggests through `rundler_getUserOperationGasPrice`, each raised by its bump. Rundler only bundles an op whose max fee covers its bundle base fee, which runs above the chain's current base fee, so these clear it.
 

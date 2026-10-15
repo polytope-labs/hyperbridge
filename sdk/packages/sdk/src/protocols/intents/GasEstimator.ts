@@ -19,6 +19,7 @@ import type {
 	FillOrderEstimate,
 	FillOptions,
 	BidPreVerificationGasParams,
+	BundlerRetryEvent,
 } from "@/types"
 import type { HexString } from "@/types"
 import type { IntentGatewayContext } from "./types"
@@ -28,6 +29,7 @@ import { getFeeToken, transformOrderForContract, convertGasToFeeToken, convertFe
 import { CryptoUtils } from "./CryptoUtils"
 import { readSelectionFormat, selectionOffStateDiff } from "./selection"
 import { rundlerUserOperationFees } from "./rundlerFees"
+import { retryTransientBundlerErrors } from "./bundlerRetry"
 
 /**
  * Estimates the gas cost for filling an IntentGatewayV2 order and converts it
@@ -169,8 +171,9 @@ export class GasEstimator {
 	 * `eth_estimateUserOperationGas`. Gas limits are bumped by 5-10% for
 	 * headroom. Fees are the rundler bundler's suggested fees raised by the bumps,
 	 * or the chain's gas price raised to the priority fee it requires where it
-	 * suggests none (see {@link rundlerUserOperationFees}). If the bundler rejects the estimate,
-	 * fixed gas limits are returned in its place, or the call throws when
+	 * suggests none (see {@link rundlerUserOperationFees}). A transient bundler failure is
+	 * retried up to twice (see {@link retryTransientBundlerErrors}). If the bundler rejects
+	 * the estimate, fixed gas limits are returned in its place, or the call throws when
 	 * `params.requireBundlerEstimate` is set.
 	 *
 	 * **Fallback path (no bundler):** uses a fixed budget
@@ -378,9 +381,9 @@ export class GasEstimator {
 						maxFeeBumpPercent: BigInt(maxFeeBumpPercent),
 					},
 				)
-				const gasEstimate = await this.crypto.sendBundler<BundlerGasEstimate>(
-					BundlerMethod.ETH_ESTIMATE_USER_OPERATION_GAS,
+				const gasEstimate = await this.estimateUserOperationGas(
 					[bundlerUserOp, entryPointAddress, bundlerStateOverrides],
+					params.onBundlerRetry,
 				)
 
 				callGasLimit = (BigInt(gasEstimate.callGasLimit) * 160n) / 100n
@@ -471,7 +474,8 @@ export class GasEstimator {
 	 *
 	 * @param params - The bid's fields as they will be signed.
 	 * @returns The `preVerificationGas` to sign, with {@link BID_PVG_HEADROOM_PERCENT} added.
-	 * @throws If no bundler is configured or the bundler rejects the estimate.
+	 * @throws If no bundler is configured or the bundler rejects the estimate. A transient
+	 *   failure is retried first, as in {@link estimateFillOrder}.
 	 */
 	async estimateBidPreVerificationGas(params: BidPreVerificationGasParams): Promise<bigint> {
 		const { solverAccount, maxFeePerGas, maxPriorityFeePerGas } = params
@@ -504,11 +508,26 @@ export class GasEstimator {
 			stateOverride[userOp.paymasterAndData.slice(0, 42)] = { code: BID_PVG_ESTIMATION_PAYMASTER_CODE }
 		}
 
-		const estimate = await this.crypto.sendBundler<BundlerGasEstimate>(
-			BundlerMethod.ETH_ESTIMATE_USER_OPERATION_GAS,
+		const estimate = await this.estimateUserOperationGas(
 			[CryptoUtils.prepareBundlerCall(userOp), params.entryPointAddress, stateOverride],
+			params.onBundlerRetry,
 		)
 		return (BigInt(estimate.preVerificationGas) * (100n + BID_PVG_HEADROOM_PERCENT)) / 100n
+	}
+
+	/**
+	 * Calls `eth_estimateUserOperationGas`, retrying a transient failure such as a dropped
+	 * connection or rundler's `internal error: rpc provider error` (see
+	 * {@link retryTransientBundlerErrors}). A rejection of the operation is thrown at once.
+	 */
+	private estimateUserOperationGas(
+		params: unknown[],
+		onRetry?: (event: BundlerRetryEvent) => void,
+	): Promise<BundlerGasEstimate> {
+		return retryTransientBundlerErrors(
+			() => this.crypto.sendBundler<BundlerGasEstimate>(BundlerMethod.ETH_ESTIMATE_USER_OPERATION_GAS, params),
+			onRetry,
+		)
 	}
 
 	/**

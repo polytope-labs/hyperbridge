@@ -12,6 +12,7 @@ import {
 	GovernanceReferendum,
 	GovernanceReferendumEvent,
 	GovernanceTallySnapshot,
+	GovernanceTrack,
 	GovernanceTreasurySpend,
 	GovernanceVote,
 	GovernanceVoteCall,
@@ -23,6 +24,7 @@ import type {
 	PreimageRequestStatus,
 	ReferendumInfo as ReferendumInfoValue,
 	ReferendumTally,
+	Tracks,
 	Voting,
 } from "@/types/governance"
 import { getSubstrateBlockTimestamp } from "@/utils/rpc.helpers"
@@ -111,6 +113,7 @@ export class GovernanceService {
 				submittedAt: position.timestamp,
 				updatedBlock: position.blockNumber,
 			})
+			await this.syncTracks(position)
 		}
 
 		const tally = this.tally(info) ?? this.eventTally(args.tally)
@@ -123,6 +126,19 @@ export class GovernanceService {
 
 		await referendum.save()
 		await this.saveReferendumEvent(referendum.id, event.event.method, args, position)
+	}
+
+	/** Refreshes the track definitions, which only change with a runtime upgrade. */
+	static async syncTracks(position: EventPosition): Promise<void> {
+		for (const [id, details] of api.consts.referenda.tracks as unknown as Tracks) {
+			const info = details.toJSON() as { name: string }
+			await GovernanceTrack.create({
+				id: id.toString(),
+				name: info.name.replace(/\0+$/, ""),
+				info: JSON.stringify(info),
+				updatedBlock: position.blockNumber,
+			}).save()
+		}
 	}
 
 	static async handleSchedulerDispatchedEvent(event: SubstrateEvent): Promise<void> {

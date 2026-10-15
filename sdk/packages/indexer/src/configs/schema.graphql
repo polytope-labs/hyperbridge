@@ -3284,6 +3284,25 @@ type GovernanceReferendum @entity {
 }
 
 """
+A referenda track as defined by the runtime's `Referenda::Tracks` constant
+"""
+type GovernanceTrack @entity {
+	"""
+	Track id
+	"""
+	id: ID!
+
+	name: String!
+
+	"""
+	The track details, such as deposits, periods and curves
+	"""
+	info: String!
+
+	updatedBlock: Int!
+}
+
+"""
 One event in a referendum's history, including the scheduler dispatch of its enactment
 """
 type GovernanceReferendumEvent @entity {

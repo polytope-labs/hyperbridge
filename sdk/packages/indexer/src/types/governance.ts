@@ -11,6 +11,8 @@ interface Count extends Codec {
 	toNumber(): number
 }
 
+export type Tracks = [Count, Codec][]
+
 export interface ReferendumTally {
 	ayes: bigint
 	nays: bigint

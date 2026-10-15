@@ -35,6 +35,8 @@ CREATE TABLE IF NOT EXISTS forum.comments (
 	content TEXT NOT NULL,
 	content_type TEXT NOT NULL DEFAULT 'markdown',
 	deleted BOOLEAN NOT NULL DEFAULT FALSE,
+	-- The SubSquare comment id for comments brought over by the import
+	imported_from TEXT UNIQUE,
 	created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 	updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );

@@ -1,6 +1,7 @@
 mod crypto;
 mod db;
 mod error;
+mod import;
 mod primitives;
 mod routes;
 
@@ -20,6 +21,14 @@ async fn main() -> anyhow::Result<()> {
 
 	let database_url = env::var("DATABASE_URL").context("DATABASE_URL is not set")?;
 	let db = db::connect(&database_url).await?;
+
+	// `import [site]` copies a SubSquare site's off-chain content into the forum and exits
+	let args = env::args().collect::<Vec<_>>();
+	if args.get(1).map(String::as_str) == Some("import") {
+		let site = args.get(2).map(String::as_str).unwrap_or("https://hyperbridge.subsquare.io");
+		return import::run(&db, site).await;
+	}
+
 	let admins = env::var("ADMINS")
 		.unwrap_or_default()
 		.split(',')

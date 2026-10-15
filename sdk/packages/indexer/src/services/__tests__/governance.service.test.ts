@@ -60,9 +60,11 @@ const ongoing = (ayes: bigint) => ({
 	isSome: true,
 	unwrap: () => ({
 		isOngoing: true,
-		asOngoing: { tally: { ayes: balance(ayes), nays: balance(0n), support: balance(ayes) } },
+		asOngoing: {
+			tally: { ayes: balance(ayes), nays: balance(0n), support: balance(ayes) },
+			toJSON: () => ({ tally: { ayes: ayes.toString() } }),
+		},
 	}),
-	toJSON: () => ({ ongoing: { tally: { ayes: ayes.toString() } } }),
 })
 
 // Voting state per account, as `ConvictionVoting::VotingFor` entries keyed by track
@@ -153,6 +155,7 @@ describe("GovernanceService", () => {
 		})
 		expect(records.get(`GovernanceVoteCall:100-3-1`)).toMatchObject({ account: ALICE, removed: false })
 		expect(records.get("GovernanceTallySnapshot:1-100")).toMatchObject({ ayes: 5n })
+		expect(JSON.parse(records.get("GovernanceReferendum:1").info)).toEqual({ tally: { ayes: "5" } })
 	})
 
 	it("removes a vote taken back on an ongoing referendum but keeps votes on finished ones", async () => {

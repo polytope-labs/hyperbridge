@@ -3222,7 +3222,8 @@ type CumulativeIntentGatewayVolumeUSD @entity {
 
 """
 An OpenGov referendum. The governance deployment indexes these from the referenda pallet, and the
-`info` field keeps the latest `ReferendumInfoFor` storage value so it survives the storage being cleared.
+`info` field keeps the last ongoing `ReferendumInfoFor` value since storage only holds the outcome once
+the referendum ends.
 Across the governance entities, chain values such as proposals, event args, calls and dispatch results
 are stored as JSON encoded strings.
 """
@@ -3262,7 +3263,7 @@ type GovernanceReferendum @entity {
 	support: BigInt!
 
 	"""
-	Latest `ReferendumInfoFor` value, JSON encoded
+	The last ongoing `ReferendumInfoFor` value, JSON encoded
 	"""
 	info: String
 

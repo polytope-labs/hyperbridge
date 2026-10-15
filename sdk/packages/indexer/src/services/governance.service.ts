@@ -85,6 +85,12 @@ export class GovernanceService {
 		return { ayes: ayes.toBigInt(), nays: nays.toBigInt(), support: support.toBigInt() }
 	}
 
+	/** The referendum's details while it is live, kept once it ends since storage then only holds the outcome. */
+	static ongoingInfo(info: ReferendumInfo): string | undefined {
+		if (info.isNone || !info.unwrap().isOngoing) return undefined
+		return JSON.stringify(info.unwrap().asOngoing.toJSON())
+	}
+
 	static async handleReferendaEvent(event: SubstrateEvent): Promise<void> {
 		const position = await this.position(event)
 		const args = this.args(event)
@@ -118,7 +124,7 @@ export class GovernanceService {
 
 		const tally = this.tally(info) ?? this.eventTally(args.tally)
 		if (tally) Object.assign(referendum, tally)
-		if (info.isSome) referendum.info = JSON.stringify(info.toJSON())
+		referendum.info = this.ongoingInfo(info) ?? referendum.info
 		if (event.event.method === "Confirmed") referendum.enactmentTask = this.enactmentTask(index)
 		referendum.state = event.event.method
 		referendum.isFinal = info.isNone || !info.unwrap().isOngoing
@@ -344,7 +350,7 @@ export class GovernanceService {
 		if (!tally || !referendum) return
 
 		Object.assign(referendum, tally)
-		referendum.info = JSON.stringify(info.toJSON())
+		referendum.info = this.ongoingInfo(info)
 		referendum.updatedBlock = position.blockNumber
 		await referendum.save()
 		await GovernanceTallySnapshot.create({

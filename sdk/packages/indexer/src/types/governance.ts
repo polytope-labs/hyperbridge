@@ -21,7 +21,7 @@ export interface ReferendumTally {
 
 export interface ReferendumInfo extends Codec {
 	isOngoing: boolean
-	asOngoing: {
+	asOngoing: Codec & {
 		tally: Record<keyof ReferendumTally, Balance>
 		submissionDeposit: { who: Codec }
 	}

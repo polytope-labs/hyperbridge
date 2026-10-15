@@ -2,6 +2,7 @@ mod auth;
 mod chain;
 mod comments;
 mod common;
+pub mod files;
 mod motions;
 mod posts;
 mod referenda;
@@ -13,6 +14,7 @@ mod votes;
 use std::sync::Arc;
 
 use axum::{
+	extract::DefaultBodyLimit,
 	http::{Method, Uri},
 	routing::{get, patch, post, put},
 	Router,
@@ -37,6 +39,11 @@ pub fn router(state: AppState) -> Router {
 		.route("/users/:address", get(users::user))
 		.route("/admins", get(users::admins))
 		.route("/avatars", post(users::avatars))
+		.route(
+			"/s3/files",
+			post(files::upload).layer(DefaultBodyLimit::max(files::MAX_FILE_SIZE + 64 * 1024)),
+		)
+		.route("/s3/files/:id", get(files::get))
 		.route("/inspect/scan-height", get(chain::scan_height))
 		.route("/stream/scan-height", get(chain::scan_height_stream))
 		.route("/overview/summary", get(chain::summary))

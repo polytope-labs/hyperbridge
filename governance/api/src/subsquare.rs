@@ -1,5 +1,8 @@
 use anyhow::Context;
-use reqwest::{header::REFERER, Client, StatusCode};
+use reqwest::{
+	header::{CONTENT_TYPE, REFERER},
+	Client, RequestBuilder, StatusCode,
+};
 use serde_json::Value;
 
 /// A client for a SubSquare style API, SubSquare's own or this one.
@@ -20,14 +23,18 @@ impl SubSquareApi {
 		Self { referer: Some(format!("{site}/")), ..Self::new(&format!("{site}/api")) }
 	}
 
-	/// A response, or `None` when the route says there is no such item.
-	pub async fn find(&self, path: &str) -> anyhow::Result<Option<Value>> {
+	fn request(&self, path: &str) -> (String, RequestBuilder) {
 		let url = format!("{}/{path}", self.base);
 		let request = self.client.get(&url);
-		let request = match &self.referer {
-			Some(referer) => request.header(REFERER, referer),
-			None => request,
-		};
+		match &self.referer {
+			Some(referer) => (url, request.header(REFERER, referer)),
+			None => (url, request),
+		}
+	}
+
+	/// A response, or `None` when the route says there is no such item.
+	pub async fn find(&self, path: &str) -> anyhow::Result<Option<Value>> {
+		let (url, request) = self.request(path);
 		let response = request.send().await?;
 		if response.status() == StatusCode::NOT_FOUND {
 			return Ok(None);
@@ -38,6 +45,23 @@ impl SubSquareApi {
 			.await
 			.with_context(|| format!("reading {url}"))?;
 		Ok(Some(value))
+	}
+
+	/// A file the site serves, with its content type.
+	pub async fn file(&self, path: &str) -> anyhow::Result<(String, Vec<u8>)> {
+		let (url, request) = self.request(path);
+		let response = request
+			.send()
+			.await?
+			.error_for_status()
+			.with_context(|| format!("fetching {url}"))?;
+		let content_type = response
+			.headers()
+			.get(CONTENT_TYPE)
+			.and_then(|value| value.to_str().ok())
+			.unwrap_or("application/octet-stream")
+			.to_owned();
+		Ok((content_type, response.bytes().await?.to_vec()))
 	}
 
 	pub async fn get(&self, path: &str) -> anyhow::Result<Value> {

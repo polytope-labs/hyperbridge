@@ -38,6 +38,7 @@ pub async fn run(db: &Db, site: &str) -> anyhow::Result<()> {
 
 			if detail["title"].is_string() || detail["content"].is_string() {
 				import_post(db, kind, number, &detail).await?;
+				import_images(db, &source, &detail).await?;
 				posts += 1;
 			}
 			import_reactions(db, &post_id(kind, number), &detail["reactions"]).await?;
@@ -66,6 +67,23 @@ pub async fn run(db: &Db, site: &str) -> anyhow::Result<()> {
 		&[],
 	)
 	.await?;
+	Ok(())
+}
+
+/// Copies the images a post shows, its banner and any SubSquare hosted image in its text, under
+/// their SubSquare ids so the post's links keep working.
+async fn import_images(db: &Db, source: &SubSquareApi, post: &Value) -> anyhow::Result<()> {
+	let in_text = post["content"]
+		.as_str()
+		.unwrap_or_default()
+		.split("/s3/files/")
+		.skip(1)
+		.map(|rest| rest.chars().take_while(char::is_ascii_alphanumeric).collect::<String>());
+	let ids = post["bannerCid"].as_str().map(str::to_owned).into_iter().chain(in_text);
+	for id in ids.filter(|id| !id.is_empty()).collect::<std::collections::BTreeSet<_>>() {
+		let (content_type, data) = source.file(&format!("s3/files/{id}")).await?;
+		crate::routes::files::store(db, &id, &content_type, &data).await?;
+	}
 	Ok(())
 }
 

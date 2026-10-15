@@ -52,6 +52,14 @@ CREATE TABLE IF NOT EXISTS forum.reactions (
 	PRIMARY KEY (target, address)
 );
 
+-- Images used in posts and banners, keyed by a hash of their content
+CREATE TABLE IF NOT EXISTS forum.files (
+	id TEXT PRIMARY KEY,
+	content_type TEXT NOT NULL,
+	data BYTEA NOT NULL,
+	created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 CREATE TABLE IF NOT EXISTS forum.users (
 	address TEXT PRIMARY KEY,
 	avatar_cid TEXT,

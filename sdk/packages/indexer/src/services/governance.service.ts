@@ -124,8 +124,7 @@ export class GovernanceService {
 			await this.syncTracks(position)
 		}
 
-		const ongoingTally = this.tally(info)
-		const tally = ongoingTally ?? this.eventTally(args.tally)
+		const tally = this.tally(info) ?? this.eventTally(args.tally)
 		if (tally) Object.assign(referendum, tally)
 		referendum.info = this.ongoingInfo(info) ?? referendum.info
 		referendum.electorate = await this.electorate()
@@ -136,7 +135,8 @@ export class GovernanceService {
 
 		await referendum.save()
 		await this.saveReferendumEvent(referendum.id, event.event.method, args, position)
-		if (ongoingTally) await this.saveTallySnapshot(referendum.id, ongoingTally, referendum.electorate, position)
+		// Ongoing referenda are read from storage, finishing events carry the final tally themselves
+		if (tally) await this.saveTallySnapshot(referendum.id, tally, referendum.electorate, position)
 	}
 
 	/** Refreshes the track definitions, which only change with a runtime upgrade. */

@@ -233,4 +233,6 @@ jobs:
 
             - name: Run Electron E2E on macOS and Windows
               if: runner.os != 'Linux'
-              run: pnpm --dir packages/simplex-desktop test:e2e
+              run: pnpm --dir packages/simplex-desktop exec node --import tsx --test --test-name-pattern="password account survives" --test-timeout=300000 scripts/e2e/desktop.e2e.mjs
+              env:
+                  TSX_TSCONFIG_PATH: ../simplex/tsconfig.json

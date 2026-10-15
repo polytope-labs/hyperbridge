@@ -456,6 +456,49 @@ test("window close, app quit, hard crash, and second launch preserve one detache
 	await waitForHealth(socketPath, "init")
 })
 
+for (const stopAction of ["stop-solver", "stop-and-quit"]) {
+	test(`password account survives repeated ${stopAction}, quit, reopen and unlock`, async (t) => {
+		const userDataDir = await temporaryUserData(`password-reopen-${stopAction}`)
+		const socketPath = socketPathFor(userDataDir)
+		let electronApp, page
+		t.after(async () => cleanupDesktop(electronApp, userDataDir))
+		;({ electronApp, page } = await launchDesktop(userDataDir))
+		await waitForHealth(socketPath, "init")
+		for (let cycle = 0; cycle < 5; cycle++) {
+			await waitFor(
+				() => electronApp.evaluate(({ Menu }, id) => Menu.getApplicationMenu()?.getMenuItemById(id)?.enabled, stopAction),
+				"the stop menu action to become available",
+			)
+			const exited = electronProcessExit(electronApp.process())
+			await electronApp.evaluate(({ Menu }, id) => Menu.getApplicationMenu()?.getMenuItemById(id)?.click(), stopAction).catch((error) => {
+				if (stopAction !== "stop-and-quit") throw error
+			})
+			if (stopAction === "stop-solver") await quitElectron(electronApp)
+			await exited
+			electronApp = undefined
+			await waitForDaemonPids(userDataDir, 0)
+			;({ electronApp, page } = await launchDesktop(userDataDir, { locked: true }))
+			await electronApp.evaluate(({ app, BrowserWindow }) => {
+				globalThis.__passwordReopenFailures = []
+				app.on("render-process-gone", (_event, _contents, details) => globalThis.__passwordReopenFailures.push(details))
+				app.on("child-process-gone", (_event, details) => globalThis.__passwordReopenFailures.push(details))
+				for (const window of BrowserWindow.getAllWindows()) {
+					window.on("unresponsive", () => globalThis.__passwordReopenFailures.push("unresponsive"))
+				}
+			})
+			await usePasswordLogin(page)
+			assert.equal(await page.locator("#desktop-confirmation").count(), 0, "relaunch must retain the existing account")
+			assert.equal(await page.evaluate(async () => (await fetch("/api/status")).status), 423)
+			await unlockDesktop(page)
+			await waitForHealth(socketPath, "init")
+			await waitForDaemonPids(userDataDir)
+			assert.equal(await page.evaluate(async () => (await fetch("/api/status")).status), 200)
+			await delay(1000)
+			assert.deepEqual(await electronApp.evaluate(() => globalThis.__passwordReopenFailures), [], `cycle ${cycle + 1} must not crash after password unlock`)
+		}
+	})
+}
+
 test("a login launch requires unlock before starting a solver and gates the API", async (t) => {
 	const userDataDir = await temporaryUserData("login")
 	const socketPath = socketPathFor(userDataDir)

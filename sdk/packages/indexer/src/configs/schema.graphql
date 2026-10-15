@@ -3328,6 +3328,11 @@ type GovernanceReferendumEvent @entity {
 
 	args: String
 
+	"""
+	False for deposit refunds, which can come long after the referendum ended and do not change its state
+	"""
+	changesState: Boolean!
+
 	blockNumber: Int! @index
 
 	blockHash: String!

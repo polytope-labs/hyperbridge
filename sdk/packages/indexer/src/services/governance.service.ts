@@ -32,6 +32,9 @@ import { getSubstrateBlockTimestamp } from "@/utils/rpc.helpers"
 
 type ReferendumInfo = Option<ReferendumInfoValue>
 
+// Deposits are refunded long after a referendum ends, so refunds stay in its history without changing its state
+const DEPOSIT_REFUNDS = ["DecisionDepositRefunded", "SubmissionDepositRefunded"]
+
 interface EventPosition {
 	id: string
 	blockNumber: number
@@ -129,7 +132,7 @@ export class GovernanceService {
 		referendum.info = this.ongoingInfo(info) ?? referendum.info
 		referendum.electorate = await this.electorate()
 		if (event.event.method === "Confirmed") referendum.enactmentTask = this.enactmentTask(index)
-		referendum.state = event.event.method
+		if (!DEPOSIT_REFUNDS.includes(event.event.method)) referendum.state = event.event.method
 		referendum.isFinal = info.isNone || !info.unwrap().isOngoing
 		referendum.updatedBlock = position.blockNumber
 
@@ -589,7 +592,13 @@ export class GovernanceService {
 		args: Record<string, unknown>,
 		position: EventPosition,
 	): Promise<void> {
-		await GovernanceReferendumEvent.create({ ...position, referendumId, name, args: JSON.stringify(args) }).save()
+		await GovernanceReferendumEvent.create({
+			...position,
+			referendumId,
+			name,
+			args: JSON.stringify(args),
+			changesState: !DEPOSIT_REFUNDS.includes(name),
+		}).save()
 	}
 
 	static async saveVoteCall(

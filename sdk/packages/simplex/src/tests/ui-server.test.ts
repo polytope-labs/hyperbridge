@@ -1046,6 +1046,51 @@ describe("UiServer (operator mode)", () => {
 		return config
 	}
 
+	describe("enabling fills", () => {
+		const refreshed = { updatedAt: 456, status: "fresh" as const, chains: [], issues: [] }
+		const refreshable = () =>
+			Object.assign(testBalanceSource(), {
+				refresh: vi.fn().mockResolvedValue(refreshed),
+			}) as unknown as Required<OperatorContext["balances"]> & { refresh: ReturnType<typeof vi.fn> }
+		const enable = (base: string, body: unknown) =>
+			fetch(`${base}/api/chains/enable-fills`, { method: "POST", headers: CSRF, body: JSON.stringify(body) })
+
+		it("delegates on a running chain and answers with refreshed balances", async () => {
+			const enableFills = vi.fn().mockResolvedValue(undefined)
+			const { base } = await startServer({ enableFills, balances: refreshable() })
+			const res = await enable(base, { chainId: 56 })
+			expect(res.status).toBe(200)
+			expect(await res.json()).toEqual(refreshed)
+			expect(enableFills).toHaveBeenCalledWith(56)
+		})
+
+		it("says why fills could not be enabled", async () => {
+			const enableFills = vi
+				.fn()
+				.mockRejectedValue(new Error("The filler wallet needs USDT on BNB Chain before it can fill there"))
+			const { base } = await startServer({ enableFills })
+			const res = await enable(base, { chainId: 56 })
+			expect(res.status).toBe(409)
+			expect((await res.json()).error).toContain("needs USDT on BNB Chain")
+		})
+
+		it("refuses a request that names no chain", async () => {
+			const enableFills = vi.fn()
+			const { base } = await startServer({ enableFills })
+			expect((await enable(base, {})).status).toBe(400)
+			expect(enableFills).not.toHaveBeenCalled()
+		})
+
+		it("re-reads every chain's balances when asked to refresh", async () => {
+			const balances = refreshable()
+			const { base } = await startServer({ balances })
+			expect(await (await fetch(`${base}/api/balances`)).json()).toEqual(balances.getSnapshot())
+			expect(balances.refresh).not.toHaveBeenCalled()
+			expect(await (await fetch(`${base}/api/balances?refresh=1`)).json()).toEqual(refreshed)
+			expect(balances.refresh).toHaveBeenCalledTimes(1)
+		})
+	})
+
 	it("lists the configured chains alongside the wizard's catalog for their network", async () => {
 		const { base } = await startServer({ config: chainsConfig() })
 		const dto = await (await fetch(`${base}/api/chains`)).json()

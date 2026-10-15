@@ -250,6 +250,8 @@ export function Operator(props: { status: StatusOperator; refresh: () => void })
 					{tab === "operations" ? (
 						<Operations
 							chains={status.chains}
+							balances={balances}
+							onBalancesChanged={load}
 							initialPanel={operationsPanel}
 							onInitialPanelShown={() => setOperationsPanel(undefined)}
 						/>

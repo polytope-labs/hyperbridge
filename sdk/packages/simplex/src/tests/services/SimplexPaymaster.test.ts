@@ -732,6 +732,19 @@ describe("resolvePendingPermit2Approval (delegation bootstrap)", () => {
 		expect(pending).toBeNull()
 	})
 
+	it("judges a named fee token the solver holds none of yet", async () => {
+		// The funding check names the gateway fee token, so a chain without permits asks for its native up front.
+		const pending = await resolvePendingPermit2Approval(
+			mockClient({ balance: 0n }),
+			SOLVER,
+			PAYMASTER,
+			CHAIN,
+			configService,
+			USDC,
+		)
+		expect(pending).toEqual({ token: USDC, spender: PERMIT2, permitCapable: false })
+	})
+
 	it("returns null for a stale non-zero allowance — the batched tx cannot zero-first", async () => {
 		// USDT's non-zero → non-zero rule would revert the batched approve(max), and the
 		// delegation tx skips simulation, so this must defer to sendFundedApprove instead.

@@ -1,13 +1,17 @@
 import { DEFAULT_ORDERBOOK_URLS } from "@/config/defaults"
 import { normalizeSymbol } from "@/config/asset-registry"
 import { vaultRowsToToml, type VaultRowDraft } from "../lib/vault-rows"
-import type { ChainDefault, FillerConfig, SetupDefaults, SetupOrderbook } from "../types"
+import type { ChainDefault, ChainFunding, FillerConfig, SetupDefaults, SetupOrderbook } from "../types"
 
 export interface ChainDraft {
 	meta: ChainDefault
+	/** Enable fills. Every chain is watched; this marks the ones the wallet is funded to fill on. */
 	enabled: boolean
 	rpcUrls: string[]
-	watchOnly: boolean
+	/** The wallet's latest funding read on this chain; absent until the first one lands. */
+	funding?: ChainFunding
+	/** Why the latest funding read failed. */
+	fundingError?: string
 }
 
 export type VaultDraft = VaultRowDraft
@@ -107,25 +111,36 @@ export function initialState(defaults: SetupDefaults): WizardState {
 				// Public endpoints where the registry has them, so the operator has
 				// nothing to supply. One empty field otherwise, to type into.
 				rpcUrls: meta.defaultRpcUrls?.length ? [...meta.defaultRpcUrls] : [""],
-				watchOnly: false,
 			})),
 		vaults: [],
 	}
 }
 
-export function enabledChains(state: WizardState): ChainDraft[] {
+/** The chains fills are enabled on. Every chain goes into the config either way. */
+export function fillChains(state: WizardState): ChainDraft[] {
 	return state.chains.filter((c) => c.enabled)
 }
 
+/** The filler wallet's EVM address, once the signer step has produced one. */
+export function walletAddress(state: WizardState): string | undefined {
+	const address =
+		state.signerType === "mpcVault"
+			? state.mpcVault.accountAddress
+			: state.signerType === "turnkey"
+				? state.turnkey.signWith
+				: state.signerAddress
+	return address?.trim() || undefined
+}
+
 /**
- * The books the enabled chains can trade: every book the orderbook lists whose
- * two assets are each deployed on some enabled chain. The wizard gates on this
- * so a chain selection that carries no book is caught before launch.
+ * The books the fill chains can trade: every book the orderbook lists whose
+ * two assets are each deployed on some chain with fills enabled. The wizard gates
+ * on this so a selection that carries no book is caught before launch.
  */
 export function tradeableBooks(state: WizardState, defaults: SetupDefaults): SetupOrderbook["books"] {
 	// Normalized on both sides: books write "cNGN", the registry "CNGN".
 	const available = new Set(
-		enabledChains(state).flatMap((chain) =>
+		fillChains(state).flatMap((chain) =>
 			(defaults.knownTokens[chain.meta.stateMachineId] ?? []).map((token) => normalizeSymbol(token.symbol)),
 		),
 	)
@@ -164,12 +179,10 @@ export function patchChain(state: WizardState, chainId: number, patch: Partial<C
 
 /** Client-side mirror of the CLI wizard's assembleConfig; the server gate is authoritative. */
 export function assembleConfig(state: WizardState, defaults: SetupDefaults): FillerConfig {
-	const chains = enabledChains(state)
+	const chains = state.chains
 
 	const vaultRows = vaultRowsToToml(state.vaults)
 	const vaults = vaultRows.length > 0 ? vaultRows : undefined
-
-	const watchOnlyEntries = chains.filter((c) => c.watchOnly).map((c) => [String(c.meta.chainId), true] as const)
 
 	const signer =
 		state.signerType === "privateKey"
@@ -201,7 +214,6 @@ export function assembleConfig(state: WizardState, defaults: SetupDefaults): Fil
 			// The form collects plain strings; the config type wants the signer union / hex addresses.
 			signer: signer as FillerConfig["simplex"]["signer"],
 			maxConcurrentOrders: defaults.maxConcurrentOrders,
-			...(watchOnlyEntries.length > 0 ? { watchOnly: Object.fromEntries(watchOnlyEntries) } : {}),
 			substratePrivateKey: state.substrateKey.trim(),
 			hyperbridgeWsUrl: state.hyperbridgeWsUrl.trim(),
 		},
@@ -212,5 +224,5 @@ export function assembleConfig(state: WizardState, defaults: SetupDefaults): Fil
 }
 
 export function chainLabels(state: WizardState): string[] {
-	return enabledChains(state).map((c) => `${c.meta.label} (chainId ${c.meta.chainId})`)
+	return state.chains.map((c) => `${c.meta.label} (chainId ${c.meta.chainId})`)
 }

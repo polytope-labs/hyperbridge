@@ -157,12 +157,16 @@ export async function resolvePendingPermit2Approval(
 	paymasterAddress: HexString,
 	chain: string,
 	configService: FillerConfigService,
+	/** Evaluates this token instead of the one the solver's holdings select, for a solver holding none yet. */
+	token?: HexString,
 ): Promise<{ token: HexString; spender: HexString; permitCapable: boolean } | null> {
 	const permit2 = configService.getPermit2Address(chain)
 	if (!isConfigured(permit2)) return null
 	if (!(await paymasterSupportsPermit2(client, configService.getChainId(chain), paymasterAddress))) return null
 
-	const { selected } = await selectToken(client, solverAccount, configuredFeeTokens(chain, configService), permit2)
+	const selected = token
+		? { address: token, permit2Allowance: await readAllowance(client, token, solverAccount, permit2) }
+		: (await selectToken(client, solverAccount, configuredFeeTokens(chain, configService), permit2)).selected
 	if (!selected) return null
 
 	// Only a clean zero allowance is batchable. At or above the recommendation PERMIT2

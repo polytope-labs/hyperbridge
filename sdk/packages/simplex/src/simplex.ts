@@ -8,6 +8,9 @@ import { assertConfirmationCoverage, type VaultToml } from "@/config/filler-toml
 import type { ChainConfirmationPolicy, FillerTomlConfig, RebalancingConfig } from "@/config/filler-toml"
 import { resolveChainConfigs, validateRpcUrls, type AllowlistConfig } from "@/services/FillerConfigService"
 import { assertBundlersServeEntryPoint } from "@/services/bundler-preflight"
+import { fundingShortfall } from "@/services/chain-funding"
+import { readChainFunding } from "@/services/read-chain-funding"
+import { chainByChainId, nativeTokenSymbol } from "@/cli/init/chains"
 import { LoggerContext, type Logger, type LogLevel, type LogSink } from "@/services/Logger"
 import type { ActivityEvent, BidStats, LimitOrderFill, SimplexDataStore, StoredBid, WalletTx } from "@/data/types"
 import { patchRuntimeState } from "@/data/state"
@@ -594,6 +597,42 @@ export class ChainController {
 			this.runtime.intentFiller.setWatchOnly(chainId, watchOnly)
 			this.syncWatchOnlyToConfig()
 			await this.persist()
+		})
+	}
+
+	/**
+	 * Enables fills on a running chain now: delegates the wallet to the SolverAccount there,
+	 * so it fills without a restart, and clears any watch-only flag. Rejects while the wallet
+	 * lacks the gateway fee token or the native the paymaster's one-time setup needs.
+	 */
+	async enableFills(chainId: number): Promise<void> {
+		return this.serialise(async () => {
+			if (this.runtime.signerless) {
+				throw new Error(
+					"Fills cannot be enabled: this solver was started without a signer. Restart with `signer` to fill.",
+				)
+			}
+			const chain = this.runtime.resolvedChains.find((resolved) => resolved.chainId === chainId)
+			const label = chainByChainId(chainId)?.label ?? `Chain ${chainId}`
+			if (!chain) throw new Error(`${label} is not running yet; restart the filler to add it`)
+
+			const key = formatChainKey(chainId)
+			const funding = await readChainFunding(
+				this.runtime.chainClientManager.getPublicClient(key),
+				this.runtime.configService,
+				this.runtime.fillerAddress,
+				key,
+			)
+			const shortfall = fundingShortfall(funding, nativeTokenSymbol(chainId))
+			if (shortfall) throw new Error(`The filler wallet needs ${shortfall} on ${label} before it can fill there`)
+
+			await assertBundlersServeEntryPoint([chain], this.runtime.configService)
+			await this.runtime.intentFiller.enableFills(chainId)
+			if (this.runtime.intentFiller.getWatchOnly()[chainId]) {
+				this.runtime.intentFiller.setWatchOnly(chainId, false)
+				this.syncWatchOnlyToConfig()
+				await this.persist()
+			}
 		})
 	}
 

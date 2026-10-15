@@ -2,7 +2,7 @@ import { useEffect, useState } from "react"
 import { api } from "../../api"
 import { CopyHash } from "../../components/CopyHash"
 import { CheckIcon } from "../../components/InterfaceIcons"
-import { assembleConfig, chainLabels, enabledChains } from "../state"
+import { assembleConfig, chainLabels, fillChains, walletAddress } from "../state"
 import { formatSetupStartError } from "../startError"
 import type { StepProps } from "../Wizard"
 
@@ -20,7 +20,7 @@ export function StepReview({ state, defaults }: StepProps) {
 		api.post<{ ok: boolean; toml?: string; error?: string }>("/api/setup/preview", {
 			config,
 			chainLabels: chainLabels(state),
-			chainIds: enabledChains(state).map((c) => c.meta.chainId),
+			chainIds: state.chains.map((c) => c.meta.chainId),
 		})
 			.then((res) => {
 				if (cancelled) return
@@ -63,7 +63,7 @@ export function StepReview({ state, defaults }: StepProps) {
 			.post("/api/setup/save-and-start", {
 				config: assembleConfig(state, defaults),
 				chainLabels: chainLabels(state),
-				chainIds: enabledChains(state).map((c) => c.meta.chainId),
+				chainIds: state.chains.map((c) => c.meta.chainId),
 			})
 			.then(() => setPhase("starting"))
 			.catch((err) => {
@@ -71,8 +71,6 @@ export function StepReview({ state, defaults }: StepProps) {
 				setStartError(err instanceof Error ? err.message : String(err))
 			})
 	}
-	const enabled = enabledChains(state)
-
 	if (phase === "starting") {
 		return (
 			<div className="wizard-sections review-step">
@@ -81,14 +79,13 @@ export function StepReview({ state, defaults }: StepProps) {
 		)
 	}
 
-	const evmAddress =
-		state.signerType === "mpcVault"
-			? state.mpcVault.accountAddress
-			: state.signerType === "turnkey"
-				? state.turnkey.signWith
-				: state.signerAddress
+	const evmAddress = walletAddress(state)
+	const filling = fillChains(state).map((chain) => chain.meta.label)
 	const displayStartError = startError
-		? formatSetupStartError(startError, new Map(enabled.map((chain) => [chain.meta.chainId, chain.meta.label])))
+		? formatSetupStartError(
+				startError,
+				new Map(state.chains.map((chain) => [chain.meta.chainId, chain.meta.label])),
+			)
 		: undefined
 	const pathSeparator = defaults.configPath.lastIndexOf("/")
 	const configDirectory = pathSeparator >= 0 ? defaults.configPath.slice(0, pathSeparator + 1) : ""
@@ -117,12 +114,8 @@ export function StepReview({ state, defaults }: StepProps) {
 								<span className="review-account-network">EVM</span>
 							</div>
 							<p>
-								Fund with USDC or USDT on every enabled chain.
-								 Gas is covered by the paymaster.
-								{/* BNB Chain's USDC and USDT have no permit, so their first Permit2 approval is paid in BNB. */}
-								{enabled.some((chain) => chain.meta.chainId === 56)
-									? " BNB Chain also needs a little BNB for a one-time approval."
-									: null}
+								Fills are enabled on {filling.join(", ")}. Simplex watches every chain. Keep the gateway
+								fee token on the chains you fill on: the paymaster takes gas from it.
 							</p>
 							<div className="review-account-value">
 								<CopyHash value={evmAddress} chars={42} copyLabel="Copy filler wallet address" />

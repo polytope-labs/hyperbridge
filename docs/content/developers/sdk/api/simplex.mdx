@@ -517,6 +517,21 @@ new chain to watch-only, rejecting an explicit `watchOnly: false`. A signerless 
 generated throwaway key that holds no funds and dies with the process, so watch-only is a one-way
 door there: filling would burn bids from an address nobody controls.
 
+### enableFills(chainId)
+
+Delegates the filler wallet to the SolverAccount on a running chain, so it fills without a restart.
+Clears the chain's watch-only flag if one is set.
+
+```typescript lineNumbers
+enableFills(chainId: number): Promise<void>
+```
+
+**Throws:** If the chain is not running, the solver was started without a `signer`, or delegation
+fails. It also throws while the wallet lacks the gateway fee token on the chain (USDC, or USDT on BNB
+Chain), or the native the paymaster's one-time setup needs there. It needs at least 5 of the fee
+token, what one Permit2 signature lets the paymaster take for an op's gas. The message names what
+is missing.
+
 
 ## VaultController
 
@@ -585,7 +600,10 @@ history(limit?: number): Promise<WalletTx[]>
 
 `balances()` returns the last refreshed snapshot — `updatedAt` is `null` until the first refresh
 lands, and the shape is `{ updatedAt, chains: ChainBalanceRow[], hyperbridge? }`. Each chain's row
-covers the native token, USDC, USDT and every token in the orderbook's books. `send` redeems
+covers the native token, USDC, USDT and every token in the orderbook's books. Its `funding` says
+whether the wallet can fill there: `feeToken` (the gateway fee token and its balance), `nativeSetup`
+(native the paymaster's setup still needs, or `null`), `funded`, and `delegated`, which is true once
+fills are enabled. `send` redeems
 vault shares to the recipient when the token is held in a vault, and reports whether a paymaster
 sponsored the gas. `history` covers operator sends plus vault sweeps and redeems, newest first.
 

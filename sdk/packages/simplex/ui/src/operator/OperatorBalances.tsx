@@ -95,8 +95,7 @@ export function OperatorBalances(props: { status: StatusOperator; balances: Bala
 				<>
 					<div className="operator-balance-focus">
 						<span className="operator-balance-focus-network">
-							Showing <strong>{label}</strong> only ·{" "}
-							{status.watchOnly[selected.chainId] ? "Observe only" : "Filling enabled"}
+							Showing <strong>{label}</strong> only · {fillsLabel(selected)}
 						</span>
 						<BalanceValue
 							label="Network gas"
@@ -143,7 +142,7 @@ function networkOption(row: ChainBalances, status: StatusOperator, snapshot: Sna
 		value: String(row.chainId),
 		label,
 		leading: <ChainLogo label={label} />,
-		description: status.watchOnly[row.chainId] ? "Observe only" : "Filling enabled",
+		description: fillsLabel(row),
 		trailing: stables === null ? "Unavailable" : formatStables(stables),
 	}
 }
@@ -222,6 +221,11 @@ function BalancePart(props: { label: string; value: number | null; note?: string
 			</dd>
 		</div>
 	)
+}
+
+/** Whether fills are enabled on a chain: the wallet is delegated there. */
+function fillsLabel(row: ChainBalances): string {
+	return row.funding?.delegated ? "Fills enabled" : "Fills not enabled"
 }
 
 function chainLabel(status: StatusOperator, chainId: number): string {

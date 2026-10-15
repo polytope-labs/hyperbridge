@@ -1,0 +1,46 @@
+# The governance API and the SubSquare frontend. The governance indexer they read is deployed with the
+# rest of the indexer (sdk/packages/indexer, its generated hyperbridge-nexus-governance service), and
+# DATABASE_URL points at the same Postgres.
+#
+# Build the API binary on Linux first, as the other images in scripts/docker expect:
+#   cargo build --release -p governance-api
+# Copy SubSquare's off-chain content into the forum, safe to repeat:
+#   docker compose run --rm governance-api import
+#
+# Settings, from the environment or a .env file next to this one:
+#   DATABASE_URL   the indexer's Postgres; the API reads its governance schema and adds a forum schema
+#   ADMINS         comma separated addresses allowed to moderate the forum
+#   SITE_URL       public address of the forum, such as https://governance.hyperbridge.network
+#   API_URL        public address of the API; browsers call it directly for some writes
+#   SUBSQUARE_PATH where the SubSquare fork is checked out, ../../subsquare by default
+#   WALLETCONNECT_PROJECT_ID, API_PORT and FRONTEND_PORT are optional
+services:
+  governance-api:
+    build:
+      context: ..
+      dockerfile: scripts/docker/governance-api.Dockerfile
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      ADMINS: ${ADMINS:-}
+      PORT: 7071
+      RUST_LOG: ${RUST_LOG:-info}
+    ports:
+      - ${API_PORT:-7071}:7071
+
+  governance-frontend:
+    build:
+      context: ${SUBSQUARE_PATH:-../../subsquare}
+      args:
+        NEXT_PUBLIC_API_END_POINT: ${SITE_URL}/
+        NEXT_PUBLIC_BACKEND_API_END_POINT: ${API_URL}/
+        NEXT_PUBLIC_SITE_URL: ${SITE_URL}
+        NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID: ${WALLETCONNECT_PROJECT_ID:-}
+    restart: unless-stopped
+    depends_on:
+      - governance-api
+    environment:
+      # The frontend's /api proxy reads this when it starts as well as at build time
+      NEXT_PUBLIC_BACKEND_API_END_POINT: ${API_URL}/
+    ports:
+      - ${FRONTEND_PORT:-7001}:7001

@@ -1,3 +1,4 @@
+mod crypto;
 mod db;
 mod error;
 mod primitives;
@@ -19,7 +20,15 @@ async fn main() -> anyhow::Result<()> {
 
 	let database_url = env::var("DATABASE_URL").context("DATABASE_URL is not set")?;
 	let db = db::connect(&database_url).await?;
-	let app = routes::router(AppState { db: Arc::new(db) }).layer(CorsLayer::permissive());
+	let admins = env::var("ADMINS")
+		.unwrap_or_default()
+		.split(',')
+		.map(str::trim)
+		.filter(|admin| !admin.is_empty())
+		.map(str::to_owned)
+		.collect();
+	let app = routes::router(AppState { db: Arc::new(db), admins: Arc::new(admins) })
+		.layer(CorsLayer::permissive());
 
 	let port = env::var("PORT").unwrap_or_else(|_| "7071".into());
 	tracing::info!(target: LOG_TARGET, "Starting server on port: {port}");

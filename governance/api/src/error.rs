@@ -15,6 +15,14 @@ impl ApiError {
 	pub fn not_found(what: &str) -> Self {
 		Self { status: StatusCode::NOT_FOUND, message: format!("{what} not found") }
 	}
+
+	pub fn bad_request(message: impl Into<String>) -> Self {
+		Self { status: StatusCode::BAD_REQUEST, message: message.into() }
+	}
+
+	pub fn unauthorized() -> Self {
+		Self { status: StatusCode::UNAUTHORIZED, message: "Please login".into() }
+	}
 }
 
 impl IntoResponse for ApiError {

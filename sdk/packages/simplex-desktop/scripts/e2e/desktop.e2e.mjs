@@ -433,7 +433,9 @@ for (const scenario of ["native-crash", "delayed-crash-event", "navigation-failu
 	const { writeFileSync } = require("node:fs");
 	const result = { injected: false, recovered: false, startupErrors: [] };
 	const events = [];
-	const record = (event, contents, detail) => events.push({ event, crashed: contents && !contents.isDestroyed() ? contents.isCrashed() : null, detail });
+	const record = (event, contents, detail) => events.push({ event, time: Date.now(), crashed: contents && !contents.isDestroyed() ? contents.isCrashed() : null, detail });
+	const quit = app.quit.bind(app);
+	app.quit = () => setTimeout(quit, 1000);
 	const scenario = ${JSON.stringify(scenario)};
 	if (scenario === "navigation-failure") {
 	  BrowserWindow.prototype.loadURL = async () => {
@@ -445,7 +447,12 @@ for (const scenario of ["native-crash", "delayed-crash-event", "navigation-failu
 	protocol.handle = (scheme, handler) => handle(scheme, async request => {
 	  if (request.url === "simplex://local/" && !result.injected) {
 	    result.injected = true;
-	    setTimeout(() => BrowserWindow.getAllWindows()[0].webContents.forcefullyCrashRenderer(), 10);
+	    record("protocol-request", BrowserWindow.getAllWindows()[0]?.webContents);
+	    setTimeout(() => {
+	      const contents = BrowserWindow.getAllWindows()[0].webContents;
+	      record("force-renderer-crash", contents);
+	      contents.forcefullyCrashRenderer();
+	    }, 10);
 	    await new Promise(resolve => setTimeout(resolve, 250));
 	  }
 	  return handler(request);
@@ -476,7 +483,7 @@ for (const scenario of ["native-crash", "delayed-crash-event", "navigation-failu
 	`,
 		)
 		const args = directElectronArguments(wrapper, userDataDir)
-		const { stdout } = await execFileAsync(electronExecutable, args, {
+		const { stdout, stderr } = await execFileAsync(electronExecutable, args, {
 			cwd: packageRoot,
 			timeout: 20_000,
 			env: { ...process.env, SIMPLEX_ERROR_REPORTING: "off" },
@@ -489,7 +496,7 @@ for (const scenario of ["native-crash", "delayed-crash-event", "navigation-failu
 			assert.equal(result.startupErrors[0].title, "Simplex could not start")
 			assert.match(result.startupErrors[0].message, /ERR_FAILED/)
 		} else {
-			assert.deepEqual(result, { injected: true, recovered: true, startupErrors: [] }, stdout)
+			assert.deepEqual(result, { injected: true, recovered: true, startupErrors: [] }, stdout + stderr)
 		}
 	})
 }

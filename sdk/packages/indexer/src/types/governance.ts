@@ -3,7 +3,7 @@ import type { Codec } from "@polkadot/types/types"
 
 // The parts of the governance pallets' storage that the governance indexer reads.
 
-interface Balance extends Codec {
+export interface Balance extends Codec {
 	toBigInt(): bigint
 }
 

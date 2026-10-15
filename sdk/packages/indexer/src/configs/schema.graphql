@@ -3268,6 +3268,11 @@ type GovernanceReferendum @entity {
 	support: BigInt!
 
 	"""
+	Active issuance at the referendum's last event, which support is measured against
+	"""
+	electorate: BigInt
+
+	"""
 	The last ongoing `ReferendumInfoFor` value, JSON encoded
 	"""
 	info: String
@@ -3335,7 +3340,7 @@ type GovernanceReferendumEvent @entity {
 }
 
 """
-Referendum tally after a block in which votes on it changed, used for the support and approval curves
+Referendum tally after a lifecycle event or a change in its votes, used for the support and approval curves
 """
 type GovernanceTallySnapshot @entity {
 	"""
@@ -3350,6 +3355,11 @@ type GovernanceTallySnapshot @entity {
 	nays: BigInt!
 
 	support: BigInt!
+
+	"""
+	Active issuance at this block
+	"""
+	electorate: BigInt!
 
 	blockNumber: Int! @index
 

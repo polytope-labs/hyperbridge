@@ -82,6 +82,10 @@ const votingFor = new Map<string, [number, unknown][]>()
 			},
 		},
 		referenda: { referendumInfoFor: jest.fn(async () => ongoing(5n)) },
+		balances: {
+			totalIssuance: jest.fn(async () => balance(100n)),
+			inactiveIssuance: jest.fn(async () => balance(40n)),
+		},
 	},
 }
 
@@ -154,7 +158,7 @@ describe("GovernanceService", () => {
 			nayBalance: 3n,
 		})
 		expect(records.get(`GovernanceVoteCall:100-3-1`)).toMatchObject({ account: ALICE, removed: false })
-		expect(records.get("GovernanceTallySnapshot:1-100")).toMatchObject({ ayes: 5n })
+		expect(records.get("GovernanceTallySnapshot:1-100")).toMatchObject({ ayes: 5n, electorate: 60n })
 		expect(JSON.parse(records.get("GovernanceReferendum:1").info)).toEqual({ tally: { ayes: "5" } })
 	})
 

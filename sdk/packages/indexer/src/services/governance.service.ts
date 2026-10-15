@@ -20,6 +20,7 @@ import {
 } from "@/configs/src/types"
 import type {
 	AccountVote,
+	Balance,
 	CollectiveVotes,
 	PreimageRequestStatus,
 	ReferendumInfo as ReferendumInfoValue,
@@ -123,9 +124,11 @@ export class GovernanceService {
 			await this.syncTracks(position)
 		}
 
-		const tally = this.tally(info) ?? this.eventTally(args.tally)
+		const ongoingTally = this.tally(info)
+		const tally = ongoingTally ?? this.eventTally(args.tally)
 		if (tally) Object.assign(referendum, tally)
 		referendum.info = this.ongoingInfo(info) ?? referendum.info
+		referendum.electorate = await this.electorate()
 		if (event.event.method === "Confirmed") referendum.enactmentTask = this.enactmentTask(index)
 		referendum.state = event.event.method
 		referendum.isFinal = info.isNone || !info.unwrap().isOngoing
@@ -133,6 +136,7 @@ export class GovernanceService {
 
 		await referendum.save()
 		await this.saveReferendumEvent(referendum.id, event.event.method, args, position)
+		if (ongoingTally) await this.saveTallySnapshot(referendum.id, ongoingTally, referendum.electorate, position)
 	}
 
 	/** Refreshes the track definitions, which only change with a runtime upgrade. */
@@ -248,7 +252,7 @@ export class GovernanceService {
 		}
 
 		for (const index of changed) {
-			await this.saveTallySnapshot(index, position)
+			await this.refreshTally(index, position)
 		}
 	}
 
@@ -344,7 +348,31 @@ export class GovernanceService {
 		}
 	}
 
-	static async saveTallySnapshot(index: number, position: EventPosition): Promise<void> {
+	/** The active issuance, which conviction voting measures turnout and support against. */
+	static async electorate(): Promise<bigint> {
+		const total: Balance = await api.query.balances.totalIssuance()
+		const inactive: Balance = await api.query.balances.inactiveIssuance()
+		return total.toBigInt() - inactive.toBigInt()
+	}
+
+	static async saveTallySnapshot(
+		referendumId: string,
+		tally: ReferendumTally,
+		electorate: bigint,
+		position: EventPosition,
+	): Promise<void> {
+		await GovernanceTallySnapshot.create({
+			id: `${referendumId}-${position.blockNumber}`,
+			referendumId,
+			...tally,
+			electorate,
+			blockNumber: position.blockNumber,
+			timestamp: position.timestamp,
+		}).save()
+	}
+
+	/** Records a referendum's tally after votes on it changed in this block. */
+	static async refreshTally(index: number, position: EventPosition): Promise<void> {
 		const info = await api.query.referenda.referendumInfoFor<ReferendumInfo>(index)
 		const tally = this.tally(info)
 		const referendum = await GovernanceReferendum.get(String(index))
@@ -352,15 +380,10 @@ export class GovernanceService {
 
 		Object.assign(referendum, tally)
 		referendum.info = this.ongoingInfo(info)
+		referendum.electorate = await this.electorate()
 		referendum.updatedBlock = position.blockNumber
 		await referendum.save()
-		await GovernanceTallySnapshot.create({
-			id: `${index}-${position.blockNumber}`,
-			referendumId: referendum.id,
-			...tally,
-			blockNumber: position.blockNumber,
-			timestamp: position.timestamp,
-		}).save()
+		await this.saveTallySnapshot(referendum.id, tally, referendum.electorate, position)
 	}
 
 	static async handleTechnicalCollectiveEvent(event: SubstrateEvent): Promise<void> {

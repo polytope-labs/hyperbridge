@@ -17,6 +17,8 @@ const requiredArtifacts = [
 	resolve(packagesRoot, "simplex/dist/ui/icons/mobile-logo.svg"),
 	resolve(packagesRoot, "simplex/src/proto/mpcvault/platform/v1/api.ts"),
 	resolve(desktopRoot, "dist/main.js"),
+	resolve(desktopRoot, "dist/main.js.map"),
+	resolve(desktopRoot, "dist/bootstrap.js"),
 	resolve(desktopRoot, "THIRD-PARTY-NOTICES.md"),
 	resolve(desktopRoot, "resources/icon.icns"),
 	resolve(desktopRoot, "resources/icon.ico"),

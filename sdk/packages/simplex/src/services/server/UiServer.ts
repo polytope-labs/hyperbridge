@@ -7,6 +7,7 @@ import { resolve as resolvePath } from "node:path"
 import type { Duplex } from "node:stream"
 import { formatChainKey, parseChainKey } from "@/config/interpolated-curve"
 import { hyperbridgeBundlerUrl } from "@/config/bundlers"
+import { ERROR_REPORTING_ENV, errorReportingDisabled } from "@/config/error-reporting"
 import { AssetRegistry, registrySymbols } from "@/config/asset-registry"
 import { VaultFundingPlanner, type VaultSweepResult } from "@/funding/vault/VaultFundingPlanner"
 import { chainByChainId, chainsForNetwork, INIT_CHAINS, nativeTokenSymbol, type InitNetwork } from "@/cli/init/chains"
@@ -871,6 +872,8 @@ export class UiServer {
 				mode: this.mode,
 				pid: process.pid,
 				...(this.configEncrypted ? { configEncrypted: true } : {}),
+				// The web UI reads this before it sends any error report.
+				...(errorReportingDisabled(process.env[ERROR_REPORTING_ENV]) ? { errorReporting: false } : {}),
 			})
 		}
 

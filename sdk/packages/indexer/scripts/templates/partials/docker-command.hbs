@@ -4,15 +4,15 @@
 - --workers=${SUBQL_WORKERS:-16}
 - --batch-size=${SUBQL_BATCH_SIZE:-100}
 - --timeout=${SUBQL_TIMEOUT:-1800}
+{{#unless governance}}
 - --multi-chain
+{{/unless}}
 {{#if allowSchemaMigration}}
 - --allow-schema-migration
 {{/if}}
 - --unsafe
-{{#if skipTransactions}}
+{{#if governance}}
 - --skipTransactions
-{{/if}}
-{{#if disableHistorical}}
 - --historical=false
 {{/if}}
 - --log-level=info

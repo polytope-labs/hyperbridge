@@ -57,10 +57,9 @@ const generateNodeServices = () => {
 				...serviceData,
 				chainName: `${chainName}-governance`,
 				dbSchema: "governance",
-				// Governance only has event handlers, so the node can skip decoding extrinsics
-				skipTransactions: true,
-				// It only indexes finalized blocks, so it never rewinds and needs no historical rows
-				disableHistorical: true,
+				// A standalone project with only event handlers over finalized blocks, so the node runs
+				// without multichain metadata, extrinsic decoding or historical rows
+				governance: true,
 			})
 		}
 	})

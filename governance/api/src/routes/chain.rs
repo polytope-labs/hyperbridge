@@ -38,10 +38,11 @@ pub async fn scan_height_stream(State(state): State<AppState>, RawQuery(query): 
 		if !first {
 			tokio::time::sleep(Duration::from_millis(interval)).await;
 		}
+		// A failed read skips this beat instead of ending the stream, so it recovers on its own
 		let line = indexed_height(&state)
 			.await
 			.map(|height| format!("{{\"value\":{height}}}\n"))
-			.ok()?;
+			.unwrap_or_default();
 		Some((Ok::<_, Infallible>(line), (state, false)))
 	}))
 }

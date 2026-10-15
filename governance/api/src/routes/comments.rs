@@ -6,7 +6,11 @@ use serde::Deserialize;
 use serde_json::{Map, Value};
 use tokio_postgres::Row;
 
-use super::{auth::Session, posts::reactions, AppState, Params};
+use super::{
+	auth::Session,
+	posts::{owner, reactions},
+	AppState, Params,
+};
 use crate::{
 	error::{ApiError, ApiResult},
 	primitives::{
@@ -14,8 +18,14 @@ use crate::{
 	},
 };
 
-const COMMENTS: &str = "SELECT id, post_kind, post_number, reply_to, author, content, content_type,
+const COMMENTS: &str =
+	"SELECT id, post_kind, post_number, reply_to, author, content, content_type, deleted,
 	ms(created_at) AS created_ms, ms(updated_at) AS updated_ms FROM comments";
+
+// A deleted top level comment stays in the thread while it has replies, so they keep their context
+const SHOWN_ROOTS: &str = "reply_to IS NULL AND (NOT deleted OR EXISTS
+	(SELECT 1 FROM comments reply WHERE reply.reply_to = comments.id AND NOT reply.deleted))";
+const DELETED: &str = "_This comment was deleted._";
 const MAX_PAGE_SIZE: i64 = 200;
 
 /// A comment as SubSquare returns it. `height` is its position among the post's comments, which the
@@ -27,7 +37,14 @@ fn comment(row: &Row, height: i64, reactions: Value, replies: Vec<Value>) -> Val
 		("_id", comment_id(row.get("id")).into()),
 		(kind.post_type(), post_id(kind, row.get("post_number")).into()),
 		("replyToComment", row.get::<_, Option<i64>>("reply_to").map(comment_id).into()),
-		("content", row.get::<_, String>("content").into()),
+		(
+			"content",
+			if row.get::<_, bool>("deleted") {
+				DELETED.into()
+			} else {
+				row.get::<_, String>("content").into()
+			},
+		),
 		("contentType", row.get::<_, String>("content_type").into()),
 		("contentVersion", "2".into()),
 		("author", author(&row.get::<_, String>("author"))),
@@ -81,7 +98,7 @@ pub async fn list(
 	let total = state
 		.db
 		.query_one(
-			"SELECT count(*) FROM comments WHERE post_kind = $1 AND post_number = $2 AND reply_to IS NULL AND NOT deleted",
+			&format!("SELECT count(*) FROM comments WHERE post_kind = $1 AND post_number = $2 AND {SHOWN_ROOTS}"),
 			&[&(kind as i16), &number],
 		)
 		.await?
@@ -97,7 +114,7 @@ pub async fn list(
 		.db
 		.query(
 			&format!(
-				"{COMMENTS} WHERE post_kind = $1 AND post_number = $2 AND reply_to IS NULL AND NOT deleted
+				"{COMMENTS} WHERE post_kind = $1 AND post_number = $2 AND {SHOWN_ROOTS}
 				ORDER BY id LIMIT {page_size} OFFSET {offset}"
 			),
 			&[&(kind as i16), &number],
@@ -270,6 +287,108 @@ pub async fn delete(
 	state
 		.db
 		.execute("UPDATE comments SET deleted = TRUE WHERE id = $1", &[&row.get::<_, i64>("id")])
+		.await?;
+	Ok(Json(true))
+}
+
+const APPENDANTS: &str = "SELECT id, referendum_index, author, content, content_type,
+	ms(created_at) AS created_ms, ms(updated_at) AS updated_ms FROM appendants";
+
+fn appendant(row: &Row) -> Value {
+	serde_json::json!({
+		"_id": row.get::<_, i64>("id").to_string(),
+		"referendumIndex": row.get::<_, i32>("referendum_index"),
+		"content": row.get::<_, String>("content"),
+		"contentType": row.get::<_, String>("content_type"),
+		"author": author(&row.get::<_, String>("author")),
+		"createdAt": iso(row.get("created_ms")),
+		"updatedAt": iso(row.get("updated_ms")),
+	})
+}
+
+pub async fn appendants(
+	State(state): State<AppState>,
+	Path(index): Path<i32>,
+) -> ApiResult<Json<Vec<Value>>> {
+	let rows = state
+		.db
+		.query(
+			&format!("{APPENDANTS} WHERE referendum_index = $1 AND NOT deleted ORDER BY id"),
+			&[&index],
+		)
+		.await?;
+	Ok(Json(rows.iter().map(appendant).collect()))
+}
+
+/// Adds a note to a referendum, which only its proposer or an admin may do.
+pub async fn append(
+	State(state): State<AppState>,
+	session: Session,
+	Path(index): Path<i32>,
+	Json(input): Json<CommentInput>,
+) -> ApiResult<Json<Value>> {
+	input.validate()?;
+	let proposer = owner(&state, PostKind::Referendum, index.into()).await?;
+	if proposer.as_deref() != Some(session.address.as_str()) &&
+		!state.admins.contains(&session.address)
+	{
+		return Err(ApiError::forbidden());
+	}
+	let id = state
+		.db
+		.query_one(
+			"INSERT INTO appendants (referendum_index, author, content, content_type) VALUES ($1, $2, $3, $4)
+			RETURNING id",
+			&[&index, &session.address, &input.content, &input.content_type],
+		)
+		.await?
+		.get::<_, i64>(0);
+	let row = state.db.query_one(&format!("{APPENDANTS} WHERE id = $1"), &[&id]).await?;
+	Ok(Json(appendant(&row)))
+}
+
+/// The appendant a write route addresses, checked to be the signed in account's own or an admin's
+/// to change.
+async fn own_appendant(state: &AppState, session: &Session, id: &str) -> ApiResult<i64> {
+	let id = id.parse::<i64>().map_err(|_| ApiError::not_found("Appendant"))?;
+	let row = state
+		.db
+		.query_opt("SELECT author FROM appendants WHERE id = $1 AND NOT deleted", &[&id])
+		.await?
+		.ok_or_else(|| ApiError::not_found("Appendant"))?;
+	if row.get::<_, String>(0) != session.address && !state.admins.contains(&session.address) {
+		return Err(ApiError::forbidden());
+	}
+	Ok(id)
+}
+
+pub async fn edit_appendant(
+	State(state): State<AppState>,
+	session: Session,
+	Path(id): Path<String>,
+	Json(input): Json<CommentInput>,
+) -> ApiResult<Json<bool>> {
+	input.validate()?;
+	let id = own_appendant(&state, &session, &id).await?;
+	state
+		.db
+		.execute(
+			"UPDATE appendants SET content = $2, content_type = $3, updated_at = NOW() WHERE id = $1",
+			&[&id, &input.content, &input.content_type],
+		)
+		.await?;
+	Ok(Json(true))
+}
+
+pub async fn delete_appendant(
+	State(state): State<AppState>,
+	session: Session,
+	Path(id): Path<String>,
+) -> ApiResult<Json<bool>> {
+	let id = own_appendant(&state, &session, &id).await?;
+	state
+		.db
+		.execute("UPDATE appendants SET deleted = TRUE WHERE id = $1", &[&id])
 		.await?;
 	Ok(Json(true))
 }

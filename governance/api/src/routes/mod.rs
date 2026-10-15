@@ -6,6 +6,7 @@ pub mod files;
 mod motions;
 mod posts;
 mod referenda;
+mod signed;
 mod spends;
 mod statistics;
 mod users;
@@ -21,7 +22,13 @@ use axum::{
 };
 use tokio_postgres::Client;
 
-use crate::{error::ApiError, primitives::Paging};
+use axum::{extract::State, Json};
+
+use self::{signed::SignedEntity, users::ProfileField};
+use crate::{
+	error::{ApiError, ApiResult},
+	primitives::Paging,
+};
 
 #[derive(Clone)]
 pub struct AppState {
@@ -38,6 +45,21 @@ pub fn router(state: AppState) -> Router {
 		.route("/user/profile", get(users::me))
 		.route("/users/:address", get(users::user))
 		.route("/admins", get(users::admins))
+		.route("/user/bio", post(|state, body| profile(state, ProfileField::Bio, true, body)))
+		.route(
+			"/user/bio/unset",
+			post(|state, body| profile(state, ProfileField::Bio, false, body)),
+		)
+		.route("/user/banner", post(|state, body| profile(state, ProfileField::Banner, true, body)))
+		.route(
+			"/user/banner/unset",
+			post(|state, body| profile(state, ProfileField::Banner, false, body)),
+		)
+		.route("/user/avatar", post(|state, body| profile(state, ProfileField::Avatar, true, body)))
+		.route(
+			"/user/avatar/unset",
+			post(|state, body| profile(state, ProfileField::Avatar, false, body)),
+		)
 		.route("/avatars", post(users::avatars))
 		.route(
 			"/s3/files",
@@ -76,7 +98,14 @@ pub fn router(state: AppState) -> Router {
 		.route("/gov2/referenda/:id/votes", get(votes::votes))
 		.route("/gov2/referenda/:id/actions", get(votes::actions))
 		.route("/gov2/referenda/:id/tally-history", get(votes::tally_history))
-		.route("/gov2/referenda/:id/appendants", get(posts::appendants))
+		.route("/gov2/referenda/:id/appendants", get(comments::appendants).post(comments::append))
+		.route(
+			"/appendants/:id",
+			patch(comments::edit_appendant).delete(comments::delete_appendant),
+		)
+		.route("/delegation/referenda/delegates", get(statistics::delegates))
+		.route("/delegation/announcements", post(statistics::announce))
+		.route("/delegation/announcements/unset", post(statistics::unannounce))
 		.route("/referenda/summary", get(statistics::summary))
 		.route("/referenda/tracks", get(statistics::tracks))
 		.route("/referenda/delegatee", get(statistics::all_delegatees))
@@ -105,6 +134,15 @@ pub fn router(state: AppState) -> Router {
 				.route(&format!("/{prefix}/:id/reaction"), put(posts::react).delete(posts::unreact))
 		});
 	router.fallback(unknown_route).with_state(state)
+}
+
+async fn profile(
+	State(state): State<AppState>,
+	field: ProfileField,
+	set: bool,
+	Json(signed): Json<SignedEntity>,
+) -> ApiResult<Json<bool>> {
+	users::update_profile(&state, field, set, signed).await
 }
 
 /// Logs requests for routes this API does not serve, so pages relying on them are easy to find.

@@ -162,7 +162,7 @@ pub async fn create(
 }
 
 /// Who may write a post: a discussion's author, or the proposer of the on-chain item it describes.
-async fn owner(state: &AppState, kind: PostKind, number: i64) -> ApiResult<Option<String>> {
+pub async fn owner(state: &AppState, kind: PostKind, number: i64) -> ApiResult<Option<String>> {
 	let query = match kind {
 		PostKind::Discussion => "SELECT author FROM posts WHERE kind = 0 AND number = $1",
 		PostKind::Referendum =>
@@ -326,10 +326,4 @@ pub async fn unreact(
 		)
 		.await?;
 	Ok(Json(true))
-}
-
-/// Notes a proposer appends to their referendum. Writing them is not supported yet, so there are
-/// none.
-pub async fn appendants() -> Json<Vec<Value>> {
-	Json(Vec::new())
 }

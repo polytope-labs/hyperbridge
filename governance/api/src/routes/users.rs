@@ -7,7 +7,9 @@ use serde_json::{json, Value};
 
 use super::{
 	auth::{ConnectedAccount, Session},
-	posts, referenda, with_param, AppState,
+	posts, referenda,
+	signed::SignedEntity,
+	with_param, AppState,
 };
 use crate::{
 	error::{ApiError, ApiResult},
@@ -132,4 +134,62 @@ pub async fn discussions(
 	RawQuery(query): RawQuery,
 ) -> ApiResult<Json<Page<Value>>> {
 	posts::list(state, RawQuery(Some(with_param(query, &format!("author={address}"))))).await
+}
+
+/// A profile field an account sets by signing with its wallet, and the entity field carrying it.
+#[derive(Clone, Copy)]
+pub enum ProfileField {
+	Bio,
+	Banner,
+	Avatar,
+}
+
+impl ProfileField {
+	fn column(self) -> &'static str {
+		match self {
+			Self::Bio => "bio",
+			Self::Banner => "banner_cid",
+			Self::Avatar => "avatar_cid",
+		}
+	}
+
+	fn actions(self) -> (&'static str, &'static str, &'static str) {
+		match self {
+			Self::Bio => ("set-profile-bio", "unset-profile-bio", "bio"),
+			Self::Banner => ("set-profile-banner", "unset-profile-banner", "CID"),
+			Self::Avatar => ("set-avatar", "unset-avatar", "CID"),
+		}
+	}
+}
+
+/// Sets or clears a profile field from a wallet signed request.
+pub async fn update_profile(
+	state: &AppState,
+	field: ProfileField,
+	set: bool,
+	signed: SignedEntity,
+) -> ApiResult<Json<bool>> {
+	let (set_action, unset_action, key) = field.actions();
+	let entity = signed.verify(if set { set_action } else { unset_action })?;
+	let value = if set {
+		let value = entity[key].as_str().unwrap_or_default().trim();
+		if value.is_empty() || value.chars().count() > 2_000 {
+			return Err(ApiError::bad_request("The value must be between 1 and 2000 characters"));
+		}
+		Some(value.to_owned())
+	} else {
+		None
+	};
+	state
+		.db
+		.execute(
+			&format!(
+				"INSERT INTO users (address, {column}) VALUES ($1, $2)
+				ON CONFLICT (address) DO UPDATE SET {column} = $2",
+				column = field.column()
+			),
+			&[&signed.address, &value],
+		)
+		.await?;
+	Ok(Json(true))
 }

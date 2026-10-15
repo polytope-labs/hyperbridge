@@ -7,10 +7,14 @@ use axum::{
 use serde_json::{json, Value};
 
 use super::{
-	votes::{referendum_stats, with_conviction},
+	signed::SignedEntity,
+	votes::{participation, referendum_stats, with_conviction},
 	AppState, Params,
 };
-use crate::{error::ApiResult, primitives::Page};
+use crate::{
+	error::{ApiError, ApiResult},
+	primitives::Page,
+};
 
 /// A delegation that is in force now.
 struct Delegation {
@@ -246,18 +250,100 @@ pub async fn track_delegators(
 }
 
 /// What the delegation pages show about an account others may delegate to.
+async fn delegate_summary(
+	state: &AppState,
+	address: &str,
+	delegations: &[Delegation],
+) -> ApiResult<Value> {
+	let to_address = delegations.iter().filter(|d| d.target == address);
+	let delegators = to_address.clone().map(|d| &d.delegator).collect::<BTreeSet<_>>().len();
+	let tracks = to_address.map(|d| d.track).collect::<BTreeSet<_>>().len();
+	let manifesto = state
+		.db
+		.query_opt(
+			"SELECT short_description, long_description FROM delegate_announcements WHERE address = $1",
+			&[&address],
+		)
+		.await?
+		.map(|row| json!({ "shortDescription": row.get::<_, String>(0), "longDescription": row.get::<_, String>(1) }));
+	Ok(json!({
+		"address": address,
+		"delegatorsCount": delegators,
+		"maxTrackDelegations": tracks,
+		"participationRate": participation(state, address).await?,
+		"manifesto": manifesto,
+	}))
+}
+
 pub async fn delegate(
 	State(state): State<AppState>,
 	Path(address): Path<String>,
 ) -> ApiResult<Json<Value>> {
 	let delegations = delegations(&state, None).await?;
-	let to_address = delegations.iter().filter(|d| d.target == address);
-	let delegators = to_address.clone().map(|d| &d.delegator).collect::<BTreeSet<_>>().len();
-	let tracks = to_address.map(|d| d.track).collect::<BTreeSet<_>>().len();
-	Ok(Json(json!({
-		"address": address,
-		"delegatorsCount": delegators,
-		"maxTrackDelegations": tracks,
-		"manifesto": null,
-	})))
+	Ok(Json(delegate_summary(&state, &address, &delegations).await?))
+}
+
+/// Accounts that announced themselves as delegates or already have delegations, most delegated
+/// first.
+pub async fn delegates(
+	State(state): State<AppState>,
+	RawQuery(query): RawQuery,
+) -> ApiResult<Json<Page<Value>>> {
+	let paging = Params::new(query).paging(18);
+	let delegations = delegations(&state, None).await?;
+	let announced = state.db.query("SELECT address FROM delegate_announcements", &[]).await?;
+	let addresses = announced
+		.iter()
+		.map(|row| row.get::<_, String>(0))
+		.chain(delegations.iter().map(|d| d.target.clone()))
+		.collect::<BTreeSet<_>>();
+
+	let mut items = Vec::with_capacity(addresses.len());
+	for address in &addresses {
+		items.push(delegate_summary(&state, address, &delegations).await?);
+	}
+	items.sort_by_key(|item| std::cmp::Reverse(item["delegatorsCount"].as_u64()));
+	let total = items.len() as i64;
+	let page = items
+		.into_iter()
+		.skip(paging.offset() as usize)
+		.take(paging.page_size as usize)
+		.collect();
+	Ok(Json(paging.page(page, total)))
+}
+
+/// Publishes the signing account's delegate announcement.
+pub async fn announce(
+	State(state): State<AppState>,
+	Json(signed): Json<SignedEntity>,
+) -> ApiResult<Json<bool>> {
+	let entity = signed.verify("set-delegation-announcement")?;
+	let text = |key: &str| entity[key].as_str().unwrap_or_default().trim().to_owned();
+	let (short, long) = (text("shortDescription"), text("longDescription"));
+	if short.is_empty() || short.chars().count() > 256 || long.chars().count() > 20_000 {
+		return Err(ApiError::bad_request(
+			"The announcement needs a short description of up to 256 characters",
+		));
+	}
+	state
+		.db
+		.execute(
+			"INSERT INTO delegate_announcements (address, short_description, long_description) VALUES ($1, $2, $3)
+			ON CONFLICT (address) DO UPDATE SET short_description = $2, long_description = $3, updated_at = NOW()",
+			&[&signed.address, &short, &long],
+		)
+		.await?;
+	Ok(Json(true))
+}
+
+pub async fn unannounce(
+	State(state): State<AppState>,
+	Json(signed): Json<SignedEntity>,
+) -> ApiResult<Json<bool>> {
+	signed.verify("unset-delegation-announcement")?;
+	state
+		.db
+		.execute("DELETE FROM delegate_announcements WHERE address = $1", &[&signed.address])
+		.await?;
+	Ok(Json(true))
 }

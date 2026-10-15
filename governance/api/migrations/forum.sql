@@ -60,6 +60,26 @@ CREATE TABLE IF NOT EXISTS forum.files (
 	created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+-- What an account says about itself as someone others can delegate their votes to
+CREATE TABLE IF NOT EXISTS forum.delegate_announcements (
+	address TEXT PRIMARY KEY,
+	short_description TEXT NOT NULL,
+	long_description TEXT NOT NULL,
+	updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- Notes a proposer adds to their referendum after submitting it
+CREATE TABLE IF NOT EXISTS forum.appendants (
+	id BIGSERIAL PRIMARY KEY,
+	referendum_index INT NOT NULL,
+	author TEXT NOT NULL,
+	content TEXT NOT NULL,
+	content_type TEXT NOT NULL DEFAULT 'markdown',
+	deleted BOOLEAN NOT NULL DEFAULT FALSE,
+	created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+	updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 CREATE TABLE IF NOT EXISTS forum.users (
 	address TEXT PRIMARY KEY,
 	avatar_cid TEXT,

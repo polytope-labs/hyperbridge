@@ -407,6 +407,20 @@ pub async fn user_vote_calls(
 	Ok(Json(paging.page(items, total)))
 }
 
+/// The share of referenda an account voted on.
+pub async fn participation(state: &AppState, account: &str) -> ApiResult<f64> {
+	let row = state
+		.db
+		.query_one(
+			"SELECT (SELECT count(DISTINCT referendum_index) FROM governance_vote_calls WHERE account = $1),
+				(SELECT count(*) FROM governance_referendums)",
+			&[&account],
+		)
+		.await?;
+	let (voted, referenda) = (row.get::<_, i64>(0), row.get::<_, i64>(1));
+	Ok(if referenda == 0 { 0.0 } else { voted as f64 / referenda as f64 })
+}
+
 /// How much an account takes part: votes held, votes cast and the share of referenda it voted on.
 pub async fn user_vote_stats(
 	State(state): State<AppState>,
@@ -415,18 +429,14 @@ pub async fn user_vote_stats(
 	let row = state
 		.db
 		.query_one(
-			"SELECT
-				(SELECT count(*) FROM governance_votes WHERE account = $1) AS votes,
-				(SELECT count(*) FROM governance_vote_calls WHERE account = $1 AND NOT removed) AS calls,
-				(SELECT count(DISTINCT referendum_index) FROM governance_vote_calls WHERE account = $1) AS voted,
-				(SELECT count(*) FROM governance_referendums) AS referenda",
+			"SELECT (SELECT count(*) FROM governance_votes WHERE account = $1),
+				(SELECT count(*) FROM governance_vote_calls WHERE account = $1 AND NOT removed)",
 			&[&account],
 		)
 		.await?;
-	let (voted, referenda) = (row.get::<_, i64>("voted"), row.get::<_, i64>("referenda"));
 	Ok(Json(json!({
-		"totalVotes": row.get::<_, i64>("votes"),
-		"totalCalls": row.get::<_, i64>("calls"),
-		"participationRate": if referenda == 0 { 0.0 } else { voted as f64 / referenda as f64 },
+		"totalVotes": row.get::<_, i64>(0),
+		"totalCalls": row.get::<_, i64>(1),
+		"participationRate": participation(&state, &account).await?,
 	})))
 }

@@ -9,11 +9,12 @@ use super::{
 	common::{
 		decimal, item_index, last_event, parse, post_fields, post_joins, timeline, POST_COLUMNS,
 	},
+	posts::post_reactions,
 	AppState, Params,
 };
 use crate::{
 	error::{ApiError, ApiResult},
-	primitives::{Page, Paging, PostKind},
+	primitives::{post_id, Page, Paging, PostKind},
 };
 
 // A referendum's stage while it is live, read from the last ongoing `ReferendumInfoFor` value.
@@ -219,7 +220,8 @@ pub async fn detail(
 
 	detail["onchainData"]["timeline"] = timeline.into();
 	detail["authors"] = json!([detail["proposer"]]);
-	detail["reactions"] = json!([]);
+	detail["reactions"] =
+		post_reactions(&state, post_id(PostKind::Referendum, index.into())).await?;
 	Ok(Json(detail))
 }
 

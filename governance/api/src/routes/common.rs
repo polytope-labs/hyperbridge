@@ -15,14 +15,14 @@ pub const POST_COLUMNS: &str = "
 	l.name AS l_name, l.args AS l_args, l.block_number AS l_block, l.block_hash AS l_hash,
 	l.extrinsic_index AS l_extrinsic, l.event_index AS l_event, l.ms AS l_ms,
 	p.title, p.content, p.content_type, p.author, p.labels,
-	(extract(epoch FROM p.updated_at) * 1000)::bigint AS p_updated_ms,
+	ms(p.updated_at) AS p_updated_ms,
 	c.count AS comments_count, c.last_ms AS comment_ms";
 
 pub fn post_joins(events: &str, filter: &str, kind: PostKind, number: &str) -> String {
 	let event = |order: &str| {
 		format!(
 			"CROSS JOIN LATERAL (SELECT name, args, block_number, block_hash, extrinsic_index, event_index,
-				(extract(epoch FROM timestamp) * 1000)::bigint AS ms
+				ms(timestamp) AS ms
 			FROM {events} WHERE {filter} ORDER BY block_number {order}, event_index {order} LIMIT 1)"
 		)
 	};
@@ -30,7 +30,7 @@ pub fn post_joins(events: &str, filter: &str, kind: PostKind, number: &str) -> S
 	format!(
 		"{} s {} l
 		LEFT JOIN posts p ON p.kind = {kind} AND p.number = {number}
-		CROSS JOIN LATERAL (SELECT count(*) AS count, (extract(epoch FROM max(created_at)) * 1000)::bigint AS last_ms
+		CROSS JOIN LATERAL (SELECT count(*) AS count, ms(max(created_at)) AS last_ms
 			FROM comments WHERE post_kind = {kind} AND post_number = {number} AND NOT deleted) c",
 		event("ASC"),
 		event("DESC"),
@@ -88,7 +88,7 @@ pub async fn timeline(
 		.query(
 			&format!(
 				"SELECT name, args, block_number AS e_block, block_hash AS e_hash, extrinsic_index AS e_extrinsic,
-					event_index AS e_event, (extract(epoch FROM timestamp) * 1000)::bigint AS e_ms
+					event_index AS e_event, ms(timestamp) AS e_ms
 				FROM {events} WHERE {item_column} = $1 ORDER BY block_number, event_index"
 			),
 			&[&id],

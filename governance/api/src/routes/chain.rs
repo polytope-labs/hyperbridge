@@ -50,7 +50,9 @@ pub async fn summary(State(state): State<AppState>) -> ApiResult<Json<Value>> {
 		.query_one(
 			"SELECT
 				(SELECT count(*) FROM posts WHERE kind = 0 AND NOT hidden) AS discussions,
-				(SELECT count(*) FROM posts WHERE kind = 0 AND NOT hidden AND last_activity_at > NOW() - INTERVAL '7 days')
+				(SELECT count(*) FROM posts p WHERE kind = 0 AND NOT hidden AND GREATEST(p.created_at,
+					(SELECT max(created_at) FROM comments WHERE post_kind = 0 AND post_number = p.number))
+					> NOW() - INTERVAL '7 days')
 					AS active_discussions,
 				(SELECT count(*) FROM governance_referendums) AS referenda,
 				(SELECT count(*) FROM governance_referendums WHERE NOT is_final) AS active_referenda,

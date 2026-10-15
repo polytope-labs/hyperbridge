@@ -20,6 +20,10 @@ impl ApiError {
 		Self { status: StatusCode::BAD_REQUEST, message: message.into() }
 	}
 
+	pub fn forbidden() -> Self {
+		Self { status: StatusCode::FORBIDDEN, message: "You are not allowed to do this".into() }
+	}
+
 	pub fn unauthorized() -> Self {
 		Self { status: StatusCode::UNAUTHORIZED, message: "Please login".into() }
 	}

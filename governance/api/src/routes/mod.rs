@@ -1,14 +1,16 @@
 mod auth;
 mod chain;
+mod comments;
 mod common;
 mod motions;
+mod posts;
 mod referenda;
 mod users;
 
 use std::sync::Arc;
 
 use axum::{
-	routing::{get, post},
+	routing::{get, patch, post, put},
 	Router,
 };
 use tokio_postgres::Client;
@@ -23,7 +25,7 @@ pub struct AppState {
 }
 
 pub fn router(state: AppState) -> Router {
-	Router::new()
+	let router = Router::new()
 		.route("/auth/login/:id", get(auth::challenge).post(auth::login))
 		.route("/auth/logout", post(auth::logout))
 		.route("/user/status", get(users::status))
@@ -38,10 +40,28 @@ pub fn router(state: AppState) -> Router {
 		.route("/gov2/tracks/summary", get(referenda::tracks_summary))
 		.route("/gov2/referendums", get(referenda::list))
 		.route("/gov2/referendums/summary", get(referenda::summary))
-		.route("/gov2/referendums/:id", get(referenda::detail))
+		.route("/gov2/referendums/:id", get(referenda::detail).patch(posts::edit))
 		.route("/tech-comm/motions", get(motions::list))
-		.route("/tech-comm/motions/:id", get(motions::detail))
-		.with_state(state)
+		.route("/tech-comm/motions/:id", get(motions::detail).patch(posts::edit))
+		.route("/posts", get(posts::list).post(posts::create))
+		.route("/posts/:id", get(posts::detail).patch(posts::edit).delete(posts::delete))
+		.route("/posts/:id/hide", patch(posts::hide))
+		.route("/comments/:id", get(comments::get).patch(comments::edit).delete(comments::delete))
+		.route("/comments/:id/reaction", put(posts::react).delete(posts::unreact));
+
+	// Every kind of post shares its comment and reaction routes, the post id says which kind it is
+	let router = ["posts", "gov2/referendums", "tech-comm/motions", "treasury/spends"]
+		.into_iter()
+		.fold(router, |router, prefix| {
+			router
+				.route(
+					&format!("/{prefix}/:id/comments"),
+					get(comments::list).post(comments::create),
+				)
+				.route(&format!("/{prefix}/:id/comments/:comment/replies"), post(comments::reply))
+				.route(&format!("/{prefix}/:id/reaction"), put(posts::react).delete(posts::unreact))
+		});
+	router.with_state(state)
 }
 
 /// Query string pairs in order. SubSquare repeats keys such as `referendum_index` to send a list.

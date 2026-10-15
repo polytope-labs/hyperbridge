@@ -44,6 +44,16 @@ pub fn parse_post_id(id: &str) -> Option<(PostKind, i64)> {
 	Some((kind, i64::from_str_radix(&id[2..], 16).ok()?))
 }
 
+/// Comment ids take the same shape as post ids, under a prefix no post kind uses, so a reaction's
+/// target is never ambiguous.
+pub fn comment_id(id: i64) -> String {
+	format!("ff{id:022x}")
+}
+
+pub fn parse_comment_id(id: &str) -> Option<i64> {
+	i64::from_str_radix(id.strip_prefix("ff").filter(|rest| rest.len() == 22)?, 16).ok()
+}
+
 /// Milliseconds since the epoch as the ISO string SubSquare returns, such as
 /// `2025-12-05T08:44:18.000Z`.
 pub fn iso(millis: i64) -> String {

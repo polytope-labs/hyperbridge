@@ -1,5 +1,12 @@
 CREATE SCHEMA IF NOT EXISTS forum;
 
+-- Milliseconds since the epoch, which is how SubSquare reports block times. The indexer stores
+-- timestamps without a zone, in UTC.
+CREATE OR REPLACE FUNCTION forum.ms(t TIMESTAMPTZ) RETURNS BIGINT IMMUTABLE LANGUAGE SQL
+	AS $$ SELECT (extract(epoch FROM t) * 1000)::bigint $$;
+CREATE OR REPLACE FUNCTION forum.ms(t TIMESTAMP) RETURNS BIGINT IMMUTABLE LANGUAGE SQL
+	AS $$ SELECT (extract(epoch FROM t AT TIME ZONE 'UTC') * 1000)::bigint $$;
+
 -- Off-chain content for a discussion or an on-chain item. On-chain items are keyed by their index,
 -- discussions by a number drawn from the sequence below.
 CREATE TABLE IF NOT EXISTS forum.posts (
@@ -14,7 +21,6 @@ CREATE TABLE IF NOT EXISTS forum.posts (
 	hidden BOOLEAN NOT NULL DEFAULT FALSE,
 	created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 	updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-	last_activity_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 	PRIMARY KEY (kind, number)
 );
 

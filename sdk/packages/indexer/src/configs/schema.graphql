@@ -3247,6 +3247,11 @@ type GovernanceReferendum @entity {
 	proposalHash: String @index
 
 	"""
+	The proposed call decoded with the runtime of the block it became known in
+	"""
+	call: String
+
+	"""
 	Name of the last referenda event seen, such as Submitted, DecisionStarted or Confirmed
 	"""
 	state: String! @index

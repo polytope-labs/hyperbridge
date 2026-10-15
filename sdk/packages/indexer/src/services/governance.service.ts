@@ -110,6 +110,7 @@ export class GovernanceService {
 				proposer: info.unwrapOr(undefined)?.asOngoing.submissionDeposit.who.toString(),
 				proposal: JSON.stringify(args.proposal),
 				proposalHash: this.proposalHash(args.proposal),
+				call: await this.proposalCall(args.proposal),
 				state: "Submitted",
 				isFinal: false,
 				ayes: 0n,
@@ -448,18 +449,50 @@ export class GovernanceService {
 			GovernancePreimage.create({ id: hash, status: event.event.method, updatedBlock: position.blockNumber })
 
 		if (event.event.method === "Noted") {
-			const status = await api.query.preimage.requestStatusFor<Option<PreimageRequestStatus>>(hash)
-			const length = status.isSome ? this.preimageLength(status.unwrap()) : undefined
-			if (length !== undefined) {
-				const data = await api.query.preimage.preimageFor<Option<Codec>>([hash, length])
-				preimage.length = length
-				preimage.data = data.isSome ? data.unwrap().toHex() : undefined
-			}
+			const noted = await this.preimage(hash)
+			preimage.length = noted?.length
+			preimage.data = noted?.data.toHex()
 			preimage.notedBlock = position.blockNumber
+
+			// A referendum can be submitted before its preimage is noted, so its call is decoded now
+			const call = noted && this.decodeCall(noted.data.toU8a(true))
+			const waiting = call
+				? await GovernanceReferendum.getByFields([["proposalHash", "=", hash]], { limit: 100 })
+				: []
+			for (const referendum of waiting.filter((referendum) => !referendum.call)) {
+				referendum.call = call
+				await referendum.save()
+			}
 		}
 		preimage.status = event.event.method
 		preimage.updatedBlock = position.blockNumber
 		await preimage.save()
+	}
+
+	/** A noted preimage's bytes as stored at the current block. */
+	static async preimage(hash: string): Promise<{ length: number; data: Codec } | undefined> {
+		const status = await api.query.preimage.requestStatusFor<Option<PreimageRequestStatus>>(hash)
+		const length = status.isSome ? this.preimageLength(status.unwrap()) : undefined
+		if (length === undefined) return undefined
+		const data = await api.query.preimage.preimageFor<Option<Codec>>([hash, length])
+		return data.isSome ? { length, data: data.unwrap() } : undefined
+	}
+
+	/** Decodes a call with the runtime of the current block, or gives undefined if the bytes are not a call. */
+	static decodeCall(bytes: Uint8Array | string): string | undefined {
+		try {
+			return JSON.stringify(this.callJson(api.registry.createType<Call>("Call", bytes)))
+		} catch {
+			return undefined
+		}
+	}
+
+	static async proposalCall(proposal: unknown): Promise<string | undefined> {
+		const inline = (proposal as { inline?: string }).inline
+		if (inline) return this.decodeCall(inline)
+		const hash = this.proposalHash(proposal)
+		const preimage = hash ? await this.preimage(hash) : undefined
+		return preimage && this.decodeCall(preimage.data.toU8a(true))
 	}
 
 	static preimageLength(status: PreimageRequestStatus): number | undefined {

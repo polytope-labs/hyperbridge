@@ -113,7 +113,7 @@ export class GovernanceService {
 		const tally = this.tally(info) ?? this.eventTally(args.tally)
 		if (tally) Object.assign(referendum, tally)
 		if (info.isSome) referendum.info = JSON.stringify(info.toJSON())
-		if (event.event.method === "Approved") referendum.enactmentTask = this.enactmentTask(index)
+		if (event.event.method === "Confirmed") referendum.enactmentTask = this.enactmentTask(index)
 		referendum.state = event.event.method
 		referendum.isFinal = info.isNone || !info.unwrap().isOngoing
 		referendum.updatedBlock = position.blockNumber

@@ -26,7 +26,6 @@ import type {
 	Voting,
 } from "@/types/governance"
 
-type ApiAt = Awaited<ReturnType<typeof api.at>>
 type ReferendumInfo = Option<ReferendumInfoValue>
 
 interface EventPosition {
@@ -40,8 +39,8 @@ interface EventPosition {
 
 /**
  * Governance indexing for the Nexus OpenGov, technical committee, whitelist, preimage and treasury
- * pallets. Chain storage is always read at the event's block, never at the tip, so the stored history
- * stays exact.
+ * pallets. SubQuery pins the global `api` to the block being indexed, so every storage read here sees
+ * the state right after the event's block and the stored history stays exact.
  */
 export class GovernanceService {
 	static position(event: SubstrateEvent): EventPosition {
@@ -60,10 +59,6 @@ export class GovernanceService {
 	static args(event: SubstrateEvent): Record<string, unknown> {
 		const { data } = event.event
 		return Object.fromEntries((data.names ?? []).map((name, i) => [name, data[i].toJSON()]))
-	}
-
-	static apiAt(position: EventPosition): Promise<ApiAt> {
-		return api.at(position.blockHash)
 	}
 
 	/**
@@ -89,7 +84,7 @@ export class GovernanceService {
 		const position = this.position(event)
 		const args = this.args(event)
 		const index = Number(args.index)
-		const info = await (await this.apiAt(position)).query.referenda.referendumInfoFor<ReferendumInfo>(index)
+		const info = await api.query.referenda.referendumInfoFor<ReferendumInfo>(index)
 
 		let referendum = await GovernanceReferendum.get(String(index))
 		if (!referendum) {
@@ -146,7 +141,6 @@ export class GovernanceService {
 
 	static async handleConvictionVotingEvent(event: SubstrateEvent): Promise<void> {
 		const position = this.position(event)
-		const apiAt = await this.apiAt(position)
 		const [who, target] = event.event.data.map((value) => value.toString())
 
 		// Undelegated carries no target, so the delegatees are taken from the delegations it ends.
@@ -165,7 +159,7 @@ export class GovernanceService {
 		const accounts = new Set([who, ...(event.event.method === "Delegated" ? [target] : []), ...previousTargets])
 
 		for (const account of accounts) {
-			await this.syncVoting(account, apiAt, position)
+			await this.syncVoting(account, position)
 		}
 	}
 
@@ -173,8 +167,8 @@ export class GovernanceService {
 	 * Brings an account's votes and delegations in line with `ConvictionVoting::VotingFor` at this
 	 * block. Only ongoing referenda are touched, so votes on finished ones keep their final state.
 	 */
-	static async syncVoting(account: string, apiAt: ApiAt, position: EventPosition): Promise<void> {
-		const voting = (await apiAt.query.convictionVoting.votingFor.entries(account)).map(([key, value]) => ({
+	static async syncVoting(account: string, position: EventPosition): Promise<void> {
+		const voting = (await api.query.convictionVoting.votingFor.entries(account)).map(([key, value]) => ({
 			track: Number(key.args[1].toString()),
 			voting: value as Voting,
 		}))
@@ -228,7 +222,7 @@ export class GovernanceService {
 		}
 
 		for (const index of changed) {
-			await this.saveTallySnapshot(index, apiAt, position)
+			await this.saveTallySnapshot(index, position)
 		}
 	}
 
@@ -324,8 +318,8 @@ export class GovernanceService {
 		}
 	}
 
-	static async saveTallySnapshot(index: number, apiAt: ApiAt, position: EventPosition): Promise<void> {
-		const info = await apiAt.query.referenda.referendumInfoFor<ReferendumInfo>(index)
+	static async saveTallySnapshot(index: number, position: EventPosition): Promise<void> {
+		const info = await api.query.referenda.referendumInfoFor<ReferendumInfo>(index)
 		const tally = this.tally(info)
 		const referendum = await GovernanceReferendum.get(String(index))
 		if (!tally || !referendum) return
@@ -348,11 +342,10 @@ export class GovernanceService {
 		const args = this.args(event)
 		const method = event.event.method
 		const hash = String(args.proposalHash)
-		const apiAt = await this.apiAt(position)
 
 		const motion =
 			method === "Proposed"
-				? await this.newMotion(args, apiAt, position)
+				? await this.newMotion(args, position)
 				: (
 						await GovernanceMotion.getByFields(
 							[
@@ -364,7 +357,7 @@ export class GovernanceService {
 					)[0]
 		if (!motion) return
 
-		const voting = await apiAt.query.technicalCollective.voting<Option<CollectiveVotes>>(hash)
+		const voting = await api.query.technicalCollective.voting<Option<CollectiveVotes>>(hash)
 		if (voting.isSome) {
 			const { ayes, nays, end } = voting.unwrap()
 			motion.ayes = ayes.map((account) => account.toString())
@@ -385,13 +378,9 @@ export class GovernanceService {
 		}).save()
 	}
 
-	static async newMotion(
-		args: Record<string, unknown>,
-		apiAt: ApiAt,
-		position: EventPosition,
-	): Promise<GovernanceMotion> {
+	static async newMotion(args: Record<string, unknown>, position: EventPosition): Promise<GovernanceMotion> {
 		const hash = String(args.proposalHash)
-		const call = await apiAt.query.technicalCollective.proposalOf<Option<Call>>(hash)
+		const call = await api.query.technicalCollective.proposalOf<Option<Call>>(hash)
 		return GovernanceMotion.create({
 			id: String(args.proposalIndex),
 			index: Number(args.proposalIndex),
@@ -434,11 +423,10 @@ export class GovernanceService {
 			GovernancePreimage.create({ id: hash, status: event.event.method, updatedBlock: position.blockNumber })
 
 		if (event.event.method === "Noted") {
-			const apiAt = await this.apiAt(position)
-			const status = await apiAt.query.preimage.requestStatusFor<Option<PreimageRequestStatus>>(hash)
+			const status = await api.query.preimage.requestStatusFor<Option<PreimageRequestStatus>>(hash)
 			const length = status.isSome ? this.preimageLength(status.unwrap()) : undefined
 			if (length !== undefined) {
-				const data = await apiAt.query.preimage.preimageFor<Option<Codec>>([hash, length])
+				const data = await api.query.preimage.preimageFor<Option<Codec>>([hash, length])
 				preimage.length = length
 				preimage.data = data.isSome ? data.unwrap().toHex() : undefined
 			}

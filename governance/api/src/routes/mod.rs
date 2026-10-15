@@ -163,10 +163,12 @@ pub fn with_param(query: Option<String>, pair: &str) -> String {
 }
 
 impl Params {
+	/// The frontend sends filters it does not use as empty values, so those count as not set.
 	pub fn new(query: Option<String>) -> Self {
 		Self(
 			form_urlencoded::parse(query.unwrap_or_default().as_bytes())
 				.into_owned()
+				.filter(|(_, value)| !value.is_empty())
 				.collect(),
 		)
 	}

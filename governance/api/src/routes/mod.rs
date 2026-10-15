@@ -6,6 +6,7 @@ mod motions;
 mod posts;
 mod referenda;
 mod users;
+mod votes;
 
 use std::sync::Arc;
 
@@ -42,6 +43,11 @@ pub fn router(state: AppState) -> Router {
 		.route("/gov2/referendums", get(referenda::list))
 		.route("/gov2/referendums/summary", get(referenda::summary))
 		.route("/gov2/referendums/:id", get(referenda::detail).patch(posts::edit))
+		.route("/gov2/referendums/:id/vote-stats", get(votes::vote_stats))
+		.route("/gov2/referendums/:id/vote-calls", get(votes::vote_calls))
+		.route("/gov2/referenda/:id/votes", get(votes::votes))
+		.route("/gov2/referenda/:id/actions", get(votes::actions))
+		.route("/gov2/referenda/:id/tally-history", get(votes::tally_history))
 		.route("/tech-comm/motions", get(motions::list))
 		.route("/tech-comm/motions/:id", get(motions::detail).patch(posts::edit))
 		.route("/posts", get(posts::list).post(posts::create))

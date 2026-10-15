@@ -59,6 +59,8 @@ const generateNodeServices = () => {
 				dbSchema: "governance",
 				// Governance only has event handlers, so the node can skip decoding extrinsics
 				skipTransactions: true,
+				// It only indexes finalized blocks, so it never rewinds and needs no historical rows
+				disableHistorical: true,
 			})
 		}
 	})

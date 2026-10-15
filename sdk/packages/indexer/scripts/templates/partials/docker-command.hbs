@@ -12,6 +12,9 @@
 {{#if skipTransactions}}
 - --skipTransactions
 {{/if}}
+{{#if disableHistorical}}
+- --historical=false
+{{/if}}
 - --log-level=info
 {{#if unfinalizedBlocks}}
 - --historical=timestamp

@@ -606,7 +606,9 @@ export class GovernanceService {
 			vote: vote === undefined ? undefined : JSON.stringify(vote),
 			removed,
 			blockNumber: position.blockNumber,
+			blockHash: position.blockHash,
 			extrinsicIndex: position.extrinsicIndex,
+			eventIndex: position.eventIndex,
 			timestamp: position.timestamp,
 		}).save()
 	}

@@ -3437,7 +3437,11 @@ type GovernanceVoteCall @entity {
 
 	blockNumber: Int! @index
 
+	blockHash: String!
+
 	extrinsicIndex: Int
+
+	eventIndex: Int!
 
 	timestamp: Date!
 }

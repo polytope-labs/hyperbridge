@@ -6,6 +6,7 @@ mod motions;
 mod posts;
 mod referenda;
 mod spends;
+mod statistics;
 mod users;
 mod votes;
 
@@ -63,6 +64,14 @@ pub fn router(state: AppState) -> Router {
 		.route("/gov2/referenda/:id/votes", get(votes::votes))
 		.route("/gov2/referenda/:id/actions", get(votes::actions))
 		.route("/gov2/referenda/:id/tally-history", get(votes::tally_history))
+		.route("/gov2/referenda/:id/appendants", get(posts::appendants))
+		.route("/referenda/summary", get(statistics::summary))
+		.route("/referenda/tracks", get(statistics::tracks))
+		.route("/referenda/delegatee", get(statistics::all_delegatees))
+		.route("/referenda/tracks/:id/summary", get(statistics::track_summary))
+		.route("/referenda/tracks/:id/turnout", get(statistics::track_turnout))
+		.route("/referenda/tracks/:id/delegatee", get(statistics::track_delegatees))
+		.route("/referenda/tracks/:id/delegators", get(statistics::track_delegators))
 		.route("/tech-comm/motions", get(motions::list))
 		.route("/tech-comm/motions/:id", get(motions::detail).patch(posts::edit))
 		.route("/posts", get(posts::list).post(posts::create))

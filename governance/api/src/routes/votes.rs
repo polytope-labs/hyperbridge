@@ -157,6 +157,12 @@ pub async fn vote_stats(
 	State(state): State<AppState>,
 	Path(index): Path<i32>,
 ) -> ApiResult<Json<Value>> {
+	Ok(Json(referendum_stats(&state, index).await?))
+}
+
+/// A referendum's turnout: its tally against the electorate and the capital behind it, split into
+/// direct votes and delegations.
+pub async fn referendum_stats(state: &AppState, index: i32) -> ApiResult<Value> {
 	let tally = state
 		.db
 		.query_opt(
@@ -165,7 +171,7 @@ pub async fn vote_stats(
 		)
 		.await?
 		.ok_or_else(|| ApiError::not_found("Referendum"))?;
-	let votes = referendum_votes(&state, index).await?;
+	let votes = referendum_votes(state, index).await?;
 	let sum = |delegating: bool, field: &str| -> u128 {
 		votes
 			.iter()
@@ -178,8 +184,9 @@ pub async fn vote_stats(
 	let (support, electorate) = (amount(&tally, "support"), amount(&tally, "electorate"));
 	let direct_capital = sum(false, "balance");
 	let delegation_capital = sum(true, "balance");
+	let total_capital = direct_capital + delegation_capital;
 
-	Ok(Json(json!({
+	Ok(json!({
 		"referendumIndex": index,
 		"trackId": tally.get::<_, i32>("track"),
 		"support": support.to_string(),
@@ -189,12 +196,12 @@ pub async fn vote_stats(
 		"votes": (amount(&tally, "ayes") + amount(&tally, "nays")).to_string(),
 		"directCapital": direct_capital.to_string(),
 		"delegationCapital": delegation_capital.to_string(),
-		"totalCapital": (direct_capital + delegation_capital).to_string(),
+		"totalCapital": total_capital.to_string(),
 		"delegationVotes": sum(true, "votes").to_string(),
 		"directAddresses": count(false),
 		"delegationAddresses": count(true),
-		"percentage": if electorate == 0 { 0.0 } else { support as f64 / electorate as f64 },
-	})))
+		"percentage": if electorate == 0 { 0.0 } else { total_capital as f64 / electorate as f64 },
+	}))
 }
 
 fn call_indexer(row: &Row) -> Indexer {

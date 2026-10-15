@@ -327,3 +327,9 @@ pub async fn unreact(
 		.await?;
 	Ok(Json(true))
 }
+
+/// Notes a proposer appends to their referendum. Writing them is not supported yet, so there are
+/// none.
+pub async fn appendants() -> Json<Vec<Value>> {
+	Json(Vec::new())
+}

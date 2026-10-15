@@ -27,7 +27,13 @@ const require = createRequire(import.meta.url)
 const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..")
 const simplexRoot = resolve(packageRoot, "../simplex")
 const desktopVersion = JSON.parse(await readFile(join(packageRoot, "package.json"), "utf8")).version
-const electronExecutable = require("electron")
+const packagedExecutable = process.env.SIMPLEX_TEST_EXECUTABLE
+const electronExecutable = packagedExecutable || require("electron")
+const reloadCount = Number(process.env.SIMPLEX_TEST_RELOADS || 20)
+function testArguments(userDataDir, options = {}) {
+    const args = desktopArguments(packageRoot, userDataDir, options)
+    return packagedExecutable ? args.slice(1) : args
+}
 const TEST_KEY = "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d"
 const TEST_SEED = "bottom drive obey lake curtain smoke basket hold race lonely fit walk"
 const FIXTURE_KEY = "operator-fixture-key-do-not-expose"
@@ -100,14 +106,27 @@ async function waitForHealth(socketPath, mode) {
 async function launchDesktop(userDataDir, options = {}) {
 	const electronApp = await _electron.launch({
 		executablePath: electronExecutable,
-		args: desktopArguments(packageRoot, userDataDir, options),
+		args: testArguments(userDataDir, options),
 		cwd: packageRoot,
 		env: { ...process.env, ELECTRON_DISABLE_SECURITY_WARNINGS: "true" },
 		timeout: 120_000,
 	})
 	const page = await waitFor(() => electronApp.windows()[0], "the Simplex BrowserWindow", 120_000)
 	await page.waitForURL("simplex://local/**", { timeout: 120_000 })
-	if (!options.locked) await unlockDesktop(page, { pending: options.pending })
+	page.setDefaultTimeout(120_000)
+    await electronApp.evaluate(({app, BrowserWindow}) => {
+        globalThis.crashAuditEvents = []
+        for (const w of BrowserWindow.getAllWindows()) {
+            w.webContents.on("render-process-gone", (_event, details) => globalThis.crashAuditEvents.push({type:"renderer",...details}))
+            w.on("unresponsive", () => globalThis.crashAuditEvents.push({type:"unresponsive"}))
+        }
+        app.on("child-process-gone", (_event, details) => {
+            if (details.reason !== "clean-exit") globalThis.crashAuditEvents.push(details)
+        })
+    })
+    const unlockStarted = Date.now()
+    if (!options.locked) await unlockDesktop(page, { pending: options.pending })
+    console.log(JSON.stringify({event:"desktop-ready",elapsedMs:Date.now()-unlockStarted,packaged:Boolean(packagedExecutable)}))
 	return { electronApp, page }
 }
 
@@ -403,7 +422,7 @@ test("window close, app quit, hard crash, and second launch preserve one detache
 	await waitForHealth(socketPath, "init")
 	assert.deepEqual(await daemonPids(userDataDir), [daemonPid], "closing the window must leave Simplex alive")
 
-	await execFileAsync(electronExecutable, directElectronArguments(packageRoot, userDataDir), {
+	await execFileAsync(electronExecutable, (packagedExecutable ? directElectronArguments(packageRoot, userDataDir).slice(1) : directElectronArguments(packageRoot, userDataDir)), {
 		cwd: packageRoot,
 		env: { ...process.env, ELECTRON_DISABLE_SECURITY_WARNINGS: "true" },
 		timeout: 30_000,
@@ -632,7 +651,7 @@ test("update relaunch and launch at login resume the solver while the dashboard 
 	await waitForDaemonPids(userDataDir, 0)
 	electronApp = await _electron.launch({
 		executablePath: electronExecutable,
-		args: desktopArguments(packageRoot, userDataDir, { hidden: true }),
+		args: testArguments(userDataDir, { hidden: true }),
 		cwd: packageRoot,
 		env: { ...process.env, ELECTRON_DISABLE_SECURITY_WARNINGS: "true" },
 		timeout: 120_000,
@@ -786,7 +805,7 @@ test("configured startup owns the socket before filling and relaunch attaches wh
 	await writeFile(vaultPath, JSON.stringify(metadata), { mode: 0o600 })
 	electronApp = await _electron.launch({
 		executablePath: electronExecutable,
-		args: desktopArguments(packageRoot, userDataDir, { hidden: true }),
+		args: testArguments(userDataDir, { hidden: true }),
 		cwd: packageRoot,
 		env: { ...process.env, ELECTRON_DISABLE_SECURITY_WARNINGS: "true" },
 		timeout: 120_000,
@@ -1034,11 +1053,23 @@ test("the custom protocol reconnects Orders SSE and releases streams across 20 r
 	await waitFor(() => fixture.historyReads() > 0, "history reload after EventSource reconnect")
 	assert.ok(readsBeforeRestart > 0, "Orders must have loaded history before restart")
 
-	for (let reload = 0; reload < 20; reload += 1) {
+	for (let reload = 0; reload < reloadCount; reload += 1) {
+        if (process.env.SIMPLEX_TEST_RELOADS && reload % 25 === 0) {
+            const memory = await electronApp.evaluate(({ app }) => app.getAppMetrics().map(({type,memory}) => ({type,memory})))
+            console.log(JSON.stringify({event:"stress",cycle:reload,memory,sseClients:fixture.clientCount()}))
+            fixture.stop()
+            await page.getByText("reconnecting…", { exact: true }).waitFor({timeout:30_000})
+            fixture = operatorFixture(socketPath)
+            await fixture.start()
+            await page.getByText("live", { exact: true }).waitFor({timeout:30_000})
+            await electronApp.evaluate(({ BrowserWindow }) => { const w = BrowserWindow.getAllWindows()[0]; w.hide(); w.show(); w.minimize(); w.restore() })
+        }
 		await page.reload()
 		await page.getByText("live", { exact: true }).waitFor({ timeout: 30_000 })
 	}
-	await waitFor(() => fixture.clientCount() === 1, "exactly one SSE stream after 20 reloads")
+	await waitFor(() => fixture.clientCount() === 1, "exactly one SSE stream after repeated reloads")
+    assert.deepEqual(await electronApp.evaluate(() => globalThis.crashAuditEvents), [])
+    console.log(JSON.stringify({event:"stress-complete",cycle:reloadCount,memory:await electronApp.evaluate(({ app }) => app.getAppMetrics().map(({type,memory}) => ({type,memory}))),sseClients:fixture.clientCount()}))
 })
 
 test("the renderer enforces CSP and opens only approved links outside Electron", async (t) => {

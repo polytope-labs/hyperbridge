@@ -149,7 +149,7 @@ jobs:
         name: Desktop Electron E2E (${{ matrix.target }})
         needs: desktop-e2e-artifacts
         runs-on: ${{ matrix.runner }}
-        timeout-minutes: 20
+        timeout-minutes: 30
         strategy:
             fail-fast: false
             matrix:
@@ -205,6 +205,26 @@ jobs:
               run: |
                   pnpm --dir packages/simplex-desktop build:native
                   node -e 'const n = require("./packages/simplex-desktop/build/native/darwin-" + process.arch + "/mac-passkeys.node"); if (n.capabilities("example.com").available) throw new Error("Unsigned Node process must not authorize passkeys")'
+
+            - name: Download and install published Windows build
+              if: runner.os == 'Windows'
+              shell: pwsh
+              env:
+                  GH_TOKEN: ${{ github.token }}
+              run: |
+                  $download = Join-Path $env:RUNNER_TEMP 'simplex-release'
+                  New-Item -ItemType Directory -Force $download | Out-Null
+                  gh release download simplex-desktop-v0.17.4 --repo polytope-labs/hyperbridge --pattern Simplex-0.17.4-win-x64.exe --dir $download
+                  if ($LASTEXITCODE -ne 0) { throw 'Release download failed' }
+                  $installer = Join-Path $download 'Simplex-0.17.4-win-x64.exe'
+                  $hash = (Get-FileHash -Algorithm SHA256 $installer).Hash.ToLower()
+                  if ($hash -ne '894b1e2d0c72e75101077064dc372dd690f948381cddaa72999ba3b7adde12f1') { throw 'Release checksum mismatch' }
+                  $installed = Join-Path $env:RUNNER_TEMP 'simplex-installed'
+                  $process = Start-Process -FilePath $installer -ArgumentList "/S /D=$installed" -PassThru -Wait
+                  if ($process.ExitCode -ne 0) { throw "Installer failed: $($process.ExitCode)" }
+                  "SIMPLEX_TEST_EXECUTABLE=$installed\Simplex.exe" >> $env:GITHUB_ENV
+                  "SIMPLEX_TEST_RELOADS=250" >> $env:GITHUB_ENV
+                  "SIMPLEX_ERROR_REPORTING=off" >> $env:GITHUB_ENV
 
             - name: Run cross-platform desktop tests
               run: pnpm --dir packages/simplex-desktop test

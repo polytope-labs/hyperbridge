@@ -54,6 +54,10 @@ export function Chains(props: {
 				// A running chain's switch enables fills there live; any other adds it at the next restart.
 				const live = chain.enabled && chain.running
 				const funding = balances?.chains.find((row) => row.chainId === chain.meta.chainId)?.funding
+				// The shortfall warning applies only before delegation: a delegated chain fills
+				// regardless, and the paymaster draws the fee token down as it fills, so its
+				// balance sitting under the recommended amount is expected, not actionable.
+				const needsFunding = funding !== undefined && !funding.delegated && !funding.funded
 				const checked = live ? funding?.delegated === true : chain.enabled
 				const disabled = live
 					? checked || !funding?.funded || enabling !== undefined
@@ -81,11 +85,11 @@ export function Chains(props: {
 										<span className="chain-source">Applies after restart</span>
 									) : null}
 									{live ? (
-										<span className="chain-source" data-funded={funding?.funded}>
+										<span className="chain-source" data-funded={needsFunding ? false : undefined}>
 											{enabling === chain.meta.chainId
 												? "Enabling fills…"
 												: fillsStatus(funding, chain.meta.chainId)}
-											{funding && !funding.funded ? (
+											{needsFunding ? (
 												<button
 													type="button"
 													className="chain-check-again"

@@ -2,7 +2,7 @@ import { SubstrateEvent } from "@subql/types"
 import { Option } from "@polkadot/types"
 import { Call } from "@polkadot/types/interfaces"
 import type { Codec } from "@polkadot/types/types"
-import { bnToU8a, compactAddLength, stringToU8a, u8aConcat } from "@polkadot/util"
+import { bnToU8a, compactAddLength, stringToU8a, u8aConcat, u8aToHex } from "@polkadot/util"
 import { blake2AsHex } from "@polkadot/util-crypto"
 import {
 	GovernanceDelegation,
@@ -25,6 +25,7 @@ import type {
 	ReferendumTally,
 	Voting,
 } from "@/types/governance"
+import { getSubstrateBlockTimestamp } from "@/utils/rpc.helpers"
 
 type ReferendumInfo = Option<ReferendumInfoValue>
 
@@ -43,15 +44,17 @@ interface EventPosition {
  * the state right after the event's block and the stored history stays exact.
  */
 export class GovernanceService {
-	static position(event: SubstrateEvent): EventPosition {
+	static async position(event: SubstrateEvent): Promise<EventPosition> {
 		const blockNumber = event.block.block.header.number.toNumber()
+		const blockHash = event.block.block.header.hash.toString()
 		return {
 			id: `${blockNumber}-${event.idx}`,
 			blockNumber,
-			blockHash: event.block.block.header.hash.toString(),
-			extrinsicIndex: event.extrinsic?.idx,
+			blockHash,
+			extrinsicIndex: event.phase.isApplyExtrinsic ? event.phase.asApplyExtrinsic.toNumber() : undefined,
 			eventIndex: event.idx,
-			timestamp: event.block.timestamp!,
+			// Read from storage since the node skips decoding the timestamp extrinsic
+			timestamp: new Date(Number(await getSubstrateBlockTimestamp(blockHash))),
 		}
 	}
 
@@ -81,7 +84,7 @@ export class GovernanceService {
 	}
 
 	static async handleReferendaEvent(event: SubstrateEvent): Promise<void> {
-		const position = this.position(event)
+		const position = await this.position(event)
 		const args = this.args(event)
 		const index = Number(args.index)
 		const info = await api.query.referenda.referendumInfoFor<ReferendumInfo>(index)
@@ -131,7 +134,7 @@ export class GovernanceService {
 		})
 		if (!referendum) return
 
-		const position = this.position(event)
+		const position = await this.position(event)
 		referendum.state = "Executed"
 		referendum.enactmentResult = JSON.stringify(args.result)
 		referendum.updatedBlock = position.blockNumber
@@ -140,7 +143,7 @@ export class GovernanceService {
 	}
 
 	static async handleConvictionVotingEvent(event: SubstrateEvent): Promise<void> {
-		const position = this.position(event)
+		const position = await this.position(event)
 		const [who, target] = event.event.data.map((value) => value.toString())
 
 		// Undelegated carries no target, so the delegatees are taken from the delegations it ends.
@@ -338,7 +341,7 @@ export class GovernanceService {
 	}
 
 	static async handleTechnicalCollectiveEvent(event: SubstrateEvent): Promise<void> {
-		const position = this.position(event)
+		const position = await this.position(event)
 		const args = this.args(event)
 		const method = event.event.method
 		const hash = String(args.proposalHash)
@@ -399,7 +402,7 @@ export class GovernanceService {
 	}
 
 	static async handleWhitelistEvent(event: SubstrateEvent): Promise<void> {
-		const { blockNumber } = this.position(event)
+		const { blockNumber } = await this.position(event)
 		const args = this.args(event)
 		const hash = String(args.callHash)
 		const call =
@@ -416,7 +419,7 @@ export class GovernanceService {
 	}
 
 	static async handlePreimageEvent(event: SubstrateEvent): Promise<void> {
-		const position = this.position(event)
+		const position = await this.position(event)
 		const hash = event.event.data[0].toString()
 		const preimage =
 			(await GovernancePreimage.get(hash)) ??
@@ -444,7 +447,7 @@ export class GovernanceService {
 	}
 
 	static async handleTreasurySpendEvent(event: SubstrateEvent): Promise<void> {
-		const position = this.position(event)
+		const position = await this.position(event)
 		const args = this.args(event)
 		const index = Number(args.index)
 
@@ -491,7 +494,7 @@ export class GovernanceService {
 
 	static callJson(call: Call) {
 		return {
-			callIndex: call.callIndex.toString(),
+			callIndex: u8aToHex(call.callIndex),
 			section: call.section,
 			method: call.method,
 			args: call.args.map((value, i) => ({

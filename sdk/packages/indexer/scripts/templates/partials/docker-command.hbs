@@ -9,6 +9,9 @@
 - --allow-schema-migration
 {{/if}}
 - --unsafe
+{{#if skipTransactions}}
+- --skipTransactions
+{{/if}}
 - --log-level=info
 {{#if unfinalizedBlocks}}
 - --historical=timestamp

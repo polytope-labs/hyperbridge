@@ -53,12 +53,18 @@ const generateNodeServices = () => {
 		writeService(dockerDir, serviceData)
 
 		if (config.type === "substrate" && config.governanceStartBlock !== undefined) {
-			writeService(dockerDir, { ...serviceData, chainName: `${chainName}-governance`, dbSchema: "governance" })
+			writeService(dockerDir, {
+				...serviceData,
+				chainName: `${chainName}-governance`,
+				dbSchema: "governance",
+				// Governance only has event handlers, so the node can skip decoding extrinsics
+				skipTransactions: true,
+			})
 		}
 	})
 }
 
-const writeService = (dockerDir: string, serviceData: { chainName: string }) => {
+const writeService = (dockerDir: string, serviceData: Record<string, unknown> & { chainName: string }) => {
 	const filePath = path.join(dockerDir, `${serviceData.chainName}.yml`)
 
 	if (!fs.existsSync(filePath)) {

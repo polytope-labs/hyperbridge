@@ -244,3 +244,20 @@ pub async fn track_delegators(
 		.collect();
 	Ok(Json(paging.page(items, total)))
 }
+
+/// What the delegation pages show about an account others may delegate to.
+pub async fn delegate(
+	State(state): State<AppState>,
+	Path(address): Path<String>,
+) -> ApiResult<Json<Value>> {
+	let delegations = delegations(&state, None).await?;
+	let to_address = delegations.iter().filter(|d| d.target == address);
+	let delegators = to_address.clone().map(|d| &d.delegator).collect::<BTreeSet<_>>().len();
+	let tracks = to_address.map(|d| d.track).collect::<BTreeSet<_>>().len();
+	Ok(Json(json!({
+		"address": address,
+		"delegatorsCount": delegators,
+		"maxTrackDelegations": tracks,
+		"manifesto": null,
+	})))
+}

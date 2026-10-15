@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use axum::{
-	extract::{Path, State},
+	extract::{Path, RawQuery, State},
 	Json,
 };
 use serde_json::{json, Value};
@@ -9,11 +9,12 @@ use tokio_postgres::{types::ToSql, Row};
 
 use super::{
 	common::{decimal, parse},
-	AppState,
+	referenda::referendum_by_index,
+	AppState, Params,
 };
 use crate::{
 	error::{ApiError, ApiResult},
-	primitives::Indexer,
+	primitives::{Indexer, Page},
 };
 
 // Values the frontend reads from the activity log of a referendum
@@ -81,14 +82,42 @@ async fn vote_context(state: &AppState, index: i32) -> ApiResult<(i32, i32)> {
 }
 
 /// Every vote counted on a referendum, direct votes and the delegations they carry.
+const VOTE_COLUMNS: &str = "referendum_index, account, kind, aye, conviction, balance::text,
+	aye_balance::text, nay_balance::text, abstain_balance::text, delegated_votes::text, delegated_capital::text";
+
+/// An account's own vote on a referendum, as read at `query_at`.
+fn direct_vote(row: &Row, query_at: i32) -> Value {
+	let kind = row.get::<_, String>("kind");
+	let balance = amount(row, "balance");
+	let conviction = row.get::<_, Option<i32>>("conviction").unwrap_or_default();
+	json!({
+		"referendumIndex": row.get::<_, i32>("referendum_index"),
+		"account": row.get::<_, String>("account"),
+		"isDelegating": false,
+		"isStandard": kind == "Standard",
+		"isSplit": kind == "Split",
+		"isSplitAbstain": kind == "SplitAbstain",
+		"balance": balance.to_string(),
+		"ayeBalance": row.get::<_, Option<String>>("aye_balance"),
+		"nayBalance": row.get::<_, Option<String>>("nay_balance"),
+		"abstainBalance": row.get::<_, Option<String>>("abstain_balance"),
+		"aye": row.get::<_, Option<bool>>("aye"),
+		"conviction": conviction,
+		"votes": with_conviction(balance, conviction).to_string(),
+		"delegations": {
+			"votes": amount(row, "delegated_votes").to_string(),
+			"capital": amount(row, "delegated_capital").to_string(),
+		},
+		"queryAt": query_at,
+	})
+}
+
 async fn referendum_votes(state: &AppState, index: i32) -> ApiResult<Vec<Value>> {
 	let (track, query_at) = vote_context(state, index).await?;
 	let direct = state
 		.db
 		.query(
-			"SELECT account, kind, aye, conviction, balance::text, aye_balance::text, nay_balance::text,
-				abstain_balance::text, delegated_votes::text, delegated_capital::text
-			FROM governance_votes WHERE referendum_index = $1 ORDER BY balance DESC",
+			&format!("SELECT {VOTE_COLUMNS} FROM governance_votes WHERE referendum_index = $1 ORDER BY balance DESC"),
 			&[&index],
 		)
 		.await?;
@@ -103,28 +132,7 @@ async fn referendum_votes(state: &AppState, index: i32) -> ApiResult<Vec<Value>>
 		)
 		.await?;
 
-	let direct = direct.iter().map(|row| {
-		let kind = row.get::<_, String>("kind");
-		let balance = amount(row, "balance");
-		let conviction = row.get::<_, Option<i32>>("conviction").unwrap_or_default();
-		json!({
-			"referendumIndex": index,
-			"account": row.get::<_, String>("account"),
-			"isDelegating": false,
-			"isStandard": kind == "Standard",
-			"isSplit": kind == "Split",
-			"isSplitAbstain": kind == "SplitAbstain",
-			"balance": balance.to_string(),
-			"ayeBalance": row.get::<_, Option<String>>("aye_balance"),
-			"nayBalance": row.get::<_, Option<String>>("nay_balance"),
-			"abstainBalance": row.get::<_, Option<String>>("abstain_balance"),
-			"aye": row.get::<_, Option<bool>>("aye"),
-			"conviction": conviction,
-			"votes": with_conviction(balance, conviction).to_string(),
-			"delegations": { "votes": amount(row, "delegated_votes").to_string(), "capital": amount(row, "delegated_capital").to_string() },
-			"queryAt": query_at,
-		})
-	});
+	let direct = direct.iter().map(|row| direct_vote(row, query_at));
 	let delegated = delegated.iter().map(|row| {
 		let balance = amount(row, "balance");
 		let conviction = row.get::<_, i32>("conviction");
@@ -332,4 +340,93 @@ pub async fn tally_history(
 			})
 			.collect(),
 	))
+}
+
+/// The referendum a user voted on, for the user's vote lists: its title and where it ended up.
+async fn proposal_summary(state: &AppState, index: i32) -> ApiResult<Value> {
+	let referendum = referendum_by_index(state, index).await?;
+	Ok(json!({ "title": referendum["title"], "state": referendum["state"] }))
+}
+
+/// An account's votes, newest referendum first.
+pub async fn user_votes(
+	State(state): State<AppState>,
+	Path(account): Path<String>,
+	RawQuery(query): RawQuery,
+) -> ApiResult<Json<Page<Value>>> {
+	let params = Params::new(query);
+	let paging = params.paging(25);
+	let rows = state
+		.db
+		.query(
+			&format!(
+				"SELECT {VOTE_COLUMNS} FROM governance_votes WHERE account = $1 ORDER BY referendum_index DESC
+				LIMIT {} OFFSET {}",
+				paging.page_size,
+				paging.offset()
+			),
+			&[&account],
+		)
+		.await?;
+	let total = state
+		.db
+		.query_one("SELECT count(*) FROM governance_votes WHERE account = $1", &[&account])
+		.await?
+		.get(0);
+
+	let mut items = Vec::with_capacity(rows.len());
+	for row in &rows {
+		let index = row.get::<_, i32>("referendum_index");
+		let mut vote = direct_vote(row, vote_context(&state, index).await?.1);
+		if params.flag("includes_title") {
+			vote["proposal"] = proposal_summary(&state, index).await?;
+		}
+		items.push(vote);
+	}
+	Ok(Json(paging.page(items, total)))
+}
+
+/// An account's vote calls, newest first.
+pub async fn user_vote_calls(
+	State(state): State<AppState>,
+	Path(account): Path<String>,
+	RawQuery(query): RawQuery,
+) -> ApiResult<Json<Page<Value>>> {
+	let params = Params::new(query);
+	let paging = params.paging(25);
+	let rows = vote_call_rows(&state, "account = $1 AND NOT removed", &account).await?;
+	let total = rows.len() as i64;
+	let mut items = Vec::new();
+	for row in rows.iter().rev().skip(paging.offset() as usize).take(paging.page_size as usize) {
+		let mut call = vote_call(row);
+		if params.flag("includes_title") {
+			call["proposal"] = proposal_summary(&state, row.get("referendum_index")).await?;
+		}
+		items.push(call);
+	}
+	Ok(Json(paging.page(items, total)))
+}
+
+/// How much an account takes part: votes held, votes cast and the share of referenda it voted on.
+pub async fn user_vote_stats(
+	State(state): State<AppState>,
+	Path(account): Path<String>,
+) -> ApiResult<Json<Value>> {
+	let row = state
+		.db
+		.query_one(
+			"SELECT
+				(SELECT count(*) FROM governance_votes WHERE account = $1) AS votes,
+				(SELECT count(*) FROM governance_vote_calls WHERE account = $1 AND NOT removed) AS calls,
+				(SELECT count(DISTINCT referendum_index) FROM governance_vote_calls WHERE account = $1) AS voted,
+				(SELECT count(*) FROM governance_referendums) AS referenda",
+			&[&account],
+		)
+		.await?;
+	let (voted, referenda) = (row.get::<_, i64>("voted"), row.get::<_, i64>("referenda"));
+	Ok(Json(json!({
+		"totalVotes": row.get::<_, i64>("votes"),
+		"totalCalls": row.get::<_, i64>("calls"),
+		"participationRate": if referenda == 0 { 0.0 } else { voted as f64 / referenda as f64 },
+	})))
 }

@@ -39,15 +39,25 @@ fn query(filter: &str) -> String {
 	)
 }
 
+fn name_words(name: &str) -> impl Iterator<Item = &str> {
+	name.trim_end_matches('\0').split('_').filter(|word| !word.is_empty())
+}
+
 /// A track as SubSquare describes it, with its padded on-chain name kept as `originalName`.
 fn track(id: i32, info: Option<String>) -> Value {
 	let mut track = parse(info);
 	if let Value::Object(fields) = &mut track {
 		let original = fields.get("name").and_then(Value::as_str).unwrap_or_default().to_owned();
 		let deposit = fields.get("decisionDeposit").map(decimal).unwrap_or(Value::Null);
+		// Nexus names each track's origin after the track, so `whitelisted_caller` is
+		// `WhitelistedCaller`
+		let origin = name_words(&original)
+			.map(|word| word[..1].to_uppercase() + &word[1..])
+			.collect::<String>();
 		fields.insert("id".into(), id.into());
 		fields.insert("name".into(), original.trim_end_matches('\0').into());
 		fields.insert("originalName".into(), original.into());
+		fields.insert("origin".into(), origin.into());
 		fields.insert("decisionDeposit".into(), deposit);
 	}
 	track
@@ -202,19 +212,23 @@ async fn page(
 	Ok(paging.page(rows.iter().map(referendum).collect(), total))
 }
 
+/// A referendum as the lists show it.
+pub async fn referendum_by_index(state: &AppState, index: i32) -> ApiResult<Value> {
+	let row = state
+		.db
+		.query_opt(&query("r.index = $1"), &[&index])
+		.await?
+		.ok_or_else(|| ApiError::not_found("Referendum"))?;
+	Ok(referendum(&row))
+}
+
 /// A referendum by its index or by the post id the frontend uses for comments and edits.
 pub async fn detail(
 	State(state): State<AppState>,
 	Path(id): Path<String>,
 ) -> ApiResult<Json<Value>> {
 	let index = item_index(&id, PostKind::Referendum, "Referendum")?;
-	let row = state
-		.db
-		.query_opt(&query("r.index = $1"), &[&index])
-		.await?
-		.ok_or_else(|| ApiError::not_found("Referendum"))?;
-
-	let mut detail = referendum(&row);
+	let mut detail = referendum_by_index(&state, index).await?;
 	let proposer = detail["proposer"].as_str().unwrap_or_default().to_owned();
 	let proposal_hash = detail["onchainData"]["proposalHash"].clone();
 	let timeline = timeline(
@@ -293,6 +307,28 @@ pub async fn track_list(
 	RawQuery(query): RawQuery,
 ) -> ApiResult<Json<Page<Value>>> {
 	list(state, RawQuery(Some(with_param(query, &format!("track={id}"))))).await
+}
+
+/// A preimage's bytes, which the frontend decodes into the proposal call. They are kept after the
+/// preimage is cleared on chain.
+pub async fn preimage(
+	State(state): State<AppState>,
+	Path(hash): Path<String>,
+) -> ApiResult<Json<Value>> {
+	let row = state
+		.db
+		.query_opt(
+			"SELECT length, data, status FROM governance_preimages WHERE id = $1 AND data IS NOT NULL",
+			&[&hash],
+		)
+		.await?
+		.ok_or_else(|| ApiError::not_found("Preimage"))?;
+	Ok(Json(json!({
+		"hash": hash,
+		"length": row.get::<_, Option<i32>>(0),
+		"hex": row.get::<_, String>(1),
+		"status": row.get::<_, String>(2),
+	})))
 }
 
 pub async fn tracks(State(state): State<AppState>) -> ApiResult<Json<Vec<Value>>> {

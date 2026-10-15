@@ -47,7 +47,7 @@ impl Report {
 	fn compare(&mut self, item: &str, field: &str, ours: &Value, theirs: &Value) {
 		self.checked += 1;
 		let (ours, theirs) = (at(ours, field), at(theirs, field));
-		if normalized(&ours) != normalized(&theirs) {
+		if !matches(&normalized(&ours), &normalized(&theirs)) {
 			self.differences
 				.push(format!("{item} {field}\n    ours:   {ours}\n    theirs: {theirs}"));
 		}
@@ -63,6 +63,19 @@ fn at(value: &Value, path: &str) -> Value {
 		})
 		.cloned()
 		.unwrap_or(Value::Null)
+}
+
+/// Whether ours has every value theirs has. Ours may carry extra fields, the frontend ignores them.
+fn matches(ours: &Value, theirs: &Value) -> bool {
+	match (ours, theirs) {
+		(Value::Object(ours), Value::Object(theirs)) => theirs
+			.iter()
+			.all(|(key, value)| matches(ours.get(key).unwrap_or(&Value::Null), value)),
+		(Value::Array(ours), Value::Array(theirs)) =>
+			ours.len() == theirs.len() &&
+				ours.iter().zip(theirs).all(|(ours, theirs)| matches(ours, theirs)),
+		_ => ours == theirs,
+	}
 }
 
 /// Amounts appear as numbers, decimal strings or hex strings depending on the source, so they are

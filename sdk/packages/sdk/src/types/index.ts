@@ -1297,7 +1297,7 @@ export interface SubmitBidOptions {
 
 /**
  * A bundler gas estimate that failed transiently (a network failure, a JSON-RPC internal
- * error, or an HTTP 429 or 5xx) and is about to be sent again.
+ * error, or an HTTP 408, 429 or 5xx) and is about to be sent again.
  */
 export interface BundlerRetryEvent {
 	/** The attempt that failed, counted from 1. */
@@ -1325,10 +1325,7 @@ export type BidPreVerificationGasParams = Pick<
 	| "maxPriorityFeePerGas"
 	| "callData"
 	| "paymasterAndData"
-> & {
-	/** Called before each retry of a transiently failed bundler estimate. Defaults to a `console.warn`. */
-	onBundlerRetry?: (event: BundlerRetryEvent) => void
-}
+>
 
 export interface EstimateFillOrderParams {
 	order: Order

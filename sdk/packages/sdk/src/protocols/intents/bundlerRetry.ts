@@ -45,9 +45,9 @@ const ENTRY_POINT_REVERT = /\bAA\d\d\b/
 
 /**
  * Whether a bundler call failed for a reason that may not recur: a network failure, a
- * JSON-RPC internal error (-32603), or an HTTP 429 or 5xx without a JSON-RPC error that
- * says otherwise. An EntryPoint revert (`AA..`), an ERC-4337 rejection code or invalid
- * params is the bundler's answer for that operation, so it is never transient.
+ * JSON-RPC internal error (-32603), or an HTTP 408, 429 or 5xx without a JSON-RPC error
+ * that says otherwise. An EntryPoint revert (`AA..`), an ERC-4337 rejection code or
+ * invalid params is the bundler's answer for that operation, so it is never transient.
  */
 export function isTransientBundlerError(error: unknown): boolean {
 	if (!(error instanceof BundlerRpcError)) return false
@@ -55,7 +55,11 @@ export function isTransientBundlerError(error: unknown): boolean {
 	if (ENTRY_POINT_REVERT.test(error.message)) return false
 	if (error.code !== undefined && isDeterministicRpcCode(error.code)) return false
 	if (error.code === JSON_RPC_INTERNAL_ERROR) return true
-	return error.httpStatus === 429 || (error.httpStatus !== undefined && error.httpStatus >= 500)
+	return (
+		error.httpStatus === 408 ||
+		error.httpStatus === 429 ||
+		(error.httpStatus !== undefined && error.httpStatus >= 500)
+	)
 }
 
 /**
@@ -63,6 +67,14 @@ export function isTransientBundlerError(error: unknown): boolean {
  * add at most one second, because a fill bid is only worth sending while the order is open.
  */
 export const BUNDLER_ESTIMATE_RETRY_DELAYS_MS: readonly number[] = [250, 750]
+
+/**
+ * How long one bundler request may take before it is aborted (see `CryptoUtils.sendBundler`).
+ * Bounds each attempt so a stalled connection cannot hold up a fill bid: with the retries,
+ * three attempts take at most three of these plus the waits above. Matches viem's default
+ * HTTP transport timeout.
+ */
+export const BUNDLER_REQUEST_TIMEOUT_MS = 10_000
 
 /** Reports a retry when the caller has no logger of its own for it. */
 function warnBundlerRetry({ attempt, maxAttempts, delayMs, error }: BundlerRetryEvent): void {
@@ -77,7 +89,9 @@ function warnBundlerRetry({ attempt, maxAttempts, delayMs, error }: BundlerRetry
  * {@link isTransientBundlerError}). Any other failure, and the failure of the last
  * attempt, is thrown as it is.
  *
- * Only for calls that change nothing, such as `eth_estimateUserOperationGas`.
+ * Only for calls that change nothing, such as `eth_estimateUserOperationGas`. Each
+ * attempt is bounded by {@link BUNDLER_REQUEST_TIMEOUT_MS}, so a stalled connection
+ * cannot hold up the caller past the retries' own budget.
  *
  * @param operation - The bundler call.
  * @param onRetry - Called before each retry. Defaults to a `console.warn`.

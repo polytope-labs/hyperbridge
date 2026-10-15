@@ -18,7 +18,7 @@ import ERC7821ABI from "@/abis/erc7281"
 import type { IntentGatewayContext } from "./types"
 import { ERC7821_BATCH_MODE } from "./types"
 import type { BundlerMethod } from "./types"
-import { BundlerRpcError } from "./bundlerRetry"
+import { BUNDLER_REQUEST_TIMEOUT_MS, BundlerRpcError } from "./bundlerRetry"
 
 /**
  * EIP-712 type hash of `SelectSolver(bytes32 commitment,bytes32 userOpHash)`.
@@ -432,8 +432,8 @@ export class CryptoUtils {
 	 * @returns Resolves with the `result` field of the bundler's JSON-RPC response,
 	 *   typed as `T`.
 	 * @throws If the bundler URL is not configured. Otherwise a {@link BundlerRpcError} when
-	 *   the request fails in transit, the bundler returns a JSON-RPC error, or the response
-	 *   is an HTTP error.
+	 *   the request fails in transit, times out, the bundler returns a JSON-RPC error, or the
+	 *   response is an HTTP error.
 	 */
 	async sendBundler<T = unknown>(method: BundlerMethod, params: unknown[] = []): Promise<T> {
 		if (!this.ctx.bundlerUrl) {
@@ -447,6 +447,8 @@ export class CryptoUtils {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
 				body,
+				// A stalled connection would otherwise hold a fill bid up indefinitely.
+				signal: AbortSignal.timeout(BUNDLER_REQUEST_TIMEOUT_MS),
 			})
 		} catch (error) {
 			throw new BundlerRpcError(`Bundler error: ${error instanceof Error ? error.message : String(error)}`, {

@@ -371,7 +371,7 @@ export class ContractInteractionService {
 
 	/**
 	 * Logs a bundler gas estimate for `order` that failed transiently and is sent again
-	 * (the SDK retries a network failure, a JSON-RPC internal error, or an HTTP 429 or 5xx).
+	 * (the SDK retries a network failure, a JSON-RPC internal error, or an HTTP 408, 429 or 5xx).
 	 */
 	private logBundlerRetry(order: Order): (retry: BundlerRetryEvent) => void {
 		return ({ attempt, maxAttempts, delayMs, error }) =>
@@ -888,10 +888,7 @@ export class ContractInteractionService {
 		// the bundler to admit it, not to bundle it. Priced on this op, at the bundle's price.
 		let preVerificationGas = cachedEstimate.preVerificationGas
 		try {
-			preVerificationGas = await sdkHelper.estimateBidPreVerificationGas({
-				...bidGas,
-				onBundlerRetry: this.logBundlerRetry(order),
-			})
+			preVerificationGas = await sdkHelper.estimateBidPreVerificationGas(bidGas, this.logBundlerRetry(order))
 		} catch (err) {
 			this.logger.warn(
 				{ orderId: order.id, err, preVerificationGas: preVerificationGas.toString() },

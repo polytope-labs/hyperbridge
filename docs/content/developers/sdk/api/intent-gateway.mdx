@@ -663,7 +663,7 @@ async estimateFillOrder(params: EstimateFillOrderParams): Promise<FillOrderEstim
 
 **Returns:** `Promise<FillOrderEstimate>` — All gas components, EIP-1559 fee values, total cost in wei, and total cost in fee token
 
-A bundler estimate that fails transiently (a network failure, a JSON-RPC `-32603` internal error, or an HTTP 429 or 5xx) is sent up to three times in all, 250 ms and then 750 ms apart. A rejection of the operation, such as an `AA..` revert or invalid params, fails on the first attempt.
+A bundler estimate that fails transiently (a network failure, a request that times out, a JSON-RPC `-32603` internal error, or an HTTP 408, 429 or 5xx) is sent up to three times in all, 250 ms and then 750 ms apart, with each request bounded by a 10 s timeout. A rejection of the operation, such as an `AA..` revert or invalid params, fails on the first attempt. A bundler that answers an HTTP error with no JSON-RPC body fails instead of resolving with an empty result.
 
 The estimate runs against the destination chain's configured EntryPoint. Fees are priced for a rundler bundler, such as the ones Hyperbridge runs. They are the fees the bundler suggests through `rundler_getUserOperationGasPrice`, each raised by its bump. Rundler only bundles an op whose max fee covers its bundle base fee, which runs above the chain's current base fee, so these clear it.
 

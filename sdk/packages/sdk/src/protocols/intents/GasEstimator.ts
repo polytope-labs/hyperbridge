@@ -473,11 +473,16 @@ export class GasEstimator {
 	 * validation is simulated.
 	 *
 	 * @param params - The bid's fields as they will be signed.
+	 * @param onBundlerRetry - Called before each retry of a transiently failed bundler
+	 *   estimate. Defaults to a `console.warn`.
 	 * @returns The `preVerificationGas` to sign, with {@link BID_PVG_HEADROOM_PERCENT} added.
 	 * @throws If no bundler is configured or the bundler rejects the estimate. A transient
 	 *   failure is retried first, as in {@link estimateFillOrder}.
 	 */
-	async estimateBidPreVerificationGas(params: BidPreVerificationGasParams): Promise<bigint> {
+	async estimateBidPreVerificationGas(
+		params: BidPreVerificationGasParams,
+		onBundlerRetry?: (event: BundlerRetryEvent) => void,
+	): Promise<bigint> {
 		const { solverAccount, maxFeePerGas, maxPriorityFeePerGas } = params
 		const latestBlock = await this.ctx.dest.client.getBlock({ blockTag: "latest" })
 		const baseFeePerGas = latestBlock.baseFeePerGas
@@ -510,7 +515,7 @@ export class GasEstimator {
 
 		const estimate = await this.estimateUserOperationGas(
 			[CryptoUtils.prepareBundlerCall(userOp), params.entryPointAddress, stateOverride],
-			params.onBundlerRetry,
+			onBundlerRetry,
 		)
 		return (BigInt(estimate.preVerificationGas) * (100n + BID_PVG_HEADROOM_PERCENT)) / 100n
 	}

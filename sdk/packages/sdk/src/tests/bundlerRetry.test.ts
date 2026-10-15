@@ -67,7 +67,7 @@ describe("CryptoUtils.sendBundler failures", () => {
 		expect(isTransientBundlerError(error)).toBe(true)
 	})
 
-	it("reads a proxy's 502 page and a 429 as transient", async () => {
+	it("reads a proxy's 502 page, a 408 and a 429 as transient", async () => {
 		bundlerResponds(502, "<html>Bad Gateway</html>", "Bad Gateway")
 		const badGateway = await bundlerError()
 		expect(badGateway.message).toBe("Bundler error: HTTP 502 Bad Gateway")
@@ -77,6 +77,23 @@ describe("CryptoUtils.sendBundler failures", () => {
 		const rateLimited = await bundlerError()
 		expect(rateLimited.message).toBe("Bundler error: HTTP 429")
 		expect(isTransientBundlerError(rateLimited)).toBe(true)
+
+		bundlerResponds(408, {})
+		const requestTimeout = await bundlerError()
+		expect(requestTimeout.message).toBe("Bundler error: HTTP 408")
+		expect(isTransientBundlerError(requestTimeout)).toBe(true)
+	})
+
+	it("reads a request aborted by the timeout as transient", async () => {
+		vi.stubGlobal(
+			"fetch",
+			vi.fn().mockRejectedValue(new DOMException("The operation was aborted due to timeout", "TimeoutError")),
+		)
+
+		const error = await bundlerError()
+
+		expect(error.transport).toBe(true)
+		expect(isTransientBundlerError(error)).toBe(true)
 	})
 
 	it.each([
@@ -90,6 +107,15 @@ describe("CryptoUtils.sendBundler failures", () => {
 		bundlerResponds(200, rpcError(code, message))
 
 		expect(isTransientBundlerError(await bundlerError())).toBe(false)
+	})
+
+	it("reads a non-deterministic JSON-RPC error on an HTTP 500 as transient", async () => {
+		bundlerResponds(500, rpcError(-32000, "server error"))
+
+		const error = await bundlerError()
+
+		expect(error.code).toBe(-32000)
+		expect(isTransientBundlerError(error)).toBe(true)
 	})
 
 	it("reads an ERC-4337 rejection as the bundler's answer even on an HTTP 500", async () => {
@@ -195,7 +221,7 @@ describe("GasEstimator.estimateBidPreVerificationGas on a transient bundler fail
 		const estimator = new GasEstimator(ctx, { sendBundler } as unknown as InstanceType<typeof CryptoUtils>)
 		const onBundlerRetry = vi.fn()
 
-		const preVerificationGas = await estimator.estimateBidPreVerificationGas({ ...BID, onBundlerRetry })
+		const preVerificationGas = await estimator.estimateBidPreVerificationGas(BID, onBundlerRetry)
 
 		expect(preVerificationGas).toBeGreaterThan(0n)
 		expect(sendBundler).toHaveBeenCalledTimes(2)

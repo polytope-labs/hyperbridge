@@ -19,6 +19,7 @@ import type {
 	EstimateFillOrderParams,
 	FillOrderEstimate,
 	BidPreVerificationGasParams,
+	BundlerRetryEvent,
 	OrderFeesQuote,
 	IntentOrderStatusUpdate,
 	SelectBidResult,
@@ -790,8 +791,11 @@ export class IntentGateway {
 	 *
 	 * Delegates to {@link GasEstimator.estimateBidPreVerificationGas}.
 	 */
-	async estimateBidPreVerificationGas(params: BidPreVerificationGasParams): Promise<bigint> {
-		return this.gasEstimator.estimateBidPreVerificationGas(params)
+	async estimateBidPreVerificationGas(
+		params: BidPreVerificationGasParams,
+		onBundlerRetry?: (event: BundlerRetryEvent) => void,
+	): Promise<bigint> {
+		return this.gasEstimator.estimateBidPreVerificationGas(params, onBundlerRetry)
 	}
 
 	/**

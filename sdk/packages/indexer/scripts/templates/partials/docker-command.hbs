@@ -1,6 +1,6 @@
 - ${SUB_COMMAND:-}
 - -f=/app/{{chainName}}.yaml
-- --db-schema=app
+- --db-schema={{dbSchema}}
 - --workers=${SUBQL_WORKERS:-16}
 - --batch-size=${SUBQL_BATCH_SIZE:-100}
 - --timeout=${SUBQL_TIMEOUT:-1800}

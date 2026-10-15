@@ -3,7 +3,8 @@
 		"type": "substrate",
 		"chainId": "0x61ea8a51fd4a058ee8c0e86df0a89cc85b8b67a0a66432893d09719050c9f540",
 		"startBlock": 10190400,
-		"stateMachineId": "POLKADOT-3367"
+		"stateMachineId": "POLKADOT-3367",
+		"governanceStartBlock": 5986840
 	},
 	"bifrost-mainnet": {
 		"type": "substrate",

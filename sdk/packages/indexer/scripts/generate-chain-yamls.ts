@@ -34,6 +34,44 @@ const substrateTemplate = Handlebars.compile(
 )
 const evmTemplate = Handlebars.compile(fs.readFileSync(path.join(templatesDir, "evm-chain.yaml.hbs"), "utf8"))
 const multichainTemplate = Handlebars.compile(fs.readFileSync(path.join(templatesDir, "multichain.yaml.hbs"), "utf8"))
+const governanceTemplate = Handlebars.compile(
+	fs.readFileSync(path.join(templatesDir, "governance-chain.yaml.hbs"), "utf8"),
+)
+
+const GOVERNANCE_EVENTS: Record<string, [module: string, methods: string[]]> = {
+	handleReferendaEvent: [
+		"referenda",
+		[
+			"Submitted",
+			"DecisionDepositPlaced",
+			"DecisionDepositRefunded",
+			"SubmissionDepositRefunded",
+			"DecisionStarted",
+			"ConfirmStarted",
+			"ConfirmAborted",
+			"Confirmed",
+			"Approved",
+			"Rejected",
+			"TimedOut",
+			"Cancelled",
+			"Killed",
+			"MetadataSet",
+			"MetadataCleared",
+		],
+	],
+	handleConvictionVotingEvent: ["convictionVoting", ["Voted", "VoteRemoved", "Delegated", "Undelegated"]],
+	handleSchedulerDispatchedEvent: ["scheduler", ["Dispatched"]],
+	handleTechnicalCollectiveEvent: [
+		"technicalCollective",
+		["Proposed", "Voted", "Approved", "Disapproved", "Executed", "Closed", "Killed"],
+	],
+	handleWhitelistEvent: ["whitelist", ["CallWhitelisted", "WhitelistedCallRemoved", "WhitelistedCallDispatched"]],
+	handlePreimageEvent: ["preimage", ["Noted", "Requested", "Cleared"]],
+	handleTreasurySpendEvent: [
+		"treasury",
+		["AssetSpendApproved", "Paid", "PaymentFailed", "SpendProcessed", "AssetSpendVoided"],
+	],
+}
 
 const EVM_TRACKED = [
 	// The HyperFX orderbook's base URL. Its `solvers` watchlist discovers solvers that have never
@@ -127,6 +165,28 @@ const generateSubstrateYaml = async (chain: string, config: Configuration) => {
 	return substrateTemplate(templateData)
 }
 
+// Governance runs as its own deployment with its own database schema, because SubQuery keys sync
+// progress by chain id and it has to start far below the chain's main start block.
+const generateGovernanceYaml = (chain: string, config: Configuration, governanceStartBlock: number) =>
+	governanceTemplate({
+		name: `${chain}-governance`,
+		description: `${chain.charAt(0).toUpperCase() + chain.slice(1)} Governance Indexer`,
+		runner: {
+			node: {
+				name: "@subql/node",
+				version: ">=4.0.0",
+			},
+		},
+		config,
+		endpoints: generateEndpoints(chain),
+		chainTypesConfig: getChainTypesPath(chain),
+		blockNumber: governanceStartBlock,
+		handlerKind: "substrate/EventHandler",
+		handlers: Object.entries(GOVERNANCE_EVENTS).flatMap(([handler, [module, methods]]) =>
+			methods.map((method) => ({ handler, module, method })),
+		),
+	})
+
 const generateEvmYaml = async (chain: string, config: Configuration) => {
 	const endpoints = generateEndpoints(chain)
 
@@ -209,6 +269,14 @@ async function generateAllChainYamls() {
 
 		fs.writeFileSync(root + `/src/configs/${chain}.yaml`, yaml)
 		console.log(`Generated ${root}/src/configs/${chain}.yaml`)
+
+		if (config.type === "substrate" && config.governanceStartBlock !== undefined) {
+			fs.writeFileSync(
+				root + `/src/configs/${chain}-governance.yaml`,
+				generateGovernanceYaml(chain, config, config.governanceStartBlock),
+			)
+			console.log(`Generated ${root}/src/configs/${chain}-governance.yaml`)
+		}
 	}
 }
 

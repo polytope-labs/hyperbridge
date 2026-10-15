@@ -47,19 +47,26 @@ const generateNodeServices = () => {
 			blockConfirmations: config.blockConfirmations, // Pass block confirmations from config
 			config,
 			volumesPath: "../../",
+			dbSchema: "app",
 		}
 
-		const yaml = serviceTemplate(serviceData)
+		writeService(dockerDir, serviceData)
 
-		const filePath = path.join(dockerDir, `${chainName}.yml`)
-
-		if (!fs.existsSync(filePath)) {
-			fs.writeFileSync(filePath, yaml)
-			console.log(`Generated ${filePath}`)
-		} else {
-			console.log(`Skipping ${filePath} - File already exists`)
+		if (config.type === "substrate" && config.governanceStartBlock !== undefined) {
+			writeService(dockerDir, { ...serviceData, chainName: `${chainName}-governance`, dbSchema: "governance" })
 		}
 	})
+}
+
+const writeService = (dockerDir: string, serviceData: { chainName: string }) => {
+	const filePath = path.join(dockerDir, `${serviceData.chainName}.yml`)
+
+	if (!fs.existsSync(filePath)) {
+		fs.writeFileSync(filePath, serviceTemplate(serviceData))
+		console.log(`Generated ${filePath}`)
+	} else {
+		console.log(`Skipping ${filePath} - File already exists`)
+	}
 }
 
 generateNodeServices()

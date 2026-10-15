@@ -1057,6 +1057,7 @@ test("the custom protocol reconnects Orders SSE and releases streams across 20 r
         if (process.env.SIMPLEX_TEST_RELOADS && reload % 25 === 0) {
             const memory = await electronApp.evaluate(({ app }) => app.getAppMetrics().map(({type,memory}) => ({type,memory})))
             console.log(JSON.stringify({event:"stress",cycle:reload,memory,sseClients:fixture.clientCount()}))
+            assert.ok(memory.every(({memory}) => memory.workingSetSize < 1500000), "stop stress before a process exceeds 1.5 GB working set")
             fixture.stop()
             await page.getByText("reconnecting…", { exact: true }).waitFor({timeout:30_000})
             fixture = operatorFixture(socketPath)
@@ -1069,6 +1070,11 @@ test("the custom protocol reconnects Orders SSE and releases streams across 20 r
 	}
 	await waitFor(() => fixture.clientCount() === 1, "exactly one SSE stream after repeated reloads")
     assert.deepEqual(await electronApp.evaluate(() => globalThis.crashAuditEvents), [])
+    const cdp = await page.context().newCDPSession(page)
+    console.log(JSON.stringify({event:"heap-before-gc",heap:await cdp.send("Runtime.getHeapUsage")}))
+    await cdp.send("HeapProfiler.collectGarbage")
+    console.log(JSON.stringify({event:"heap-after-gc",heap:await cdp.send("Runtime.getHeapUsage")}))
+    await cdp.detach()
     console.log(JSON.stringify({event:"stress-complete",cycle:reloadCount,memory:await electronApp.evaluate(({ app }) => app.getAppMetrics().map(({type,memory}) => ({type,memory}))),sseClients:fixture.clientCount()}))
 })
 

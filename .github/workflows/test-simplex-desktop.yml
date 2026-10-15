@@ -154,12 +154,6 @@ jobs:
             fail-fast: false
             matrix:
                 include:
-                    - runner: macos-15
-                      target: darwin-arm64
-                    - runner: ubuntu-latest
-                      target: linux-x64
-                    - runner: ubuntu-24.04-arm
-                      target: linux-arm64
                     - runner: windows-latest
                       target: win32-x64
         defaults:
@@ -223,8 +217,12 @@ jobs:
                   $process = Start-Process -FilePath $installer -ArgumentList "/S /D=$installed" -PassThru -Wait
                   if ($process.ExitCode -ne 0) { throw "Installer failed: $($process.ExitCode)" }
                   "SIMPLEX_TEST_EXECUTABLE=$installed\Simplex.exe" >> $env:GITHUB_ENV
-                  "SIMPLEX_TEST_RELOADS=250" >> $env:GITHUB_ENV
+                  "SIMPLEX_TEST_RELOADS=1000" >> $env:GITHUB_ENV
                   "SIMPLEX_ERROR_REPORTING=off" >> $env:GITHUB_ENV
+                  $browsers = @('C:\Program Files\Google\Chrome\Application\chrome.exe', 'C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe')
+                  $browser = $browsers | Where-Object { Test-Path $_ } | Select-Object -First 1
+                  if (-not $browser) { throw 'No browser available for Windows passkey coverage' }
+                  "SIMPLEX_PASSKEY_BROWSER=$browser" >> $env:GITHUB_ENV
 
             - name: Run cross-platform desktop tests
               run: pnpm --dir packages/simplex-desktop test

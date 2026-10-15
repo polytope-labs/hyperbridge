@@ -421,48 +421,78 @@ test("renderer crashes recover without restarting the solver and repeated crashe
 	assert.match(content, /Dashboard renderer exited/)
 })
 
-test("a renderer crash during initial navigation recovers without quitting the desktop", async (t) => {
-	const userDataDir = await temporaryUserData("startup-renderer")
-	t.after(() => cleanupDesktop(undefined, userDataDir))
-	const wrapper = join(userDataDir, "startup-fault.cjs")
-	const resultPath = join(userDataDir, "startup-result.json")
-	await writeFile(
-		wrapper,
-		`const { app, BrowserWindow, dialog, protocol } = require("electron");
-const { writeFileSync } = require("node:fs");
-const result = { injected: false, recovered: false, startupErrors: [] };
-const handle = protocol.handle.bind(protocol);
-protocol.handle = (scheme, handler) => handle(scheme, async request => {
-  if (request.url === "simplex://local/" && !result.injected) {
-    result.injected = true;
-    setTimeout(() => BrowserWindow.getAllWindows()[0].webContents.forcefullyCrashRenderer(), 10);
-    await new Promise(resolve => setTimeout(resolve, 250));
-  }
-  return handler(request);
-});
-dialog.showErrorBox = (title, message) => result.startupErrors.push({ title, message });
-app.on("web-contents-created", (_event, contents) => {
-  contents.on("did-finish-load", () => {
-    if (result.injected) { result.recovered = true; setImmediate(() => app.quit()); }
-  });
-});
-app.on("will-quit", () => writeFileSync(${JSON.stringify(resultPath)}, JSON.stringify(result)));
-setTimeout(() => app.quit(), 10_000).unref();
-import(${JSON.stringify(pathToFileURL(join(packageRoot, "dist/bootstrap.js")).href)});
-`,
-	)
-	const args = directElectronArguments(wrapper, userDataDir)
-	await execFileAsync(electronExecutable, args, {
-		cwd: packageRoot,
-		timeout: 20_000,
-		env: { ...process.env, SIMPLEX_ERROR_REPORTING: "off" },
+for (const scenario of ["native-crash", "delayed-crash-event", "navigation-failure"]) {
+	test(`initial navigation handles ${scenario} without misclassifying startup errors`, async (t) => {
+		const userDataDir = await temporaryUserData("startup-renderer")
+		t.after(() => cleanupDesktop(undefined, userDataDir))
+		const wrapper = join(userDataDir, "startup-fault.cjs")
+		const resultPath = join(userDataDir, "startup-result.json")
+		await writeFile(
+			wrapper,
+			`const { app, BrowserWindow, dialog, protocol } = require("electron");
+	const { writeFileSync } = require("node:fs");
+	const result = { injected: false, recovered: false, startupErrors: [] };
+	const events = [];
+	const record = (event, contents, detail) => events.push({ event, crashed: contents && !contents.isDestroyed() ? contents.isCrashed() : null, detail });
+	const scenario = ${JSON.stringify(scenario)};
+	if (scenario === "navigation-failure") {
+	  BrowserWindow.prototype.loadURL = async () => {
+	    result.injected = true;
+	    throw new Error("ERR_FAILED: injected navigation failure without a renderer crash");
+	  };
+	}
+	const handle = protocol.handle.bind(protocol);
+	protocol.handle = (scheme, handler) => handle(scheme, async request => {
+	  if (request.url === "simplex://local/" && !result.injected) {
+	    result.injected = true;
+	    setTimeout(() => BrowserWindow.getAllWindows()[0].webContents.forcefullyCrashRenderer(), 10);
+	    await new Promise(resolve => setTimeout(resolve, 250));
+	  }
+	  return handler(request);
+	});
+	dialog.showErrorBox = (title, message) => {
+	  result.startupErrors.push({ title, message });
+	  record("startup-error", BrowserWindow.getAllWindows()[0]?.webContents, message);
+	};
+	app.on("web-contents-created", (_event, contents) => {
+	  contents.on("render-process-gone", (_event, details) => record("render-process-gone", contents, details));
+	  contents.on("did-fail-load", (_event, code, description) => record("did-fail-load", contents, { code, description }));
+	  if (scenario === "delayed-crash-event") {
+	    const on = contents.on.bind(contents);
+	    contents.on = (name, listener) => on(name, name === "render-process-gone"
+	      ? (...args) => setTimeout(() => listener(...args), 100)
+	      : listener);
+	  }
+	  contents.on("did-finish-load", () => {
+	    if (result.injected) { result.recovered = true; setImmediate(() => app.quit()); }
+	  });
+	});
+	app.on("will-quit", () => {
+	  writeFileSync(${JSON.stringify(resultPath)}, JSON.stringify(result));
+	  console.log(JSON.stringify({ platform: process.platform, electron: process.versions.electron, events }));
+	});
+	setTimeout(() => app.quit(), 10_000).unref();
+	import(${JSON.stringify(pathToFileURL(join(packageRoot, "dist/bootstrap.js")).href)});
+	`,
+		)
+		const args = directElectronArguments(wrapper, userDataDir)
+		const { stdout } = await execFileAsync(electronExecutable, args, {
+			cwd: packageRoot,
+			timeout: 20_000,
+			env: { ...process.env, SIMPLEX_ERROR_REPORTING: "off" },
+		})
+		const result = JSON.parse(await readFile(resultPath, "utf8"))
+		if (scenario === "navigation-failure") {
+			assert.equal(result.injected, true)
+			assert.equal(result.recovered, false)
+			assert.equal(result.startupErrors.length, 1)
+			assert.equal(result.startupErrors[0].title, "Simplex could not start")
+			assert.match(result.startupErrors[0].message, /ERR_FAILED/)
+		} else {
+			assert.deepEqual(result, { injected: true, recovered: true, startupErrors: [] }, stdout)
+		}
 	})
-	assert.deepEqual(JSON.parse(await readFile(resultPath, "utf8")), {
-		injected: true,
-		recovered: true,
-		startupErrors: [],
-	})
-})
+}
 
 test("password login remains available when OS storage never finishes its availability check", async (t) => {
 	const userDataDir = await temporaryUserData("storage-stall")

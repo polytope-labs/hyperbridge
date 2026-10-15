@@ -3,6 +3,8 @@ export class RendererRecovery {
 	private autoReloaded = false
 	private pending?: Promise<void>
 	private prompting?: Promise<void>
+	private crashObserved = false
+	private readonly crashObservers = new Set<() => void>()
 
 	constructor(
 		private readonly options: {
@@ -13,8 +15,31 @@ export class RendererRecovery {
 		},
 	) {}
 
+	/** Linux can reject navigation before delivering the renderer's exit event. */
+	async loadInitial(load: () => Promise<void>): Promise<void> {
+		try {
+			await load()
+		} catch (error) {
+			if (!this.crashObserved) {
+				await new Promise<void>((resolve) => {
+					const finish = () => {
+						clearTimeout(timer)
+						this.crashObservers.delete(finish)
+						resolve()
+					}
+					// Bound the correlation window: an unrelated load error must still surface.
+					const timer = setTimeout(finish, 1000)
+					this.crashObservers.add(finish)
+				})
+			}
+			if (!this.crashObserved) throw error
+		}
+	}
+
 	async crashed(reason: string, exitCode: number): Promise<void> {
 		if (reason === "clean-exit" || !this.options.canRecover()) return
+		this.crashObserved = true
+		for (const finish of this.crashObservers) finish()
 		this.options.report(new Error(`Dashboard renderer exited: ${reason} (code ${exitCode})`))
 		if (!this.autoReloaded) {
 			this.autoReloaded = true

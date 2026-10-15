@@ -450,7 +450,6 @@ async function createWindow(notificationPath?: string): Promise<void> {
 		report: reportDesktopError,
 	})
 	rendererRecovery = recovery
-	let rendererFailed = false
 	const invalidateMacAccess = () => {
 		if (process.platform === "darwin") vault?.cancelPendingAccess()
 	}
@@ -471,24 +470,14 @@ async function createWindow(notificationPath?: string): Promise<void> {
 		if (isMainFrame && !isSameDocument) invalidateMacAccess()
 	})
 	window.webContents.on("render-process-gone", (_event, details) => {
-		if (
-			details.reason !== "clean-exit" &&
-			!window.webContents.isDestroyed() &&
-			window.webContents.isCrashed()
-		)
-			rendererFailed = true
 		invalidateMacAccess()
 		void recovery.crashed(details.reason, details.exitCode)
 	})
 	window.once("ready-to-show", () => window.show())
 	refreshNativeUi()
-	try {
-		await window.loadURL(notificationPath ? desktopNotificationUrl(notificationPath) : "simplex://local/")
-	} catch (error) {
-		// A renderer crash also rejects its pending navigation. Recovery owns that
-		// failure; treating it as a fatal startup error would quit before the reload.
-		if (!rendererFailed) throw error
-	}
+	await recovery.loadInitial(() =>
+		window.loadURL(notificationPath ? desktopNotificationUrl(notificationPath) : "simplex://local/"),
+	)
 }
 
 async function showWindow(notificationPath?: string): Promise<void> {

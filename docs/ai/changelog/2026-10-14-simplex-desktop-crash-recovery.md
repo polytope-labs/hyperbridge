@@ -82,7 +82,9 @@ A renderer crash reloads the dashboard once per window. Subsequent crashes offer
 retry; **Show Simplex** can also reload a crashed renderer. Recovery waits for Chromium teardown,
 stops during app exit or update installation, and never restarts the detached solver.
 If the renderer dies during initial navigation, its rejected page load does not quit the desktop;
-the same recovery handles it. Other initial page-load errors remain fatal startup errors.
+the same recovery handles it. A rejected initial page load waits up to one second for a
+recoverable renderer-exit event, since Linux can deliver that event after the rejection.
+Without that event, the original page-load error remains a fatal startup error.
 
 OS secure-storage availability checks share one native request and return unavailable after five
 seconds. A stalled check cannot indefinitely hide the password login form or accumulate native

@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 import { RendererRecovery } from "../renderer-recovery"
 
 function fixture() {
@@ -30,6 +30,42 @@ function fixture() {
 }
 
 describe("renderer recovery", () => {
+	afterEach(() => vi.useRealTimers())
+
+	it("lets crash recovery own an initial navigation rejection that arrives before the crash event", async () => {
+		const f = fixture()
+		const startup = f.recovery.loadInitial(async () => {
+			throw new Error("ERR_FAILED")
+		})
+		// Linux can reject loadURL before reporting the renderer's termination.
+		await new Promise((resolve) => setTimeout(resolve, 10))
+		await f.recovery.crashed("crashed", 133)
+		await expect(startup).resolves.toBeUndefined()
+		expect(f.reload).toHaveBeenCalledOnce()
+	})
+
+	it("also accepts a navigation rejection after recovery has already reloaded the renderer", async () => {
+		const f = fixture()
+		await f.recovery.crashed("crashed", 1)
+		await expect(f.recovery.loadInitial(async () => {
+			throw new Error("ERR_ABORTED")
+		})).resolves.toBeUndefined()
+		expect(f.reload).toHaveBeenCalledOnce()
+	})
+
+	it("bounds the wait and preserves startup errors when no recoverable crash is reported", async () => {
+		vi.useFakeTimers()
+		const f = fixture()
+		const error = new Error("navigation failed")
+		const startup = f.recovery.loadInitial(async () => { throw error })
+		const rejected = expect(startup).rejects.toBe(error)
+		await f.recovery.crashed("clean-exit", 0)
+		await vi.advanceTimersByTimeAsync(1000)
+		await rejected
+		expect(f.reload).not.toHaveBeenCalled()
+		expect(vi.getTimerCount()).toBe(0)
+	})
+
 	it("recovers once after teardown, then requires an operator retry instead of looping", async () => {
 		const f = fixture()
 		const first = f.recovery.crashed("crashed", 1)

@@ -421,7 +421,7 @@ test("renderer crashes recover without restarting the solver and repeated crashe
 	assert.match(content, /Dashboard renderer exited/)
 })
 
-for (const scenario of ["native-crash", "delayed-crash-event", "navigation-failure"]) {
+for (const scenario of ["native-crash", "rejection-before-crash-event", "navigation-failure"]) {
 	test(`initial navigation handles ${scenario} without misclassifying startup errors`, async (t) => {
 		const userDataDir = await temporaryUserData("startup-renderer")
 		t.after(() => cleanupDesktop(undefined, userDataDir))
@@ -434,9 +434,18 @@ for (const scenario of ["native-crash", "delayed-crash-event", "navigation-failu
 	const result = { injected: false, recovered: false, startupErrors: [] };
 	const events = [];
 	const record = (event, contents, detail) => events.push({ event, time: Date.now(), crashed: contents && !contents.isDestroyed() ? contents.isCrashed() : null, detail });
-	const quit = app.quit.bind(app);
-	app.quit = () => setTimeout(quit, 1000);
 	const scenario = ${JSON.stringify(scenario)};
+	let rejectNavigation;
+	if (scenario === "rejection-before-crash-event") {
+	  const load = BrowserWindow.prototype.loadURL;
+	  let initial = true;
+	  BrowserWindow.prototype.loadURL = function (...args) {
+	    const pending = load.apply(this, args);
+	    if (!initial) return pending;
+	    initial = false;
+	    return Promise.race([pending, new Promise((_resolve, reject) => { rejectNavigation = reject; })]);
+	  };
+	}
 	if (scenario === "navigation-failure") {
 	  BrowserWindow.prototype.loadURL = async () => {
 	    result.injected = true;
@@ -452,6 +461,7 @@ for (const scenario of ["native-crash", "delayed-crash-event", "navigation-failu
 	      const contents = BrowserWindow.getAllWindows()[0].webContents;
 	      record("force-renderer-crash", contents);
 	      contents.forcefullyCrashRenderer();
+	      rejectNavigation?.(new Error("ERR_FAILED: navigation rejected before renderer-exit callback"));
 	    }, 10);
 	    await new Promise(resolve => setTimeout(resolve, 250));
 	  }
@@ -464,7 +474,7 @@ for (const scenario of ["native-crash", "delayed-crash-event", "navigation-failu
 	app.on("web-contents-created", (_event, contents) => {
 	  contents.on("render-process-gone", (_event, details) => record("render-process-gone", contents, details));
 	  contents.on("did-fail-load", (_event, code, description) => record("did-fail-load", contents, { code, description }));
-	  if (scenario === "delayed-crash-event") {
+	  if (scenario === "rejection-before-crash-event") {
 	    const on = contents.on.bind(contents);
 	    contents.on = (name, listener) => on(name, name === "render-process-gone"
 	      ? (...args) => setTimeout(() => listener(...args), 100)

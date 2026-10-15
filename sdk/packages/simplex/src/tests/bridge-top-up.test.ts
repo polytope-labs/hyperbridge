@@ -172,6 +172,7 @@ function sentLog() {
 function topUpWith(record: StoredBridgeTopUp, chain: { receipt?: { logs: unknown[] } } = {}) {
 	const data = new MemoryDataStore()
 	void data.state.set({ bridgeTopUp: record })
+	const refreshBridgeBalance = vi.fn(async () => {})
 	const topUp = new BridgeTopUp({
 		state: data.state,
 		clientManager: {
@@ -189,6 +190,7 @@ function topUpWith(record: StoredBridgeTopUp, chain: { receipt?: { logs: unknown
 		},
 		// Base is delegated; BSC still points at an older SolverAccount.
 		delegation: { isDelegated: async (chain: string) => chain === "EVM-8453" },
+		refreshBridgeBalance,
 	} as unknown as BridgeTopUpDeps)
 	// Hyperbridge already holds the request, as when another relayer delivered it.
 	;(topUp as unknown as { hyperbridgeChain: Promise<unknown> }).hyperbridgeChain = Promise.resolve({
@@ -208,7 +210,7 @@ function topUpWith(record: StoredBridgeTopUp, chain: { receipt?: { logs: unknown
 		"EVM-8453",
 		Promise.resolve({ isOrderFilled: async () => true }),
 	)
-	return { topUp, data }
+	return { topUp, data, refreshBridgeBalance }
 }
 
 describe("BRIDGE top-up persistence", () => {
@@ -242,7 +244,7 @@ describe("BRIDGE top-up persistence", () => {
 
 	it("recovers an order whose placement landed but whose receipt read failed, then delivers it", async () => {
 		const placeTxHash = `0x${"66".repeat(32)}` as HexString
-		const { topUp, data } = topUpWith(
+		const { topUp, data, refreshBridgeBalance } = topUpWith(
 			stored("failed", { placeTxHash, sessionPrivateKey: `0x${"55".repeat(32)}`, error: "receipt read failed" }),
 			{ receipt: { logs: [orderPlacedLog()] } },
 		)
@@ -267,6 +269,8 @@ describe("BRIDGE top-up persistence", () => {
 		})
 		await topUp.current()
 		await vi.waitFor(async () => expect((await data.state.get()).bridgeTopUp?.stage).toBe("delivered"))
+		// The dashboard's BRIDGE balance is re-read the moment delivery lands, not a minute later.
+		expect(refreshBridgeBalance).toHaveBeenCalledTimes(1)
 		fetchSpy.mockRestore()
 		const recovered = (await data.state.get()).bridgeTopUp!
 		expect(recovered.commitment).toMatch(/^0x[0-9a-f]{64}$/)

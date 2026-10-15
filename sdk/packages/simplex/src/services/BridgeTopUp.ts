@@ -240,6 +240,8 @@ export interface BridgeTopUpDeps {
 	substratePublicKey: HexString
 	/** Coprocessor the order's bids are read from. */
 	hyperbridge?: Promise<IntentsCoprocessor>
+	/** Re-reads the filler's BRIDGE balance the moment a delivery lands, for the dashboard. */
+	refreshBridgeBalance?: () => Promise<void>
 	loggers?: Parameters<typeof moduleLogger>[0]
 }
 
@@ -653,7 +655,17 @@ export class BridgeTopUp {
 		const delivered =
 			statuses.some((status) => status.status === "DESTINATION") ||
 			!!(await withTimeout(hyperbridge.queryRequestReceipt(record.deliveryCommitment!), "the request receipt"))
-		if (delivered && record.stage !== "delivered") await this.update({ stage: "delivered", error: undefined })
+		if (delivered && record.stage !== "delivered") {
+			await this.update({ stage: "delivered", error: undefined })
+			// The balance moves only now. Refresh it before the sync returns, so the dashboard's
+			// reload shows it; best-effort, the once-a-minute interval catches up regardless.
+			const refreshBalance = this.deps.refreshBridgeBalance
+			if (refreshBalance) {
+				await refreshBalance().catch((err) =>
+					this.logger.warn({ err }, "Failed to refresh the BRIDGE balance"),
+				)
+			}
+		}
 		return delivered
 	}
 

@@ -104,7 +104,7 @@ export type {
 	LimitOrderFill,
 	LimitOrderFillInsert,
 	LimitOrderFillRecord,
-	LimitOrderHold,
+	BidPricing,
 	StoredBid,
 	BidInsert,
 	BidStats,

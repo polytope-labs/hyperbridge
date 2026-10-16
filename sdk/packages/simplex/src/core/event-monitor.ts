@@ -153,6 +153,9 @@ export class EventMonitor extends EventEmitter {
 			outputs: event.outputs,
 			inputs: event.inputs,
 			transactionHash,
+			// Which log of its transaction this fill is: one bundle can carry several of our
+			// fills, and the transaction hash alone does not tell them apart.
+			logIndex: event.logIndex,
 			// A scanner that cannot tell leaves this unset; treated as closing the order,
 			// as every fill of ours was before partial fills were told apart.
 			complete: event.complete !== false,

@@ -17,7 +17,7 @@ import {
 import { parseChainKey } from "@/config/interpolated-curve"
 import pQueue from "p-queue"
 import { type ChainClientManager, type ContractInteractionService, DelegationService, type RebalancingService } from "@/services"
-import type { BidStore, LimitOrder, LimitOrderHold, LimitOrderStore } from "@/data/types"
+import type { BidPricing, BidStore, LimitOrderStore, StoredBid } from "@/data/types"
 import type { AssetRegistry } from "@/config/asset-registry"
 import type { LimitOrderService } from "@/orderbook/limit-orders"
 import { toRaw, toScaled, toScaledUp } from "@/orderbook/amounts"
@@ -39,13 +39,13 @@ const HYPERBRIDGE_CONNECT_TIMEOUT_MS = 30_000
  */
 const DELEGATION_RECHECK_MS = 60_000
 
-/** Smallest hold first, for picking the tightest one that covers a delivery. */
-function byAmount(a: LimitOrderHold, b: LimitOrderHold): number {
-	return BigInt(a.amount) < BigInt(b.amount) ? -1 : BigInt(a.amount) > BigInt(b.amount) ? 1 : 0
+/** Smallest payout first, for picking the tightest one that covers a delivery. */
+function byPayout(a: BidPricing, b: BidPricing): number {
+	return BigInt(a.payout) < BigInt(b.payout) ? -1 : BigInt(a.payout) > BigInt(b.payout) ? 1 : 0
 }
 
 /**
- * The hold of the bid a fill executed.
+ * The pricing of the bid a fill executed.
  *
  * Which one executed is not in the event, which names the commitment the bids share
  * rather than the op that landed. The escrow it released narrows it: a bid releases
@@ -53,30 +53,35 @@ function byAmount(a: LimitOrderHold, b: LimitOrderHold): number {
  * so only a bid whose take covers the release can have been it. Several can: a bid
  * whose payout covers the ask takes the whole input, so one solver's bids at several
  * levels of its book all sign the same take. Among them it is the best rate, which is
- * the one the executor takes first. Holds without a take fall back to the delivery:
- * the hold that matches it, then the closest one at or above it, then the order the
+ * the one the executor takes first. Bids without a take fall back to the delivery:
+ * the payout that matches it, then the closest one at or above it, then the order the
  * bids went out in.
  */
-function executedHold(holds: LimitOrderHold[], delivered: bigint, released: bigint): LimitOrderHold {
-	const withTake = released > 0n ? holds.filter((hold) => hold.take !== undefined) : []
+function executedPricing(
+	bids: BidPricing[],
+	/** What the fill delivered of the token the bid's own limit order pays, at 1e18. */
+	deliveredTo: (bid: BidPricing) => bigint,
+	released: bigint,
+): BidPricing {
+	const withTake = released > 0n ? bids.filter((bid) => bid.take !== undefined) : []
 	return (
-		withTake.filter((hold) => BigInt(hold.take!) >= released).sort(byBestRate)[0] ??
-		holds.find((hold) => BigInt(hold.amount) === delivered) ??
-		holds.filter((hold) => BigInt(hold.amount) >= delivered).sort(byAmount)[0] ??
-		holds[0]
+		withTake.filter((bid) => BigInt(bid.take!) >= released).sort(byBestRate)[0] ??
+		bids.find((bid) => BigInt(bid.payout) === deliveredTo(bid)) ??
+		bids.filter((bid) => BigInt(bid.payout) >= deliveredTo(bid)).sort(byPayout)[0] ??
+		bids[0]
 	)
 }
 
-/** Best signed rate (`amount / take`) first: the order the executor takes bids in. */
-function byBestRate(a: LimitOrderHold, b: LimitOrderHold): number {
-	const left = BigInt(a.amount) * BigInt(b.take!)
-	const right = BigInt(b.amount) * BigInt(a.take!)
+/** Best signed rate (`payout / take`) first: the order the executor takes bids in. */
+function byBestRate(a: BidPricing, b: BidPricing): number {
+	const left = BigInt(a.payout) * BigInt(b.take!)
+	const right = BigInt(b.payout) * BigInt(a.take!)
 	return left === right ? 0 : left > right ? -1 : 1
 }
 
 /** What a fill delivered of the token a limit order pays. */
 interface Delivery {
-	/** At 1e18, the unit holds are kept in. */
+	/** At 1e18, the unit limit orders are kept in. */
 	scaled: bigint
 	/** In the token's own units, as the gateway counted it. */
 	raw: bigint
@@ -84,23 +89,21 @@ interface Delivery {
 }
 
 /**
- * What the gateway charged the bid behind `hold`, at 1e18: the escrow it released, at the rate
- * the bid signed (`amount / take`), rounded up and never below what it credited the swapper.
+ * What the gateway charged the bid `pricing` describes, at 1e18: the escrow it released, at the
+ * rate the bid signed (`payout / take`), rounded up and never below what it credited the swapper.
  *
  * The fill event reports the credited output, which excludes the surplus a bid above the ask
- * pays the swapper and the protocol. Drawing the limit order down by that would leave it claiming
- * output it had already paid out. A hold without a take predates bids carrying their own rate,
- * and was signed at the ask, so its charge is the delivery.
+ * pays the swapper and the protocol, so recording that would understate what the fill cost the
+ * order. A bid without a take predates bids carrying their own rate, and was signed at the ask,
+ * so its charge is the delivery.
  *
  * The charge is worked out in the token's own units, where the gateway rounds it, and only then
- * brought to 1e18. Rounded at 1e18 instead it comes out up to one unit of the token short of what
- * the order's on-chain budget counted, and the order would go on to bid output the budget no
- * longer has room for.
+ * brought to 1e18, so it matches what the order's on-chain budget counted.
  */
-function chargedFor(hold: LimitOrderHold, delivered: Delivery, released: bigint): bigint {
-	const take = hold.take === undefined ? 0n : BigInt(hold.take)
+function chargedFor(pricing: BidPricing, delivered: Delivery, released: bigint): bigint {
+	const take = pricing.take === undefined ? 0n : BigInt(pricing.take)
 	if (take === 0n || released === 0n) return toScaledUp(delivered.raw, delivered.decimals)
-	const offered = toRaw(BigInt(hold.amount), delivered.decimals)
+	const offered = toRaw(BigInt(pricing.payout), delivered.decimals)
 	const atRate = (offered * released + take - 1n) / take
 	return toScaledUp(atRate > delivered.raw ? atRate : delivered.raw, delivered.decimals)
 }
@@ -125,9 +128,8 @@ export class IntentFiller {
 	private retractionQueue: pQueue
 	/**
 	 * Fills are settled one at a time, in the order they were scanned. Several fills of
-	 * one order can land in one scan, and each settlement names its bid from the holds
-	 * the previous ones left: run side by side, two of them read the same holds and
-	 * claim the same one.
+	 * one order can land in one scan, and each settlement names its bid from the fills
+	 * the previous ones recorded: run side by side, two of them would name the same bid.
 	 */
 	private settlementQueue: pQueue
 	private paused = false
@@ -233,7 +235,7 @@ export class IntentFiller {
 			this.handleNewOrder(order, transactionHash, blockHash)
 		})
 
-		this.monitor.on("orderFilledOnChain", ({ commitment, filler, chainId, outputs, inputs, complete, transactionHash }) => {
+		this.monitor.on("orderFilledOnChain", ({ commitment, filler, chainId, outputs, inputs, complete, transactionHash, logIndex }) => {
 			this.settlementQueue
 				.add(() =>
 					this.handleOrderFilledOnChain(
@@ -244,6 +246,7 @@ export class IntentFiller {
 						inputs,
 						complete,
 						transactionHash,
+						logIndex,
 					),
 				)
 				.catch((err) => {
@@ -1394,14 +1397,12 @@ export class IntentFiller {
 				"Executing order",
 			)
 
-			// Held before the bid goes out, so two chains bidding at once cannot
-			// between them promise more output than the limit order has left. The
-			// reservation lives on the bid row from here, and is given back when the
-			// bid loses or converted into a draw-down when it fills.
 			// One bid per limit order that priced this fill. Each is its own fill at the
 			// gateway, which clamps it against whatever is still outstanding, so the
 			// bids are sent in turn rather than added up. A plan-less order (nothing
-			// limit-order priced it) still sends the one bid it always did.
+			// limit-order priced it) still sends the one bid it always did. Nothing is
+			// held against the limit order: its on-chain budget refuses a fill past its
+			// cap, in the same calldata as the fill.
 			const plans = this.limitOrders && order.id ? this.contractService.cacheService.getBidPlans(order.id) : []
 			const cache = this.contractService.cacheService
 			let lastResult: FillResult | undefined
@@ -1410,7 +1411,7 @@ export class IntentFiller {
 			// on another, and one that is never selected strands nothing. The plans come
 			// best offer first, which is the order they go out in.
 			for (const plan of plans.length > 0 ? plans : [undefined]) {
-				let reservation: LimitOrderHold[] = []
+				let pricedBy: BidPricing | undefined
 				if (plan) {
 					// What this bid signs. `executeOrder` reads these back out, so they are
 					// set per bid rather than once per order.
@@ -1420,28 +1421,14 @@ export class IntentFiller {
 						if (plan.fundingCalls.length > 0) cache.setFundingPrepends(order.id, plan.fundingCalls)
 						else cache.clearFundingPrepends(order.id)
 					}
-					// Held before the bid goes out, against this bid's own limit order: a
-					// hold that cannot be taken drops this bid, not the rest.
-					reservation = await this.holdAll([
-						{
-							limitOrderId: plan.limitOrderId,
-							payout: plan.payout,
-							take: plan.fillerInputs[plan.leg]?.amount,
-							takeDecimals: plan.inputDecimals,
-						},
-					])
-					if (reservation.length === 0) {
-						this.logger.info(
-							{ orderId: order.id, limitOrder: plan.limitOrderId },
-							"Skipping a bid: the limit order that priced it no longer has room",
-						)
-						continue
+					const take = plan.fillerInputs[plan.leg]?.amount
+					pricedBy = {
+						limitOrderId: plan.limitOrderId,
+						payout: plan.payout.toString(),
+						...(take !== undefined ? { take: take.toString() } : {}),
+						...(plan.inputDecimals !== undefined ? { takeDecimals: plan.inputDecimals } : {}),
 					}
 				}
-				let bidRow: HexString | undefined
-				// The row carries the identifier Hyperbridge files the bid under, which is
-				// what tells this bid's holds from the other bids' on the same order.
-				let rowBid: string | undefined
 
 				try {
 					const execStartMs = Date.now()
@@ -1463,16 +1450,14 @@ export class IntentFiller {
 					// operator-supplied store rejecting on a connection blip, a disk error.
 					if (result.commitment) {
 						const commitment = result.commitment as HexString
-						rowBid = result.bid
-						if (reservation.length > 0) bidRow = commitment
 						await this.bidStorage?.store({
 							commitment,
-							bid: rowBid,
+							bid: result.bid,
 							extrinsicHash: (result.txHash as HexString) || undefined,
 							success: result.success,
 							pending: result.pending === true,
 							error: result.error,
-							reservations: reservation,
+							pricedBy,
 						})
 
 						if (this.pendingRetractions.delete(commitment)) {
@@ -1480,15 +1465,6 @@ export class IntentFiller {
 							this.enqueueRetraction(commitment)
 							await this.bidStorage?.markDead(commitment)
 						}
-						// A bid that failed outright holds no deposit and will never be
-						// retracted, so nothing downstream would ever give its reservation
-						// back. A pooled one might still land, so it keeps its hold.
-						if (!result.success && result.pending !== true) {
-							await this.releaseReservation(commitment, rowBid)
-						}
-					} else if (reservation.length > 0) {
-						// No commitment means no bid row, so the holds have to be undone here.
-						await this.releaseAll(reservation)
 					}
 
 					if (result.success) {
@@ -1515,20 +1491,9 @@ export class IntentFiller {
 					lastResult = result
 					continue
 				} catch (error) {
-					// Before the bid row, nothing else can give this hold back, so release it
-					// here. After it, the row owns the hold: claim it, which answers null if
-					// a retraction got there first. A write that failed leaves the hold
-					// stranded rather than released twice, which is the safe way round —
-					// an overstated reservation refuses fills, an understated one oversells.
-					if (bidRow) {
-						await this.releaseReservation(bidRow, rowBid)
-					} else if (reservation.length > 0) {
-						await this.releaseAll(reservation)
-					}
 					// One bid failing is not the order failing. A bid that lands after the
 					// order is full reverts with `Filled()`, which is an ordinary outcome
-					// here: its hold is already back, and the next bid still deserves its
-					// turn.
+					// here, and the next bid still deserves its turn.
 					this.logger.error({ orderId: order.id, err: error }, "Bid failed")
 					continue
 				}
@@ -1550,12 +1515,13 @@ export class IntentFiller {
 		inputs: TokenInfo[] = [],
 		complete = true,
 		transactionHash?: string,
+		logIndex?: number,
 	): Promise<void> {
 		const ours = filler.toLowerCase() === this.fillerAddress.toLowerCase()
 		// Top up EntryPoint deposit if we were the filler, but only on chains
 		// without any paymaster (paymaster chains pay gas in ERC-20 tokens).
 		if (ours) {
-			await this.settleFilledLimitOrder(commitment, chainId, outputs, inputs, complete, transactionHash)
+			await this.settleFilledLimitOrder(commitment, chainId, outputs, inputs, transactionHash, logIndex)
 			const chain = `EVM-${chainId}`
 			if (!hasPaymaster(chain, this.configService)) {
 				const targetGasUnits = this.configService.getTargetGasUnits()
@@ -1610,8 +1576,8 @@ export class IntentFiller {
 	/**
 	 * A rival completed an order we bid on. `_filled[commitment]` is now set, so
 	 * every bid of ours on it can only revert with `Filled()`: retract them, which
-	 * returns their Hyperbridge deposits and gives their holds back to the limit
-	 * orders now rather than when the stale-bid sweep reaches them.
+	 * returns their Hyperbridge deposits now rather than when the stale-bid sweep
+	 * reaches them.
 	 *
 	 * Only a complete fill closes the order. After a rival's partial fill our bid
 	 * may still fill the rest, so it is left standing.
@@ -1628,176 +1594,150 @@ export class IntentFiller {
 	}
 
 	/**
-	 * Turns the hold a filled bid was carrying into an actual draw-down.
+	 * Settles a fill of ours against the limit orders that priced our bids on its order.
 	 *
-	 * The hold and the delivery are two different numbers: the hold is what the
-	 * bid promised, the delivery is what the gateway recorded going out. Giving
-	 * the hold back and taking the delivery off `remaining` is what leaves the
-	 * order describing the output it still has.
+	 * The fill is attributed to one of those bids and recorded against that bid's
+	 * limit order, for its history and profit. Then every limit order that priced one
+	 * of our bids on the order is brought down to its on-chain tally, which is what
+	 * counted the fill: `remaining` follows the chain, not arithmetic here. A partial
+	 * fill and a completing one take the same path.
 	 *
-	 * A fill with no amounts leaves the order alone. Sizing a draw-down from a
-	 * guess would either advertise output already paid or quietly retire output
-	 * still available, and both are worse than an order that looks unchanged
-	 * until reconciliation notices.
+	 * Nothing here throws for a sync that failed or a chain that does not show the fill
+	 * yet; the periodic tally reconciliation lowers the order instead.
 	 */
-	/**
-	 * Takes a hold on every limit order the payout draws on, or none at all.
-	 *
-	 * A bid that reserved only part of what it means to pay would promise output
-	 * no order is holding for it, so a hold that cannot be taken gives back the
-	 * ones already taken. Reserving in the matcher's order keeps two evaluations
-	 * racing the same pair of orders from taking them in opposite sequences.
-	 */
-	private async holdAll(
-		holds: { limitOrderId: string; payout: bigint; take?: bigint; takeDecimals?: number }[],
-	): Promise<LimitOrderHold[]> {
-		if (!this.limitOrders || holds.length === 0) return []
-
-		const taken: LimitOrderHold[] = []
-		for (const hold of holds) {
-			const amount = hold.payout.toString()
-			if (!(await this.limitOrders.reserve(hold.limitOrderId, amount))) {
-				await this.releaseAll(taken)
-				return []
-			}
-			taken.push({
-				limitOrderId: hold.limitOrderId,
-				amount,
-				...(hold.take !== undefined ? { take: hold.take.toString() } : {}),
-				...(hold.takeDecimals !== undefined ? { takeDecimals: hold.takeDecimals } : {}),
-			})
-		}
-		return taken
-	}
-
-	private async releaseAll(holds: readonly LimitOrderHold[]): Promise<void> {
-		for (const hold of holds) {
-			await this.limitOrders?.release(hold.limitOrderId, hold.amount)
-		}
-	}
-
 	private async settleFilledLimitOrder(
 		commitment: HexString,
 		chainId: number,
 		outputs: TokenInfo[],
 		inputs: TokenInfo[] = [],
-		complete = true,
 		transactionHash?: string,
+		logIndex?: number,
 	): Promise<void> {
 		if (!this.bidStorage || !this.limitOrders) return
-		const released = inputs.reduce((sum, input) => sum + input.amount, 0n)
-		// Read before claiming, which clears the holds: the fill record names the bid
-		// that executed, and only the rows still carry which hold was whose.
-		const rows = await this.bidStorage.byCommitments([commitment])
-		// A fill that completes the order finishes every bid on it. A partial fill
-		// finishes only the bid that executed: our other bids, at other levels of our
-		// book, may still fill the rest, so their holds stay where they are.
-		const claimed = complete
-			? await this.bidStorage.claimReservation(commitment)
-			: await this.claimExecutedBid(commitment, chainId, outputs, released)
-		if (claimed.length === 0) return
+		const rows = (await this.bidStorage.byCommitments([commitment])).filter((row) => row.pricedBy !== null)
+		if (rows.length === 0) return
 
-		const delivered = await this.deliveredAgainst(claimed[0].limitOrderId, chainId, outputs)
-		if (delivered === null) {
-			this.logger.warn(
-				{ commitment, limitOrders: claimed.map((hold) => hold.limitOrderId) },
-				"Fill carried no output these limit orders pay; leaving them at their current size",
-			)
-			await this.releaseAll(claimed)
-			return
-		}
-
-		// One fill is one bid. On a completing fill every bid on this commitment is
-		// finished: the one that executed delivered, and the rest can only revert with
-		// `Filled()`. So exactly one hold is worked down and the others come straight
-		// back. On a partial fill only the executed bid's holds were claimed.
-		const settled = executedHold(claimed, delivered.scaled, released)
-		const charged = chargedFor(settled, delivered, released)
-		// What the fill took in, for the profit worked out from it later. The event counts the
-		// escrow in the input token's own units, and only the hold knows that token's decimals.
-		const takenIn =
-			released > 0n && settled.takeDecimals !== undefined ? toScaled(released, settled.takeDecimals) : null
-		const settledBid =
-			rows.find((row) =>
-				row.reservations.some(
-					(hold) =>
-						hold.limitOrderId === settled.limitOrderId &&
-						hold.amount === settled.amount &&
-						hold.take === settled.take,
-				),
-			)?.bid ?? null
-
-		// One transaction over the whole settlement: the draw-down and the releases
-		// are one decision about the same holds, and a crash between two of them
-		// would give a hold back against an order that was never worked down. Only
-		// store writes are inside; putting the order back on the book is a round trip
-		// and comes after.
-		const drawn = await this.limitOrders.transaction(async () => {
-			const worked: { order: LimitOrder; delivered: bigint }[] = []
-			for (const hold of claimed) {
-				if (hold === settled) {
-					const share = charged < BigInt(hold.amount) ? charged : BigInt(hold.amount)
-					if (share > 0n) {
-						const after = await this.limitOrders!.drawDown(hold.limitOrderId, share.toString())
-						if (after) worked.push({ order: after, delivered: share })
-						// Kept apart from the bid row, whose holds this settlement clears, so the
-						// order's history survives every resize and repost.
-						await this.limitOrders!.recordFill({
-							limitOrderId: hold.limitOrderId,
-							commitment,
-							bid: settledBid,
-							amount: share.toString(),
-							amountIn: takenIn?.toString() ?? null,
-							transactionHash: transactionHash ?? null,
-						})
-					}
-				}
-				// Everything held is given back, including the part of the filling bid's
-				// hold the delivery did not reach: it was promised output that never
-				// went out.
-				await this.limitOrders!.release(hold.limitOrderId, hold.amount)
+		try {
+			await this.recordExecutedFill(commitment, chainId, rows, outputs, inputs, transactionHash, logIndex)
+		} finally {
+			for (const limitOrderId of new Set(rows.map((row) => row.pricedBy!.limitOrderId))) {
+				await this.syncLimitOrder(commitment, limitOrderId)
 			}
-			return worked
-		})
-
-		for (const { order, delivered: share } of drawn) {
-			this.logger.info(
-				{ commitment, limitOrder: order.id, delivered: share.toString() },
-				"Worked the limit order down by what the fill delivered",
-			)
-			await this.limitOrderService?.resize(order, share)
 		}
 	}
 
 	/**
-	 * Claims the holds of the one bid of ours a partial fill executed, and nothing
-	 * else. It is found among our live bids on the order the same way a completing
-	 * fill names it, then claimed by its bid identifier, so the other bids keep their
-	 * holds and can still fill the rest. A fill that names none of what our limit
-	 * orders pay claims nothing.
+	 * Records the fill against the limit order of the bid it executed.
+	 *
+	 * A bid that failed outright, or was retracted, cannot have executed, and a bid
+	 * executes at most once, so one already recorded against this order is passed
+	 * over. The same fill delivered twice, which a scanner replaying from a cursor can
+	 * do, is recorded once: a fill is named by its transaction hash and log index,
+	 * since one transaction can carry several of our fills.
+	 *
+	 * Deduplication is weaker where those are missing. A fill with no transaction hash
+	 * cannot be named, and a bid row with no `bid` identifier cannot be told from the
+	 * others on its swap, so a replay of either may be recorded again. Only rows from
+	 * before bids carried an identifier and logs that carried no hash are affected.
+	 *
+	 * A multi-leg swap can be priced by limit orders that pay different tokens, so
+	 * the delivery is read per limit order and only bids whose order pays a token the
+	 * fill delivered are candidates.
 	 */
-	private async claimExecutedBid(
+	private async recordExecutedFill(
 		commitment: HexString,
 		chainId: number,
+		rows: StoredBid[],
 		outputs: TokenInfo[],
-		released: bigint,
-	): Promise<LimitOrderHold[]> {
-		const rows = (await this.bidStorage!.byCommitments([commitment])).filter(
-			(row) => !row.retracted && row.reservations.length > 0,
+		inputs: TokenInfo[],
+		transactionHash?: string,
+		logIndex?: number,
+	): Promise<void> {
+		const recorded = (
+			await Promise.all(
+				[...new Set(rows.map((row) => row.pricedBy!.limitOrderId))].map((id) => this.limitOrders!.fills(id, 500)),
+			)
 		)
-		const holds = rows.flatMap((row) => row.reservations.map((hold) => ({ row, hold })))
-		if (holds.length === 0) return []
+			.flat()
+			.filter((fill) => fill.commitment === commitment)
+		if (
+			transactionHash &&
+			recorded.some(
+				(fill) =>
+					fill.transactionHash === transactionHash &&
+					(logIndex === undefined || fill.logIndex === null || fill.logIndex === logIndex),
+			)
+		) {
+			return
+		}
+		const filledBids = new Set(recorded.map((fill) => fill.bid).filter((bid) => bid !== null))
 
-		const delivered = await this.deliveredAgainst(holds[0].hold.limitOrderId, chainId, outputs)
-		if (delivered === null) return []
+		const candidates = rows.filter(
+			(row) => !row.retracted && (row.success || row.pending) && !(row.bid && filledBids.has(row.bid)),
+		)
+		if (candidates.length === 0) return
 
-		const settled = executedHold(
-			holds.map((entry) => entry.hold),
-			delivered.scaled,
+		const released = inputs.reduce((sum, input) => sum + input.amount, 0n)
+		const deliveries = new Map<string, Delivery>()
+		for (const id of new Set(candidates.map((row) => row.pricedBy!.limitOrderId))) {
+			const delivery = await this.deliveredAgainst(id, chainId, outputs)
+			if (delivery !== null) deliveries.set(id, delivery)
+		}
+		const paying = candidates.filter((row) => deliveries.has(row.pricedBy!.limitOrderId))
+		if (paying.length === 0) {
+			this.logger.warn(
+				{ commitment, limitOrders: candidates.map((row) => row.pricedBy!.limitOrderId) },
+				"Fill carried no output these limit orders pay; not recording it",
+			)
+			return
+		}
+
+		const settled = executedPricing(
+			paying.map((row) => row.pricedBy!),
+			(bid) => deliveries.get(bid.limitOrderId)!.scaled,
 			released,
 		)
-		const row = holds.find((entry) => entry.hold === settled)!.row
-		return this.bidStorage!.claimReservation(commitment, row.bid ?? undefined)
+		const delivered = deliveries.get(settled.limitOrderId)!
+		const row = paying.find((candidate) => candidate.pricedBy === settled)!
+		const charged = chargedFor(settled, delivered, released)
+		const amount = charged < BigInt(settled.payout) ? charged : BigInt(settled.payout)
+		if (amount <= 0n) return
+		// What the fill took in, for the profit worked out from it later. The event counts the
+		// escrow in the input token's own units, and only the bid knows that token's decimals.
+		const takenIn =
+			released > 0n && settled.takeDecimals !== undefined ? toScaled(released, settled.takeDecimals) : null
+
+		await this.limitOrders!.recordFill({
+			limitOrderId: settled.limitOrderId,
+			commitment,
+			bid: row.bid,
+			amount: amount.toString(),
+			amountIn: takenIn?.toString() ?? null,
+			transactionHash: transactionHash ?? null,
+			logIndex: logIndex ?? null,
+		})
+		this.logger.info(
+			{ commitment, limitOrder: settled.limitOrderId, bid: row.bid, amount: amount.toString() },
+			"Recorded the fill against the limit order that priced it",
+		)
+	}
+
+	/** Brings one limit order down to its on-chain tally after a fill, logging rather than throwing. */
+	private async syncLimitOrder(commitment: HexString, limitOrderId: string): Promise<void> {
+		if (!this.limitOrderService) return
+		try {
+			if (!(await this.limitOrderService.syncToChain(limitOrderId))) {
+				this.logger.debug(
+					{ commitment, limitOrder: limitOrderId },
+					"Limit order already matches its on-chain tally, or the chain does not show the fill yet; the tally reconciliation follows up",
+				)
+			}
+		} catch (err) {
+			this.logger.warn(
+				{ commitment, limitOrder: limitOrderId, err },
+				"Could not sync the limit order to its on-chain tally after a fill; the tally reconciliation follows up",
+			)
+		}
 	}
 
 	/**
@@ -1828,28 +1768,6 @@ export class IntentFiller {
 		return { scaled: toScaled(total, decimals), raw: total, decimals }
 	}
 
-	/**
-	 * Gives back whatever this bid still holds against its limit order.
-	 *
-	 * Safe to call more than once and from either settlement route: the store
-	 * hands the reservation out once, so a bid that already converted its hold on
-	 * a fill releases nothing here.
-	 */
-	/**
-	 * Gives back what one bid held. Without a bid identifier it gives back every hold on
-	 * the commitment, which is what a dead or filled order needs.
-	 */
-	private async releaseReservation(commitment: HexString, bid?: string): Promise<void> {
-		if (!this.bidStorage || !this.limitOrders) return
-		const claimed = await this.bidStorage.claimReservation(commitment, bid)
-		if (claimed.length === 0) return
-		await this.releaseAll(claimed)
-		this.logger.debug(
-			{ commitment, limitOrders: claimed.map((hold) => hold.limitOrderId) },
-			"Released what this bid held against the limit orders that priced it",
-		)
-	}
-
 	private enqueueRetraction(commitment: HexString): void {
 		this.retractionQueue.add(async () => {
 			try {
@@ -1866,7 +1784,6 @@ export class IntentFiller {
 
 				if (result.success) {
 					await this.bidStorage!.markRetracted(commitment, (result.extrinsicHash as HexString) ?? null)
-					await this.releaseReservation(commitment)
 					this.logger.info({ commitment, retractHash: result.extrinsicHash }, "Bid retracted successfully")
 				} else if (result.error?.includes("BidNotFound")) {
 					// Terminal, not retryable: bids only leave the pallet by retraction, so "no bid"
@@ -1874,7 +1791,6 @@ export class IntentFiller {
 					// someone retracted manually, or the placement never landed. Anything else seeds
 					// a zombie the sweep re-retracts forever.
 					await this.bidStorage!.markRetracted(commitment, null)
-					await this.releaseReservation(commitment)
 					this.logger.debug({ commitment }, "No bid on chain, marked as retracted")
 				} else if (result.pending) {
 					// Our extrinsic is still in the Hyperbridge tx pool. Resubmitting can only bounce

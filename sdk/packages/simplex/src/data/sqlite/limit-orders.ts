@@ -24,7 +24,6 @@ const LIMIT_ORDER_COLUMNS = `
 	price,
 	size,
 	remaining,
-	reserved,
 	accepted_sources as acceptedSources,
 	ttl_secs as ttlSecs,
 	expires_at as expiresAt,
@@ -38,15 +37,6 @@ const LIMIT_ORDER_COLUMNS = `
 	created_at as createdAt,
 	updated_at as updatedAt
 `
-
-/**
- * A guarded write that did not apply because another writer got there first.
- *
- * Only reachable with a second process on one `bids.db`: everything here is
- * synchronous and nothing awaits between the read and the write. It is an error
- * rather than a silent no-op because both writes it guards move real money.
- */
-export class LimitOrderWriteError extends Error {}
 
 /**
  * SQLite-backed {@link LimitOrderStore}, sharing `bids.db` with the bid store.
@@ -83,6 +73,9 @@ export class SqliteLimitOrderStore implements LimitOrderStore {
 				price TEXT NOT NULL,
 				size TEXT NOT NULL,
 				remaining TEXT NOT NULL,
+				-- Never read or written: limit orders keep no local holds. Kept, and reset to
+				-- '0' on every start, so a rollback to a build that still reads it finds the
+				-- column and no stale hold.
 				reserved TEXT NOT NULL DEFAULT '0',
 				accepted_sources TEXT NOT NULL,
 				ttl_secs INTEGER NOT NULL,
@@ -110,11 +103,24 @@ export class SqliteLimitOrderStore implements LimitOrderStore {
 				amount TEXT NOT NULL,
 				amount_in TEXT,
 				transaction_hash TEXT,
+				log_index INTEGER,
 				filled_at TEXT NOT NULL DEFAULT (datetime('now'))
 			);
 
 			CREATE INDEX IF NOT EXISTS idx_limit_order_fills_order ON limit_order_fills(limit_order_id);
 		`)
+
+		// A build that kept holds left some in this column, and this one never releases the
+		// holds of bids it retracts. Cleared on every start, so a rollback to that build
+		// does not inherit them: it adds `reserved` to the room it clamps `remaining` to,
+		// and a stale figure would keep sizing bids past what the chain allows.
+		// A read first, so a start with nothing to clear takes no write lock.
+		if (
+			columnNames(this.db, "limit_orders").has("reserved") &&
+			this.db.prepare("SELECT 1 FROM limit_orders WHERE reserved <> '0' LIMIT 1").get()
+		) {
+			this.db.exec("UPDATE limit_orders SET reserved = '0' WHERE reserved <> '0'")
+		}
 
 		// A database written before postings recorded their EntryPoint gets the
 		// column in place. Its rows read null, which is v0.8.
@@ -130,6 +136,13 @@ export class SqliteLimitOrderStore implements LimitOrderStore {
 		if (!columnNames(this.db, "limit_order_fills").has("amount_in")) {
 			this.db.exec("ALTER TABLE limit_order_fills ADD COLUMN amount_in TEXT")
 			this.logger.info({ column: "amount_in" }, "Migrated limit order fill schema")
+		}
+
+		// The same for the log a fill came from. Nullable with no default, so a solver still on the
+		// earlier version can go on writing fills to the same file; its rows read null.
+		if (!columnNames(this.db, "limit_order_fills").has("log_index")) {
+			this.db.exec("ALTER TABLE limit_order_fills ADD COLUMN log_index INTEGER")
+			this.logger.info({ column: "log_index" }, "Migrated limit order fill schema")
 		}
 	}
 
@@ -238,51 +251,10 @@ export class SqliteLimitOrderStore implements LimitOrderStore {
 		return result.changes === 1 ? this.read(id) : null
 	}
 
-	async reserve(id: string, amount: string): Promise<boolean> {
-		const order = this.read(id)
-		if (!order || order.status !== "open") return false
-		if (BigInt(amount) > BigInt(order.remaining)) return false
-		const reserved = BigInt(order.reserved) + BigInt(amount)
-
-		// Guarded on the `reserved` this decision was read against, so a hold that
-		// moved it in between loses here instead of being overwritten. The
-		// arithmetic cannot happen in SQL: a 1e18 amount overruns a 64-bit integer.
-		const result = this.db
-			.prepare(`
-				UPDATE limit_orders SET reserved = ?, updated_at = datetime('now')
-				WHERE id = ? AND reserved = ? AND status = 'open'
-			`)
-			.run(reserved.toString(), id, order.reserved)
-		return result.changes === 1
-	}
-
-	async transaction<T>(settle: () => Promise<T>): Promise<T> {
-		this.db.exec("BEGIN")
-		try {
-			const result = await settle()
-			this.db.exec("COMMIT")
-			return result
-		} catch (err) {
-			// Same shape as the state store's, for the same reason: a COMMIT that
-			// failed has already rolled back, so an unconditional ROLLBACK would throw
-			// over the real cause. Compared against `false` rather than truthiness,
-			// because the Node 23 line never got the property and treating `undefined`
-			// as "no transaction" would wedge the connection mid-transaction.
-			if (this.db.isTransaction !== false) {
-				try {
-					this.db.exec("ROLLBACK")
-				} catch {
-					// Nothing to roll back, or the connection is already gone.
-				}
-			}
-			throw err
-		}
-	}
-
 	async recordFill(fill: LimitOrderFillInsert): Promise<void> {
 		this.db
 			.prepare(
-				"INSERT INTO limit_order_fills (limit_order_id, commitment, bid, amount, amount_in, transaction_hash) VALUES (?, ?, ?, ?, ?, ?)",
+				"INSERT INTO limit_order_fills (limit_order_id, commitment, bid, amount, amount_in, transaction_hash, log_index) VALUES (?, ?, ?, ?, ?, ?, ?)",
 			)
 			.run(
 				fill.limitOrderId,
@@ -291,6 +263,7 @@ export class SqliteLimitOrderStore implements LimitOrderStore {
 				fill.amount,
 				fill.amountIn ?? null,
 				fill.transactionHash ?? null,
+				fill.logIndex ?? null,
 			)
 	}
 
@@ -310,35 +283,17 @@ export class SqliteLimitOrderStore implements LimitOrderStore {
 	async fills(limitOrderId: string, limit = 100): Promise<LimitOrderFill[]> {
 		return this.db
 			.prepare(
-				`SELECT id, limit_order_id as limitOrderId, commitment, bid, amount, amount_in as amountIn, transaction_hash as transactionHash,
+				`SELECT id, limit_order_id as limitOrderId, commitment, bid, amount, amount_in as amountIn, transaction_hash as transactionHash, log_index as logIndex,
 					filled_at as filledAt
 				FROM limit_order_fills WHERE limit_order_id = ? ORDER BY id DESC LIMIT ?`,
 			)
 			.all(limitOrderId, Math.min(Math.max(limit, 1), 500)) as unknown as LimitOrderFill[]
 	}
 
-	async drawDown(id: string, amount: string): Promise<LimitOrder | null> {
-		const order = this.read(id)
-		if (!order) return null
-		// Floored: a fill that somehow delivered more than the order had left has
-		// nothing further to give, and a negative remaining would read as capacity.
-		const remaining = BigInt(order.remaining) - BigInt(amount)
-		const result = this.db
-			.prepare("UPDATE limit_orders SET remaining = ?, updated_at = datetime('now') WHERE id = ? AND remaining = ?")
-			.run((remaining > 0n ? remaining : 0n).toString(), id, order.remaining)
-		// A guard that fails is another writer moving `remaining` between the read
-		// and the write, which only a second process on one database can do. Losing
-		// it quietly would leave the order advertising output it has already paid,
-		// so it is reported rather than swallowed.
-		if (result.changes !== 1) throw new LimitOrderWriteError(`Another writer moved limit order '${id}' mid draw-down`)
-		return this.read(id)
-	}
-
 	async clampRemaining(id: string, room: string): Promise<LimitOrder | null> {
 		const order = this.read(id)
 		if (!order || order.status !== "open") return null
-		const sum = BigInt(room) + BigInt(order.reserved)
-		const target = sum > 0n ? sum : 0n
+		const target = BigInt(room) > 0n ? BigInt(room) : 0n
 		if (target >= BigInt(order.remaining)) return null
 
 		// Guarded on everything the decision was read against. A guard that fails
@@ -347,21 +302,9 @@ export class SqliteLimitOrderStore implements LimitOrderStore {
 		const result = this.db
 			.prepare(`
 				UPDATE limit_orders SET remaining = ?, updated_at = datetime('now')
-				WHERE id = ? AND remaining = ? AND reserved = ? AND status = 'open'
+				WHERE id = ? AND remaining = ? AND status = 'open'
 			`)
-			.run(target.toString(), id, order.remaining, order.reserved)
+			.run(target.toString(), id, order.remaining)
 		return result.changes === 1 ? this.read(id) : null
-	}
-
-	async release(id: string, amount: string): Promise<void> {
-		const order = this.read(id)
-		if (!order) return
-		// Floored at zero: a double release would otherwise leave a negative
-		// reservation, which hands out capacity the order does not have.
-		const reserved = BigInt(order.reserved) - BigInt(amount)
-		const result = this.db
-			.prepare("UPDATE limit_orders SET reserved = ?, updated_at = datetime('now') WHERE id = ? AND reserved = ?")
-			.run((reserved > 0n ? reserved : 0n).toString(), id, order.reserved)
-		if (result.changes !== 1) throw new LimitOrderWriteError(`Another writer moved limit order '${id}' mid release`)
 	}
 }

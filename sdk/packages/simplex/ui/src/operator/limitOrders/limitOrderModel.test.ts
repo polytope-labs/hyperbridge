@@ -28,7 +28,6 @@ function order(overrides: Partial<LimitOrder> = {}): LimitOrder {
 		price: (1500n * ONE).toString(),
 		size: (1_500_000n * ONE).toString(),
 		remaining: (1_500_000n * ONE).toString(),
-		reserved: "0",
 		acceptedSources: ["EVM-1"],
 		ttlSecs: 900,
 		expiresAt: null,
@@ -127,13 +126,12 @@ describe("the list an order is kept in", () => {
 
 describe("a row as a bar of its cap", () => {
 	const size = 1_500_000n * ONE
-	const left = (remaining: bigint, reserved = 0n) =>
-		order({ remaining: remaining.toString(), reserved: reserved.toString() })
+	const left = (remaining: bigint) => order({ remaining: remaining.toString() })
 
-	it("measures what has gone out and what bids hold against the cap", () => {
-		expect(progressOf(order())).toEqual({ consumed: 0, held: 0 })
-		expect(progressOf(left(570_000n * ONE, 60_000n * ONE))).toEqual({ consumed: 62, held: 4 })
-		expect(progressOf(left(0n))).toEqual({ consumed: 100, held: 0 })
+	it("measures what has gone out against the cap", () => {
+		expect(progressOf(order())).toEqual({ consumed: 0 })
+		expect(progressOf(left(570_000n * ONE))).toEqual({ consumed: 62 })
+		expect(progressOf(left(0n))).toEqual({ consumed: 100 })
 	})
 
 	it("cuts rather than rounds, so a bar never shows more consumed than was", () => {
@@ -143,14 +141,9 @@ describe("a row as a bar of its cap", () => {
 		expect(progressOf(left(1n)).consumed).toBe(99.99)
 	})
 
-	it("keeps the held part inside what is left", () => {
-		// Bids hold against what is left without counting one another, so their sum can pass it.
-		expect(progressOf(left(150_000n * ONE, 400_000n * ONE))).toEqual({ consumed: 90, held: 10 })
-	})
-
 	it("draws nothing for an order it cannot measure", () => {
-		expect(progressOf(order({ size: "0", remaining: "0" }))).toEqual({ consumed: 0, held: 0 })
-		expect(progressOf(order({ remaining: "not a number" }))).toEqual({ consumed: 0, held: 0 })
+		expect(progressOf(order({ size: "0", remaining: "0" }))).toEqual({ consumed: 0 })
+		expect(progressOf(order({ remaining: "not a number" }))).toEqual({ consumed: 0 })
 	})
 
 	it("says how far an order has filled, in words at either end", () => {

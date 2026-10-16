@@ -11,6 +11,7 @@ import { OrderbookClient } from "@/orderbook/client"
 import { LimitOrderService } from "@/orderbook/limit-orders"
 import { ORDERBOOK_SCALE } from "@/orderbook/amounts"
 import { BASE_CHAIN, baseAssetRegistry, postingRig } from "../helpers/posting"
+import { settleFill } from "../helpers/limit-orders"
 
 /**
  * One limit order through a running HyperFX orderbook, start to finish.
@@ -186,7 +187,7 @@ describe.skipIf(!RUNNING && !BINARY)("a limit order on a running orderbook", () 
 		expect(beat).toMatchObject({ kind: "accepted", status: "ACTIVE" })
 
 		// A fill takes 500 of the 1,000.5 USDC offered; the rest goes back up.
-		const resized = await service.settleFill(order.id, 500n * ONE)
+		const resized = await settleFill(service, order.id, 500n * ONE)
 		expect(resized?.status).toBe("open")
 		expect(resized?.commitment).not.toBe(order.commitment)
 		const afterResize = await client.myOrders(signerAddress(service))

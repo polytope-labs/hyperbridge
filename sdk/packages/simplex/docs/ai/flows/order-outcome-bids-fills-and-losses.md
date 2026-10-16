@@ -8,8 +8,11 @@ With solver selection, `IntentFiller` "executing" an order submits a bid: `order
 `PartialFill`; `EventMonitor.handleFill` emits `orderFillObserved` for every fill with `ours`
 (filler address match) and `complete`, then the existing `orderFilledOnChain` for ours only. When a
 rival completes an order we hold an unretracted bid on, `IntentFiller.handleRivalCompletion`
-retracts it at once, which returns the Hyperbridge deposit and the limit-order holds; a rival's
-partial fill leaves the bid standing. The
+retracts it at once, which returns the Hyperbridge deposit; a rival's partial fill leaves the bid
+standing. Our own fill, partial or complete, first goes through `settleFilledLimitOrder`, which
+records it against the limit order that priced the executed bid (`StoredBid.pricedBy`) and brings
+every limit order that priced one of our bids on the swap down to its on-chain tally
+(`LimitOrderService.syncToChain`). The
 recorder's `settle` records `filled` (ours) or `lost` (reason = winner) for orders it knows
 (summary cache or `ActivityStore.knowsOrder`). `Orders.tsx` ranks Filled > Outbid (neutral badge, winner address beneath) > Bid placed /
 Bid retracted (latest bid) > Executed/Failed > Skipped > Detected, shows the latest bid's standing

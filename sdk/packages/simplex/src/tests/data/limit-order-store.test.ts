@@ -38,13 +38,13 @@ const backends: [string, () => { store: LimitOrderStore; close: () => Promise<vo
 ]
 
 describe.each(backends)("%s", (_name, open) => {
-	it("opens an order at its full size with nothing reserved", async () => {
+	it("opens an order at its full size", async () => {
 		const { store, close } = open()
 		const created = await store.create(ORDER)
 
 		expect(created.status).toBe("open")
 		expect(created.remaining).toBe(ORDER.size)
-		expect(created.reserved).toBe("0")
+		expect(created).not.toHaveProperty("reserved")
 		expect(created.commitment).toBeNull()
 		expect(created.orderNonce).toBe("0")
 		expect(created.entryPoint).toBeNull()
@@ -135,131 +135,6 @@ describe.each(backends)("%s", (_name, open) => {
 		await close()
 	})
 
-	describe("reserve", () => {
-		it("holds output against the order and reports what is left", async () => {
-			const { store, close } = open()
-			await store.create(ORDER)
-
-			expect(await store.reserve(ORDER.id, "1000")).toBe(true)
-			expect(await store.reserve(ORDER.id, "500")).toBe(true)
-			expect((await store.get(ORDER.id))?.reserved).toBe("1500")
-			await close()
-		})
-
-		it("does not count other bids' holds against what the order has left", async () => {
-			// A pending bid must not stop the next one going out.
-			const { store, close } = open()
-			await store.create({ ...ORDER, size: "1000" })
-
-			expect(await store.reserve(ORDER.id, "600")).toBe(true)
-			expect(await store.reserve(ORDER.id, "500")).toBe(true)
-			expect((await store.get(ORDER.id))?.reserved).toBe("1100")
-			await close()
-		})
-
-		it("refuses a single hold larger than what the order has left", async () => {
-			const { store, close } = open()
-			await store.create({ ...ORDER, size: "1000" })
-
-			expect(await store.reserve(ORDER.id, "1001")).toBe(false)
-			expect((await store.get(ORDER.id))?.reserved).toBe("0")
-			await close()
-		})
-
-		it("records every hold when several callers reserve against one order", async () => {
-			const { store, close } = open()
-			await store.create({ ...ORDER, size: "1000" })
-
-			// Five chains bidding at once, each wanting most of the order. Every hold
-			// goes through and none is lost; the cross-connection test below is what
-			// exercises the database guard itself.
-			const results = await Promise.all([600, 600, 600, 600, 600].map(() => store.reserve(ORDER.id, "600")))
-
-			expect(results.every(Boolean)).toBe(true)
-			expect((await store.get(ORDER.id))?.reserved).toBe("3000")
-			await close()
-		})
-
-		it("refuses an order that is no longer open", async () => {
-			const { store, close } = open()
-			await store.create(ORDER)
-			await store.setStatus(ORDER.id, "cancelled")
-
-			expect(await store.reserve(ORDER.id, "1000")).toBe(false)
-			expect(await store.reserve("missing", "1000")).toBe(false)
-			await close()
-		})
-	})
-
-	describe("transaction", () => {
-		it("keeps a settlement that throws part-way from landing at all", async () => {
-			// A fill claims what its bid held, works the orders down and gives the rest
-			// back. Half of that is worse than none: a hold released against an order
-			// that was never drawn down leaves it advertising output already paid.
-			const { store, close } = open()
-			try {
-				await store.create(ORDER)
-				await store.reserve(ORDER.id, "100")
-
-				await expect(
-					store.transaction(async () => {
-						await store.drawDown(ORDER.id, "100")
-						await store.release(ORDER.id, "100")
-						throw new Error("the fill path exploded")
-					}),
-				).rejects.toThrow("exploded")
-
-				const after = await store.get(ORDER.id)
-				expect(after?.remaining).toBe(ORDER.size)
-				expect(after?.reserved).toBe("100")
-			} finally {
-				await close()
-			}
-		})
-
-		it("commits every write when the settlement finishes", async () => {
-			const { store, close } = open()
-			try {
-				await store.create(ORDER)
-				await store.reserve(ORDER.id, "100")
-
-				await store.transaction(async () => {
-					await store.drawDown(ORDER.id, "100")
-					await store.release(ORDER.id, "100")
-				})
-
-				const after = await store.get(ORDER.id)
-				expect(after?.remaining).toBe((BigInt(ORDER.size) - 100n).toString())
-				expect(after?.reserved).toBe("0")
-			} finally {
-				await close()
-			}
-		})
-	})
-
-	describe("release", () => {
-		it("gives a reservation back", async () => {
-			const { store, close } = open()
-			await store.create(ORDER)
-			await store.reserve(ORDER.id, "1000")
-			await store.release(ORDER.id, "400")
-
-			expect((await store.get(ORDER.id))?.reserved).toBe("600")
-			await close()
-		})
-
-		it("floors at zero, so a double release cannot invent capacity", async () => {
-			const { store, close } = open()
-			await store.create(ORDER)
-			await store.reserve(ORDER.id, "1000")
-			await store.release(ORDER.id, "1000")
-			await store.release(ORDER.id, "1000")
-
-			expect((await store.get(ORDER.id))?.reserved).toBe("0")
-			await close()
-		})
-	})
-
 	describe("clampRemaining", () => {
 		it("lowers remaining to the room the chain has left", async () => {
 			const { store, close } = open()
@@ -276,44 +151,10 @@ describe.each(backends)("%s", (_name, open) => {
 		it("never raises remaining", async () => {
 			const { store, close } = open()
 			await store.create({ ...ORDER, size: "100" })
-			await store.drawDown(ORDER.id, "60")
+			await store.clampRemaining(ORDER.id, "40")
 
 			expect(await store.clampRemaining(ORDER.id, "60")).toBeNull()
 			expect((await store.get(ORDER.id))?.remaining).toBe("40")
-			await close()
-		})
-
-		it("counts what is reserved as room still spoken for", async () => {
-			const { store, close } = open()
-			await store.create({ ...ORDER, size: "100" })
-			await store.reserve(ORDER.id, "30")
-
-			expect(await store.clampRemaining(ORDER.id, "70")).toBeNull()
-			expect((await store.get(ORDER.id))?.remaining).toBe("100")
-
-			expect((await store.clampRemaining(ORDER.id, "60"))?.remaining).toBe("90")
-			expect((await store.get(ORDER.id))?.reserved).toBe("30")
-			await close()
-		})
-
-		it("does not take a fill off twice when the chain counted it before it settled here", async () => {
-			const { store, close } = open()
-			await store.create({ ...ORDER, size: "100" })
-			await store.reserve(ORDER.id, "25")
-
-			expect(await store.clampRemaining(ORDER.id, "75")).toBeNull()
-			expect((await store.get(ORDER.id))?.remaining).toBe("100")
-
-			await store.transaction(async () => {
-				await store.drawDown(ORDER.id, "25")
-				await store.release(ORDER.id, "25")
-			})
-			const settled = await store.get(ORDER.id)
-			expect(settled?.remaining).toBe("75")
-			expect(settled?.reserved).toBe("0")
-
-			expect(await store.clampRemaining(ORDER.id, "75")).toBeNull()
-			expect((await store.get(ORDER.id))?.remaining).toBe("75")
 			await close()
 		})
 
@@ -322,7 +163,6 @@ describe.each(backends)("%s", (_name, open) => {
 			async (status) => {
 				const { store, close } = open()
 				await store.create({ ...ORDER, size: "100" })
-				await store.reserve(ORDER.id, "10")
 				const before = await store.setStatus(ORDER.id, status)
 
 				expect(await store.clampRemaining(ORDER.id, "0")).toBeNull()
@@ -337,7 +177,7 @@ describe.each(backends)("%s", (_name, open) => {
 			await close()
 		})
 
-		it("clamps to zero when the chain has no room and nothing is reserved, without closing the order", async () => {
+		it("clamps to zero when the chain has no room, without closing the order", async () => {
 			const { store, close } = open()
 			await store.create({ ...ORDER, size: "100" })
 
@@ -351,12 +191,11 @@ describe.each(backends)("%s", (_name, open) => {
 		it("changes nothing but remaining, and records no fill", async () => {
 			const { store, close } = open()
 			await store.create({ ...ORDER, size: "100" })
-			await store.reserve(ORDER.id, "30")
 			const before = await store.get(ORDER.id)
 
 			const clamped = await store.clampRemaining(ORDER.id, "20")
 
-			expect(clamped).toEqual({ ...before, remaining: "50", updatedAt: clamped?.updatedAt })
+			expect(clamped).toEqual({ ...before, remaining: "20", updatedAt: clamped?.updatedAt })
 			expect(await store.fills(ORDER.id)).toEqual([])
 			await close()
 		})
@@ -364,40 +203,59 @@ describe.each(backends)("%s", (_name, open) => {
 })
 
 describe("SqliteLimitOrderStore", () => {
-	it("adds another connection's hold to the same order's total", async () => {
-		// Two solvers sharing a data directory. The total has to live in the
-		// database, not in one process's memory, or each would overwrite the other.
-		const dir = dataDir()
-		const first = new SqliteDataStore(dir, new LoggerContext({ level: "warn" }))
-		const second = new SqliteDataStore(dir, new LoggerContext({ level: "warn" }))
-
-		await first.limitOrders.create({ ...ORDER, size: "1000" })
-		expect(await first.limitOrders.reserve(ORDER.id, "600")).toBe(true)
-		expect(await second.limitOrders.reserve(ORDER.id, "600")).toBe(true)
-		expect(await second.limitOrders.reserve(ORDER.id, "1001")).toBe(false)
-		expect((await first.limitOrders.get(ORDER.id))?.reserved).toBe("1200")
-
-		await first.close()
-		await second.close()
-	})
-
-	it("refuses an update whose reservation moved under it", async () => {
-		// `reserve` reads, decides, then writes guarded on the value it read. This
-		// drives that gap by hand: the write is stale, so it must not land.
+	it("neither reads nor writes the reserved column an older build left, but keeps it for a rollback", async () => {
 		const dir = dataDir()
 		const store = new SqliteDataStore(dir, new LoggerContext({ level: "warn" }))
 		await store.limitOrders.create({ ...ORDER, size: "1000" })
-		await store.limitOrders.reserve(ORDER.id, "500")
-
+		// A hold the build before this one took and never gave back.
 		const db = new DatabaseSync(join(dir, "bids.db"))
-		const stale = db
-			.prepare("UPDATE limit_orders SET reserved = ? WHERE id = ? AND reserved = ? AND status = 'open'")
-			.run("900", ORDER.id, "0")
-		db.close()
+		db.prepare("UPDATE limit_orders SET reserved = '250' WHERE id = ?").run(ORDER.id)
 
-		expect(stale.changes).toBe(0)
-		expect((await store.limitOrders.get(ORDER.id))?.reserved).toBe("500")
+		// Clamped to the chain's room alone; the stale hold is not added back.
+		expect((await store.limitOrders.clampRemaining(ORDER.id, "600"))?.remaining).toBe("600")
+		expect(await store.limitOrders.get(ORDER.id)).not.toHaveProperty("reserved")
+
+		const row = db.prepare("SELECT remaining, reserved FROM limit_orders WHERE id = ?").get(ORDER.id)
+		db.close()
 		await store.close()
+		expect(row).toEqual({ remaining: "600", reserved: "250" })
+	})
+
+	it("clears a stale reserved on every start, so a rollback does not inherit a hold", async () => {
+		const dir = dataDir()
+		const first = new SqliteDataStore(dir, new LoggerContext({ level: "warn" }))
+		await first.limitOrders.create({ ...ORDER, size: "1000" })
+		await first.limitOrders.create({ ...ORDER, id: "order-2", size: "1000" })
+		await first.close()
+
+		const reservedOf = () => {
+			const db = new DatabaseSync(join(dir, "bids.db"))
+			const rows = db.prepare("SELECT id, reserved FROM limit_orders ORDER BY id").all()
+			db.close()
+			return rows
+		}
+		// Holds a build that kept them took and, once this build retracted their bids, never gave back.
+		const db = new DatabaseSync(join(dir, "bids.db"))
+		db.prepare("UPDATE limit_orders SET reserved = '250' WHERE id = ?").run(ORDER.id)
+		db.close()
+		expect(reservedOf()).toEqual([
+			{ id: ORDER.id, reserved: "250" },
+			{ id: "order-2", reserved: "0" },
+		])
+
+		const reopened = new SqliteDataStore(dir, new LoggerContext({ level: "warn" }))
+		expect(reservedOf()).toEqual([
+			{ id: ORDER.id, reserved: "0" },
+			{ id: "order-2", reserved: "0" },
+		])
+		// Nothing else about the order moved.
+		expect((await reopened.limitOrders.get(ORDER.id))?.remaining).toBe("1000")
+		await reopened.close()
+
+		// And again: nothing left to clear, nothing written.
+		const again = new SqliteDataStore(dir, new LoggerContext({ level: "warn" }))
+		await again.close()
+		expect(reservedOf().every((row) => row.reserved === "0")).toBe(true)
 	})
 
 	it("adds entry_point in place to a database written before it, reading its postings as null", async () => {
@@ -729,19 +587,55 @@ describe.each(backends)("%s fill history", (_name, open) => {
 		expect(history.every((fill) => typeof fill.filledAt === "string" && fill.id > 0)).toBe(true)
 		await close()
 	})
+})
 
-	it("drops a fill recorded inside a settlement that failed", async () => {
+describe.each(backends)("%s fill log index", (_name, open) => {
+	it("records which log of its transaction a fill came from, and reads null when none was given", async () => {
 		const { store, close } = open()
 		await store.create(ORDER)
-		await expect(
-			store.transaction(async () => {
-				await store.recordFill({ limitOrderId: ORDER.id, commitment: "0xaa", amount: "100" })
-				throw new Error("settlement failed")
-			}),
-		).rejects.toThrow("settlement failed")
+		await store.recordFill({ limitOrderId: ORDER.id, commitment: "0xaa", amount: "1", transactionHash: "0xt", logIndex: 4 })
+		await store.recordFill({ limitOrderId: ORDER.id, commitment: "0xaa", amount: "2", transactionHash: "0xt", logIndex: 7 })
+		await store.recordFill({ limitOrderId: ORDER.id, commitment: "0xbb", amount: "3" })
 
-		expect(await store.fills(ORDER.id)).toEqual([])
+		expect((await store.fills(ORDER.id)).map((fill) => [fill.amount, fill.transactionHash, fill.logIndex])).toEqual([
+			["3", null, null],
+			["2", "0xt", 7],
+			["1", "0xt", 4],
+		])
 		await close()
 	})
 })
 
+describe("SqliteLimitOrderStore log_index migration", () => {
+	it("adds log_index in place, keeps older fills as null, and stays writable by the build before", async () => {
+		const dir = dataDir()
+		const db = new DatabaseSync(join(dir, "bids.db"))
+		db.exec(`
+			CREATE TABLE limit_order_fills (
+				id INTEGER PRIMARY KEY AUTOINCREMENT,
+				limit_order_id TEXT NOT NULL,
+				commitment TEXT NOT NULL,
+				bid TEXT,
+				amount TEXT NOT NULL,
+				amount_in TEXT,
+				transaction_hash TEXT,
+				filled_at TEXT NOT NULL DEFAULT (datetime('now'))
+			);
+			INSERT INTO limit_order_fills (limit_order_id, commitment, amount, transaction_hash) VALUES ('o', '0xaa', '5', '0xt');
+		`)
+		db.close()
+
+		const store = new SqliteDataStore(dir, new LoggerContext({ level: "warn" }))
+		expect((await store.limitOrders.fills("o")).map((fill) => [fill.amount, fill.logIndex])).toEqual([["5", null]])
+		await store.limitOrders.recordFill({ limitOrderId: "o", commitment: "0xbb", amount: "6", logIndex: 2 })
+		await store.close()
+
+		const older = new DatabaseSync(join(dir, "bids.db"))
+		older
+			.prepare("INSERT INTO limit_order_fills (limit_order_id, commitment, amount) VALUES (?, ?, ?)")
+			.run("o", "0xcc", "7")
+		const columns = older.prepare("PRAGMA table_info(limit_order_fills)").all() as unknown as Array<{ name: string }>
+		older.close()
+		expect(columns.map((column) => column.name)).toContain("log_index")
+	})
+})

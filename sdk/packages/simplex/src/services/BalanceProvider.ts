@@ -45,7 +45,7 @@ export interface AssetBalanceRow {
 	walletReserve: number
 	/** Total solver-owned underlying represented by vault shares. */
 	vaultPosition: number
-	/** Vault assets that can be withdrawn now, after pending-fill reservations. */
+	/** Vault assets that can be withdrawn now: the vault's `maxWithdraw(solver)`. */
 	vaultAvailable: number
 	/** Wallet plus vault position. Null when any required source was unavailable. */
 	total: number | null

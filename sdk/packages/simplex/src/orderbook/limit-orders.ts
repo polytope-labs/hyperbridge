@@ -264,9 +264,11 @@ export class LimitOrderService {
 
 		await this.assertWalletCanPay(request.tokenOut, request.fillChain, amountOut)
 
-		if (!sameAsset && this.delegationService && !(await this.delegationService.setupDelegation(request.fillChain))) {
+		// A same-asset order is never posted, but it still prices bids, and a bid from an
+		// undelegated EOA cannot execute — so it needs the delegation check too.
+		if (this.delegationService && !(await this.delegationService.setupDelegation(request.fillChain))) {
 			throw new LimitOrderValidationError(
-				`The solver is not 7702-delegated on ${request.fillChain}, and the orderbook deletes an undelegated solver's orders`,
+				`The solver is not 7702-delegated on ${request.fillChain}; it cannot fill there, and the orderbook deletes an undelegated solver's orders`,
 			)
 		}
 

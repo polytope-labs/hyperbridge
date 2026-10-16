@@ -3,6 +3,7 @@ import type { HexString } from "@hyperbridge/sdk"
 import { OrderbookRequestError } from "@/orderbook/client"
 import { initialOrderNonce, LimitOrderValidationError, type CreateLimitOrderRequest } from "@/orderbook/limit-orders"
 import type { CancelOrderResult } from "@/orderbook/types"
+import type { DelegationService } from "@/services/DelegationService"
 import {
 	CREATE_REQUEST as REQUEST,
 	LIMITS,
@@ -412,6 +413,28 @@ describe("a same-asset limit order", () => {
 		await service.create(SAME)
 
 		expect(await service.reconcile()).toEqual({ cancelled: 0, reposted: 0, underFunded: 0 })
+		expect(client.submitted).toEqual([])
+	})
+
+	it("is refused when the solver is not delegated, because it still prices bids", async () => {
+		// It is never posted, but it still prices swaps here and a bid from an undelegated
+		// EOA cannot execute — so it needs the same delegation check a posted order gets.
+		const { service } = makeService(fakeClient([]), undefined, {}, undefined, undefined, {
+			setupDelegation: async () => false,
+		} as unknown as DelegationService)
+
+		await expect(service.create(SAME)).rejects.toThrow(/not 7702-delegated on EVM-8453/)
+	})
+
+	it("is stored once the solver is delegated", async () => {
+		const client = fakeClient([])
+		const { service } = makeService(client, undefined, {}, undefined, undefined, {
+			setupDelegation: async () => true,
+		} as unknown as DelegationService)
+
+		const { result } = await service.create(SAME)
+
+		expect(result.kind).toBe("unposted")
 		expect(client.submitted).toEqual([])
 	})
 })

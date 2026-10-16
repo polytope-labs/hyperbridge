@@ -2,17 +2,19 @@ mod crypto;
 mod db;
 mod error;
 mod import;
+mod limits;
 mod primitives;
 mod routes;
 mod subsquare;
 mod verify;
 
-use std::{env, sync::Arc};
+use std::{env, net::SocketAddr, sync::Arc, time::Duration};
 
 use anyhow::Context;
-use tower_http::cors::CorsLayer;
+use axum::http::HeaderValue;
+use tower_http::cors::{Any, CorsLayer};
 
-use crate::routes::AppState;
+use crate::{limits::RateLimiter, routes::AppState};
 
 pub const LOG_TARGET: &str = "governance-api";
 
@@ -45,13 +47,54 @@ async fn main() -> anyhow::Result<()> {
 		.filter(|admin| !admin.is_empty())
 		.map(str::to_owned)
 		.collect();
-	let app = routes::router(AppState { db: Arc::new(db), admins: Arc::new(admins) })
-		.layer(CorsLayer::permissive());
+	let state = AppState {
+		db: Arc::new(db),
+		admins: Arc::new(admins),
+		limiter: Arc::new(RateLimiter::default()),
+	};
+	tokio::spawn(clean_up(state.clone()));
+	let app = routes::router(state).layer(cors());
 
 	let port = env::var("PORT").unwrap_or_else(|_| "7071".into());
 	tracing::info!(target: LOG_TARGET, "Starting server on port: {port}");
 	let listener = tokio::net::TcpListener::bind(format!("0.0.0.0:{port}")).await?;
-	axum::serve(listener, app).await?;
+	axum::serve(listener, app.into_make_service_with_connect_info::<SocketAddr>()).await?;
 
 	Ok(())
+}
+
+/// Browsers call the API directly for some requests, so the site's origin has to be allowed.
+/// Without `CORS_ORIGINS` every origin is, which is only meant for running locally.
+fn cors() -> CorsLayer {
+	let origins = env::var("CORS_ORIGINS").unwrap_or_default();
+	let origins = origins
+		.split(',')
+		.map(str::trim)
+		.filter(|origin| !origin.is_empty())
+		.filter_map(|origin| origin.parse::<HeaderValue>().ok())
+		.collect::<Vec<_>>();
+	if origins.is_empty() {
+		tracing::warn!(target: LOG_TARGET, "CORS_ORIGINS is not set, so every origin is allowed");
+		return CorsLayer::permissive();
+	}
+	CorsLayer::new().allow_origin(origins).allow_methods(Any).allow_headers(Any)
+}
+
+/// Clears expired sessions, unanswered login challenges and ended rate limit windows every hour.
+async fn clean_up(state: AppState) {
+	let mut interval = tokio::time::interval(Duration::from_secs(60 * 60));
+	loop {
+		interval.tick().await;
+		let cleared = state
+			.db
+			.batch_execute(
+				"DELETE FROM sessions WHERE expires_at < NOW();
+				DELETE FROM login_attempts WHERE created_at < NOW() - INTERVAL '10 minutes';",
+			)
+			.await;
+		if let Err(err) = cleared {
+			tracing::error!(target: LOG_TARGET, "cleaning up sessions failed: {err}");
+		}
+		state.limiter.prune();
+	}
 }

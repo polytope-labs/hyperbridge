@@ -17,6 +17,7 @@ use std::sync::Arc;
 use axum::{
 	extract::DefaultBodyLimit,
 	http::{Method, Uri},
+	middleware,
 	routing::{get, patch, post, put},
 	Router,
 };
@@ -27,6 +28,7 @@ use axum::{extract::State, Json};
 use self::{signed::SignedEntity, users::ProfileField};
 use crate::{
 	error::{ApiError, ApiResult},
+	limits::{self, RateLimiter},
 	primitives::Paging,
 };
 
@@ -35,6 +37,7 @@ pub struct AppState {
 	pub db: Arc<Client>,
 	/// Addresses allowed to moderate the forum
 	pub admins: Arc<Vec<String>>,
+	pub limiter: Arc<RateLimiter>,
 }
 
 pub fn router(state: AppState) -> Router {
@@ -133,7 +136,10 @@ pub fn router(state: AppState) -> Router {
 				.route(&format!("/{prefix}/:id/comments/:comment/replies"), post(comments::reply))
 				.route(&format!("/{prefix}/:id/reaction"), put(posts::react).delete(posts::unreact))
 		});
-	router.fallback(unknown_route).with_state(state)
+	router
+		.layer(middleware::from_fn_with_state(state.clone(), limits::limit))
+		.fallback(unknown_route)
+		.with_state(state)
 }
 
 async fn profile(

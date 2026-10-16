@@ -10,6 +10,7 @@
 # Settings, from the environment or a .env file next to this one:
 #   DATABASE_URL   the indexer's Postgres; the API reads its governance schema and adds a forum schema
 #   ADMINS         comma separated addresses allowed to moderate the forum
+#   CORS_ORIGINS   comma separated origins browsers may call the API from, such as the forum's address
 #   API_PORT       optional, 7071 by default
 services:
   governance-api:
@@ -20,6 +21,7 @@ services:
     environment:
       DATABASE_URL: ${DATABASE_URL}
       ADMINS: ${ADMINS:-}
+      CORS_ORIGINS: ${CORS_ORIGINS:-}
       PORT: 7071
       RUST_LOG: ${RUST_LOG:-info}
     ports:

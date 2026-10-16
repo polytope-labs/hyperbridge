@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest"
-import type { HexString } from "@hyperbridge/sdk"
+import type { BidSubmissionResult, HexString } from "@hyperbridge/sdk"
 import { IntentFiller } from "@/core/filler"
 import { MemoryDataStore } from "@/data/memory"
 import type { LimitOrderStore } from "@/data/types"
@@ -136,8 +136,13 @@ describe("every bid on one order", () => {
 	const FIRST_BID = `0x${"b1".repeat(32)}` as HexString
 	const SECOND_BID = `0x${"b2".repeat(32)}` as HexString
 
-	/** Two bid plans on one order, and a strategy answering each submission in turn. */
-	async function twoBids(results: Record<string, unknown>[]) {
+	/**
+	 * Two bid plans on one order, and a strategy answering each submission in turn. A
+	 * function in `results` runs while that bid is going out, then answers it.
+	 */
+	async function twoBids(
+		results: Array<Record<string, unknown> | ((filler: IntentFiller) => Promise<Record<string, unknown>>)>,
+	) {
 		const data = new MemoryDataStore()
 		const limitOrders = await limitOrderStore([
 			{ id: LIMIT_ORDER, base: "USDC", quote: "CNGN", side: "BID", fillChain: "EVM-1", price: "1500", size: "3000" },
@@ -157,10 +162,13 @@ describe("every bid on one order", () => {
 			name: "test",
 			canFill: async () => true,
 			calculateProfitability: async () => 1,
-			executeOrder: async () => results[Math.min(calls++, results.length - 1)],
+			executeOrder: async () => {
+				const next = results[Math.min(calls++, results.length - 1)]
+				return typeof next === "function" ? next(filler) : next
+			},
 			getOrderUsdValue: async () => ({ inputUsd: { toNumber: () => 1 } }),
 		}
-		const filler = new IntentFiller(
+		const filler: IntentFiller = new IntentFiller(
 			[{ chainId: 1 } as never],
 			[strategy as never],
 			{ maxConcurrentOrders: 1 } as never,
@@ -188,7 +196,16 @@ describe("every bid on one order", () => {
 			data.bids,
 			limitOrders,
 		)
-		return { filler, data, sent: () => calls }
+		const retractBid = vi.fn(
+			async (): Promise<BidSubmissionResult> => ({ success: true, extrinsicHash: "0xretract" as HexString }),
+		)
+		;(filler as any).hyperbridge = Promise.resolve({ retractBid })
+		return { filler, data, retractBid, sent: () => calls }
+	}
+
+	/** A rival completing the order, handled the way the settlement queue would. */
+	async function rivalCompletes(filler: IntentFiller, commitment: HexString) {
+		await (filler as any).handleRivalCompletion(commitment, "0xBBBB00000000000000000000000000000000BBBB", 1)
 	}
 
 	it("goes out whatever became of the bid before it", async () => {
@@ -221,5 +238,59 @@ describe("every bid on one order", () => {
 			[FIRST_BID, { limitOrderId: LIMIT_ORDER, payout: PAYOUT.toString() }],
 			[SECOND_BID, { limitOrderId: SECOND_ORDER, payout: PAYOUT.toString() }],
 		])
+	})
+
+	it("places no more bids once the order completes after the first", async () => {
+		// A rival completes the order while the first bid is going out. The second would
+		// only revert with `Filled()` after paying the placement fee and locking a deposit,
+		// so it is never sent, and the first is retracted at once.
+		const order = { ...ORDER, id: COMMITMENT }
+		const { filler, data, retractBid, sent } = await twoBids([
+			async (f) => {
+				await rivalCompletes(f, COMMITMENT)
+				return { success: true, commitment: COMMITMENT, txHash: "0xtx", bid: FIRST_BID }
+			},
+			{ success: true, commitment: COMMITMENT, txHash: "0xtx2", bid: SECOND_BID },
+		])
+
+		await execute(filler, order)
+		await (filler as any).retractionQueue.onIdle()
+
+		expect(sent()).toBe(1)
+		expect(retractBid).toHaveBeenCalledTimes(1)
+		expect(retractBid).toHaveBeenCalledWith(COMMITMENT, FIRST_BID)
+		const rows = await data.bids.byCommitments([COMMITMENT])
+		expect(rows.map((row) => [row.bid, row.retracted])).toEqual([[FIRST_BID, true]])
+	})
+
+	it("retracts at once a bid stored after the order completed", async () => {
+		// The second bid had already passed the check when the rival completed the order,
+		// and the fill's retraction read the rows before it was stored. Each bid is
+		// retracted exactly once.
+		const order = { ...ORDER, id: COMMITMENT }
+		const { filler, data, retractBid, sent } = await twoBids([
+			{ success: true, commitment: COMMITMENT, txHash: "0xtx", bid: FIRST_BID },
+			async (f) => {
+				await rivalCompletes(f, COMMITMENT)
+				await (f as any).retractionQueue.onIdle()
+				return { success: true, commitment: COMMITMENT, txHash: "0xtx2", bid: SECOND_BID }
+			},
+		])
+
+		await execute(filler, order)
+		await (filler as any).retractionQueue.onIdle()
+
+		expect(sent()).toBe(2)
+		expect(retractBid.mock.calls.map((call) => (call as unknown[])[1])).toEqual([FIRST_BID, SECOND_BID])
+		expect((await data.bids.byCommitments([COMMITMENT])).every((row) => row.retracted && row.dead)).toBe(true)
+	})
+
+	it("remembers only the most recent completed orders", async () => {
+		const { filler } = await twoBids([])
+		for (let i = 0; i < 1_001; i++) (filler as any).markCompleted(`0x${i.toString(16).padStart(64, "0")}`)
+
+		expect((filler as any).completedOrders.size).toBe(1_000)
+		expect((filler as any).hasCompleted(`0x${"0".repeat(64)}`)).toBe(false)
+		expect((filler as any).hasCompleted(`0x${(1_000).toString(16).padStart(64, "0")}`)).toBe(true)
 	})
 })

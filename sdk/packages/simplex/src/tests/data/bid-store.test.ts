@@ -220,6 +220,60 @@ for (const backend of backends) {
 			])
 			expect((await bids.byLimitOrder("limit-1")).map((bid) => bid.bid)).toEqual([first])
 		})
+
+		it("marks retracted and flags dead only the rows a retraction names", async () => {
+			// A retraction closes the rows it read and sent retractions for, not a bid stored
+			// on the commitment while it was in flight.
+			const bids = backend.create()
+			const first = `0x${"b1".repeat(32)}`
+			const second = `0x${"b2".repeat(32)}`
+			await bids.store({ commitment: COMMITMENT, bid: first, success: true })
+			await bids.store({ commitment: COMMITMENT, bid: second, success: true })
+			await bids.store({ commitment: OTHER, success: true })
+			const firstRow = (await bids.byCommitments([COMMITMENT])).find((row) => row.bid === first)!
+			const secondRow = (await bids.byCommitments([COMMITMENT])).find((row) => row.bid === second)!
+			const other = (await bids.byCommitment(OTHER))!
+
+			// Another commitment's row id names nothing here, and an empty list names nothing.
+			expect(await bids.markRetracted(COMMITMENT, "0xr", [other.id])).toBe(false)
+			expect(await bids.markRetracted(COMMITMENT, "0xr", [])).toBe(false)
+			expect(await bids.markDead(COMMITMENT, [])).toBe(false)
+			expect(await bids.markDead(COMMITMENT, [other.id])).toBe(false)
+
+			expect(await bids.markRetracted(COMMITMENT, "0xr", [firstRow.id])).toBe(true)
+			expect(
+				(await bids.byCommitments([COMMITMENT])).map((row) => [row.bid, row.retracted, row.retractExtrinsicHash]).sort(),
+			).toEqual([
+				[first, true, "0xr"],
+				[second, false, null],
+			])
+			expect((await bids.byCommitment(OTHER))!.retracted).toBe(false)
+
+			// Flagging dead by row leaves the commitment's other bids alone.
+			expect(await bids.markDead(COMMITMENT, [secondRow.id])).toBe(true)
+			expect((await bids.byCommitments([COMMITMENT])).map((row) => [row.bid, row.dead]).sort()).toEqual([
+				[first, false],
+				[second, true],
+			])
+			expect((await bids.byCommitment(OTHER))!.dead).toBe(false)
+			// A retracted row is not flagged again.
+			expect(await bids.markDead(COMMITMENT, [firstRow.id])).toBe(false)
+		})
+
+		it("marks the whole commitment retracted and dead when no rows are named", async () => {
+			const bids = backend.create()
+			await bids.store({ commitment: COMMITMENT, bid: `0x${"b1".repeat(32)}`, success: true })
+			await bids.store({ commitment: COMMITMENT, bid: `0x${"b2".repeat(32)}`, success: true })
+			await bids.store({ commitment: OTHER, success: true })
+
+			expect(await bids.markDead(COMMITMENT)).toBe(true)
+			expect((await bids.byCommitments([COMMITMENT])).every((row) => row.dead)).toBe(true)
+			expect((await bids.byCommitment(OTHER))!.dead).toBe(false)
+
+			expect(await bids.markRetracted(COMMITMENT, null)).toBe(true)
+			expect((await bids.byCommitments([COMMITMENT])).every((row) => row.retracted)).toBe(true)
+			expect((await bids.byCommitment(OTHER))!.retracted).toBe(false)
+		})
 	})
 }
 

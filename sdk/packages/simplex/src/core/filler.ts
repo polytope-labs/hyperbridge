@@ -9,14 +9,20 @@ import {
 	retryPromise,
 	type HexString,
 	IntentsCoprocessor,
-	type BidSubmissionResult,
 	type TokenInfo,
 	bytes32ToBytes20,
 	readLegEscrow,
 } from "@hyperbridge/sdk"
 import { parseChainKey } from "@/config/interpolated-curve"
 import pQueue from "p-queue"
-import { type ChainClientManager, type ContractInteractionService, DelegationService, type RebalancingService } from "@/services"
+import {
+	BID_DISCOVERY_PAD_SECONDS,
+	type ChainClientManager,
+	type ContractInteractionService,
+	DelegationService,
+	type RebalancingService,
+} from "@/services"
+import { sqliteDatetime } from "@/data/memory"
 import type { BidPricing, BidStore, LimitOrderStore, StoredBid } from "@/data/types"
 import type { AssetRegistry } from "@/config/asset-registry"
 import type { LimitOrderService } from "@/orderbook/limit-orders"
@@ -44,6 +50,32 @@ const DELEGATION_RECHECK_MS = 60_000
  * `pricedBy`, or by a custom `BidStore` that leaves it out, holds `null` or `undefined`.
  */
 type PricedBid = StoredBid & { pricedBy: BidPricing }
+
+/**
+ * How long `stop()` waits for queued retractions before it disconnects anyway. A retraction
+ * stuck on an unresponsive node must not hang shutdown; whatever it left is a live bid row
+ * the next run's sweep retracts.
+ */
+const RETRACTION_DRAIN_TIMEOUT_MS = 30_000
+
+/**
+ * How many completed orders the filler remembers. An entry only matters while a bid loop on
+ * that order is still placing bids, which is seconds to minutes, so the oldest is dropped
+ * once the cap is reached rather than kept for the life of the process.
+ */
+const MAX_COMPLETED_ORDERS = 1_000
+
+/**
+ * Added to a bid's validity window before a retracted bid stops being a candidate for a
+ * fill. The window is converted to blocks at the fastest block time seen, so a slower chain
+ * keeps a bid executable a little longer in wall-clock time, and a fill can be scanned late.
+ */
+const RETRACTED_BID_MARGIN_SECONDS = 60
+
+/** A bid whose deposit may still be locked on Hyperbridge: placed or pooled, and not retracted. */
+function isLiveBid(row: StoredBid): boolean {
+	return !row.retracted && (row.success || row.pending)
+}
 
 /** Smallest payout first, for picking the tightest one that covers a delivery. */
 function byPayout(a: BidPricing, b: BidPricing): number {
@@ -141,6 +173,13 @@ export class IntentFiller {
 	private paused = false
 	private stopping = false
 	private pendingRetractions = new Set<string>()
+	/**
+	 * Orders seen completed on chain, by us or a rival, lower-cased. The bid loop reads it
+	 * before each placement, because a bid placed on a completed order can only revert with
+	 * `Filled()` and still pays the placement fee and locks a deposit. Capped at
+	 * {@link MAX_COMPLETED_ORDERS}, oldest first.
+	 */
+	private completedOrders = new Set<string>()
 	private rebalancingInterval?: NodeJS.Timeout
 	private initialRebalanceTimer?: NodeJS.Timeout
 	private activeRebalances = new Set<Promise<void>>()
@@ -734,7 +773,7 @@ export class IntentFiller {
 		this.logger.info("Periodic retraction sweep started (every 5 minutes; 1h TTL, dead bids swept next cycle)")
 	}
 
-	/** Enqueues retraction for every due bid; returns how many were queued. */
+	/** Enqueues retraction for every due bid, one pass per commitment; returns how many bids were due. */
 	private async sweepExpiredBids(maxAgeMs: number): Promise<number> {
 		if (!this.bidStorage || !this.hyperbridge) {
 			return 0
@@ -747,8 +786,12 @@ export class IntentFiller {
 
 		this.logger.info({ count: expired.length }, "Sweeping expired unretracted bids")
 
-		for (const bid of expired) {
-			this.enqueueRetraction(bid.commitment as HexString)
+		// Scoped to the due rows: a fresh bid on the same order, or another limit order's bid
+		// a limit-order retraction left alone, is not swept with them.
+		const due = new Map<string, number[]>()
+		for (const bid of expired) due.set(bid.commitment, [...(due.get(bid.commitment) ?? []), bid.id])
+		for (const [commitment, ids] of due) {
+			this.enqueueRetraction(commitment as HexString, { rows: ids })
 		}
 		return expired.length
 	}
@@ -756,12 +799,6 @@ export class IntentFiller {
 	public async stop(): Promise<void> {
 		this.stopping = true
 		this.monitor.stopListening()
-
-		// The bidding connection is ours (fromApi does not own it), so nothing
-		// else will close this socket.
-		await this.hyperbridgeApi?.disconnect().catch(() => {})
-		this.hyperbridgeApi = undefined
-		this.hyperbridge = undefined
 
 		// Stop rebalancing interval
 		if (this.initialRebalanceTimer) {
@@ -788,16 +825,42 @@ export class IntentFiller {
 			this.paused = false
 		}
 
-		// Wait for all queues to complete
+		// Drain before disconnecting: bids still going out, settlements and retractions
+		// all go through the Hyperbridge connection, and a retraction that finds it gone
+		// leaves its deposit locked until the next run's sweep. Evaluations feed the
+		// chain queues and settlements feed the retraction queue, so each stage is
+		// drained before the one it feeds.
+		await this.globalQueue.onIdle()
 		const promises: Promise<void>[] = []
 		this.chainQueues.forEach((queue) => {
 			promises.push(queue.onIdle())
 		})
-		promises.push(this.globalQueue.onIdle())
-		promises.push(this.retractionQueue.onIdle())
+		promises.push(this.settlementQueue.onIdle())
 		promises.push(...this.activeRebalances)
-
 		await Promise.all(promises)
+
+		let drainTimer: NodeJS.Timeout | undefined
+		const drained = await Promise.race([
+			this.retractionQueue.onIdle().then(() => true),
+			new Promise<false>((resolve) => {
+				drainTimer = setTimeout(() => resolve(false), RETRACTION_DRAIN_TIMEOUT_MS)
+			}),
+		])
+		clearTimeout(drainTimer)
+		if (!drained) {
+			this.logger.warn(
+				{ queued: this.retractionQueue.size, inFlight: this.retractionQueue.pending },
+				"Retractions did not finish in time; stopping anyway, the next run's sweep retracts what is left",
+			)
+			// Queued passes would only run against a closed connection.
+			this.retractionQueue.clear()
+		}
+
+		// The bidding connection is ours (fromApi does not own it), so nothing
+		// else will close this socket.
+		await this.hyperbridgeApi?.disconnect().catch(() => {})
+		this.hyperbridgeApi = undefined
+		this.hyperbridge = undefined
 
 		this.logger.info("All orders processed, filler stopped")
 	}
@@ -1418,6 +1481,13 @@ export class IntentFiller {
 			// on another, and one that is never selected strands nothing. The plans come
 			// best offer first, which is the order they go out in.
 			for (const plan of plans.length > 0 ? plans : [undefined]) {
+				// The order can complete, by our earlier bid or a rival's, while this loop is
+				// still placing bids. Every bid after that can only revert with `Filled()`, yet
+				// each would pay the placement fee and lock a deposit.
+				if (order.id && this.hasCompleted(order.id)) {
+					this.logger.info({ orderId: order.id }, "Order completed while bidding; placing no more bids on it")
+					break
+				}
 				let pricedBy: BidPricing | undefined
 				if (plan) {
 					// What this bid signs. `executeOrder` reads these back out, so they are
@@ -1471,6 +1541,21 @@ export class IntentFiller {
 							this.logger.info({ commitment }, "OrderFilled arrived before bid was stored, retracting now")
 							this.enqueueRetraction(commitment)
 							await this.bidStorage?.markDead(commitment)
+						} else if (
+							this.bidStorage &&
+							(result.success || result.pending === true) &&
+							this.hasCompleted(commitment)
+						) {
+							// The order completed while this bid was going out. The fill's own
+							// retraction may already have taken its snapshot of the rows, and then
+							// nothing else retracts this one before the stale-bid TTL. Only this bid:
+							// a pass that still covers it finds it retracted and skips it.
+							this.logger.info(
+								{ commitment, bid: result.bid },
+								"Order completed while this bid went out, retracting it now",
+							)
+							this.enqueueRetraction(commitment, result.bid ? { bids: [result.bid] } : undefined)
+							await this.bidStorage.markDead(commitment)
 						}
 					}
 
@@ -1526,6 +1611,7 @@ export class IntentFiller {
 		blockNumber?: bigint,
 	): Promise<void> {
 		const ours = filler.toLowerCase() === this.fillerAddress.toLowerCase()
+		if (complete) this.markCompleted(commitment)
 		// Top up EntryPoint deposit if we were the filler, but only on chains
 		// without any paymaster (paymaster chains pay gas in ERC-20 tokens).
 		if (ours) {
@@ -1556,8 +1642,8 @@ export class IntentFiller {
 		// `delete` returning a boolean keeps exactly one of them doing it.
 		this.pendingRetractions.add(commitment)
 
-		const bid = await this.bidStorage.byCommitment(commitment)
-		if (!bid) {
+		const rows = await this.bidStorage.byCommitments([commitment])
+		if (rows.length === 0) {
 			this.logger.debug(
 				{ commitment, filler, chainId },
 				"OrderFilled received before bid stored, deferring retraction",
@@ -1569,7 +1655,9 @@ export class IntentFiller {
 			return
 		}
 
-		if (bid.retracted) {
+		// Any live row, not the newest: one bid on the order can have been retracted on
+		// its own while the others stand.
+		if (!rows.some(isLiveBid)) {
 			this.logger.debug({ commitment }, "Bid already retracted, skipping")
 			return
 		}
@@ -1594,9 +1682,12 @@ export class IntentFiller {
 	 * the deferral set, which would otherwise keep one entry per rival fill.
 	 */
 	private async handleRivalCompletion(commitment: HexString, filler: string, chainId: number): Promise<void> {
+		// Recorded before anything is read: a bid loop on this order may not have stored
+		// its first row yet, and it must stop placing bids all the same.
+		this.markCompleted(commitment)
 		if (!this.bidStorage) return
-		const bid = await this.bidStorage.byCommitment(commitment)
-		if (!bid || bid.retracted) return
+		const rows = await this.bidStorage.byCommitments([commitment])
+		if (!rows.some(isLiveBid)) return
 		this.logger.info({ commitment, filler, chainId }, "A rival completed an order we bid on, retracting our bids")
 		await this.handleOrderFilledOnChain(commitment, filler, chainId)
 	}
@@ -1631,6 +1722,7 @@ export class IntentFiller {
 		} finally {
 			for (const limitOrderId of new Set(rows.map((row) => row.pricedBy.limitOrderId))) {
 				await this.syncLimitOrder(commitment, limitOrderId, blockNumber)
+				await this.retractBidsOfClosedLimitOrder(limitOrderId)
 			}
 		}
 	}
@@ -1638,10 +1730,12 @@ export class IntentFiller {
 	/**
 	 * Records the fill against the limit order of the bid it executed.
 	 *
-	 * A bid that failed outright, or was retracted, cannot have executed, and a bid
-	 * executes at most once, so one already recorded against this order is passed
-	 * over. The same fill delivered twice, which a scanner replaying from a cursor can
-	 * do, is recorded once: a fill is named by its transaction hash and log index,
+	 * A bid that failed outright cannot have executed, and a bid executes at most once,
+	 * so one already recorded against this order is passed over. A retracted bid is not:
+	 * retraction takes it out of discovery but does not stop a placer that already fetched
+	 * it, which can execute it until its `validUntil`. A retracted bid placed longer ago than
+	 * its validity window cannot have executed and is passed over. The same fill delivered
+	 * twice, which a scanner replaying from a cursor can do, is recorded once: a fill is named by its transaction hash and log index,
 	 * since one transaction can carry several of our fills.
 	 *
 	 * Deduplication is weaker where those are missing. A fill with no transaction hash
@@ -1651,7 +1745,9 @@ export class IntentFiller {
 	 *
 	 * A multi-leg swap can be priced by limit orders that pay different tokens, so
 	 * the delivery is read per limit order and only bids whose order pays a token the
-	 * fill delivered are candidates.
+	 * fill delivered are candidates. Live bids are preferred over retracted ones: a retracted
+	 * bid at a better rate must not take the fill from the live bid that executed, so retracted
+	 * bids are attributed only when no live bid could have been it.
 	 */
 	private async recordExecutedFill(
 		commitment: HexString,
@@ -1681,8 +1777,12 @@ export class IntentFiller {
 		}
 		const filledBids = new Set(recorded.map((fill) => fill.bid).filter((bid) => bid !== null))
 
+		const executableSince = sqliteDatetime(new Date(Date.now() - this.retractedBidWindowMs()))
 		const candidates = rows.filter(
-			(row) => !row.retracted && (row.success || row.pending) && !(row.bid && filledBids.has(row.bid)),
+			(row) =>
+				(row.success || row.pending) &&
+				!(row.bid && filledBids.has(row.bid)) &&
+				(!row.retracted || row.createdAt >= executableSince),
 		)
 		if (candidates.length === 0) return
 
@@ -1701,13 +1801,15 @@ export class IntentFiller {
 			return
 		}
 
+		const live = paying.filter((row) => !row.retracted)
+		const pool = live.length > 0 ? live : paying
 		const settled = executedPricing(
-			paying.map((row) => row.pricedBy),
+			pool.map((row) => row.pricedBy),
 			(bid) => deliveries.get(bid.limitOrderId)!.scaled,
 			released,
 		)
 		const delivered = deliveries.get(settled.limitOrderId)!
-		const row = paying.find((candidate) => candidate.pricedBy === settled)!
+		const row = pool.find((candidate) => candidate.pricedBy === settled)!
 		const charged = chargedFor(settled, delivered, released)
 		const amount = charged < BigInt(settled.payout) ? charged : BigInt(settled.payout)
 		if (amount <= 0n) return
@@ -1729,6 +1831,35 @@ export class IntentFiller {
 			{ commitment, limitOrder: settled.limitOrderId, bid: row.bid, amount: amount.toString() },
 			"Recorded the fill against the limit order that priced it",
 		)
+	}
+
+	/**
+	 * Retracts the bids of a limit order the fill left closed (filled, cancelled or expired),
+	 * which can no longer pay out at its price. While the order is live its other bids are
+	 * left to the chain: `debitOrder` refuses a fill past its budget, and the gas of such a
+	 * revert is the accepted cost of not holding anything locally. Never throws.
+	 */
+	private async retractBidsOfClosedLimitOrder(limitOrderId: string): Promise<void> {
+		try {
+			const order = await this.limitOrders?.get(limitOrderId)
+			if (order && (order.status === "open" || order.status === "resizing")) return
+		} catch (err) {
+			this.logger.warn({ limitOrder: limitOrderId, err }, "Could not read the limit order after a fill; leaving its bids")
+			return
+		}
+		await this.retractBidsForLimitOrder(limitOrderId)
+	}
+
+	/**
+	 * How long after it is stored a retracted bid may still execute, in milliseconds:
+	 * `bidValiditySeconds` plus `BID_DISCOVERY_PAD_SECONDS`, the window the bid is signed for,
+	 * counted from the row (written after the head that window was counted from was read),
+	 * plus a margin.
+	 */
+	private retractedBidWindowMs(): number {
+		const seconds =
+			this.configService.getBidValiditySeconds() + BID_DISCOVERY_PAD_SECONDS + RETRACTED_BID_MARGIN_SECONDS
+		return seconds * 1000
 	}
 
 	/**
@@ -1780,40 +1911,117 @@ export class IntentFiller {
 		return { scaled: toScaled(total, decimals), raw: total, decimals }
 	}
 
-	private enqueueRetraction(commitment: HexString): void {
+	private markCompleted(commitment: string): void {
+		const key = commitment.toLowerCase()
+		if (this.completedOrders.has(key)) return
+		if (this.completedOrders.size >= MAX_COMPLETED_ORDERS) {
+			// A Set iterates in insertion order, so the first entry is the oldest.
+			this.completedOrders.delete(this.completedOrders.values().next().value as string)
+		}
+		this.completedOrders.add(key)
+	}
+
+	private hasCompleted(commitment: string): boolean {
+		return this.completedOrders.has(commitment.toLowerCase())
+	}
+
+	/**
+	 * Retracts the live bids a limit order priced, on every commitment they sit on.
+	 *
+	 * Called once the order can no longer stand behind them: the operator cancelled it, it
+	 * expired, or a fill left it filled or closed. Each such bid would still pay out at a
+	 * price the order no longer offers. Only the rows this order priced are retracted, so
+	 * another limit order's bid on the same swap order keeps standing, and a bid a pass
+	 * cannot close is flagged `dead` by row only.
+	 *
+	 * Retraction does not make the bids unexecutable: a placer that already fetched one can
+	 * execute it until its `validUntil`. A bid that does is settled by provenance like any
+	 * other fill, and the order's budget stays on chain. This only returns the deposit and
+	 * takes the bid out of discovery.
+	 *
+	 * Never throws: it runs after a settlement, a cancel or an expiry that has already
+	 * happened, and a bid it misses is still retracted by the stale-bid sweep.
+	 */
+	public async retractBidsForLimitOrder(limitOrderId: string): Promise<void> {
+		if (!this.bidStorage || !this.hyperbridge) return
+		try {
+			// The store caps a read at 500 rows, newest first: a limit order with more bid rows
+			// than that leaves its oldest live bids to the stale-bid sweep.
+			const rows = (await this.bidStorage.byLimitOrder(limitOrderId, 500)).filter(isLiveBid)
+			if (rows.length === 0) return
+
+			const byCommitment = new Map<string, number[]>()
+			for (const row of rows) {
+				byCommitment.set(row.commitment, [...(byCommitment.get(row.commitment) ?? []), row.id])
+			}
+			this.logger.info(
+				{ limitOrder: limitOrderId, bids: rows.length },
+				"Retracting the bids this limit order priced, as it can no longer stand behind them",
+			)
+			for (const [commitment, ids] of byCommitment) {
+				this.enqueueRetraction(commitment as HexString, { rows: ids })
+			}
+		} catch (err) {
+			this.logger.error({ limitOrder: limitOrderId, err }, "Could not retract the limit order's bids")
+		}
+	}
+
+	/**
+	 * Queues a retraction of this filler's live bids on a commitment: all of them, or only
+	 * those named by bid identifier (`bids`) or by row (`rows`).
+	 *
+	 * A retraction takes the bid out of Hyperbridge's discovery and returns its deposit. It
+	 * does not stop a placer that already fetched the bid, which can still execute it until
+	 * its `validUntil` (`bidValiditySeconds` plus the pad), so it narrows the exposure and
+	 * `bidValiditySeconds` remains the hard bound on it.
+	 */
+	private enqueueRetraction(
+		commitment: HexString,
+		scope: { bids?: readonly string[]; rows?: readonly number[] } = {},
+	): void {
 		this.retractionQueue.add(async () => {
 			try {
-				// Both OrderFilled and the periodic sweep can enqueue the same commitment; a fresh
-				// read at dequeue time skips the duplicate instead of paying for a BidNotFound.
-				if ((await this.bidStorage!.byCommitment(commitment))?.retracted) {
-					return
-				}
+				// The pass closes exactly the rows it reads here. A bid stored while the
+				// retraction below is in flight was never sent one: marking it retracted would
+				// leave its deposit locked with nothing left to sweep it. That row is left to
+				// the sweep or to a later retraction. A legacy row with no bid identifier
+				// cannot be retracted on chain, so it closes with the rest of the snapshot.
+				const bids = scope.bids ? new Set(scope.bids) : undefined
+				const ids = scope.rows ? new Set(scope.rows) : undefined
+				const rows = (await this.bidStorage!.byCommitments([commitment])).filter(
+					(row) =>
+						isLiveBid(row) &&
+						(!bids || (row.bid !== null && bids.has(row.bid))) &&
+						(!ids || ids.has(row.id)),
+				)
+				// OrderFilled, the sweep and a limit order's retraction can all queue the same
+				// bids; a snapshot with nothing left in it skips the duplicate instead of paying
+				// for a BidNotFound.
+				if (rows.length === 0) return
+				// stop() disconnects once the drain is over or timed out; whatever is left is a
+				// live row for the next run's sweep.
+				if (!this.hyperbridge) return
 
-				this.logger.info({ commitment }, "Retracting bid")
+				this.logger.info({ commitment, bids: rows.map((row) => row.bid) }, "Retracting bid")
 
-				const coprocessor = await this.hyperbridge!
-				const result = await this.retractStoredBids(coprocessor, commitment)
+				const coprocessor = await this.hyperbridge
+				const { closed, open } = await this.retractStoredBids(coprocessor, commitment, rows)
 
-				if (result.success) {
-					await this.bidStorage!.markRetracted(commitment, (result.extrinsicHash as HexString) ?? null)
-					this.logger.info({ commitment, retractHash: result.extrinsicHash }, "Bid retracted successfully")
-				} else if (result.error?.includes("BidNotFound")) {
-					// Terminal, not retryable: bids only leave the pallet by retraction, so "no bid"
-					// means there is nothing left to reclaim — an earlier submission of ours landed,
-					// someone retracted manually, or the placement never landed. Anything else seeds
-					// a zombie the sweep re-retracts forever.
-					await this.bidStorage!.markRetracted(commitment, null)
-					this.logger.debug({ commitment }, "No bid on chain, marked as retracted")
-				} else if (result.pending) {
-					// Our extrinsic is still in the Hyperbridge tx pool. Resubmitting can only bounce
-					// off it (1014) or land a duplicate; leave the bid as-is and let the sweep confirm
-					// — if the pooled retraction lands, the next attempt's BidNotFound closes it out.
-					this.logger.debug(
-						{ commitment, error: result.error },
-						"Retraction already in flight, deferring to sweep",
+				for (const { rows: done, hash } of closed) {
+					await this.bidStorage!.markRetracted(
+						commitment,
+						hash,
+						done.map((row) => row.id),
 					)
-				} else {
-					this.logger.error({ commitment, error: result.error }, "Failed to retract bid")
+				}
+				// Flagged by row, so the sweep retries them next cycle rather than after the
+				// TTL, and only them: flagging the commitment would sweep other limit orders'
+				// bids on the same order with them.
+				if (open.length > 0) {
+					await this.bidStorage!.markDead(
+						commitment,
+						open.map((row) => row.id),
+					)
 				}
 			} catch (error) {
 				this.logger.error({ commitment, err: error }, "Error retracting bid")
@@ -1822,39 +2030,62 @@ export class IntentFiller {
 	}
 
 	/**
-	 * Retracts every bid this filler placed on a commitment, by the identifiers recorded when each
-	 * was placed.
+	 * Retracts the given bid rows on a commitment, by the identifiers recorded when each was
+	 * placed, and answers which rows each outcome closed.
 	 *
 	 * The identifiers come from the bid rows rather than from Hyperbridge's storage: a bid whose
 	 * `place_bid` is still in the pool is not in storage yet, and reading storage would find
 	 * nothing and abandon its deposit once it lands. Its retraction goes out after it from the same
 	 * account, so it lands after it and reclaims it.
 	 *
-	 * The answer speaks for the commitment as a whole. A bid already gone (`BidNotFound`) is done
-	 * with; one that is pending or failed stops the pass, and the sweep comes back for the rest.
-	 * Nothing recorded to retract reads as `BidNotFound`, which the caller treats as nothing left
-	 * to reclaim.
+	 * A retraction that succeeded closes its rows with its hash. `BidNotFound` is terminal, not
+	 * retryable: bids only leave the pallet by retraction, so "no bid" means there is nothing
+	 * left to reclaim, and its rows close without one. A legacy row with no identifier closes the
+	 * same way. A failure leaves its rows open for a retry, and so does a retraction still in
+	 * Hyperbridge's pool: resubmitting can only bounce off it (1014), and if it lands the next
+	 * attempt's `BidNotFound` closes the row. A pooled one also stops the pass, since the
+	 * account's next extrinsic queues behind it; the bids after it stay open too.
 	 */
-	private async retractStoredBids(coprocessor: IntentsCoprocessor, commitment: HexString): Promise<BidSubmissionResult> {
-		const rows = await this.bidStorage!.byCommitments([commitment])
-		const bids = [
-			...new Set(
-				rows
-					.filter((row) => !row.retracted && (row.success || row.pending) && row.bid)
-					.map((row) => row.bid as HexString),
-			),
-		]
-
-		let retracted: BidSubmissionResult | undefined
-		for (const bid of bids) {
-			const result = await coprocessor.retractBid(commitment, bid)
-			if (result.success) {
-				retracted = result
+	private async retractStoredBids(
+		coprocessor: IntentsCoprocessor,
+		commitment: HexString,
+		rows: readonly StoredBid[],
+	): Promise<{ closed: { rows: StoredBid[]; hash: string | null }[]; open: StoredBid[] }> {
+		const closed: { rows: StoredBid[]; hash: string | null }[] = []
+		const open: StoredBid[] = []
+		const byBid = new Map<string, StoredBid[]>()
+		const legacy: StoredBid[] = []
+		for (const row of rows) {
+			if (!row.bid) {
+				legacy.push(row)
 				continue
 			}
-			if (result.error?.includes("BidNotFound")) continue
-			return result
+			byBid.set(row.bid, [...(byBid.get(row.bid) ?? []), row])
 		}
-		return retracted ?? { success: false, error: "BidNotFound" }
+		if (legacy.length > 0) closed.push({ rows: legacy, hash: null })
+
+		let pooled = false
+		for (const [bid, bidRows] of byBid) {
+			if (pooled) {
+				open.push(...bidRows)
+				continue
+			}
+			const result = await coprocessor.retractBid(commitment, bid as HexString)
+			if (result.success) {
+				closed.push({ rows: bidRows, hash: (result.extrinsicHash as string | undefined) ?? null })
+				this.logger.info({ commitment, bid, retractHash: result.extrinsicHash }, "Bid retracted successfully")
+			} else if (result.error?.includes("BidNotFound")) {
+				closed.push({ rows: bidRows, hash: null })
+				this.logger.debug({ commitment, bid }, "No bid on chain, marked as retracted")
+			} else if (result.pending) {
+				pooled = true
+				open.push(...bidRows)
+				this.logger.debug({ commitment, bid, error: result.error }, "Retraction already in flight, deferring to sweep")
+			} else {
+				open.push(...bidRows)
+				this.logger.error({ commitment, bid, error: result.error }, "Failed to retract bid")
+			}
+		}
+		return { closed, open }
 	}
 }

@@ -9,7 +9,12 @@ With solver selection, `IntentFiller` "executing" an order submits a bid: `order
 (filler address match) and `complete`, then the existing `orderFilledOnChain` for ours only. When a
 rival completes an order we hold an unretracted bid on, `IntentFiller.handleRivalCompletion`
 retracts it at once, which returns the Hyperbridge deposit; a rival's partial fill leaves the bid
-standing. Our own fill, partial or complete, first goes through `settleFilledLimitOrder`, which
+standing. A completed order also stops `executeOrder`'s bid loop from placing further bids on it,
+and a bid stored after completion is retracted on its own. Each retraction pass closes only the bid
+rows it read when it started (see [per-bid retraction](../changelog/2026-10-16-per-bid-retraction.md)),
+and a limit order that is cancelled, expires, or is left closed by a fill has its live bids
+retracted by row. Retraction does not stop a placer that already fetched a bid, so a retracted bid
+can still execute; that fill is settled by provenance like any other. Our own fill, partial or complete, first goes through `settleFilledLimitOrder`, which
 records it against the limit order that priced the executed bid (`StoredBid.pricedBy`) and brings
 every limit order that priced one of our bids on the swap down to its on-chain tally
 (`LimitOrderService.syncToChain`). The

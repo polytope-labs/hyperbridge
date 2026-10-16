@@ -192,14 +192,19 @@ export class SqliteBidStore implements BidStore {
 		return (rows as any[]).map((row) => this.toStoredBid(row))
 	}
 
-	async markRetracted(commitment: string, retractExtrinsicHash: string | null): Promise<boolean> {
+	async markRetracted(
+		commitment: string,
+		retractExtrinsicHash: string | null,
+		rows?: readonly number[],
+	): Promise<boolean> {
+		if (rows?.length === 0) return false
 		const result = this.db
 			.prepare(`
 				UPDATE bids
 				SET retracted = 1, retracted_at = datetime('now'), retract_extrinsic_hash = ?
-				WHERE commitment = ? AND retracted = 0
+				WHERE commitment = ? AND retracted = 0${rows ? ` AND id IN (${rows.map(() => "?").join(",")})` : ""}
 			`)
-			.run(retractExtrinsicHash, commitment)
+			.run(retractExtrinsicHash, commitment, ...(rows ?? []))
 
 		if (result.changes > 0) {
 			this.logger.info({ commitment, retractExtrinsicHash }, "Bid marked as retracted")
@@ -224,13 +229,16 @@ export class SqliteBidStore implements BidStore {
 			.filter((bid) => bid.pricedBy?.limitOrderId === limitOrderId)
 	}
 
-	async markDead(commitment: string): Promise<boolean> {
+	async markDead(commitment: string, rows?: readonly number[]): Promise<boolean> {
+		if (rows?.length === 0) return false
 		const result = this.db
-			.prepare("UPDATE bids SET dead = 1 WHERE commitment = ? AND retracted = 0 AND dead = 0")
-			.run(commitment)
+			.prepare(
+				`UPDATE bids SET dead = 1 WHERE commitment = ? AND retracted = 0 AND dead = 0${rows ? ` AND id IN (${rows.map(() => "?").join(",")})` : ""}`,
+			)
+			.run(commitment, ...(rows ?? []))
 
 		if (result.changes > 0) {
-			this.logger.debug({ commitment }, "Bid marked as dead (order filled on-chain)")
+			this.logger.debug({ commitment }, "Bid marked dead, due for retraction on the next sweep")
 			return true
 		}
 		return false

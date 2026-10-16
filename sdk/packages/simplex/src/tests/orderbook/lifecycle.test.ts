@@ -113,6 +113,32 @@ describe("the operator's own expiry", () => {
 		expect(client.cancelled).toEqual(["0xabc"])
 	})
 
+	it("reports the expiry, so the bids the order priced are retracted", async () => {
+		const { service, id, after } = await withExpiry()
+		const events: Array<{ kind: string; id: string; status: string }> = []
+		service.listen((event) => events.push({ kind: event.kind, id: event.order.id, status: event.order.status }))
+
+		await service.expireStale(after)
+
+		expect(events).toEqual([{ kind: "expired", id, status: "expired" }])
+	})
+
+	it("neither overwrites nor reports an order cancelled while its entry came down", async () => {
+		const { client, service, store, id, after } = await withExpiry()
+		const events: string[] = []
+		service.listen((event) => events.push(event.kind))
+		const inner = client.cancelOrder
+		client.cancelOrder = async (params) => {
+			await store.setStatus(id, "cancelled")
+			return inner(params)
+		}
+
+		await service.expireStale(after)
+
+		expect((await store.get(id))?.status).toBe("cancelled")
+		expect(events).toEqual([])
+	})
+
 	it("leaves an order whose expiry has not come", async () => {
 		const { client, service, store, id } = await withExpiry()
 

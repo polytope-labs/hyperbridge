@@ -52,7 +52,7 @@ async function build(decimals: number, size: string) {
 		[],
 		[],
 		{},
-		{ getHyperbridgeWsUrl: () => undefined, getSubstratePrivateKey: () => undefined } as any,
+		{ getHyperbridgeWsUrl: () => undefined, getSubstratePrivateKey: () => undefined, getBidValiditySeconds: () => 300 } as any,
 		{} as any,
 		{} as any,
 		{ address: OUR_ADDRESS } as any,

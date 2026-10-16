@@ -15,6 +15,7 @@ import { TESTNET_CONFIRMATION_POINTS } from "@/cli/init/state"
 import { ChainConfigService } from "@hyperbridge/sdk"
 import {
 	assertConfirmationCoverage,
+	validateRebalancingConfig,
 	type FillerConfigFile,
 	type FillerTomlConfig,
 	type VaultToml,
@@ -2158,22 +2159,25 @@ export class UiServer {
 			return sendJson(res, 400, { error: "Invalid JSON body" })
 		}
 		const trigger = Number(body.triggerPercentage)
-		if (!Number.isFinite(trigger) || trigger <= 0 || trigger >= 1) {
-			return sendJson(res, 400, { error: "triggerPercentage must be between 0 and 1 (exclusive)" })
-		}
 		const baseBalances = body.baseBalances ?? {}
+		const rebalancing = { triggerPercentage: trigger, baseBalances }
+		try {
+			validateRebalancingConfig(rebalancing)
+		} catch (error) {
+			return sendJson(res, 400, { error: error instanceof Error ? error.message : String(error) })
+		}
 		const entries = [...Object.entries(baseBalances.USDC ?? {}), ...Object.entries(baseBalances.USDT ?? {})]
 		if (entries.length === 0) {
 			return sendJson(res, 400, { error: "Provide at least one base balance" })
 		}
+		// Balances are read by numeric chain id; any other key would be stored and never consulted.
 		for (const [chainId, amount] of entries) {
-			if (!/^\d+$/.test(chainId) || !(Number(amount) > 0)) {
+			if (!/^\d+$/.test(chainId)) {
 				return sendJson(res, 400, { error: `Invalid base balance for chain ${chainId}: ${amount}` })
 			}
 		}
 
 		const op = this.operator!
-		const rebalancing = { triggerPercentage: trigger, baseBalances }
 		op.applyRebalancing(rebalancing)
 		op.config.rebalancing = rebalancing
 		const persisted = this.persistConfig()

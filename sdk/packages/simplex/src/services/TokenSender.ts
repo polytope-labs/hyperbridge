@@ -9,7 +9,7 @@ import type { UserOpSender } from "@/services/UserOpSender"
 import { type Logger , moduleLogger} from "@/services/Logger"
 import { SubmittedUnconfirmedError } from "@/services/submission"
 import { encodeERC7821ExecuteBatch, type ERC7821Call, type HexString } from "@hyperbridge/sdk"
-import { encodeFunctionData, isAddress, maxUint256, parseUnits } from "viem"
+import { encodeFunctionData, isAddress, maxUint256, parseUnits, zeroAddress } from "viem"
 
 
 export interface SendTokenParams {
@@ -62,6 +62,7 @@ export class TokenSender {
 	async send(params: SendTokenParams): Promise<SendTokenResult> {
 		const { chain, token, amount, to } = params
 		if (!isAddress(to)) throw new Error(`Invalid recipient address: ${to}`)
+		this.assertRecipient(chain, token, to)
 		const publicClient = this.clientManager.getPublicClient(chain)
 
 		const calls: ERC7821Call[] = []
@@ -137,6 +138,30 @@ export class TokenSender {
 		const result = await this.submitCalls(chain, calls)
 		this.logger.warn({ chain, token, amount, to, redeemed, ...result }, "Operator send executed")
 		return { ...result, redeemed }
+	}
+
+	/**
+	 * Refuses recipients a transfer can never usefully reach. Each is a well-formed address, so
+	 * a mistyped or pasted value would otherwise go out: the zero address and a token's own
+	 * contract burn or strand the funds, a vault would take the tokens as a donation to its
+	 * share holders, and a native or ERC-20 send to the solver itself only spends gas to move
+	 * nothing. Vault shares are the exception to the last: they leave as `redeem(shares, to,
+	 * solver)`, so sending them to the solver is how an exact amount is withdrawn into the wallet.
+	 */
+	private assertRecipient(chain: string, token: string, to: HexString): void {
+		const recipient = to.toLowerCase()
+		const vaults = this.getVaults().filter((v) => v.chain === chain)
+		const isVaultShare = token !== "native" && vaults.some((v) => v.vault.toLowerCase() === token.toLowerCase())
+		if (recipient === zeroAddress) throw new Error("Recipient cannot be the zero address")
+		if (!isVaultShare && recipient === this.solver.toLowerCase()) {
+			throw new Error("Recipient cannot be the filler's own wallet")
+		}
+		if (token !== "native" && recipient === token.toLowerCase()) {
+			throw new Error("Recipient cannot be the token contract being sent")
+		}
+		if (vaults.some((v) => v.vault.toLowerCase() === recipient)) {
+			throw new Error("Recipient cannot be a configured vault; deposit through the vault settings instead")
+		}
 	}
 
 	/**

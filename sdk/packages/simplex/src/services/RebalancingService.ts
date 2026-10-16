@@ -90,6 +90,27 @@ function selectRoute(coin: "USDC" | "USDT", sourceChainId: number, destChainId: 
 }
 
 /**
+ * The chains a planned transfer sends transactions on from the filler's EOA. Every route sends
+ * from the source. CCTP also mints on the destination: BridgeKit's `receiveMessage` goes out
+ * through the same adapter. USDT0 is delivered by LayerZero and a CEX leg is withdrawn by
+ * Binance, so neither sends anything from us on the destination. A leg with no route sends at
+ * most from its source before it fails.
+ */
+function sendingChains(transfer: PlannedTransfer): string[] {
+	try {
+		const route = selectRoute(
+			transfer.coin,
+			parseStateMachineId(transfer.sourceChain).stateId.Evm!,
+			parseStateMachineId(transfer.destChain).stateId.Evm!,
+		)
+		if (route.method === "cctp") return [transfer.sourceChain, transfer.destChain]
+	} catch {
+		// No route: `rebalance` reports it as this leg's error.
+	}
+	return [transfer.sourceChain]
+}
+
+/**
  * RebalancingService - Facade over CCTP, USDT0, and Binance CEX rebalancers.
  * Provides both low-level methods (sendCctp, sendUsdt0, sendViaCex) and a high-level router (rebalance).
  */
@@ -378,8 +399,7 @@ export class RebalancingService {
 
 		this.logger.info({ transferCount: transfers.length }, "Executing portfolio rebalancing transfers")
 
-		// Execute transfers in parallel
-		const transferPromises = transfers.map(async (transfer) => {
+		const execute = async (transfer: PlannedTransfer) => {
 			try {
 				this.logger.info(
 					{
@@ -407,9 +427,23 @@ export class RebalancingService {
 				errors.push(errorMsg)
 				return null
 			}
-		})
+		}
 
-		const results = await Promise.all(transferPromises)
+		// Every leg is sent from the one filler EOA with no nonce manager, so two legs sending on
+		// the same chain at once would race for its nonce. Each chain is a lane, and a leg waits
+		// for the previous leg on every lane it sends on (see `sendingChains`); legs that share
+		// no chain still run in parallel. Results keep plan order.
+		const results: Array<Awaited<ReturnType<typeof execute>>> = new Array(transfers.length).fill(null)
+		const lanes = new Map<string, Promise<void>>()
+		transfers.forEach((transfer, index) => {
+			const chains = sendingChains(transfer)
+			const previous = chains.map((chain) => lanes.get(chain) ?? Promise.resolve())
+			const run = Promise.all(previous).then(async () => {
+				results[index] = await execute(transfer)
+			})
+			for (const chain of chains) lanes.set(chain, run)
+		})
+		await Promise.all(lanes.values())
 		for (const result of results) {
 			if (result !== null) {
 				executedTransfers.push(result)

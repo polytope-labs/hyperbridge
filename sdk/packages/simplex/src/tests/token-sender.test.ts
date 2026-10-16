@@ -229,11 +229,11 @@ describe("TokenSender", () => {
 		const { sender, sendTransaction } = makeVaultSender({
 			walletBalance: 9_989_773n,
 			maxWithdraw: 481_970_486_507n,
-			reserve: 2_000_000n,
+			reserve: 5_000_000n,
 		})
 		await sender.send({ chain: "EVM-8453", token: TOKEN, amount: "4000", to: RECIPIENT })
 		const withdrawal = decodeFunctionData({ abi: ERC4626_ABI, data: batchOf(sendTransaction)[0].data })
-		expect(withdrawal.args?.[0]).toBe(4_000_000_000n - 9_989_773n + 2_000_000n)
+		expect(withdrawal.args?.[0]).toBe(4_000_000_000n - 9_989_773n + 5_000_000n)
 	})
 
 	it("tops the wallet up when it covers the transfer but not the paymaster's pull", async () => {
@@ -242,14 +242,14 @@ describe("TokenSender", () => {
 		const { sender, sendTransaction } = makeVaultSender({
 			walletBalance: 4_000_000_000n,
 			maxWithdraw: 481_970_486_507n,
-			reserve: 2_000_000n,
+			reserve: 5_000_000n,
 		})
 		const result = await sender.send({ chain: "EVM-8453", token: TOKEN, amount: "4000", to: RECIPIENT })
 		expect(result.redeemed).toBe(true)
 		const calls = batchOf(sendTransaction)
 		expect(calls).toHaveLength(2)
 		const withdrawal = decodeFunctionData({ abi: ERC4626_ABI, data: calls[0].data })
-		expect(withdrawal.args?.[0]).toBe(2_000_000n)
+		expect(withdrawal.args?.[0]).toBe(5_000_000n)
 	})
 
 	it("still refuses when no vault holds the asset at all", async () => {
@@ -283,6 +283,45 @@ describe("TokenSender", () => {
 			"Insufficient token balance",
 		)
 		expect(sendTransaction).not.toHaveBeenCalled()
+	})
+
+	it.each([
+		["the zero address", "0x0000000000000000000000000000000000000000", TOKEN, /zero address/],
+		["the token contract", TOKEN.toLowerCase(), TOKEN, /token contract/],
+		["a configured vault", VAULT.toLowerCase(), TOKEN, /configured vault/],
+		["the filler's own wallet", SOLVER.toLowerCase(), "native", /own wallet/],
+		["the filler's own wallet, in an ERC-20", SOLVER.toLowerCase(), TOKEN, /own wallet/],
+	])("refuses to send to %s without submitting anything", async (_label, to, token, message) => {
+		const trySendSponsored = vi.fn().mockResolvedValue({ txHash: "0xsponsored" })
+		const sendTransaction = vi.fn().mockResolvedValue("0xhash")
+		const clientManager = {
+			getPublicClient: () => ({
+				getBalance: vi.fn().mockResolvedValue(10n ** 18n),
+				readContract: vi.fn(async ({ functionName }: { functionName: string }) =>
+					functionName === "decimals" ? 6 : 1_000_000_000n,
+				),
+				waitForTransactionReceipt: vi.fn().mockResolvedValue({ status: "success" }),
+			}),
+			getWalletClient: () => ({ sendTransaction, chain: undefined }),
+		} as unknown as ChainClientManager
+		const sender = new TokenSender(clientManager, SOLVER, () => [{ chain: "EVM-8453", vault: VAULT }], {
+			canSponsor: () => true,
+			trySendSponsored,
+		} as never)
+		await expect(
+			sender.send({ chain: "EVM-8453", token, amount: "1", to: to as `0x${string}` }),
+		).rejects.toThrow(message)
+		expect(trySendSponsored).not.toHaveBeenCalled()
+		expect(sendTransaction).not.toHaveBeenCalled()
+	})
+
+	it("redeems vault shares to the filler's own wallet, the way to withdraw an exact amount", async () => {
+		const { sender, sendTransaction } = makeSender([{ chain: "EVM-8453", vault: VAULT }])
+		const result = await sender.send({ chain: "EVM-8453", token: VAULT, amount: "10", to: SOLVER })
+		expect(result.redeemed).toBe(true)
+		const decoded = decodeFunctionData({ abi: ERC4626_ABI, data: sendTransaction.mock.calls[0][0].data })
+		expect(decoded.functionName).toBe("redeem")
+		expect(decoded.args).toEqual([10_000_000n, SOLVER, SOLVER])
 	})
 })
 

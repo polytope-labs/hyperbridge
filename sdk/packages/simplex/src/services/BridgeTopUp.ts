@@ -490,15 +490,8 @@ export class BridgeTopUp {
 
 		const { tokenAddress, decimals } = this.payToken(params.chain, params.token)
 		const amountIn = parseUnits(quote.amountIn, decimals)
-		const balance = await this.balanceOf(params.chain, tokenAddress)
-		if (balance < amountIn) {
-			const reserve = formatUnits(this.reserve(params.chain, tokenAddress), decimals)
-			throw new Error(
-				`Not enough ${params.token}: ${formatUnits(balance, decimals)} spendable after the ${reserve} ${params.token} kept for gas, need ${quote.amountIn}`,
-			)
-		}
-
 		const order = await this.buildOrder(params.chain, tokenAddress, amountIn, parseUnits(quote.bridgeOut, BRIDGE_DECIMALS))
+		await this.assertCanPay(params, order, tokenAddress, decimals)
 		// Checked again after the awaits above: two clicks must not place two orders.
 		if (this.record && isBridgeTopUpPending(this.record.stage)) {
 			throw new Error("A BRIDGE top-up is already pending")
@@ -519,6 +512,51 @@ export class BridgeTopUp {
 		await this.persist()
 		void this.place(order, tokenAddress)
 		return publicState(this.record)
+	}
+
+	/**
+	 * Throws unless the wallet covers the input and the solver fee, net of the paymaster reserve.
+	 * The order goes out with `fees: 0n` and the SDK prices the fee only as it places, in the
+	 * host's fee token, which the placement batch then approves alongside the input. A wallet that
+	 * covers the input alone would revert inside a sponsored op the paymaster still charges for.
+	 * The quote here is for this check only; the SDK still prices the fee it places.
+	 */
+	private async assertCanPay(
+		params: BridgeTopUpQuoteParams,
+		order: Order,
+		tokenAddress: HexString,
+		decimals: number,
+	): Promise<void> {
+		const gateway = await this.gateway(params.chain)
+		const { fees, feeToken } = await withTimeout(gateway.quoteOrderFees(order), "the order fee quote")
+		const amountIn = order.inputs[0].amount
+		const feeInPayToken = feeToken.toLowerCase() === tokenAddress.toLowerCase()
+		const need = feeInPayToken ? amountIn + fees : amountIn
+		const balance = await this.balanceOf(params.chain, tokenAddress)
+		if (balance < need) {
+			const reserve = formatUnits(this.reserve(params.chain, tokenAddress), decimals)
+			const breakdown =
+				feeInPayToken && fees > 0n
+					? ` (${formatUnits(amountIn, decimals)} plus a ${formatUnits(fees, decimals)} order fee)`
+					: ""
+			throw new Error(
+				`Not enough ${params.token}: ${formatUnits(balance, decimals)} spendable after the ${reserve} ${params.token} kept for gas, need ${formatUnits(need, decimals)}${breakdown}`,
+			)
+		}
+		if (feeInPayToken || fees === 0n) return
+
+		const client = this.deps.clientManager.getPublicClient(params.chain)
+		const [feeBalance, feeDecimals, feeSymbol] = await Promise.all([
+			this.balanceOf(params.chain, feeToken),
+			client.readContract({ abi: ERC20_ABI, address: feeToken, functionName: "decimals" }) as Promise<number>,
+			client.readContract({ abi: ERC20_ABI, address: feeToken, functionName: "symbol" }) as Promise<string>,
+		])
+		if (feeBalance < fees) {
+			const reserve = formatUnits(this.reserve(params.chain, feeToken), feeDecimals)
+			throw new Error(
+				`Not enough ${feeSymbol} for the order fee: ${formatUnits(feeBalance, feeDecimals)} spendable after the ${reserve} ${feeSymbol} kept for gas, need ${formatUnits(fees, feeDecimals)}`,
+			)
+		}
 	}
 
 	/** Cancels an unfilled order and refunds its escrowed input to the filler wallet. */
@@ -1000,9 +1038,13 @@ export class BridgeTopUp {
 			}))
 		if (statuses.length > 0) await this.update({ deliveryStatuses: statuses })
 
-		const delivered =
-			statuses.some((status) => status.status === "DESTINATION") ||
-			!!(await withTimeout(hyperbridge.queryRequestReceipt(record.deliveryCommitment!), "the request receipt"))
+		// Only Hyperbridge's own request receipt proves the BRIDGE arrived; the indexer's
+		// DESTINATION status is for the timeline, and an indexer that is wrong or ahead of the
+		// chain must not mark a top-up delivered.
+		const delivered = !!(await withTimeout(
+			hyperbridge.queryRequestReceipt(record.deliveryCommitment!),
+			"the request receipt",
+		))
 		if (delivered && record.stage !== "delivered") {
 			await this.update({ stage: "delivered", error: undefined })
 			// The balance moves only now. Refresh it before the sync returns, so the dashboard's
@@ -1182,7 +1224,8 @@ export class BridgeTopUp {
 				})
 				void this.resumeDelivery()
 			} else if (statuses?.some((status) => status.status === "REFUNDED")) {
-				await this.update({ stage: "reclaimed" })
+				// The indexer only points at a refund; the source gateway has to confirm it.
+				await this.refunded(await this.gateway(record.chain), deserializeOrder(record.order))
 			}
 			return
 		}
@@ -1456,13 +1499,25 @@ export class BridgeTopUp {
 	}
 
 	/**
-	 * Whether the escrow is back with the filler, from the source gateway or the indexer's
-	 * REFUNDED status; records the refund as the recovery's last step when it is.
+	 * Whether the escrow is back with the filler, as the source gateway reports it; records the
+	 * refund as the recovery's last step when it is. The indexer's REFUNDED status only supplies
+	 * that step's tx hash and time: it is not evidence on its own. `isOrderRefunded` reads the
+	 * escrow and is true for an empty one, including an order that was never placed, so it only
+	 * counts for a record whose placement was seen (`commitment`).
 	 */
 	private async refunded(gateway: IntentGateway, order: Order): Promise<boolean> {
-		const onChain = await withTimeout(gateway.isOrderRefunded(order), "the refund").catch(() => false)
+		if (!this.record?.commitment) return false
 		const indexed = (await this.indexedOrder().catch(() => undefined))?.find((s) => s.status === "REFUNDED")
-		if (!onChain && !indexed) return false
+		let onChain: boolean
+		try {
+			onChain = await withTimeout(gateway.isOrderRefunded(order), "the refund")
+		} catch (err) {
+			// With the indexer reporting a refund the chain could not confirm, retry rather than go
+			// on as if nothing was refunded and send a cancel for an order that is already settled.
+			if (indexed) throw err
+			return false
+		}
+		if (!onChain) return false
 		if (!this.hasRecoveryStep("FUNDS_CLAIMED")) {
 			await this.recordRecoveryStep(
 				"FUNDS_CLAIMED",

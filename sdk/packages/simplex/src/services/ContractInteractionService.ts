@@ -96,6 +96,17 @@ const BLOCK_TIME_SAMPLE_BLOCKS = 1_000n
 /** Assumed when a chain declares no block time and its blocks cannot be read. */
 const FALLBACK_BLOCK_TIME_SECONDS = 2
 
+/**
+ * A measurement faster than a quarter of the declared block time is taken for a bad sample, not a
+ * faster chain. Real speed-ups are well inside that (BSC runs at 0.6× its declared figure), and the
+ * measurement is pinned for the life of the process, so one RPC serving bad timestamps would
+ * otherwise stretch every bid on that chain for as long as simplex runs.
+ */
+const MEASURED_BLOCK_TIME_FLOOR_DIVISOR = 4
+
+/** The floor for a measurement on a chain that declares no block time. */
+const MIN_MEASURED_BLOCK_TIME_SECONDS = 0.1
+
 export class ContractInteractionService {
 	private configService: FillerConfigService
 	public cacheService: CacheService
@@ -896,6 +907,18 @@ export class ContractInteractionService {
 			)
 		}
 
+		// Checked on the limits the op is signed with: the re-estimated preVerificationGas is
+		// the prefund the EntryPoint will actually charge, and on an L2 it is the larger one.
+		if (pmResult.type === "none") {
+			await this.assertUnsponsoredBidFunded(
+				order.destination,
+				entryPointAddress,
+				solverAccountAddress,
+				(callGasLimit + cachedEstimate.verificationGasLimit + preVerificationGas) * cachedEstimate.maxFeePerGas,
+				pmResult.reason,
+			)
+		}
+
 		const userOp = await sdkHelper.prepareSubmitBid({
 			...bidGas,
 			order,
@@ -920,6 +943,49 @@ export class ContractInteractionService {
 		)
 
 		return { commitment, userOp: encodedUserOp, bid: CryptoUtils.bidId(callData) }
+	}
+
+	/**
+	 * Throws unless an op with no paymaster can pay its own prefund. The EntryPoint takes it from
+	 * the account's deposit and asks the account for the rest out of its native balance, so
+	 * between them they must cover `required`. Nothing funds a deposit on a chain with a
+	 * paymaster configured, so when selection comes back empty there a solver holding little
+	 * native would place a bid, pay Hyperbridge's bid fee for it, and fail validation (AA21)
+	 * when it is selected. Reads that fail let the bid through, as the paymaster deposit gate
+	 * does: a transient RPC error must not cost a bid, and the worst case is that failure.
+	 */
+	private async assertUnsponsoredBidFunded(
+		chain: string,
+		entryPoint: HexString,
+		account: HexString,
+		required: bigint,
+		reason: string | undefined,
+	): Promise<void> {
+		const client = this.clientManager.getPublicClient(chain)
+		let deposit: bigint
+		let native: bigint
+		try {
+			;[deposit, native] = await Promise.all([
+				client.readContract({
+					address: entryPoint,
+					abi: ENTRYPOINT_ABI,
+					functionName: "balanceOf",
+					args: [account],
+				}) as Promise<bigint>,
+				client.getBalance({ address: account }),
+			])
+		} catch (err) {
+			this.logger.warn(
+				{ chain, err },
+				"Could not read the account's EntryPoint deposit or native balance; bidding without a paymaster anyway",
+			)
+			return
+		}
+		if (deposit + native >= required) return
+		throw new Error(
+			`No paymaster for this bid (${reason ?? "none selected"}) and the account cannot pay its gas on ${chain}: ` +
+				`EntryPoint deposit ${formatEther(deposit)} + native ${formatEther(native)} < ${formatEther(required)} required`,
+		)
 	}
 
 	/**
@@ -954,7 +1020,8 @@ export class ContractInteractionService {
 	 * speeds up (BSC makes a block every 0.45s against a declared 0.75s) and some chains
 	 * declare none. Converting at a slower block time than the chain's ends a bid early, so
 	 * the faster of the measured and the declared figure is used, and a stalled or idle
-	 * stretch in the sample never shortens a bid.
+	 * stretch in the sample never shortens a bid. A measurement below a quarter of the declared
+	 * figure (or below 0.1s with none declared) is discarded, so a bad sample cannot lengthen one.
 	 *
 	 * Blocks that cannot be read fall back to the declared figure, then to
 	 * {@link FALLBACK_BLOCK_TIME_SECONDS}. That answer is not kept.
@@ -968,7 +1035,18 @@ export class ContractInteractionService {
 		const declaredMs = client.chain?.blockTime
 		const declared = declaredMs ? declaredMs / 1000 : undefined
 		const seconds = this.measureBlockTimeSeconds(client)
-			.then((measured) => (declared ? Math.min(measured, declared) : measured))
+			.then((measured) => {
+				const floor = declared ? declared / MEASURED_BLOCK_TIME_FLOOR_DIVISOR : MIN_MEASURED_BLOCK_TIME_SECONDS
+				if (measured < floor) {
+					const used = declared ?? MIN_MEASURED_BLOCK_TIME_SECONDS
+					this.logger.warn(
+						{ chain, measured, declared, seconds: used },
+						"Discarding an implausibly fast block-time measurement",
+					)
+					return used
+				}
+				return declared ? Math.min(measured, declared) : measured
+			})
 			.catch((err) => {
 				this.blockTimes.delete(chain)
 				const fallback = declared ?? FALLBACK_BLOCK_TIME_SECONDS

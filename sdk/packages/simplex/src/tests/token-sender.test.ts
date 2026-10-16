@@ -12,7 +12,14 @@ const ERC7821_EXECUTE_ABI = parseAbi(["function execute(bytes32 mode, bytes exec
 import { ERC20_ABI } from "@/config/abis/ERC20"
 import { ERC4626_ABI } from "@/config/abis/Erc4626"
 import { TokenSender } from "@/services/TokenSender"
+import { UserOpSender } from "@/services/UserOpSender"
 import { SubmittedUnconfirmedError, type SubmittedUserOp } from "@/services/submission"
+import { buildPaymasterAndData } from "@/services/paymaster"
+import {
+	packPaymasterAndData,
+	VERIFICATION_GAS_LIMIT_PERMIT2,
+	POST_OP_GAS_LIMIT_SIMPLEX,
+} from "@/services/paymaster/types"
 import type { ChainClientManager } from "@/services/ChainClientManager"
 import { resolvePendingPermit2Approval } from "@/services/paymaster/provider/simplex"
 
@@ -21,6 +28,15 @@ import { resolvePendingPermit2Approval } from "@/services/paymaster/provider/sim
 vi.mock("@/services/paymaster/provider/simplex", async (importOriginal) => ({
 	...(await importOriginal<typeof import("@/services/paymaster/provider/simplex")>()),
 	resolvePendingPermit2Approval: vi.fn(),
+}))
+
+// The sponsored path under test runs the real UserOpSender, so its paymaster selection is stubbed;
+// the deposit/balance reads behind it belong to the paymaster tests. The rest of the module
+// (`paymasterReserveForToken`, used by the vault tests above) stays real.
+vi.mock("@/services/paymaster", async (importOriginal) => ({
+	...(await importOriginal<typeof import("@/services/paymaster")>()),
+	hasPaymaster: () => true,
+	buildPaymasterAndData: vi.fn(),
 }))
 
 const SOLVER = "0x5b2c3e25243634732eE94525Ae98aEc404c82506" as const
@@ -498,5 +514,143 @@ describe("TokenSender native batch safety", () => {
 
 		expect(await sender.submitCalls("EVM-8453", [CALL])).toMatchObject({ txHash: TX, sponsored: false })
 		expect(sendTransaction.mock.calls[0][0].to).toBe(TOKEN)
+	})
+})
+
+/**
+ * The c07 regression, end to end through the real UserOpSender: a lost `eth_sendUserOperation`
+ * response must not let `submitCalls` re-send the same calls as a native tx. Only a definite
+ * "the bundler never got it" may fall back.
+ */
+describe("TokenSender sponsored send with a lost bundler response", () => {
+	const FEE_TOKEN = "0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359" as const
+	const PAYMASTER = "0xe99acFe0f5fC4C8ea54A187D8D3b05f136150095" as const
+	const ENTRY_POINT = "0x4337843378433784337843378433784337843378" as const
+	const HTML_PAGE = Symbol("html-page")
+	const transfer = {
+		target: TOKEN,
+		value: 0n,
+		data: encodeFunctionData({ abi: ERC20_ABI, functionName: "transfer", args: [RECIPIENT, 25_000_000n] }),
+	}
+	const paymasterAndData = packPaymasterAndData({
+		paymaster: PAYMASTER,
+		paymasterData: "0x02" as `0x${string}`,
+		paymasterVerificationGasLimit: VERIFICATION_GAS_LIMIT_PERMIT2,
+		paymasterPostOpGasLimit: POST_OP_GAS_LIMIT_SIMPLEX,
+	})
+
+	/** A TokenSender wired to a real UserOpSender, with only the chain/bundler transport faked. */
+	function makeRealSender(bundlerUrl: string) {
+		const sendTransaction = vi.fn().mockResolvedValue("0xnative")
+		const publicClient = {
+			getGasPrice: async () => 1_000_000_000n,
+			getBlock: async () => ({ baseFeePerGas: 900_000_000n }),
+			readContract: async () => 0n,
+			getTransactionCount: async () => 7,
+			waitForTransactionReceipt: vi.fn().mockResolvedValue({ status: "success" }),
+		}
+		const clientManager = {
+			getPublicClient: () => publicClient,
+			getWalletClient: () => ({ sendTransaction, chain: undefined }),
+		} as unknown as ChainClientManager
+		const signer = { address: SOLVER, signTypedData: async () => ("0x" + "11".repeat(65)) as `0x${string}` }
+		const configService = {
+			getEntryPointAddress: () => ENTRY_POINT,
+			getBundlerUrl: () => bundlerUrl,
+			getChainId: () => 8453,
+			getSimplexPaymasterAddress: () => PAYMASTER,
+		} as never
+		const userOpSender = new UserOpSender(clientManager, configService, signer as never)
+		const sender = new TokenSender(clientManager, SOLVER, () => [], userOpSender, configService)
+		return { sender, sendTransaction }
+	}
+
+	const fetchMethods: string[] = []
+
+	const stubFetch = (byMethod: Record<string, unknown>) => {
+		vi.stubGlobal("fetch", async (_url: unknown, init?: { body?: string }) => {
+			const { method } = JSON.parse(init?.body ?? "{}") as { method: string }
+			fetchMethods.push(method)
+			const reply = byMethod[method]
+			if (reply === undefined) {
+				return { status: 404, json: async () => ({ jsonrpc: "2.0", id: 1, error: { code: -32601 } }) }
+			}
+			if (reply === HTML_PAGE) {
+				return {
+					status: 504,
+					json: async () => {
+						throw new SyntaxError("Unexpected token '<'")
+					},
+				}
+			}
+			if (reply instanceof Error) throw reply
+			const { status, ...body } = reply as { status?: number } & object
+			return { status: status ?? 200, json: async () => ({ jsonrpc: "2.0", id: 1, ...body }) }
+		})
+	}
+
+	const drainLookups = async () => {
+		for (const delay of [2_000, 5_000, 10_000]) await vi.advanceTimersByTimeAsync(delay)
+	}
+
+	beforeEach(() => {
+		fetchMethods.length = 0
+		vi.mocked(buildPaymasterAndData).mockResolvedValue({
+			paymasterAndData,
+			type: "simplex",
+			address: PAYMASTER,
+			token: FEE_TOKEN,
+		})
+	})
+
+	afterEach(() => {
+		vi.useRealTimers()
+		vi.unstubAllGlobals()
+	})
+
+	it("rejects with SubmittedUnconfirmedError and never sends natively when the lookup fails too", async () => {
+		const timeout = Object.assign(new Error("This operation was aborted"), { name: "TimeoutError" })
+		const reset = Object.assign(new Error("socket closed"), { cause: { code: "ECONNRESET" } })
+		stubFetch({ eth_sendUserOperation: timeout, eth_getUserOperationByHash: reset })
+		const { sender, sendTransaction } = makeRealSender("http://tok-unknown.test/bundler")
+		vi.useFakeTimers()
+
+		const promise = sender.submitCalls("EVM-8453", [transfer]).catch((err) => err)
+		await drainLookups()
+		const error = await promise
+
+		expect(error).toBeInstanceOf(SubmittedUnconfirmedError)
+		expect(error.submission).toMatchObject({ kind: "userOp" })
+		expect(sendTransaction).not.toHaveBeenCalled()
+	})
+
+	it("falls back to a native tx when the bundler confirms it never received the op", async () => {
+		stubFetch({ eth_sendUserOperation: HTML_PAGE, eth_getUserOperationByHash: { result: null } })
+		const { sender, sendTransaction } = makeRealSender("http://tok-absent.test/bundler")
+		vi.useFakeTimers()
+
+		const promise = sender.submitCalls("EVM-8453", [transfer])
+		await drainLookups()
+
+		expect(await promise).toMatchObject({ txHash: "0xnative", sponsored: false })
+		expect(sendTransaction).toHaveBeenCalledOnce()
+	})
+
+	it("treats a proxy's JSON 502 as ambiguous and recovers the op, not resending natively", async () => {
+		const txHash = `0x${"ef".repeat(32)}`
+		stubFetch({
+			eth_sendUserOperation: { status: 502, error: { code: 504, message: "upstream timed out" } },
+			eth_getUserOperationByHash: { result: { userOpHash: `0x${"ab".repeat(32)}` } },
+			eth_getUserOperationReceipt: { result: { success: true, receipt: { transactionHash: txHash } } },
+		})
+		const { sender, sendTransaction } = makeRealSender("http://tok-502.test/bundler")
+		vi.useFakeTimers()
+
+		const promise = sender.submitCalls("EVM-8453", [transfer])
+		await drainLookups()
+
+		expect(await promise).toMatchObject({ txHash, sponsored: true })
+		expect(fetchMethods).toContain("eth_getUserOperationByHash")
+		expect(sendTransaction).not.toHaveBeenCalled()
 	})
 })

@@ -1,9 +1,11 @@
 import { describe, it, expect, vi } from "vitest"
 import { decodeFunctionData, parseUnits } from "viem"
+import { decodeERC7821ExecuteBatch } from "@hyperbridge/sdk"
 import { VaultFundingPlanner } from "@/funding/vault/VaultFundingPlanner"
 import { ERC4626_ABI } from "@/config/abis/Erc4626"
 import type { VaultOutputFundingConfig } from "@/funding/types"
 import type { ChainClientManager } from "@/services/ChainClientManager"
+import type { DelegationService } from "@/services/DelegationService"
 import type { UserOpSender } from "@/services/UserOpSender"
 import { addLogSink } from "@/services/Logger"
 import type { HexString } from "@hyperbridge/sdk"
@@ -80,6 +82,9 @@ function makeSweepPlanner(
 	shares: Record<string, bigint> = {},
 	maxDeposit = 10_000_000_000n,
 	userOpSender?: UserOpSender,
+	delegation?: Pick<DelegationService, "isDelegated">,
+	/** Per-vault `maxRedeem(solver)`, keyed by lowercase vault address; uncapped by default. */
+	maxRedeem: Record<string, bigint> = {},
 ) {
 	const sendTransaction = vi.fn(async (_tx: { to: HexString; data: HexString; value: bigint }) => "0xtx" as HexString)
 
@@ -98,6 +103,8 @@ function makeSweepPlanner(
 			if (functionName === "symbol") return address.toLowerCase() === USDT.toLowerCase() ? "USDT" : "USDC"
 			if (functionName === "maxWithdraw") return 10_000_000_000n
 			if (functionName === "maxDeposit") return maxDeposit
+			// Uncapped unless a test names a cap, so the 1:1 redeem tests keep their behaviour.
+			if (functionName === "maxRedeem") return maxRedeem[address.toLowerCase()] ?? 10_000_000_000n
 			// Shares are 1:1 with assets in this mock.
 			if (functionName === "previewRedeem") return args?.[0] as bigint
 			if (functionName === "balanceOf") {
@@ -122,7 +129,12 @@ function makeSweepPlanner(
 		getWalletClient: () => walletClient,
 	} as unknown as ChainClientManager
 
-	const planner = new VaultFundingPlanner(clientManager, { vaultsByChain: { [CHAIN]: vaults } }, userOpSender)
+	const planner = new VaultFundingPlanner(
+		clientManager,
+		{ vaultsByChain: { [CHAIN]: vaults } },
+		userOpSender,
+		delegation,
+	)
 	return { planner, sendTransaction }
 }
 
@@ -466,6 +478,89 @@ describe("VaultFundingPlanner.redeemAll", () => {
 
 		expect(sendTransaction).not.toHaveBeenCalled()
 	})
+
+	it("caps a redeem at the vault's maxRedeem, and the other vaults still redeem", async () => {
+		const { planner, sendTransaction } = makeSweepPlanner(
+			{},
+			[
+				{ vault: VAULT_USDC, threshold: "3000", redeemOnShutdown: true },
+				{ vault: VAULT_USDT, threshold: "3000", redeemOnShutdown: true },
+			],
+			{ [VAULT_USDC.toLowerCase()]: u("5000"), [VAULT_USDT.toLowerCase()]: u("4000") },
+			undefined,
+			undefined,
+			undefined,
+			// USDC's vault will only let 3000 of the 5000 shares out right now.
+			{ [VAULT_USDC.toLowerCase()]: u("3000") },
+		)
+		await planner.initialise(SOLVER)
+
+		const onTx = vi.fn()
+		planner.onTx = onTx
+
+		const lines: string[] = []
+		const removeSink = addLogSink({ write: (line) => lines.push(line) })
+		await planner.redeemAll().finally(removeSink)
+
+		const batch = decodeERC7821ExecuteBatch(sendTransaction.mock.calls[0][0].data as HexString)!
+		expect(batch).toHaveLength(2)
+		const [capped, other] = batch.map((call) => ({
+			target: call.target.toLowerCase(),
+			...decodeFunctionData({ abi: ERC4626_ABI, data: call.data }),
+		}))
+		expect(capped.target).toBe(VAULT_USDC.toLowerCase())
+		// Addresses decode to their EIP-55 checksummed form, so compare case-insensitively.
+		expect(capped.args?.[0]).toBe(u("3000"))
+		expect((capped.args?.[1] as string).toLowerCase()).toBe(SOLVER.toLowerCase())
+		expect((capped.args?.[2] as string).toLowerCase()).toBe(SOLVER.toLowerCase())
+		// The vault that is not capped redeems in full, in the same batch.
+		expect(other.target).toBe(VAULT_USDT.toLowerCase())
+		expect(other.args?.[0]).toBe(u("4000"))
+
+		// The ledger movement carries the shares actually redeemed, not the whole position;
+		// shares are 1:1 in the mock, so previewRedeem(redeemable) equals the redeemable shares.
+		expect(onTx).toHaveBeenCalledOnce()
+		const { movements } = onTx.mock.calls[0][0]
+		const movement = (vault: HexString) =>
+			movements.find((m: { vault: HexString }) => m.vault.toLowerCase() === vault.toLowerCase())
+		expect(movement(VAULT_USDC)).toMatchObject({ shares: u("3000"), amount: u("3000") })
+		expect(movement(VAULT_USDT)).toMatchObject({ shares: u("4000"), amount: u("4000") })
+
+		// Shares left behind are logged with both numbers rather than silently dropped.
+		const cappedLines = lines.filter((line) => line.includes("capped by maxRedeem"))
+		expect(cappedLines).toHaveLength(1)
+		expect(JSON.parse(cappedLines[0])).toMatchObject({
+			vault: VAULT_USDC,
+			shares: u("5000").toString(),
+			redeemable: u("3000").toString(),
+			maxRedeem: u("3000").toString(),
+		})
+	})
+
+	it("skips a vault whose maxRedeem is zero, and the others still redeem", async () => {
+		const { planner, sendTransaction } = makeSweepPlanner(
+			{},
+			[
+				{ vault: VAULT_USDC, threshold: "3000", redeemOnShutdown: true },
+				{ vault: VAULT_USDT, threshold: "3000", redeemOnShutdown: true },
+			],
+			{ [VAULT_USDC.toLowerCase()]: u("5000"), [VAULT_USDT.toLowerCase()]: u("4000") },
+			undefined,
+			undefined,
+			undefined,
+			// A vault that lets no shares out right now must not take the batch down with it.
+			{ [VAULT_USDC.toLowerCase()]: 0n },
+		)
+		await planner.initialise(SOLVER)
+		await planner.redeemAll()
+
+		const batch = decodeERC7821ExecuteBatch(sendTransaction.mock.calls[0][0].data as HexString)!
+		expect(batch).toHaveLength(1)
+		expect(batch[0].target.toLowerCase()).toBe(VAULT_USDT.toLowerCase())
+		const decoded = decodeFunctionData({ abi: ERC4626_ABI, data: batch[0].data })
+		expect(decoded.args?.[0]).toBe(u("4000"))
+		expect((decoded.args?.[1] as string).toLowerCase()).toBe(SOLVER.toLowerCase())
+	})
 })
 
 describe("VaultFundingPlanner — paymaster-sponsored sweep", () => {
@@ -514,5 +609,35 @@ describe("VaultFundingPlanner — paymaster-sponsored sweep", () => {
 
 		expect(trySendSponsored).not.toHaveBeenCalled()
 		expect(sendTransaction).toHaveBeenCalledOnce()
+	})
+
+	it("still uses a native tx when the wallet is delegated", async () => {
+		const { sender } = makeSender({ canSponsor: false })
+		const { planner, sendTransaction } = makeSweepPlanner(sweepWallet, sweepVault, {}, undefined, sender, {
+			isDelegated: async () => true,
+		})
+		await planner.initialise(SOLVER)
+		await planner.sweepExcessToVault(CHAIN)
+
+		expect(sendTransaction).toHaveBeenCalledOnce()
+	})
+
+	it("refuses the native fallback on an undelegated wallet, before any tx or movement", async () => {
+		// No sponsor, and the EOA carries no 7702 code: the native `executeBatch` would succeed
+		// and do nothing, recording a sweep that never happened and burning gas every tick.
+		const { sender } = makeSender({ canSponsor: false })
+		const isDelegated = vi.fn(async () => false)
+		const { planner, sendTransaction } = makeSweepPlanner(sweepWallet, sweepVault, {}, undefined, sender, {
+			isDelegated,
+		})
+		await planner.initialise(SOLVER)
+		const onTx = vi.fn()
+		planner.onTx = onTx
+
+		await expect(planner.sweepExcessToVault(CHAIN)).rejects.toThrow(/not 7702-delegated/)
+
+		expect(isDelegated).toHaveBeenCalledWith(CHAIN)
+		expect(sendTransaction).not.toHaveBeenCalled()
+		expect(onTx).not.toHaveBeenCalled()
 	})
 })

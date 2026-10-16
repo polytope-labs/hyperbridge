@@ -10,6 +10,7 @@ import type {
 	VaultOutputFundingConfig,
 } from "@/funding/types"
 import type { ChainClientManager } from "@/services/ChainClientManager"
+import type { DelegationService } from "@/services/DelegationService"
 import type { UserOpSender } from "@/services/UserOpSender"
 import { type Logger, moduleLogger } from "@/services/Logger"
 import { encodeERC7821ExecuteBatch, type ERC7821Call, type HexString } from "@hyperbridge/sdk"
@@ -116,6 +117,13 @@ export class VaultFundingPlanner implements FundingVenue {
 		private readonly clientManager: ChainClientManager,
 		private config: VaultOutputFundingConfig,
 		private readonly userOpSender?: UserOpSender,
+		/**
+		 * Read-only EIP-7702 check for the native-tx fallback. A vault batch is an
+		 * `executeBatch` on the solver account, so it only does anything once the EOA is
+		 * delegated to that account; sent to a codeless EOA it succeeds and moves nothing.
+		 * Left out, the fallback is sent unchecked (library callers without a signer).
+		 */
+		private readonly delegation?: Pick<DelegationService, "isDelegated">,
 	) {
 		this.logger = moduleLogger(clientManager.loggers, "vault-funding")
 	}
@@ -540,6 +548,17 @@ export class VaultFundingPlanner implements FundingVenue {
 			this.logger.warn({ chain }, "Sponsored batch unavailable, sending native tx")
 		}
 
+		// The native fallback calls `executeBatch` on the solver account. Before the EOA is
+		// 7702-delegated that address has no code, so the tx succeeds and the batch inside it
+		// never runs — a phantom sweep that burns gas every interval and records movements
+		// that did not happen. Refuse rather than send it.
+		if (this.delegation && !(await this.delegation.isDelegated(chain))) {
+			throw new Error(
+				`The wallet is not 7702-delegated on ${chain} (or its delegation could not be read); ` +
+					`a vault batch sent to it would do nothing`,
+			)
+		}
+
 		const walletClient = this.clientManager.getWalletClient(chain)
 		const publicClient = this.clientManager.getPublicClient(chain)
 		const tx = await walletClient.sendTransaction({
@@ -595,12 +614,38 @@ export class VaultFundingPlanner implements FundingVenue {
 					args: [solver],
 				})) as bigint
 				if (shares === 0n) continue
+				// A vault that cannot redeem the whole balance right now (a liquidity-capped
+				// stataToken, a partially liquid market) reverts on `redeem(shares)`, and a revert
+				// takes every other vault in this per-chain batch with it. Redeem no more than the
+				// vault's own `maxRedeem` and leave the remainder for a later pass.
+				const maxRedeem = (await publicClient.readContract({
+					abi: ERC4626_ABI,
+					address: vault.vault,
+					functionName: "maxRedeem",
+					args: [solver],
+				})) as bigint
+				const redeemable = shares < maxRedeem ? shares : maxRedeem
+				if (redeemable < shares) {
+					this.logger.warn(
+						{
+							chain,
+							vault: vault.vault,
+							asset: vault.asset,
+							symbol: vault.symbol,
+							shares: shares.toString(),
+							redeemable: redeemable.toString(),
+							maxRedeem: maxRedeem.toString(),
+						},
+						"Vault shutdown redeem capped by maxRedeem; the rest is left for a later pass",
+					)
+				}
+				if (redeemable === 0n) continue
 				// For the ledger: what those shares are worth in the underlying, per the vault itself.
 				const assets = (await publicClient.readContract({
 					abi: ERC4626_ABI,
 					address: vault.vault,
 					functionName: "previewRedeem",
-					args: [shares],
+					args: [redeemable],
 				})) as bigint
 				movements.push({
 					vault: vault.vault,
@@ -608,7 +653,7 @@ export class VaultFundingPlanner implements FundingVenue {
 					symbol: vault.symbol,
 					decimals: vault.decimals,
 					amount: assets,
-					shares,
+					shares: redeemable,
 					...(await this.shareTokenMeta(vault.vault, publicClient)),
 				})
 
@@ -618,13 +663,13 @@ export class VaultFundingPlanner implements FundingVenue {
 					data: encodeFunctionData({
 						abi: ERC4626_ABI,
 						functionName: "redeem",
-						args: [shares, solver, solver],
+						args: [redeemable, solver, solver],
 					}) as HexString,
 				})
 
 				this.logger.info(
-					{ chain, vault: vault.vault, asset: vault.asset, shares: shares.toString() },
-					"Vault redeeming full position",
+					{ chain, vault: vault.vault, asset: vault.asset, shares: redeemable.toString() },
+					"Vault redeeming position",
 				)
 			}
 

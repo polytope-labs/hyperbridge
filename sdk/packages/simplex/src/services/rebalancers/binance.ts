@@ -99,6 +99,41 @@ function getBinanceNetwork(stateMachineId: string): string {
 	return network
 }
 
+/**
+ * Refuses a deposit whose token does not match the one this filler would transfer on-chain.
+ *
+ * Binance credits a deposit by the contract address its network list names for the coin. If the
+ * SDK chain config and Binance have drifted (a token redeploy, a stale config entry, the wrong
+ * network) the transfer still succeeds on-chain but is credited as nothing — or as an unrelated
+ * token — and the funds are stranded at Binance. The check is case-insensitive and tolerates
+ * Binance omitting the `0x` prefix. An absent contract address is refused too: with nothing to
+ * compare against there is no way to know what the deposit is credited as.
+ *
+ * Exported so the offline preflight test can exercise it without a live account.
+ */
+export function assertDepositMatches(
+	expectedToken: HexString,
+	binanceContract: string | undefined,
+	coin: string,
+	network: string,
+): void {
+	const expected = expectedToken.trim().toLowerCase()
+	const raw = (binanceContract ?? "").trim().toLowerCase()
+	if (!raw) {
+		throw new Error(
+			`Binance reports no contract address for ${coin} on ${network}; refusing a deposit ` +
+				`that could be credited as another token`,
+		)
+	}
+	const contract = raw.startsWith("0x") ? raw : `0x${raw}`
+	if (contract !== expected) {
+		throw new Error(
+			`Binance credits ${coin} on ${network} at ${contract}, but this filler would send ` +
+				`${expected}; refusing a deposit that would be stranded`,
+		)
+	}
+}
+
 /** Handles cross-chain rebalancing via Binance CEX (with optional travel rule support). */
 export class BinanceRebalancer {
 	private readonly walletClient: Wallet
@@ -161,6 +196,13 @@ export class BinanceRebalancer {
 			)
 		}
 
+		// Binance credits the token its network list names by contract address. If that has
+		// drifted from the token this filler would transfer, the deposit lands as something else
+		// and is stranded, so verify it before building any transfer.
+		const depositToken = this.tokenAddressForCoin(source, coin)
+		if (!depositToken) throw new Error(`${coin} not configured for chain ${source}`)
+		assertDepositMatches(depositToken, sourceNetworkInfo.contractAddress, coin, sourceNetwork)
+
 		const sourceEta = Number(sourceNetworkInfo.estimatedArrivalTime ?? 20) // minutes
 		const destEta = Number(destNetworkInfo.estimatedArrivalTime ?? 20)
 
@@ -197,6 +239,14 @@ export class BinanceRebalancer {
 		const depositAddress = depositResp.address
 		if (!depositAddress) {
 			throw new Error(`Binance did not return a deposit address for ${coin} on network ${sourceNetwork}`)
+		}
+		// A memo/tag is how Binance credits deposits on some networks, but an ERC-20 transfer
+		// carries no memo: the token would arrive uncredited. Refuse rather than send into limbo.
+		if (depositResp.tag && depositResp.tag.trim() !== "") {
+			throw new Error(
+				`Binance's ${coin} deposit address on ${sourceNetwork} requires a tag/memo ` +
+					`(${depositResp.tag}), which an ERC-20 transfer from ${source} cannot carry`,
+			)
 		}
 		this.logger.info({ depositAddress, network: sourceNetwork }, "Got deposit address")
 
@@ -500,6 +550,16 @@ export class BinanceRebalancer {
 		throw new Error(`Travel rule withdrawal trId=${trId} not completed within ${timeoutMs / 60000} minutes.`)
 	}
 
+	/**
+	 * The exact ERC-20 the SDK chain config names for `coin` on `source`, or undefined when the
+	 * chain has none configured. Shared by the deposit preflight and {@link transferOnChain} so
+	 * the address Binance's contract is checked against is the one that is actually sent.
+	 */
+	private tokenAddressForCoin(source: string, coin: "USDC" | "USDT"): HexString | undefined {
+		const address = coin === "USDC" ? this.configService.getUsdcAsset(source) : this.configService.getUsdtAsset(source)
+		return address && address !== "0x" ? (address as HexString) : undefined
+	}
+
 	private async transferOnChain(
 		source: string,
 		coin: "USDC" | "USDT",
@@ -509,10 +569,9 @@ export class BinanceRebalancer {
 		const publicClient = this.chainClientManager.getPublicClient(source)
 		const walletClient = this.chainClientManager.getWalletClient(source)
 
-		const tokenAddress =
-			coin === "USDC" ? this.configService.getUsdcAsset(source) : this.configService.getUsdtAsset(source)
+		const tokenAddress = this.tokenAddressForCoin(source, coin)
 
-		if (!tokenAddress || tokenAddress === "0x") {
+		if (!tokenAddress) {
 			throw new Error(`${coin} not configured for chain ${source}`)
 		}
 

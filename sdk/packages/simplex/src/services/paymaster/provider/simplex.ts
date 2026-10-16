@@ -70,6 +70,7 @@ export async function buildSimplexPaymasterData(
 	chain: string,
 	configService: FillerConfigService,
 	permitBootstrap = false,
+	permitDeadlineSeconds?: bigint,
 ): Promise<(PaymasterResult & { token: HexString }) | { insufficient: FeeTokenBalance[] }> {
 	const chainId = configService.getChainId(chain)
 	const permit2 = configService.getPermit2Address(chain)
@@ -128,7 +129,7 @@ export async function buildSimplexPaymasterData(
 			token: tokenAddress,
 			amount: recommended,
 			spender: paymasterAddress,
-			deadlineSeconds: PERMIT2_DEADLINE_SECONDS,
+			deadlineSeconds: permitDeadlineSeconds ?? PERMIT2_DEADLINE_SECONDS,
 		})),
 		token: tokenAddress,
 	}

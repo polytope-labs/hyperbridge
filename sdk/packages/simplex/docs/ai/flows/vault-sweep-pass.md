@@ -25,3 +25,10 @@ shows "Deposits closed" under In vault when it is zero.
 Why a `StreamingYieldVault` refuses: `maxDeposit` is 0 while a tranche vests (`VEST`, 22h) and
 opens only between `vestedAt` and the next `addYield` (at least `MIN_WINDOW`, 2h). A sweep tick
 inside that window deposits; the rest silently skipped before this change.
+
+`submitBatch` prefers a sponsored UserOp and only falls back to a native `executeBatch` on the
+solver account. If that account is not 7702-delegated the fallback is refused (the call would
+succeed and run nothing), so the pass rejects with an error and records no `onTx`; the periodic
+timer's `.catch` logs it, as for any other batch failure. The same `submitBatch` serves the
+shutdown `redeemAll`, which redeems `min(balanceOf, maxRedeem(solver))` per vault and skips a
+zero-cap vault, so one liquidity-capped vault cannot revert the batch for the others.

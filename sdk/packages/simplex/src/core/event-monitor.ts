@@ -80,7 +80,7 @@ export class EventMonitor extends EventEmitter {
 		this.subscription = this.orderScanner.subscribe({
 			onOrder: (event) => {
 				if (!this.chains.has(event.chainId)) return
-				this.handleOrder(event.order, event.transactionHash, event.graffiti)
+				this.handleOrder(event.order, event.transactionHash, event.graffiti, event.blockHash)
 			},
 			onFill: (event) => {
 				if (!this.chains.has(event.chainId)) return
@@ -92,7 +92,12 @@ export class EventMonitor extends EventEmitter {
 		this.logger.info({ chains: [...this.chains] }, "Subscribed to the order scanner")
 	}
 
-	private handleOrder(order: Order, transactionHash: string, graffiti?: HexString): void {
+	private handleOrder(
+		order: Order,
+		transactionHash: string,
+		graffiti: HexString | undefined,
+		blockHash: string,
+	): void {
 		// Multi-leg orders pass: the strategy bids on each leg a limit order serves.
 		// Legs pair inputs with outputs by index, so anything else cannot be filled.
 		if (order.inputs.length === 0 || order.inputs.length !== order.output.assets.length) {
@@ -119,7 +124,7 @@ export class EventMonitor extends EventEmitter {
 				if (evicted) this.seen.delete(evicted)
 			}
 		}
-		this.emit("newOrder", { order, transactionHash, graffiti })
+		this.emit("newOrder", { order, transactionHash, graffiti, blockHash })
 	}
 
 	private handleFill(event: ScannedFill): void {

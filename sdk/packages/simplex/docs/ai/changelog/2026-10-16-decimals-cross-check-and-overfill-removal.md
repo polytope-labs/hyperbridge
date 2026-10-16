@@ -1,4 +1,4 @@
-# 2026-10-16 — `decimals()` is cross-checked, a failed settlement returns its holds, and overfill protection is removed
+# 2026-10-16 — `decimals()` is cross-checked and overfill protection is removed
 
 ## `getTokenDecimals` cross-checks the asset registry
 
@@ -22,15 +22,6 @@ The read-failure fallback to the registry is unchanged and still not cached: it 
 transient RPC failure without pinning a registry value for the process. The native token
 still short-circuits to 18 without a read. A cached value was cross-checked when it was
 cached, and `setTokenDecimals` has no other caller.
-
-## A settlement that fails part-way returns the bid's holds
-
-`IntentFiller.settleFilledLimitOrder` claims a bid's holds before it reads the delivery and
-draws the order down. A throw after the claim — an RPC error, the decimals cross-check, or
-the draw-down's `LimitOrderWriteError` — used to lose those holds and leave the limit
-order's `reserved` inflated for good. The settlement now returns the claimed holds before
-rethrowing. A committed settlement has already released them, so nothing is released twice,
-and the `null`-delivery branch behaves as before.
 
 ## Overfill protection removed
 

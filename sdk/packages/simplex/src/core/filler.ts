@@ -1697,92 +1697,75 @@ export class IntentFiller {
 			: await this.claimExecutedBid(commitment, chainId, outputs, released)
 		if (claimed.length === 0) return
 
-		// A claim hands the holds out exactly once, so anything that throws before the
-		// settlement transaction commits would lose them and leave the limit order's
-		// `reserved` inflated for good — an RPC error, the decimals cross-check, or the
-		// draw-down's `LimitOrderWriteError`. Give them back before rethrowing. The
-		// transaction has already released them once it commits, so a successful
-		// settlement is never released twice.
-		let holdsGivenBack = false
-		try {
-			const delivered = await this.deliveredAgainst(claimed[0].limitOrderId, chainId, outputs)
-			if (delivered === null) {
-				this.logger.warn(
-					{ commitment, limitOrders: claimed.map((hold) => hold.limitOrderId) },
-					"Fill carried no output these limit orders pay; leaving them at their current size",
-				)
-				// Flagged before releasing, so a store failure mid-release cannot give the
-				// same holds back a second time on the way out.
-				holdsGivenBack = true
-				await this.releaseAll(claimed)
-				return
-			}
+		const delivered = await this.deliveredAgainst(claimed[0].limitOrderId, chainId, outputs)
+		if (delivered === null) {
+			this.logger.warn(
+				{ commitment, limitOrders: claimed.map((hold) => hold.limitOrderId) },
+				"Fill carried no output these limit orders pay; leaving them at their current size",
+			)
+			await this.releaseAll(claimed)
+			return
+		}
 
-			// One fill is one bid. On a completing fill every bid on this commitment is
-			// finished: the one that executed delivered, and the rest can only revert with
-			// `Filled()`. So exactly one hold is worked down and the others come straight
-			// back. On a partial fill only the executed bid's holds were claimed.
-			const settled = executedHold(claimed, delivered.scaled, released)
-			const charged = chargedFor(settled, delivered, released)
-			// What the fill took in, for the profit worked out from it later. The event counts the
-			// escrow in the input token's own units, and only the hold knows that token's decimals.
-			const takenIn =
-				released > 0n && settled.takeDecimals !== undefined ? toScaled(released, settled.takeDecimals) : null
-			const settledBid =
-				rows.find((row) =>
-					row.reservations.some(
-						(hold) =>
-							hold.limitOrderId === settled.limitOrderId &&
-							hold.amount === settled.amount &&
-							hold.take === settled.take,
-					),
-				)?.bid ?? null
+		// One fill is one bid. On a completing fill every bid on this commitment is
+		// finished: the one that executed delivered, and the rest can only revert with
+		// `Filled()`. So exactly one hold is worked down and the others come straight
+		// back. On a partial fill only the executed bid's holds were claimed.
+		const settled = executedHold(claimed, delivered.scaled, released)
+		const charged = chargedFor(settled, delivered, released)
+		// What the fill took in, for the profit worked out from it later. The event counts the
+		// escrow in the input token's own units, and only the hold knows that token's decimals.
+		const takenIn =
+			released > 0n && settled.takeDecimals !== undefined ? toScaled(released, settled.takeDecimals) : null
+		const settledBid =
+			rows.find((row) =>
+				row.reservations.some(
+					(hold) =>
+						hold.limitOrderId === settled.limitOrderId &&
+						hold.amount === settled.amount &&
+						hold.take === settled.take,
+				),
+			)?.bid ?? null
 
-			// One transaction over the whole settlement: the draw-down and the releases
-			// are one decision about the same holds, and a crash between two of them
-			// would give a hold back against an order that was never worked down. Only
-			// store writes are inside; putting the order back on the book is a round trip
-			// and comes after.
-			const drawn = await this.limitOrders.transaction(async () => {
-				const worked: { order: LimitOrder; delivered: bigint }[] = []
-				for (const hold of claimed) {
-					if (hold === settled) {
-						const share = charged < BigInt(hold.amount) ? charged : BigInt(hold.amount)
-						if (share > 0n) {
-							const after = await this.limitOrders!.drawDown(hold.limitOrderId, share.toString())
-							if (after) worked.push({ order: after, delivered: share })
-							// Kept apart from the bid row, whose holds this settlement clears, so the
-							// order's history survives every resize and repost.
-							await this.limitOrders!.recordFill({
-								limitOrderId: hold.limitOrderId,
-								commitment,
-								bid: settledBid,
-								amount: share.toString(),
-								amountIn: takenIn?.toString() ?? null,
-								transactionHash: transactionHash ?? null,
-							})
-						}
+		// One transaction over the whole settlement: the draw-down and the releases
+		// are one decision about the same holds, and a crash between two of them
+		// would give a hold back against an order that was never worked down. Only
+		// store writes are inside; putting the order back on the book is a round trip
+		// and comes after.
+		const drawn = await this.limitOrders.transaction(async () => {
+			const worked: { order: LimitOrder; delivered: bigint }[] = []
+			for (const hold of claimed) {
+				if (hold === settled) {
+					const share = charged < BigInt(hold.amount) ? charged : BigInt(hold.amount)
+					if (share > 0n) {
+						const after = await this.limitOrders!.drawDown(hold.limitOrderId, share.toString())
+						if (after) worked.push({ order: after, delivered: share })
+						// Kept apart from the bid row, whose holds this settlement clears, so the
+						// order's history survives every resize and repost.
+						await this.limitOrders!.recordFill({
+							limitOrderId: hold.limitOrderId,
+							commitment,
+							bid: settledBid,
+							amount: share.toString(),
+							amountIn: takenIn?.toString() ?? null,
+							transactionHash: transactionHash ?? null,
+						})
 					}
-					// Everything held is given back, including the part of the filling bid's
-					// hold the delivery did not reach: it was promised output that never
-					// went out.
-					await this.limitOrders!.release(hold.limitOrderId, hold.amount)
 				}
-				return worked
-			})
-			// The transaction released every hold it claimed.
-			holdsGivenBack = true
-
-			for (const { order, delivered: share } of drawn) {
-				this.logger.info(
-					{ commitment, limitOrder: order.id, delivered: share.toString() },
-					"Worked the limit order down by what the fill delivered",
-				)
-				await this.limitOrderService?.resize(order, share)
+				// Everything held is given back, including the part of the filling bid's
+				// hold the delivery did not reach: it was promised output that never
+				// went out.
+				await this.limitOrders!.release(hold.limitOrderId, hold.amount)
 			}
-		} catch (error) {
-			if (!holdsGivenBack) await this.releaseAll(claimed)
-			throw error
+			return worked
+		})
+
+		for (const { order, delivered: share } of drawn) {
+			this.logger.info(
+				{ commitment, limitOrder: order.id, delivered: share.toString() },
+				"Worked the limit order down by what the fill delivered",
+			)
+			await this.limitOrderService?.resize(order, share)
 		}
 	}
 

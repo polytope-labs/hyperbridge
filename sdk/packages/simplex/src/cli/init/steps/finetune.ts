@@ -12,7 +12,6 @@ import type { Prefill, WizardState } from "../state"
 type Area =
 	| "concurrency"
 	| "gasFeeBump"
-	| "overfill"
 	| "confirmations"
 	| "vault"
 	| "allowlist"
@@ -36,7 +35,6 @@ export async function stepFineTune(state: WizardState, prefill?: Prefill): Promi
 			options: [
 				{ value: "concurrency", label: "Concurrency & retry queue", hint: WHY.concurrency },
 				{ value: "gasFeeBump", label: "Gas fee bump", hint: "win more fill races" },
-				{ value: "overfill", label: "Overfill protection", hint: "pricing-bug safety clamp" },
 				{ value: "confirmations", label: "Confirmation policies", hint: "reorg protection per chain" },
 				{ value: "vault", label: "ERC-4626 treasury", hint: "earn yield on idle float" },
 				{ value: "allowlist", label: "User allowlist", hint: "fill only for specific users" },
@@ -52,9 +50,6 @@ export async function stepFineTune(state: WizardState, prefill?: Prefill): Promi
 				break
 			case "gasFeeBump":
 				await tuneGasFeeBump(state)
-				break
-			case "overfill":
-				await tuneOverfill(state)
 				break
 			case "confirmations":
 				await tuneConfirmations(state)
@@ -79,7 +74,6 @@ function carryPrefillExtras(state: WizardState, prefill?: Prefill): void {
 	state.maxConcurrentOrders = config.simplex.maxConcurrentOrders ?? state.maxConcurrentOrders
 	state.logging = config.simplex.logging ?? state.logging
 	state.gasFeeBump = config.simplex.gasFeeBump
-	state.overfillProtection = config.simplex.overfillProtection
 	state.rebalancing = config.rebalancing
 	state.vault = config.vault
 	state.allowlist = config.allowlist
@@ -104,22 +98,6 @@ async function tuneGasFeeBump(state: WizardState): Promise<void> {
 			"Max fee bump % (default 10)",
 			state.gasFeeBump?.maxFeePerGasBumpPercent ?? 10,
 			(n) => (n >= 0 ? undefined : "Must be >= 0"),
-		),
-	}
-}
-
-async function tuneOverfill(state: WizardState): Promise<void> {
-	why(WHY.overfill)
-	state.overfillProtection = {
-		maxOverfillBps: await askNumber(
-			"Max overfill (bps above user-requested output, default 500)",
-			state.overfillProtection?.maxOverfillBps ?? 500,
-			(n) => (Number.isInteger(n) && n >= 0 && n <= 10_000 ? undefined : "Integer between 0 and 10000"),
-		),
-		maxConsecutiveClamps: await askNumber(
-			"Dormant clamp counter (default 3; accepted but nothing halts)",
-			state.overfillProtection?.maxConsecutiveClamps ?? 3,
-			(n) => (n >= 1 ? undefined : "Must be at least 1"),
 		),
 	}
 }

@@ -115,9 +115,6 @@ export function assembleConfig(state: WizardState): FillerConfigFile {
 			substratePrivateKey: state.substratePrivateKey ?? "",
 			hyperbridgeWsUrl: state.hyperbridgeWsUrl ?? "",
 			...(state.gasFeeBump ? { gasFeeBump: state.gasFeeBump } : { gasFeeBump: undefined }),
-			...(state.overfillProtection
-				? { overfillProtection: state.overfillProtection }
-				: { overfillProtection: undefined }),
 		},
 		assets: Object.keys(assets).length > 0 ? assets : undefined,
 		confirmationPolicies: state.confirmationPolicies,

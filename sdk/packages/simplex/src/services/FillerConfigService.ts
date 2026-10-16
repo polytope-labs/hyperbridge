@@ -183,13 +183,6 @@ export interface RebalancingConfig {
 	}
 }
 
-export interface OverfillProtectionConfig {
-	/** Ceiling bps above user-requested output; filler clamps its computed output to this. Default 500 (5%). */
-	maxOverfillBps?: number
-	/** Consecutive clamped evaluations before the strategy halts itself. Default 3. */
-	maxConsecutiveClamps?: number
-}
-
 export interface AllowlistConfig {
 	/** Hex addresses eligible across all chains. */
 	users?: string[]
@@ -229,11 +222,6 @@ export interface FillerConfig {
 	 * bid whatever can be filled. See `minPartialFillUsd` in filler-toml.
 	 */
 	minPartialFillUsd?: number
-	/**
-	 * Overfill protection knobs. If omitted, defaults are used
-	 * (maxOverfillBps=500, maxConsecutiveClamps=3).
-	 */
-	overfillProtection?: OverfillProtectionConfig
 	/**
 	 * Restricts which order `user` addresses the filler processes. When omitted, all
 	 * users are accepted. When present, only listed users (global ∪ per-source) are
@@ -693,16 +681,6 @@ export class FillerConfigService {
 	 */
 	getMinPartialFillUsd(): number {
 		return this.fillerConfig?.minPartialFillUsd ?? DEFAULT_MIN_PARTIAL_FILL_USD
-	}
-
-	/** Ceiling bps above user-requested output. Default 500 (5%). */
-	getMaxOverfillBps(): bigint {
-		return BigInt(this.fillerConfig?.overfillProtection?.maxOverfillBps ?? 500)
-	}
-
-	/** Consecutive clamped evaluations before the strategy halts. Default 3. */
-	getMaxConsecutiveClamps(): number {
-		return this.fillerConfig?.overfillProtection?.maxConsecutiveClamps ?? 3
 	}
 
 }

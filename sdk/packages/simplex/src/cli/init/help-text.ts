@@ -17,8 +17,6 @@ export const WHY = {
 	concurrency: "How many orders are processed at once. Lower it if your RPCs rate-limit (429s).",
 	gasFeeBump:
 		"Percentages added on top of the base gas price for your fill UserOperations. Higher values win more fill races but cost more gas.",
-	overfill:
-		"Caps a bid at maxOverfillBps above the swapper's requested output — an order offering more is bid at the ceiling, which usually means the order is mispriced. 0 bids exactly the ask. maxConsecutiveClamps is kept for older configs and no longer halts anything.",
 	vault: "ERC-4626 treasury (e.g. Aave stataUSDC): fills pull missing balance from the vault atomically, and idle wallet balance above a threshold is swept in to earn yield.",
 	allowlist: "Restricts filling to orders placed by specific user addresses. Leave off to fill for everyone.",
 	logging: "Log verbosity. 'info' for normal operation, 'debug' when troubleshooting.",

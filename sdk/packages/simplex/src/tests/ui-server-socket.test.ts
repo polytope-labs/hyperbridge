@@ -173,7 +173,6 @@ function operatorContext(): OperatorContext & { configPath: string } {
 		balances: Object.assign(new EventEmitter(), {
 			getSnapshot: () => ({ updatedAt: null, status: "loading" as const, chains: [], issues: [] }),
 		}),
-		haltControls: [],
 		config,
 		stop: vi.fn().mockResolvedValue(undefined),
 		activity: new ActivityRecorder(data.activity),

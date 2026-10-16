@@ -117,18 +117,12 @@ export interface FillerTomlConfig {
 			maxFeePerGasBumpPercent?: number
 		}
 		/**
-		 * Overfill protection knobs. Defaults: maxOverfillBps=500, maxConsecutiveClamps=3.
-		 * `maxOverfillBps` caps a bid at `ask × (1 + maxOverfillBps / 10000)`; a limit
-		 * order offering more is bid at the ceiling and logged, never more. `0` bids
-		 * exactly the ask. The ceiling is computed from the order's own output amount,
-		 * so it does not depend on the decimals read. `maxConsecutiveClamps` is accepted
-		 * but dormant: the clamp that fed it was for Uniswap V4 venue pricing, which is
-		 * gone, so FXFiller never halts — the `maxOverfillBps` cap does not feed it.
+		 * Removed. `[simplex.overfillProtection]` was dropped when the overfill clamp
+		 * and the self-halt were taken out; `validateConfig` rejects any config that
+		 * still carries it. Typed `unknown` so a removed-but-present value is caught
+		 * rather than silently dropped, and so an empty table still trips the check.
 		 */
-		overfillProtection?: {
-			maxOverfillBps?: number
-			maxConsecutiveClamps?: number
-		}
+		overfillProtection?: unknown
 		/**
 		 * How long a signed bid stays executable, in seconds. Defaults to 300 (5 minutes).
 		 *
@@ -308,6 +302,15 @@ export function validateConfig(config: FillerTomlConfig, cliWatchOnly = false): 
 		)
 	}
 
+	// `[simplex.overfillProtection]` went with the overfill clamp and the self-halt.
+	// A config that still carries it — even an empty table — is rejected rather than
+	// silently ignored, so the operator deletes it and knows why nothing clamps.
+	if (config.simplex && "overfillProtection" in config.simplex) {
+		throw new Error(
+			"[simplex.overfillProtection] has been removed: Simplex no longer clamps bids or halts on overfill. Delete the section from the config and restart.",
+		)
+	}
+
 	// The --watch-only CLI flag forces global watch-only, so honour it here too
 	// (otherwise the flag's own config would still trip the checks it exempts).
 	const allChainsWatchOnly = cliWatchOnly || config.simplex?.watchOnly === true
@@ -363,18 +366,6 @@ export function validateConfig(config: FillerTomlConfig, cliWatchOnly = false): 
 	if (minPartialFill !== undefined) {
 		if (!Number.isFinite(minPartialFill) || minPartialFill < 0) {
 			throw new Error(`simplex.minPartialFillUsd must be a number >= 0 (USD); got ${minPartialFill}`)
-		}
-	}
-
-	// `getMaxOverfillBps` does `BigInt(...)`, which throws on a fractional or
-	// non-numeric value at construction. Fail at the gate instead, with a message
-	// that names the field.
-	const maxOverfillBps = config.simplex.overfillProtection?.maxOverfillBps
-	if (maxOverfillBps !== undefined) {
-		if (!Number.isInteger(maxOverfillBps) || maxOverfillBps < 0) {
-			throw new Error(
-				`simplex.overfillProtection.maxOverfillBps must be an integer >= 0 (basis points); got ${maxOverfillBps}`,
-			)
 		}
 	}
 

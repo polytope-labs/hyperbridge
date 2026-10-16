@@ -44,7 +44,6 @@ import { InventoryRecorder } from "@/data/inventory"
 import { chainByChainId } from "@/cli/init/chains"
 import type { SimplexDataStore } from "@/data/types"
 import type { OrderScanner } from "@/scanner/types"
-import type { HaltControl } from "@/services/server/UiServer"
 import type { BinanceCexConfig } from "@/services/rebalancers/index"
 import type { Signer } from "@/services/wallet"
 
@@ -83,8 +82,6 @@ export interface FillerRuntime {
 	intentFiller: IntentFiller
 	balanceProvider: BalanceProvider
 	vaultVenue?: VaultFundingPlanner
-	/** Self-halt visibility/reset for the trading engine (overfill protection). */
-	haltControls: HaltControl[]
 	/** Live order-activity bridge; emits `event` per stored row. */
 	activity: ActivityRecorder
 	/** The persistence backend this filler was started with. */
@@ -207,7 +204,6 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 		minPartialFillUsd: config.simplex.minPartialFillUsd,
 		blockScanIntervalSeconds: config.simplex.blockScanIntervalSeconds,
 		gasFeeBump: config.simplex.gasFeeBump,
-		overfillProtection: config.simplex.overfillProtection,
 		allowlist: config.allowlist,
 	}
 
@@ -357,12 +353,6 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 	logger.info("Hydrating funding venue state...")
 	await engine.initialise()
 	const strategies: FXFiller[] = [engine]
-
-	const haltControls: HaltControl[] = strategies.map((engine, index) => ({
-		index,
-		isHalted: () => engine.isHalted(),
-		resetHalt: () => engine.resetHalt(),
-	}))
 
 	// Initialize rebalancing service only if fully configured
 	let rebalancingService: RebalancingService | undefined
@@ -650,7 +640,6 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 		limitOrders: limitOrderService,
 		balanceProvider,
 		vaultVenue,
-		haltControls,
 		activity,
 		data: options.data,
 		configService,

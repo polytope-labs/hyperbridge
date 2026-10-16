@@ -136,18 +136,10 @@ export interface PauseControl {
 	getWatchOnly(): Record<number, boolean>
 }
 
-/** Self-halt visibility/reset for one FX strategy (overfill protection). */
-export interface HaltControl {
-	index: number
-	isHalted(): boolean
-	resetHalt(): void
-}
-
 export interface OperatorContext {
 	filler: PauseControl
 	/** `refresh` re-reads every chain now; absent, the snapshot is served as last refreshed. */
 	balances: Pick<BalanceProvider, "getSnapshot" | "on" | "off"> & Partial<Pick<BalanceProvider, "refresh">>
-	haltControls: HaltControl[]
 	/** The running config; runtime edits (curves, allowlist, log level) are persisted back into it at configPath. */
 	/**
 	 * The running config. Typed as the file shape because `persistConfig`
@@ -828,7 +820,7 @@ export class UiServer {
 		// boundary — so a page that frames this UI never needs to read or script
 		// it. It only needs the operator to tap through an invisible overlay: the
 		// click lands in the real UI, same-origin, with its own X-Simplex-UI header.
-		// That reaches pause, reset-halt and vault sweep/redeem, which are one
+		// That reaches pause and vault sweep/redeem, which are one
 		// click each. `frame-ancestors` is the directive browsers honour today;
 		// X-Frame-Options is the fallback for older WebViews that ignore CSP.
 		// Set here, before anything can return, so 403s carry it too — and via
@@ -1451,13 +1443,6 @@ export class UiServer {
 			)
 		}
 
-		if (path === "/api/reset-halt") {
-			if (this.mode !== "operator") return sendJson(res, 409, { error: "Filler is not running" })
-			if (method !== "POST") return sendJson(res, 405, { error: "Method not allowed" })
-			for (const control of this.operator!.haltControls) control.resetHalt()
-			return sendJson(res, 200, { halted: [] })
-		}
-
 		if (path === "/api/stop") {
 			if (method !== "POST") return sendJson(res, 405, { error: "Method not allowed" })
 			if (this.stopping) return sendJson(res, 202, { stopping: true })
@@ -1513,7 +1498,6 @@ export class UiServer {
 			version: op.version,
 			uptimeSec: Math.floor((Date.now() - op.startedAt) / 1000),
 			paused: op.filler.isPaused(),
-			halted: op.haltControls.filter((h) => h.isHalted()).map((h) => h.index),
 			work: op.filler.getWorkSnapshot(),
 			watchOnly: op.filler.getWatchOnly(),
 			chains: op.chains,

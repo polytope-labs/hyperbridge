@@ -180,7 +180,6 @@ async function operatorContextFrom(
 		addresses: { evm: runtime.fillerAddress, substrate: substrateAddress },
 		filler: runtime.intentFiller,
 		balances: runtime.balanceProvider,
-		haltControls: runtime.haltControls,
 		config: runtime.config,
 		// The CLI's one teardown — the same path the signal handlers take, so the
 		// dashboard's Stop cannot skip steps (the store close, most recently) that

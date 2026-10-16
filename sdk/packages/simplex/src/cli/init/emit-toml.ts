@@ -112,22 +112,6 @@ export function emitFillerToml(config: FillerConfigFile, options: EmitOptions = 
 		push()
 	}
 
-	if (config.simplex.overfillProtection) {
-		push("# Bounds per-leg loss when internal pricing is wrong (bug, stale cache, manipulated venue).")
-		push("[simplex.overfillProtection]")
-		for (const [key, value] of Object.entries(config.simplex.overfillProtection)) {
-			if (value !== undefined) push(kv(key, value))
-		}
-		push()
-	} else {
-		push("# Overfill protection defaults apply: output clamped at 5% above the user-requested")
-		push("# amount, halt after 3 consecutive clamped orders.")
-		push("# [simplex.overfillProtection]")
-		push("# maxOverfillBps = 500")
-		push("# maxConsecutiveClamps = 3")
-		push()
-	}
-
 	// Simplex prices every fill from the operator's limit orders, and those live on
 	// the orderbook, so the section is written whether or not an order exists yet.
 	push("# The orderbook simplex posts the operator's limit orders to.")

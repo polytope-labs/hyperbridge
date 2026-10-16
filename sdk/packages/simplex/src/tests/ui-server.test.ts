@@ -1,6 +1,5 @@
 import {
 	UiServer,
-	type HaltControl,
 	type OperatorContext,
 	type PauseControl,
 } from "@/services/server/UiServer"
@@ -86,19 +85,6 @@ function fakePauseControl(): PauseControl & { paused: boolean } {
 	}
 }
 
-function fakeHaltControl(index: number, halted = false): HaltControl & { halted: boolean } {
-	return {
-		index,
-		halted,
-		isHalted() {
-			return this.halted
-		},
-		resetHalt() {
-			this.halted = false
-		},
-	}
-}
-
 function fakeConfig(): FillerConfigFile {
 	return {
 		simplex: {
@@ -180,7 +166,6 @@ function baseOperator(overrides: Partial<OperatorContext> = {}): TestOperator {
 			},
 		} as unknown as OperatorContext["limitOrders"],
 		balances: testBalanceSource(),
-		haltControls: [],
 		config: fakeConfig(),
 		stop: vi.fn().mockResolvedValue(undefined),
 		activity: new ActivityRecorder(data.activity),
@@ -545,7 +530,7 @@ describe("UiServer (operator mode)", () => {
 		const { base } = await startServer()
 		// A framing page cannot read or script this origin, but it does not need
 		// to: an invisible overlay makes the operator click the real UI's own
-		// buttons. Pause, reset-halt and vault redeem are one click each.
+		// buttons. Pause and vault redeem are one click each.
 		const expectFramingDenied = async (path: string, init?: Parameters<typeof fetch>[1]) => {
 			const res = await fetch(`${base}${path}`, init)
 			await res.arrayBuffer()
@@ -582,17 +567,14 @@ describe("UiServer (operator mode)", () => {
 		expect(await operator.data.state.get()).toEqual({ paused: false })
 	})
 
-	it("surfaces halted strategies in status and resets them", async () => {
-		const halt = fakeHaltControl(1, true)
-		const { base } = await startServer({ haltControls: [halt] })
+	it("reports no halt state and has no reset-halt route", async () => {
+		// The overfill self-halt was removed: status carries no `halted`, and the old
+		// reset route is an unknown route like any other.
+		const { base } = await startServer()
 
 		const status = await (await fetch(`${base}/api/status`)).json()
-		expect(status.halted).toEqual([1])
-
-		const res = await fetch(`${base}/api/reset-halt`, { method: "POST", headers: CSRF })
-		expect(await res.json()).toEqual({ halted: [] })
-		expect(halt.halted).toBe(false)
-		expect((await (await fetch(`${base}/api/status`)).json()).halted).toEqual([])
+		expect(status).not.toHaveProperty("halted")
+		expect((await fetch(`${base}/api/reset-halt`, { method: "POST", headers: CSRF })).status).toBe(404)
 	})
 
 	it("stop drains the runtime via the operator callback", async () => {

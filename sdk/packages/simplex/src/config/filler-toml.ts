@@ -117,16 +117,12 @@ export interface FillerTomlConfig {
 			maxFeePerGasBumpPercent?: number
 		}
 		/**
-		 * Overfill protection knobs. Defaults: maxOverfillBps=500, maxConsecutiveClamps=3.
-		 * `maxOverfillBps` is warn-only: FXFiller logs a limit order whose offer exceeds
-		 * the swapper's ask by more than this, and clamps nothing. `maxConsecutiveClamps`
-		 * is accepted but dormant: the clamp that fed it was for Uniswap V4 venue pricing,
-		 * which is gone, so FXFiller never halts.
+		 * Removed. `[simplex.overfillProtection]` was dropped when the overfill clamp
+		 * and the self-halt were taken out; `validateConfig` rejects any config that
+		 * still carries it. Typed `unknown` so a removed-but-present value is caught
+		 * rather than silently dropped, and so an empty table still trips the check.
 		 */
-		overfillProtection?: {
-			maxOverfillBps?: number
-			maxConsecutiveClamps?: number
-		}
+		overfillProtection?: unknown
 		/**
 		 * How long a signed bid stays executable, in seconds. Defaults to 300 (5 minutes).
 		 *
@@ -303,6 +299,15 @@ export function validateConfig(config: FillerTomlConfig, cliWatchOnly = false): 
 	if ("strategies" in config) {
 		throw new Error(
 			"[[strategies]] was removed — simplex prices every fill from the limit orders you post. Run `simplex init` to migrate this config; per-strategy confirmation policies move to [confirmationPolicies]",
+		)
+	}
+
+	// `[simplex.overfillProtection]` went with the overfill clamp and the self-halt.
+	// A config that still carries it — even an empty table — is rejected rather than
+	// silently ignored, so the operator deletes it and knows why nothing clamps.
+	if (config.simplex && "overfillProtection" in config.simplex) {
+		throw new Error(
+			"[simplex.overfillProtection] has been removed: Simplex no longer clamps bids or halts on overfill. Delete the section from the config and restart.",
 		)
 	}
 

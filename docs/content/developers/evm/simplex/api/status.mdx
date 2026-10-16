@@ -40,7 +40,6 @@ curl -s $SIMPLEX/api/status
   "version": "0.16.7",
   "uptimeSec": 5130,
   "paused": false,
-  "halted": [],
   "work": {
     "queuedEvaluations": 0, "evaluating": 1,
     "queuedFills": 0, "activeFills": 0,
@@ -65,7 +64,6 @@ curl -s $SIMPLEX/api/status
 | `chainLabels` | A display name for each chain ID. |
 | `configPath` | The config file that changes made through the API are saved to. Absent when the filler was started from a config object rather than a file. |
 | `addresses` | The solver's EVM address, and its Hyperbridge account. |
-| `halted` | Always empty. Simplex no longer halts itself. |
 
 While the setup wizard is open, it returns a shorter shape instead:
 
@@ -109,7 +107,3 @@ Under Docker with `--restart unless-stopped`, the container starts again by itse
 Stopping does not reclaim bid deposits. Any bid still unretracted at shutdown stays locked until the next run retracts it.
 
 While the setup wizard is open, this route closes the wizard instead. It answers `409` if the wizard is already starting the filler.
-
-## POST /api/reset-halt
-
-Clears a self-halt from overfill protection. Current versions of Simplex never halt themselves, so this does nothing and returns `{ "halted": [] }`.

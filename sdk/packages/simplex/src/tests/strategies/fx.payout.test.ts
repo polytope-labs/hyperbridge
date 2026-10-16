@@ -31,8 +31,6 @@ const configService = {
 	getUsdtAsset: () => "0x0000000000000000000000000000000000000000" as HexString,
 	getDaiAsset: () => "0x0000000000000000000000000000000000000000" as HexString,
 	getCNgnAsset: () => undefined,
-	getMaxOverfillBps: () => 500n,
-	getMaxConsecutiveClamps: () => 3,
 	// No paymaster configured → paymasterReserveForToken contributes nothing.
 	getSimplexPaymasterAddress: () => undefined,
 	// The partial-fill floor is a separate concern with its own suite; these

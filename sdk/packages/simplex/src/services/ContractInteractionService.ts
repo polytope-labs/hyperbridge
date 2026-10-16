@@ -244,8 +244,9 @@ export class ContractInteractionService {
 
 		const client = this.clientManager.getPublicClient(chain)
 
+		let decimals: number
 		try {
-			const decimals = await retryPromise(
+			decimals = await retryPromise(
 				() =>
 					client.readContract({
 						address: bytes20Address as HexString,
@@ -258,16 +259,12 @@ export class ContractInteractionService {
 					logMessage: "Failed to get token decimals",
 				},
 			)
-
-			this.cacheService.setTokenDecimals(chain, bytes20Address as HexString, decimals)
-			return decimals
 		} catch (error) {
 			// The on-chain read is authoritative, but when it fails the SDK's per-chain asset
 			// table already carries the curated value for every supported token — so fall back
 			// to that rather than guessing. Guessing is what makes this dangerous: `decimals`
-			// scales `policyMaxOutput` by `10 ** decimals`, so assuming 18 for a 6-decimal token
-			// inflates the computed payout by 10^12, and the payout is no longer clamped to the
-			// user's requested output.
+			// scales every amount in the token's own units, so assuming 18 for a 6-decimal token
+			// inflates the computed payout by 10^12.
 			//
 			// Deliberately not cached: the registry is a safety net, not the source of truth, so
 			// a transient RPC failure must not pin this value for the lifetime of the process.
@@ -281,12 +278,12 @@ export class ContractInteractionService {
 				return configured
 			}
 
-			// Hard error rather than a guess. `decimals` scales `policyMaxOutput` by
-			// `10 ** decimals`, so a wrong value does not degrade the fill — it changes
+			// Hard error rather than a guess. `decimals` scales every amount in the
+			// token's own units, so a wrong value does not degrade the fill — it changes
 			// its size by orders of magnitude. Every caller on the fill path treats a
-			// throw as "skip this order" (`IntentFiller.evaluateOrder` is wrapped in a
-			// try/catch, as is the USD-sizing path), which is the outcome we want when
-			// the value is unknowable.
+			// throw as "skip this order" (`IntentFiller.evaluateOrder` runs the strategy's
+			// `calculateProfitability` in a try/catch, as does the USD-sizing path), which
+			// is the outcome we want when the value is unknowable.
 			this.logger.error(
 				{ err: error, chain, token: bytes20Address },
 				"Could not determine token decimals from RPC or configuration",
@@ -296,6 +293,30 @@ export class ContractInteractionService {
 					`the on-chain decimals() read failed and the token is not in the asset registry`,
 			)
 		}
+
+		// Cross-check the read against the curated registry. The read goes through the plain
+		// fallback client, not the event monitor's quorum, so the first endpoint to answer wins:
+		// one endpoint reporting 18 for a 6-decimal token inflates every amount scaled by it by
+		// 10^12. The registry was verified on-chain when the token was curated, so where it knows
+		// the token its disagreement is a hard error rather than something to price — callers on
+		// the fill path treat a throw as "skip this order". A token the registry does not know
+		// keeps today's behaviour; `FXFiller` bounds its bid against the order's own output.
+		//
+		// Deliberately not cached on a mismatch: the next call re-reads and re-checks. A value
+		// that reaches the cache was checked here, and `setTokenDecimals` has no other caller.
+		const configured = this.configService.getAssetDecimalsByAddress(chain, bytes20Address as HexString)
+		if (configured !== undefined && configured !== decimals) {
+			this.logger.error(
+				{ chain, token: bytes20Address, reported: decimals, registry: configured },
+				"Token decimals from the RPC disagree with the asset registry",
+			)
+			throw new Error(
+				`Token ${bytes20Address} on ${chain} reports ${decimals} decimals but the asset registry says ${configured}; refusing to price it`,
+			)
+		}
+
+		this.cacheService.setTokenDecimals(chain, bytes20Address as HexString, decimals)
+		return decimals
 	}
 
 	/**

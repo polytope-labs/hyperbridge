@@ -321,6 +321,9 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 				sweepIntervalMs: config.vault.sweepIntervalMs,
 			},
 			userOpSender,
+			// Used read-only here: the native-sweep fallback refuses to send an `executeBatch`
+			// to a wallet that is not 7702-delegated (it would be a no-op that still costs gas).
+			new DelegationService(chainClientManager, configService, runtimeSigner),
 		)
 	}
 

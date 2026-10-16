@@ -403,6 +403,13 @@ async fn serves_the_forum() -> anyhow::Result<()> {
 	assert_eq!(anyone.signed(&path, &alice, remove, address(&alice)).await?, StatusCode::OK);
 	assert_eq!(anyone.get(&multisigs).await?.as_array().map(Vec::len), Some(0));
 
+	// The header search finds referenda by index and by their forum title
+	let found = anyone.get(&format!("search?text={REFERENDUM}")).await?;
+	assert_eq!(found["openGovReferenda"][0]["referendumIndex"], REFERENDUM);
+	let found = anyone.get("search?text=intent%20gateway").await?;
+	assert_eq!(found["openGovReferenda"][0]["title"], "Upgrade the Intent Gateway");
+	assert_eq!(anyone.get("search?text=100%25").await?["openGovReferenda"], json!([]));
+
 	// Rate limits apply to each visitor's writes on their own
 	let mut flooder = Visitor::new(&base);
 	flooder.forwarded_for = "198.51.100.99";

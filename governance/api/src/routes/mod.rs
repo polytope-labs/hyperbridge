@@ -7,6 +7,7 @@ mod motions;
 mod multisigs;
 mod posts;
 mod referenda;
+mod search;
 mod signed;
 mod spends;
 mod statistics;
@@ -132,6 +133,7 @@ pub fn router(state: AppState) -> Router {
 		.route("/users/:address/multisigs/:multisig/delete", post(multisigs::remove))
 		.route("/gov2/referendums/:id/comment-filter-setting", put(posts::set_comment_filter))
 		.route("/report", post(posts::report))
+		.route("/search", get(search::search))
 		.route("/comments/:id/reaction", put(posts::react).delete(posts::unreact));
 
 	// Every kind of post shares its comment and reaction routes, the post id says which kind it is

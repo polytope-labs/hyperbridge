@@ -6,6 +6,7 @@ import {
 	DEPOSIT_HEADROOM_PERCENT,
 	packPaymasterAndData,
 	POST_OP_GAS_LIMIT_SIMPLEX,
+	RECOMMENDED_AMOUNT_USD,
 	VERIFICATION_GAS_LIMIT_PERMIT,
 	permit2VerificationGasLimit,
 } from "./types"
@@ -140,11 +141,13 @@ async function depositShortfall(
 
 /**
  * Whole tokens of a paymaster-eligible stablecoin a fill must leave in the
- * wallet. The paymaster's pull is the EntryPoint's worst-case gas cost — cents
- * on an L2, most of it refunded in postOp — so this is mostly headroom for gas
- * spikes and for other UserOps in flight against the same balance.
+ * wallet. The paymaster's pull is the EntryPoint's worst-case gas cost: cents
+ * on an L2, but 2–5 tokens for a sponsored op on Ethereum, most of it refunded
+ * in postOp. It is pulled in full during validation, so the reserve has to
+ * cover the largest prefund any chain charges; the per-op Permit2 cap
+ * ({@link RECOMMENDED_AMOUNT_USD}) is that bound, since no op may pull more.
  */
-export const PAYMASTER_RESERVE_TOKENS = 2n
+export const PAYMASTER_RESERVE_TOKENS = RECOMMENDED_AMOUNT_USD
 
 /**
  * Wallet balance of `tokenLower` that a fill on `chain` must not spend, because

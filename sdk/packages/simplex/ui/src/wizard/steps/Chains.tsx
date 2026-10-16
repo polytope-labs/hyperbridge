@@ -38,7 +38,8 @@ export function StepChains({ state, setState }: StepProps) {
 				<h2>Fund the filler wallet</h2>
 				<p className="hint">
 					Enable fills on the chains you will fill on. Each needs at least {MIN_FEE_TOKEN_BALANCE} of the
-					gateway fee token there: USDC, or USDT on BNB Chain. The paymaster takes gas from it. BNB Chain also
+					gateway fee token there: USDC, or USDT on BNB Chain. Those {MIN_FEE_TOKEN_BALANCE} are kept for the
+					paymaster's gas, so fills, sends and top-ups spend only what you hold above them. BNB Chain also
 					needs a little BNB once, for a one-time approval.
 				</p>
 				{wallet ? (

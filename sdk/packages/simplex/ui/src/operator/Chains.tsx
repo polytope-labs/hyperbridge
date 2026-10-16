@@ -236,7 +236,7 @@ export function Chains(props: {
 				<p className="hint">
 					Endpoint changes and newly added chains apply after a restart. On a running chain, Enable fills
 					applies at once, once the wallet holds at least {MIN_FEE_TOKEN_BALANCE} of the gateway fee token
-					there.
+					there. Those {MIN_FEE_TOKEN_BALANCE} are kept for gas; fills spend what is above them.
 				</p>
 			</div>
 		</div>

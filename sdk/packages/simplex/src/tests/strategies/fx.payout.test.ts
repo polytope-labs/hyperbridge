@@ -35,6 +35,9 @@ const configService = {
 	getMaxConsecutiveClamps: () => 3,
 	// No paymaster configured → paymasterReserveForToken contributes nothing.
 	getSimplexPaymasterAddress: () => undefined,
+	// The partial-fill floor is a separate concern with its own suite; these
+	// payout-mechanics cases must bid whatever their small payouts size.
+	getMinPartialFillUsd: () => 0,
 } as any
 
 /**

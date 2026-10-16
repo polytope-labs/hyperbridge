@@ -70,6 +70,7 @@ const kitchenSink: FillerConfigFile = {
 		watchOnly: false,
 		targetGasUnits: 2500000,
 		minOrderSizeUsd: 50,
+		minPartialFillUsd: 35,
 		gasFeeBump: { maxPriorityFeePerGasBumpPercent: 12, maxFeePerGasBumpPercent: 15 },
 		overfillProtection: { maxOverfillBps: 300, maxConsecutiveClamps: 2 },
 	},

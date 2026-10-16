@@ -788,8 +788,12 @@ export class LimitOrderService {
 			if (underFunds(entry)) {
 				const reason = underFunded(entry)
 				this.logger.warn({ id: owner.id, commitment: entry.commitment }, reason)
-				await this.store.setStatus(owner.id, owner.status, reason)
-				report.underFunded++
+				// Guarded on the status this pass listed the order with: the snapshot was
+				// taken before paging the orderbook and withdrawing orphans, and a cancel
+				// or an expiry that landed in that window owns the row now. Writing the
+				// snapshot's status back would undo it and put the entry up again.
+				const marked = await this.store.setStatus(owner.id, owner.status, reason, [owner.status])
+				if (marked) report.underFunded++
 			}
 		}
 

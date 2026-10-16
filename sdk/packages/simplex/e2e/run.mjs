@@ -62,6 +62,8 @@ const solverKeys = [
 function solverConfig(index) {
 	const q = JSON.stringify
 	return `[simplex]
+# The scenarios exercise partial-fill mechanics with testnet amounts below the production floor.
+minPartialFillUsd = 0
 maxConcurrentOrders = 5
 logging = "info"
 bidValiditySeconds = 600

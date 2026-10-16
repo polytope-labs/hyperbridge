@@ -95,6 +95,8 @@ function makeSender(vaults: Array<{ chain: string; vault: `0x${string}` }> = [])
 		readContract: vi.fn(async ({ functionName }: { functionName: string }): Promise<number | bigint> => {
 			if (functionName === "decimals") return 6
 			if (functionName === "balanceOf") return 1_000_000_000n
+			// Uncapped unless a test overrides it, so the share sends below keep working.
+			if (functionName === "maxRedeem") return 1_000_000_000n
 			throw new Error(`unexpected read: ${functionName}`)
 		}),
 		waitForTransactionReceipt: vi.fn().mockResolvedValue({ status: "success" }),
@@ -138,6 +140,23 @@ describe("TokenSender", () => {
 		expect(result.redeemed).toBe(false)
 		const decoded = decodeFunctionData({ abi: ERC20_ABI, data: sendTransaction.mock.calls[0][0].data })
 		expect(decoded.functionName).toBe("transfer")
+	})
+
+	it("refuses a vault-share send above the vault's maxRedeem before submitting anything", async () => {
+		// A liquidity-capped vault would revert `redeem(units)`; the guard refuses up front with
+		// the amount it can actually redeem instead of building a batch that cannot succeed.
+		const { sender, sendTransaction, publicClient } = makeSender([{ chain: "EVM-8453", vault: VAULT }])
+		publicClient.readContract.mockImplementation(async ({ functionName }: { functionName: string }) => {
+			if (functionName === "decimals") return 6
+			if (functionName === "balanceOf") return 1_000_000_000n
+			if (functionName === "maxRedeem") return 4_000_000n
+			throw new Error(`unexpected read: ${functionName}`)
+		})
+
+		await expect(sender.send({ chain: "EVM-8453", token: VAULT, amount: "10", to: RECIPIENT })).rejects.toThrow(
+			/only redeem 4000000 shares/,
+		)
+		expect(sendTransaction).not.toHaveBeenCalled()
 	})
 
 	it("sends native value directly", async () => {

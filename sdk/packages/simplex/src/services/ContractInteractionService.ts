@@ -121,7 +121,18 @@ const LIMIT_ORDER_PRE_VERIFICATION_GAS = 50_000n
  * The asymmetry decides the direction: overshooting costs a marginally staler quote,
  * undershooting silently throws away bids that were about to be won.
  */
-const BID_DISCOVERY_PAD_SECONDS = 30
+export const BID_DISCOVERY_PAD_SECONDS = 30
+
+/**
+ * Added on top of the bid's own validity when sizing its Permit2 deadline — the permit deadline is
+ * wall-clock (`bidValiditySeconds + BID_DISCOVERY_PAD_SECONDS + this`), while the bid's on-chain
+ * `validUntil` is block-based and can run longer in wall-clock time when blocks are slow, so
+ * whichever is earlier binds. The skew covers clock skew between this host and the chain, the
+ * latency from submission to inclusion, and the buffer bundlers apply when rejecting an op whose
+ * `validUntil` is too close to now (rundler's time-range buffer is roughly 30–60s): the placer
+ * bundles our bid later than we sign it, so a shorter skew left no margin at the end of the window.
+ */
+export const BID_PERMIT_SKEW_SECONDS = 120
 
 /**
  * How many blocks back a chain's block time is measured over. Block timestamps are whole
@@ -917,6 +928,14 @@ export class ContractInteractionService {
 			walletClient: this.clientManager.getWalletClient(order.destination),
 			signer: this.signer,
 			configService: this.configService,
+			// The paymaster reports the Permit2 deadline as the op's `validUntil`, and the default
+			// hour outlives a bid's validity: a bid selected late still validated, then `fillOrder`
+			// reverted `Expired` and the solver paid the gas. Sizing the permit to the bid's
+			// wall-clock window lets the EntryPoint drop such an op at validation, for free. Sends,
+			// sweeps and delegation keep the hour default.
+			permitDeadlineSeconds: BigInt(
+				Math.ceil(this.configService.getBidValiditySeconds() + BID_DISCOVERY_PAD_SECONDS + BID_PERMIT_SKEW_SECONDS),
+			),
 			prefund: {
 				baseGas:
 					callGasLimit + cachedEstimate.verificationGasLimit + cachedEstimate.preVerificationGas,

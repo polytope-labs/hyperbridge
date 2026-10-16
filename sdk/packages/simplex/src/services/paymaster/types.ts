@@ -57,6 +57,15 @@ export interface PaymasterOptions {
 	 * concurrent ops the way 2612's single counter would.
 	 */
 	permitBootstrap?: boolean
+	/**
+	 * Lifetime of the Permit2 authorization this op signs, in seconds from now. Defaults to
+	 * {@link PERMIT2_DEADLINE_SECONDS}. The paymaster reports that deadline as the op's
+	 * `validUntil`, so a shorter one lets the EntryPoint drop a stale op at validation instead
+	 * of allowing it to execute and revert. Set only where the op's own validity is already
+	 * bounded — a bid, whose `validUntil` is minutes — never for a send, sweep or delegation,
+	 * which carry no such ceiling to match.
+	 */
+	permitDeadlineSeconds?: bigint
 	/** Receives a warning for every candidate skipped or deposit read that fails. */
 	logger?: Pick<Logger, "warn">
 }

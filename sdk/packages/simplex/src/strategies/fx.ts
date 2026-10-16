@@ -187,7 +187,9 @@ export class FXFiller implements FillerStrategy {
 	 *   without output calldata and without an earlier partial fill allow.
 	 * - Cap each payout by the filler's balance plus funding-venue withdrawals,
 	 *   then gate it on fees (full fills of orders below `minOrderSizeUsd`) and the
-	 *   same-asset spread.
+	 *   same-asset spread. A partial fill worth less than `minPartialFillUsd` is
+	 *   skipped, before any balance or venue planning when the leg is already known
+	 *   to be a partial.
 	 * - Cache the resulting bids for later use in `executeOrder`.
 	 */
 	async calculateProfitability(order: Order): Promise<number> {
@@ -230,9 +232,13 @@ export class FXFiller implements FillerStrategy {
 			// figure on is treated as below it. Priced once, and only when a bid's fees
 			// fall short.
 			let atOrAboveMinSize: boolean | undefined
+			// Shared with the partial-fill floor below: both price the order, and
+			// `getOrderUsdValue` walks every open limit order. Cached once per evaluation.
+			let orderUsd: Promise<{ inputUsd: Decimal } | null> | undefined
+			const orderUsdValue = () => (orderUsd ??= this.getOrderUsdValue(order))
 			const feeCheckWaived = async (): Promise<boolean> => {
 				if (atOrAboveMinSize === undefined) {
-					const usd = await this.getOrderUsdValue(order)
+					const usd = await orderUsdValue()
 					atOrAboveMinSize = usd !== null && usd.inputUsd.gte(this.configService.getMinOrderSizeUsd())
 				}
 				return atOrAboveMinSize
@@ -398,6 +404,52 @@ export class FXFiller implements FillerStrategy {
 						)
 					}
 
+					const usdFactors = usdFactorsFrom(limitOrderUsdEdges(await this.limitOrders!.open()))
+					const outputSymbol = this.registry.symbolFor(outputToken, destChain)
+
+					// THE PARTIAL-FILL FLOOR, cheap pass. A partial collects none of the
+					// order's fees and is exempt from the caller's profit floor — its gas is
+					// paid by the margin in the limit order that prices it. Without a floor of
+					// its own, a near-exhausted limit order, or a wallet just above its gas
+					// reserve, bids dust on every matching order and pays fill gas plus the
+					// relayer fee for it. When the leg is already known to be a partial and
+					// even the most this bid could pay (`targetOutput`) is below the floor,
+					// skip before any balance or venue planning: a dust bid must hold no
+					// wallet room and reserve no vault liquidity. A leg not safely partial
+					// here is left to the check after sizing, which also judges a payout the
+					// wallet cuts below the ask. A value nothing prices is left there too.
+					const minPartialFillUsd = this.configService.getMinPartialFillUsd()
+					const maxPayoutUsd =
+						outputSymbol && minPartialFillUsd > 0
+							? usdValueOf(
+									usdFactors,
+									outputSymbol,
+									new Decimal(formatUnits(targetOutput, outputDecimals)),
+								)
+							: null
+					if (
+						minPartialFillUsd > 0 &&
+						maxPayoutUsd !== null &&
+						maxPayoutUsd.lt(minPartialFillUsd) &&
+						(partialFill || multiLeg) &&
+						(await partialEligible())
+					) {
+						this.logger.info(
+							{
+								orderId: order.id,
+								leg,
+								limitOrder: candidate.order.id,
+								token: output.token,
+								...(outputSymbol ? { symbol: outputSymbol } : {}),
+								payout: formatUnits(targetOutput, outputDecimals),
+								valueUsd: maxPayoutUsd.toString(),
+								minPartialFillUsd,
+							},
+							`Skipping a partial fill: worth $${maxPayoutUsd.toFixed(2)}, below minPartialFillUsd $${minPartialFillUsd}`,
+						)
+						continue
+					}
+
 					// Spend the free wallet balance first, down to the reserve — the paymaster's
 					// gas pull during validatePaymasterUserOp plus the vault's configured
 					// minBalance — then source any remaining shortfall from the funding venues.
@@ -484,16 +536,6 @@ export class FXFiller implements FillerStrategy {
 						partialFill = true
 					}
 
-					// Decrement the wallet pool by what this fill drew from it (vault-sourced
-					// tokens are tracked by the venue's own reservations).
-					const walletRemaining = balance - walletContribution
-					balanceCache.set(tokenAddress, walletRemaining > 0n ? walletRemaining : 0n)
-
-					// The venue clamp went with Uniswap V4 pricing, so a fill can never be clamped —
-					// the halt subsystem is left in place but dormant (always recorded as a
-					// clean, unclamped outcome).
-					this.recordOrderOutcome(false, order.id)
-
 					// The take signed beside the output. `fillOrder` settles the output against
 					// it as this bid's rate, credits the swapper `take * ask / escrow`, and
 					// charges the solver the escrow it releases at that rate.
@@ -506,6 +548,9 @@ export class FXFiller implements FillerStrategy {
 					//    gateway accepts for it (`RateBelowOrder` refuses a take whose credit
 					//    at the order's rate exceeds the output), which only binds when the
 					//    limit order's price is the ask itself.
+					//
+					// Sized before the wallet pool is drawn down: a bid the floor below refuses
+					// must leave the pool and the venue reservations for later candidates.
 					const releasedInput =
 						finalOutputAmount >= output.amount
 							? input.amount
@@ -535,6 +580,90 @@ export class FXFiller implements FillerStrategy {
 						continue
 					}
 
+					// THE PARTIAL-FILL FLOOR, final pass. The cheap pass judged the most this
+					// bid could pay; here the payout has been sized to the wallet and the
+					// venues, so a leg the wallet cut below the ask is judged too. `partialFill`
+					// is final by now. Checked before the gas estimate, so a skipped bid costs
+					// no gas estimate. A value of 0 disables it.
+					if (partialFill) {
+						if (minPartialFillUsd > 0) {
+							// The bid is worth its payout. Only when no limit order prices the
+							// output token is the input it releases priced — and only then is
+							// the order's own dollar value read. `getOrderUsdValue` totals every
+							// leg, so its figure scales to one leg only on a single-leg order;
+							// on a multi-leg order the leg's own input is priced from the same
+							// edges. Nothing priceable at all is skipped, the same way an
+							// unpriceable order sits below `minOrderSizeUsd`.
+							let bidUsd = outputSymbol
+								? usdValueOf(
+										usdFactors,
+										outputSymbol,
+										new Decimal(formatUnits(finalOutputAmount, outputDecimals)),
+									)
+								: null
+							if (bidUsd === null && order.inputs.length === 1) {
+								const usd = await orderUsdValue()
+								if (usd && input.amount > 0n) {
+									bidUsd = usd.inputUsd
+										.mul(new Decimal(formatUnits(releasedInput, inputDecimals)))
+										.div(new Decimal(formatUnits(input.amount, inputDecimals)))
+								}
+							}
+							if (bidUsd === null && order.inputs.length > 1) {
+								const inputSymbol = this.registry.symbolFor(
+									bytes32ToBytes20(input.token) as HexString,
+									sourceChain,
+								)
+								bidUsd = inputSymbol
+									? usdValueOf(
+											usdFactors,
+											inputSymbol,
+											new Decimal(formatUnits(releasedInput, inputDecimals)),
+										)
+									: null
+							}
+							if (bidUsd === null) {
+								this.logger.info(
+									{
+										orderId: order.id,
+										leg,
+										limitOrder: candidate.order.id,
+										token: output.token,
+										payout: formatUnits(finalOutputAmount, outputDecimals),
+									},
+									"Skipping a partial fill: nothing prices its payout or the input it releases",
+								)
+								continue
+							}
+							if (bidUsd.lt(minPartialFillUsd)) {
+								this.logger.info(
+									{
+										orderId: order.id,
+										leg,
+										limitOrder: candidate.order.id,
+										token: output.token,
+										...(outputSymbol ? { symbol: outputSymbol } : {}),
+										payout: formatUnits(finalOutputAmount, outputDecimals),
+										valueUsd: bidUsd.toString(),
+										minPartialFillUsd,
+									},
+									`Skipping a partial fill: worth $${bidUsd.toFixed(2)}, below minPartialFillUsd $${minPartialFillUsd}`,
+								)
+								continue
+							}
+						}
+					}
+
+					// Decrement the wallet pool by what this fill drew from it (vault-sourced
+					// tokens are tracked by the venue's own reservations).
+					const walletRemaining = balance - walletContribution
+					balanceCache.set(tokenAddress, walletRemaining > 0n ? walletRemaining : 0n)
+
+					// The venue clamp went with Uniswap V4 pricing, so a fill can never be clamped —
+					// the halt subsystem is left in place but dormant (always recorded as a
+					// clean, unclamped outcome).
+					this.recordOrderOutcome(false, order.id)
+
 					// One entry per leg, zero on every leg but this one: the gateway skips those.
 					const fillerOutputs: TokenInfo[] = order.output.assets.map((asset, i) => ({
 						token: asset.token,
@@ -544,9 +673,6 @@ export class FXFiller implements FillerStrategy {
 						token: asset.token,
 						amount: i === leg ? releasedInput : 0n,
 					}))
-
-					const usdFactors = usdFactorsFrom(limitOrderUsdEdges(await this.limitOrders!.open()))
-					const outputSymbol = this.registry.symbolFor(outputToken, destChain)
 
 					// A same-asset market realizes its spread in kind: escrow released minus
 					// output paid, in the asset's own units. Positive iff the filler nets the

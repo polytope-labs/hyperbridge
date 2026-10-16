@@ -204,6 +204,7 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 		targetGasUnits: config.simplex.targetGasUnits,
 		bidValiditySeconds: config.simplex.bidValiditySeconds,
 		minOrderSizeUsd: config.simplex.minOrderSizeUsd,
+		minPartialFillUsd: config.simplex.minPartialFillUsd,
 		blockScanIntervalSeconds: config.simplex.blockScanIntervalSeconds,
 		gasFeeBump: config.simplex.gasFeeBump,
 		overfillProtection: config.simplex.overfillProtection,

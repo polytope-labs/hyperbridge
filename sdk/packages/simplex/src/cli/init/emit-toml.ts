@@ -70,6 +70,10 @@ export function emitFillerToml(config: FillerConfigFile, options: EmitOptions = 
 		push("# Order size in USD below which an order's fees must cover gas. Default 20.")
 		push(kv("minOrderSizeUsd", config.simplex.minOrderSizeUsd))
 	}
+	if (config.simplex.minPartialFillUsd !== undefined) {
+		push("# Smallest payout in USD a partial fill may bid. Default 20; 0 disables the floor.")
+		push(kv("minPartialFillUsd", config.simplex.minPartialFillUsd))
+	}
 	push()
 
 	if (config.simplex.signer) {

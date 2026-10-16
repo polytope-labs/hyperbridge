@@ -359,6 +359,8 @@ describe("FXFiller profit gates (fees cover execution; spread independently posi
 			limitOrders?: LimitOrderStore
 			/** `simplex.minOrderSizeUsd`. The default when omitted. */
 			minOrderSizeUsd?: number
+			/** `simplex.minPartialFillUsd`. The default when omitted. */
+			minPartialFillUsd?: number
 		},
 	) {
 		const cache = new Map<string, unknown>()
@@ -400,7 +402,11 @@ describe("FXFiller profit gates (fees cover execution; spread independently posi
 				options?.balancesByToken?.[params.address.toLowerCase()] ?? 10n ** 30n, // balanceOf
 		}
 		const clientManager = { getPublicClient: () => destClient } as any
-		const config = { ...cfg, getMinOrderSizeUsd: () => options?.minOrderSizeUsd ?? 20 }
+		const config = {
+			...cfg,
+			getMinOrderSizeUsd: () => options?.minOrderSizeUsd ?? 20,
+			getMinPartialFillUsd: () => options?.minPartialFillUsd ?? 20,
+		}
 		return new FXFiller(signer, config, clientManager, contractService, registry, {
 			fundingVenues: (options?.fundingVenues ?? []) as any,
 			limitOrders: options?.limitOrders,
@@ -409,6 +415,10 @@ describe("FXFiller profit gates (fees cover execution; spread independently posi
 
 	const feeCheckWaived = (filler: FXFiller, id: string): boolean =>
 		(filler as any).contractService.cacheService.isFeeCheckWaived(id)
+	const partialFill = (filler: FXFiller, id: string): boolean =>
+		(filler as any).contractService.cacheService.isPartialFill(id)
+	const bidPlans = (filler: FXFiller, id: string): unknown[] =>
+		(filler as any).contractService.cacheService.getBidPlans(id)
 
 	function order(id: string, input: TokenInfo, output: TokenInfo, fees: bigint): Order {
 		return {
@@ -427,6 +437,18 @@ describe("FXFiller profit gates (fees cover execution; spread independently posi
 	}
 
 	const usdcOnBoth = () => new AssetRegistry(cfg, { CNGN: { [SRC]: CNGN, [DST]: CNGN } })
+
+	/**
+	 * The same registry as `usdcOnBoth`, but cNGN is listed under `ZCNGN` first so
+	 * `symbolFor` names the address `ZCNGN` while the limit orders price it as
+	 * `CNGN`. The payout therefore has no USD price, and only the input-value
+	 * fallback can value the bid.
+	 */
+	const aliasedRegistry = () =>
+		new AssetRegistry(cfg, {
+			ZCNGN: { [DST]: CNGN },
+			CNGN: { [SRC]: CNGN, [DST]: CNGN },
+		})
 
 	it("gate 1: rejects when fees do not cover fill gas + relayer fee", async () => {
 		const filler = gateFiller(
@@ -545,6 +567,193 @@ describe("FXFiller profit gates (fees cover execution; spread independently posi
 			;(filler as any).limitOrders = await limitOrderStore([])
 			expect(await filler.calculateProfitability(o)).toBe(0)
 			expect(feeCheckWaived(filler, o.id!)).toBe(false)
+		})
+	})
+
+	describe("a partial fill is held to `minPartialFillUsd`", () => {
+		// The book pays 1450 CNGN per USDC; `size` is what it has left to pay, so a
+		// small one leaves the leg short of its 1.4M CNGN ask: a partial.
+		const book = (size: string) =>
+			limitOrderStore([
+				{ base: "USDC", quote: "CNGN", side: "BID", fillChain: DST, price: "1450", size, acceptedSources: [SRC] },
+			])
+		/** 1000 USDC in, asking 1.4M CNGN — a full offer is 1.45M. */
+		const partialOrder = (id: string, fees = parseUnits("100", 6)) =>
+			order(
+				id,
+				{ token: bytes20ToBytes32(USDC), amount: parseUnits("1000", 6) },
+				{ token: bytes20ToBytes32(CNGN), amount: parseUnits("1400000", 18) },
+				fees,
+			)
+
+		it("skips a partial worth less than the floor, planning nothing", async () => {
+			// 0.01 CNGN left on the order: about $0.0000069.
+			const filler = gateFiller(usdcOnBoth(), { fillGas: parseUnits("2", 6), relayer: parseUnits("3", 6) }, {
+				limitOrders: await book("0.01"),
+			})
+			const o = partialOrder("dust")
+
+			expect(await filler.calculateProfitability(o)).toBe(0)
+			expect(bidPlans(filler, o.id!)).toHaveLength(0)
+			expect(partialFill(filler, o.id!)).toBe(false)
+		})
+
+		it("bids a partial at or above the floor", async () => {
+			// 100,000 CNGN left: about $69.
+			const filler = gateFiller(usdcOnBoth(), { fillGas: parseUnits("2", 6), relayer: parseUnits("3", 6) }, {
+				limitOrders: await book("100000"),
+			})
+			const o = partialOrder("worthwhile")
+
+			await filler.calculateProfitability(o)
+			expect(bidPlans(filler, o.id!)).toHaveLength(1)
+			expect(partialFill(filler, o.id!)).toBe(true)
+		})
+
+		it("bids the dust at zero — the old behaviour, by the operator's choice", async () => {
+			const filler = gateFiller(usdcOnBoth(), { fillGas: parseUnits("2", 6), relayer: parseUnits("3", 6) }, {
+				limitOrders: await book("0.01"),
+				minPartialFillUsd: 0,
+			})
+			const o = partialOrder("no-floor")
+
+			await filler.calculateProfitability(o)
+			expect(bidPlans(filler, o.id!)).toHaveLength(1)
+			expect(partialFill(filler, o.id!)).toBe(true)
+		})
+
+		it("skips a partial a wallet just above its reserve can only dust", async () => {
+			// The wallet holds 1 CNGN and reserves 0.999 of it: 0.001 CNGN spendable,
+			// well under the floor, even though the limit order offers plenty.
+			const venue = {
+				planWithdrawalForToken: async () => ({ calls: [], credited: 0n }),
+				walletReserveForToken: () => parseUnits("0.999", 18),
+			}
+			const filler = gateFiller(usdcOnBoth(), { fillGas: parseUnits("2", 6), relayer: parseUnits("3", 6) }, {
+				limitOrders: await book("100000"),
+				fundingVenues: [venue],
+				balancesByToken: { [CNGN.toLowerCase()]: parseUnits("1", 18) },
+			})
+			const o = partialOrder("dust-wallet", parseUnits("4", 6))
+
+			expect(await filler.calculateProfitability(o)).toBe(0)
+			expect(bidPlans(filler, o.id!)).toHaveLength(0)
+		})
+
+		it("skips a partial nothing can price", async () => {
+			// ZARP/CNGN reaches no dollar stable, so neither the payout nor the input
+			// the bid releases has a price; an unpriceable bid is skipped.
+			const filler = gateFiller(zarpCngnRegistry(), { fillGas: parseUnits("2", 6), relayer: parseUnits("3", 6) }, {
+				limitOrders: await limitOrderStore([
+					{ base: "ZARP", quote: "CNGN", side: "BID", fillChain: DST, price: "95", size: "10", acceptedSources: [SRC] },
+				]),
+			})
+			const o = order(
+				"unpriceable",
+				{ token: bytes20ToBytes32(ZARP), amount: parseUnits("1000", 18) },
+				{ token: bytes20ToBytes32(CNGN), amount: parseUnits("95000", 18) },
+				parseUnits("4", 6),
+			)
+
+			expect(await filler.calculateProfitability(o)).toBe(0)
+			expect(bidPlans(filler, o.id!)).toHaveLength(0)
+		})
+
+		it("leaves a full fill below the floor alone", async () => {
+			// 1 USDC in, 1450 CNGN out (about $1) covered whole by the limit order:
+			// the floor is a partial's rule and does not touch a full fill.
+			const filler = gateFiller(usdcOnBoth(), { fillGas: parseUnits("2", 6), relayer: parseUnits("3", 6) }, {
+				limitOrders: await book("100000"),
+			})
+			const o = order(
+				"small-full",
+				{ token: bytes20ToBytes32(USDC), amount: parseUnits("1", 6) },
+				{ token: bytes20ToBytes32(CNGN), amount: parseUnits("1440", 18) },
+				parseUnits("100", 6),
+			)
+
+			await filler.calculateProfitability(o)
+			expect(bidPlans(filler, o.id!)).toHaveLength(1)
+			expect(partialFill(filler, o.id!)).toBe(false)
+		})
+
+		it("values a partial by the input it releases when the payout has no price", async () => {
+			// The payout token is named `ZCNGN`, which the limit-order rates never
+			// mention: 0.01 cNGN released is about $0.0000069 either way, below the floor.
+			const filler = gateFiller(aliasedRegistry(), { fillGas: parseUnits("2", 6), relayer: parseUnits("3", 6) }, {
+				limitOrders: await book("0.01"),
+			})
+			const o = partialOrder("fallback-dust")
+
+			expect(await filler.calculateProfitability(o)).toBe(0)
+			expect(bidPlans(filler, o.id!)).toHaveLength(0)
+		})
+
+		it("bids a partial the input fallback puts above the floor", async () => {
+			// 100,000 cNGN released is about $69 of input at the order's own rate.
+			const filler = gateFiller(aliasedRegistry(), { fillGas: parseUnits("2", 6), relayer: parseUnits("3", 6) }, {
+				limitOrders: await book("100000"),
+			})
+			const o = partialOrder("fallback-worthwhile")
+
+			await filler.calculateProfitability(o)
+			expect(bidPlans(filler, o.id!)).toHaveLength(1)
+			expect(partialFill(filler, o.id!)).toBe(true)
+		})
+
+		it("does not plan a venue withdrawal for a dust partial", async () => {
+			// The wallet holds nothing, so absent the cheap pass the shortfall would be
+			// planned from the venue even though the bid is dust. It must not be touched.
+			const planWithdrawalForToken = vi.fn(async () => ({ calls: [], credited: 0n }))
+			const venue = { planWithdrawalForToken, walletReserveForToken: () => 0n }
+			const filler = gateFiller(usdcOnBoth(), { fillGas: parseUnits("2", 6), relayer: parseUnits("3", 6) }, {
+				limitOrders: await book("0.01"),
+				fundingVenues: [venue],
+				balancesByToken: { [CNGN.toLowerCase()]: 0n },
+			})
+			const o = partialOrder("dust-no-venue")
+
+			expect(await filler.calculateProfitability(o)).toBe(0)
+			expect(planWithdrawalForToken).not.toHaveBeenCalled()
+		})
+
+		describe("a multi-leg order's leg, fully covered but partial by the leg count", () => {
+			// One leg that matches and is covered whole, so `partialFill` is set only by
+			// the multi-leg rule; a second leg nothing serves, present to make it multi-leg.
+			const multiLegOrder = (id: string, usd: string, requested: string): Order => {
+				const o = order(
+					id,
+					{ token: bytes20ToBytes32(USDC), amount: parseUnits(usd, 6) },
+					{ token: bytes20ToBytes32(CNGN), amount: parseUnits(requested, 18) },
+					parseUnits("100", 6),
+				)
+				o.inputs.push({ token: bytes20ToBytes32(USDT), amount: parseUnits("1", 6) })
+				o.output.assets.push({ token: bytes20ToBytes32(CNGN), amount: parseUnits("1", 18) })
+				return o
+			}
+
+			it("skips the leg when it is worth less than the floor", async () => {
+				// 0.01 USDC in, 14 cNGN asked, 14.5 covered whole: about $0.01.
+				const filler = gateFiller(usdcOnBoth(), { fillGas: parseUnits("2", 6), relayer: parseUnits("3", 6) }, {
+					limitOrders: await book("2000000"),
+				})
+				const o = multiLegOrder("multi-dust", "0.01", "14")
+
+				expect(await filler.calculateProfitability(o)).toBe(0)
+				expect(bidPlans(filler, o.id!)).toHaveLength(0)
+			})
+
+			it("bids the leg when it is worth more than the floor", async () => {
+				// 1000 USDC in, 1.4M cNGN asked, 1.45M covered whole: about $1000.
+				const filler = gateFiller(usdcOnBoth(), { fillGas: parseUnits("2", 6), relayer: parseUnits("3", 6) }, {
+					limitOrders: await book("2000000"),
+				})
+				const o = multiLegOrder("multi-worth", "1000", "1400000")
+
+				await filler.calculateProfitability(o)
+				expect(bidPlans(filler, o.id!)).toHaveLength(1)
+				expect(partialFill(filler, o.id!)).toBe(true)
+			})
 		})
 	})
 

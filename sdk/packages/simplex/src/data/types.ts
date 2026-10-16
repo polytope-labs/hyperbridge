@@ -147,10 +147,21 @@ export interface BidStore {
 	 *
 	 * Resolves false when no unretracted bid matched (already retracted, or never
 	 * stored) — the caller treats that as success, not an error.
+	 *
+	 * With `rows` (the {@link StoredBid.id}s) only those bids are marked: a retraction
+	 * closes the bids it sent retractions for, not one stored on the commitment while it
+	 * was in flight. Without, every unretracted bid on the commitment is marked. An empty
+	 * `rows` marks nothing.
 	 */
-	markRetracted(commitment: string, retractExtrinsicHash: string | null): Promise<boolean>
-	/** Flags a bid dead (its order was filled on-chain). False when nothing matched. */
-	markDead(commitment: string): Promise<boolean>
+	markRetracted(commitment: string, retractExtrinsicHash: string | null, rows?: readonly number[]): Promise<boolean>
+	/**
+	 * Flags a bid dead, so the sweep retries its retraction next cycle rather than after
+	 * the TTL: its order was filled on-chain, or a retraction selected it and could not
+	 * close it. With `rows` (the {@link StoredBid.id}s) only those bids are flagged;
+	 * without, every unretracted bid on the commitment. An empty `rows` flags nothing.
+	 * False when nothing matched.
+	 */
+	markDead(commitment: string, rows?: readonly number[]): Promise<boolean>
 	/**
 	 * Every bid a limit order priced, newest first, from each bid's `pricedBy`. What
 	 * makes a `remaining` explicable to the operator: which bids drew on the order.

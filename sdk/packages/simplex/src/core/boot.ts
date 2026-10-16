@@ -599,6 +599,9 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 		logger.warn(`Shutting down intent filler (${signal})...`)
 		balanceProvider.stop()
 		vaultVenue?.stopSweeping()
+		// Before the filler: an expiry tick queues retractions, and one landing after the
+		// filler's drain would find Hyperbridge disconnected.
+		lifecycle.stop()
 		await intentFiller.stop()
 		// Exit all vault positions back to the underlying asset (best-effort).
 		await vaultVenue?.redeemAll()

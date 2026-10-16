@@ -115,12 +115,15 @@ export interface CreateLimitOrderRequest {
 
 /**
  * What the service reports about an order nobody asked it about: a fill worked it
- * down, or took it under the dust floor. Operator-initiated changes are reported
- * by the controller that took the request.
+ * down, took it under the dust floor, it outlived its `expiresAt` and was
+ * retired, or the orderbook refused its posting. Operator-initiated changes are
+ * reported by the controller that took the request.
  */
 export type LimitOrderEvent =
 	| { kind: "resized"; order: LimitOrder; delivered: bigint }
 	| { kind: "filled"; order: LimitOrder }
+	| { kind: "expired"; order: LimitOrder }
+	| { kind: "rejected"; order: LimitOrder }
 
 /**
  * What came of an order being created: the orderbook's answer, or `unposted` for
@@ -962,19 +965,31 @@ export class LimitOrderService {
 		return stale.length
 	}
 
-	/** Takes an expired order off the book and closes the row. */
+	/**
+	 * Takes an expired order off the book and closes the row, and reports it so the bids
+	 * it priced, which would otherwise still pay out at its price, are retracted.
+	 *
+	 * Guarded like every other posting write: an order the operator cancelled, or a fill
+	 * closed, while the entry was coming down keeps that status and is not reported here.
+	 */
 	private async retire(order: LimitOrder): Promise<LimitOrder | null> {
 		this.logger.info({ id: order.id, expiresAt: order.expiresAt }, "Limit order has expired; withdrawing it")
 		if (order.commitment) await this.withdraw(order.commitment as HexString)
-		return this.store.setPosting(order.id, {
-			commitment: null,
-			bookExpiresAt: null,
-			bookPrice: null,
-			orderNonce: order.orderNonce,
-			entryPoint: null,
-			status: "expired",
-			lastError: null,
-		})
+		const expired = await this.store.setPosting(
+			order.id,
+			{
+				commitment: null,
+				bookExpiresAt: null,
+				bookPrice: null,
+				orderNonce: order.orderNonce,
+				entryPoint: null,
+				status: "expired",
+				lastError: null,
+			},
+			POSTABLE,
+		)
+		if (expired) this.report({ kind: "expired", order: expired })
+		return expired
 	}
 
 	/** Every order that has a posting on the book, or should have one. */
@@ -1112,6 +1127,7 @@ export class LimitOrderService {
 		// Guarded for the same reason: a refusal that arrives after the operator
 		// cancelled says nothing about the row they left behind.
 		const rejected = await this.store.setStatus(order.id, "rejected", message, POSTABLE)
+		if (rejected) this.report({ kind: "rejected", order: rejected })
 		return { order: rejected ?? (await this.store.get(order.id))!, result }
 	}
 

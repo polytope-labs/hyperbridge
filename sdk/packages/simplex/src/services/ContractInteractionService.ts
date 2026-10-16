@@ -84,7 +84,7 @@ const LIMIT_ORDER_PRE_VERIFICATION_GAS = 50_000n
  * The asymmetry decides the direction: overshooting costs a marginally staler quote,
  * undershooting silently throws away bids that were about to be won.
  */
-const BID_DISCOVERY_PAD_SECONDS = 30
+export const BID_DISCOVERY_PAD_SECONDS = 30
 
 /**
  * How many blocks back a chain's block time is measured over. Block timestamps are whole

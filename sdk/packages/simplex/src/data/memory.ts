@@ -107,10 +107,16 @@ class MemoryBidStore implements BidStore {
 			.map((row) => ({ ...row }))
 	}
 
-	async markRetracted(commitment: string, retractExtrinsicHash: string | null): Promise<boolean> {
+	async markRetracted(
+		commitment: string,
+		retractExtrinsicHash: string | null,
+		rows?: readonly number[],
+	): Promise<boolean> {
+		const only = rows ? new Set(rows) : undefined
 		let changed = false
 		for (const row of this.rows) {
 			if (row.commitment !== commitment || row.retracted) continue
+			if (only && !only.has(row.id)) continue
 			row.retracted = true
 			row.retractedAt = sqliteDatetime(new Date())
 			row.retractExtrinsicHash = retractExtrinsicHash
@@ -127,10 +133,12 @@ class MemoryBidStore implements BidStore {
 			.map((row) => ({ ...row }))
 	}
 
-	async markDead(commitment: string): Promise<boolean> {
+	async markDead(commitment: string, rows?: readonly number[]): Promise<boolean> {
+		const only = rows ? new Set(rows) : undefined
 		let changed = false
 		for (const row of this.rows) {
 			if (row.commitment !== commitment || row.retracted || row.dead) continue
+			if (only && !only.has(row.id)) continue
 			row.dead = true
 			changed = true
 		}

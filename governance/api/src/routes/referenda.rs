@@ -365,3 +365,36 @@ pub async fn track_counts(state: &AppState) -> ApiResult<Vec<Value>> {
 		})
 		.collect())
 }
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn names_event_args_as_the_timeline_expects() {
+		let hash = json!("0xabc");
+		let submitted =
+			timeline_args("Submitted", json!({ "index": 80, "track": 1 }), "alice", &hash);
+		assert_eq!(
+			submitted,
+			json!({ "referendumIndex": 80, "track": 1, "proposer": "alice", "proposalHash": "0xabc" })
+		);
+		let deposit = timeline_args(
+			"DecisionDepositPlaced",
+			json!({ "index": 80, "amount": "0x0a" }),
+			"alice",
+			&hash,
+		);
+		assert_eq!(deposit, json!({ "amount": "10" }));
+	}
+
+	#[test]
+	fn describes_tracks_with_their_origin() {
+		let info =
+			json!({ "name": "whitelisted_caller\0\0", "decisionDeposit": "0x0a" }).to_string();
+		let track = track(1, Some(info));
+		assert_eq!(track["name"], "whitelisted_caller");
+		assert_eq!(track["origin"], "WhitelistedCaller");
+		assert_eq!(track["decisionDeposit"], "10");
+	}
+}

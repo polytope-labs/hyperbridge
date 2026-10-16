@@ -9,6 +9,8 @@ mod referenda;
 mod signed;
 mod spends;
 mod statistics;
+#[cfg(test)]
+mod tests;
 mod users;
 mod votes;
 
@@ -198,5 +200,23 @@ impl Params {
 			page: number("page", 1).max(1),
 			page_size: number("page_size", default_size).clamp(1, 100),
 		}
+	}
+}
+
+#[cfg(test)]
+mod params_tests {
+	use super::*;
+
+	#[test]
+	fn reads_query_strings_the_way_the_frontend_sends_them() {
+		let params = Params::new(Some(
+			"status=&referendum_index=1&referendum_index=2&ongoing=true&page_size=500".into(),
+		));
+		assert_eq!(params.get("status"), None, "an empty filter is not a filter");
+		assert_eq!(params.all("referendum_index").collect::<Vec<_>>(), ["1", "2"]);
+		assert!(params.flag("ongoing"));
+		assert_eq!(params.paging(10).page_size, 100, "pages are capped");
+		assert_eq!(with_param(None, "track=1"), "track=1");
+		assert_eq!(with_param(Some("page=2".into()), "track=1"), "page=2&track=1");
 	}
 }

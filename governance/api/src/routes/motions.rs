@@ -146,3 +146,22 @@ pub async fn detail(
 	detail["reactions"] = post_reactions(&state, post_id(PostKind::Motion, index.into())).await?;
 	Ok(Json(detail))
 }
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn names_event_args_as_the_timeline_expects() {
+		let voted =
+			json!({ "account": "bob", "proposalHash": "0xabc", "voted": true, "yes": 2, "no": 0 });
+		assert_eq!(
+			timeline_args("Voted", voted),
+			json!({ "voter": "bob", "hash": "0xabc", "approve": true, "yesVotes": 2, "noVotes": 0 })
+		);
+		assert_eq!(
+			timeline_args("Proposed", json!({ "account": "alice" })),
+			json!({ "proposer": "alice" })
+		);
+	}
+}

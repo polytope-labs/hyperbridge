@@ -192,3 +192,18 @@ fn compare_timeline(
 		report.compare(item, &format!("onchainData.timeline.{index}.{field}"), ours, theirs);
 	}
 }
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+	use serde_json::json;
+
+	#[test]
+	fn compares_amounts_by_value_and_allows_extra_fields() {
+		let ours = normalized(&json!({ "ayes": "0x0a", "origin": "Root", "votes": [1] }));
+		let theirs = normalized(&json!({ "ayes": 10, "votes": ["1"] }));
+		assert!(matches(&ours, &theirs));
+		assert!(!matches(&theirs, &ours), "a field they have and we lack is a difference");
+		assert_eq!(at(&json!({ "a": [{ "b": 2 }] }), "a.0.b"), json!(2));
+	}
+}

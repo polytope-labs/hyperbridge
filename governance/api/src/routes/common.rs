@@ -135,3 +135,18 @@ pub fn decimal(value: &Value) -> Value {
 		_ => value.clone(),
 	}
 }
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn turns_chain_integers_into_decimal_strings() {
+		assert_eq!(
+			decimal(&json!("0x0000000000000000058d15e176280000")),
+			json!("400000000000000000")
+		);
+		assert_eq!(decimal(&json!(42)), json!("42"));
+		assert_eq!(decimal(&json!("not hex")), json!("not hex"));
+	}
+}

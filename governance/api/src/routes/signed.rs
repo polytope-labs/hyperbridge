@@ -43,3 +43,58 @@ impl SignedEntity {
 		Ok(entity)
 	}
 }
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+	use serde_json::json;
+	use sp_core::{
+		crypto::{AccountId32, Ss58AddressFormat, Ss58Codec},
+		sr25519, Pair,
+	};
+
+	fn request(
+		signer: &sr25519::Pair,
+		address: &sr25519::Pair,
+		entity: Value,
+	) -> anyhow::Result<SignedEntity> {
+		let signature = format!(
+			"0x{}",
+			hex::encode(signer.sign(format!("<Bytes>{entity}</Bytes>").as_bytes()).0)
+		);
+		let address = AccountId32::from(address.public().0)
+			.to_ss58check_with_version(Ss58AddressFormat::custom(0));
+		Ok(serde_json::from_value(
+			json!({ "entity": entity, "address": address, "signature": signature }),
+		)?)
+	}
+
+	#[test]
+	fn accepts_only_fresh_matching_signatures_from_the_account() -> anyhow::Result<()> {
+		let (alice, bob) = (
+			sr25519::Pair::from_string("//Alice", None)?,
+			sr25519::Pair::from_string("//Bob", None)?,
+		);
+		let now = Utc::now().timestamp_millis();
+		let bio = |timestamp: i64| json!({ "action": "set-profile-bio", "bio": "hi", "timestamp": timestamp });
+
+		assert!(request(&alice, &alice, bio(now))?.verify("set-profile-bio").is_ok());
+		assert!(request(&alice, &alice, bio(now))?.verify("set-avatar").is_err(), "another action");
+		assert!(
+			request(&bob, &alice, bio(now))?.verify("set-profile-bio").is_err(),
+			"another signer"
+		);
+		assert!(
+			request(&alice, &alice, bio(now - VALID_FOR_MS - 1))?
+				.verify("set-profile-bio")
+				.is_err(),
+			"too old"
+		);
+		let proxied = json!({ "action": "set-profile-bio", "timestamp": now, "real": "someone" });
+		assert!(
+			request(&alice, &alice, proxied)?.verify("set-profile-bio").is_err(),
+			"signed as a proxy"
+		);
+		Ok(())
+	}
+}

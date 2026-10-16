@@ -111,3 +111,28 @@ impl Paging {
 		Page { items, page: self.page, page_size: self.page_size, total }
 	}
 }
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn post_ids_round_trip_and_never_clash_with_comment_ids() {
+		let id = post_id(PostKind::Referendum, 80);
+		assert_eq!(id.len(), 24);
+		assert_eq!(parse_post_id(&id), Some((PostKind::Referendum, 80)));
+		assert_eq!(parse_comment_id(&comment_id(5)), Some(5));
+		assert_eq!(parse_post_id(&comment_id(80)), None);
+		assert_eq!(parse_comment_id(&id), None);
+	}
+
+	#[test]
+	fn formats_times_and_authors_as_the_frontend_reads_them() {
+		assert_eq!(iso(1_764_924_258_000), "2025-12-05T08:44:18.000Z");
+		let author = author("15PCbSw1gdtCG9fp1AdLVEQnovPh7LLYWN9krTDAZYhHirSY");
+		assert!(author["username"]
+			.as_str()
+			.is_some_and(|name| name.starts_with("polkadot-key-0x")));
+		assert_eq!(author["publicKey"].as_str().map(str::len), Some(64));
+	}
+}

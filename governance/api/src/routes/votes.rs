@@ -440,3 +440,30 @@ pub async fn user_vote_stats(
 		"participationRate": participation(&state, &account).await?,
 	})))
 }
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn weighs_balances_by_conviction() {
+		assert_eq!(with_conviction(100, 0), 10);
+		assert_eq!(with_conviction(100, 6), 600);
+	}
+
+	#[test]
+	fn decodes_the_packed_vote_byte() {
+		let aye = account_vote(&json!({ "standard": { "vote": "0x83", "balance": "0x0a" } }));
+		assert_eq!(
+			aye["vote"],
+			json!({ "balance": "10", "vote": { "isAye": true, "conviction": 3 } })
+		);
+		let nay = account_vote(&json!({ "standard": { "vote": "0x01", "balance": 5 } }));
+		assert_eq!(nay["vote"]["vote"], json!({ "isAye": false, "conviction": 1 }));
+		let split = account_vote(&json!({ "split": { "aye": 3, "nay": 4 } }));
+		assert_eq!(
+			(split["isSplit"].clone(), split["vote"].clone()),
+			(json!(true), json!({ "aye": "3", "nay": "4" }))
+		);
+	}
+}

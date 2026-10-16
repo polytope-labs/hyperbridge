@@ -14,4 +14,5 @@ and fails validation. USDC has permit on all three, so it is USDT-only solvers e
 deploy the implementation with `DeploySimplexPaymasterImpl.s.sol`, `upgrade_paymaster` with
 `migrate(relayer)` init data on the three proxies, fresh deploys on BSC and Arbitrum, and only then
 tag `simplex-v0.14.0`. A guard that skips the bid when no paymaster is usable was left out as a
-separate behaviour change.
+separate behaviour change; it now exists: `prepareBidUserOp` refuses a bid with no paymaster unless
+the account's EntryPoint deposit plus native balance cover the op's gas.

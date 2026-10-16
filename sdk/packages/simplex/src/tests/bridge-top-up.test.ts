@@ -555,6 +555,64 @@ describe("BRIDGE top-up persistence", () => {
 		}
 	})
 
+	it("retries instead of cancelling when the indexer reports a refund the chain cannot confirm", async () => {
+		vi.useFakeTimers()
+		const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(
+			async () =>
+				new Response(
+					JSON.stringify({
+						data: {
+							iOrderV3s: {
+								nodes: [
+									{ statusMetadata: { nodes: [{ status: "REFUNDED", timestamp: "100", transactionHash: "0x0f" }] } },
+								],
+							},
+						},
+					}),
+				),
+		)
+		try {
+			const { topUp, data } = topUpWith(stored("unfilled", { commitment: `0x${"77".repeat(32)}` }))
+			const internals = topUp as unknown as { gateways: Map<string, Promise<unknown>>; deps: BridgeTopUpDeps }
+			let cancelOrderCalls = 0
+			const isOrderRefunded = vi.fn(async () => {
+				throw new Error("source RPC unavailable")
+			})
+			internals.gateways.set(
+				"EVM-8453",
+				Promise.resolve({
+					isOrderRefunded,
+					async *cancelOrder() {
+						cancelOrderCalls += 1
+					},
+				}),
+			)
+			const submitCalls = vi.fn(async () => ({ txHash: "0xcanceltx", sponsored: true }))
+			;(internals.deps as unknown as Record<string, unknown>).tokenSender = { submitCalls }
+
+			await topUp.reclaim()
+			await vi.advanceTimersByTimeAsync(60_000)
+			let record = (await data.state.get()).bridgeTopUp!
+			expect(record.stage).toBe("reclaiming")
+			expect(record.error).toContain("Recovery is retrying")
+			expect(record.error).toContain("source RPC unavailable")
+
+			for (let i = 0; i < 5; i++) await vi.advanceTimersByTimeAsync(60_000)
+			record = (await data.state.get()).bridgeTopUp!
+			expect(record.stage).toBe("unfilled")
+			expect(record.error).toContain("Recovery stopped after 5 failed attempts")
+			// Never reclaimed on the indexer's word, and never cancelled while the refund is in doubt.
+			expect(record.recoverySteps ?? []).toEqual([])
+			expect(isOrderRefunded).toHaveBeenCalledTimes(5)
+			expect(cancelOrderCalls).toBe(0)
+			expect(submitCalls).not.toHaveBeenCalled()
+		} finally {
+			vi.clearAllTimers()
+			fetchSpy.mockRestore()
+			vi.useRealTimers()
+		}
+	})
+
 	it("cancels a same-chain unfilled order in one call, with no relayer fee", async () => {
 		const { topUp, data } = topUpWith(stored("unfilled", { chain: "EVM-56", commitment: `0x${"77".repeat(32)}` }))
 		const cancelData = encodeFunctionData({
@@ -1634,6 +1692,141 @@ describe("BRIDGE top-up live order tracking", () => {
 		expect((await data.state.get()).bridgeTopUp?.stage).toBe("delivering")
 		expect(resumeDelivery).toHaveBeenCalledTimes(1)
 		fetchSpy.mockRestore()
+	})
+})
+
+describe("BRIDGE top-up outcomes need the chain", () => {
+	const REFUNDED_INDEX = {
+		data: {
+			iOrderV3s: {
+				nodes: [{ statusMetadata: { nodes: [{ status: "REFUNDED", timestamp: "100", transactionHash: "0x0f" }] } }],
+			},
+		},
+	}
+
+	it.each(["awaiting_bids", "unfilled"] as const)(
+		"does not mark a %s top-up reclaimed on the indexer's REFUNDED alone",
+		async (stage) => {
+			const { topUp, data } = topUpWith(stored(stage, { commitment: `0x${"77".repeat(32)}` }))
+			const internals = topUp as unknown as TopUpInternals & { resumeOrder: () => Promise<void> }
+			internals.resumeOrder = async () => {}
+			const isOrderRefunded = vi.fn(async () => false)
+			internals.gateways.set("EVM-8453", Promise.resolve({ isOrderFilled: async () => false, isOrderRefunded }))
+			const fetchSpy = vi
+				.spyOn(globalThis, "fetch")
+				.mockImplementation(async () => new Response(JSON.stringify(REFUNDED_INDEX)))
+
+			await topUp.sync()
+
+			expect(isOrderRefunded).toHaveBeenCalled()
+			expect((await data.state.get()).bridgeTopUp?.stage).toBe(stage)
+			fetchSpy.mockRestore()
+		},
+	)
+
+	it("marks a top-up reclaimed once the gateway confirms the refund, with the indexer's tx", async () => {
+		const { topUp, data } = topUpWith(stored("awaiting_bids", { commitment: `0x${"77".repeat(32)}` }))
+		const internals = topUp as unknown as TopUpInternals & { resumeOrder: () => Promise<void> }
+		internals.resumeOrder = async () => {}
+		internals.gateways.set("EVM-8453", Promise.resolve({ isOrderRefunded: async () => true }))
+		const fetchSpy = vi
+			.spyOn(globalThis, "fetch")
+			.mockImplementation(async () => new Response(JSON.stringify(REFUNDED_INDEX)))
+
+		await topUp.sync()
+
+		const saved = (await data.state.get()).bridgeTopUp!
+		expect(saved.stage).toBe("reclaimed")
+		expect(saved.recoverySteps?.map((step) => [step.step, step.txHash])).toEqual([["FUNDS_CLAIMED", "0x0f"]])
+		fetchSpy.mockRestore()
+	})
+
+	it("does not mark a top-up delivered on the indexer's DESTINATION status without a receipt", async () => {
+		const record = stored("delivering", {
+			commitment: `0x${"77".repeat(32)}`,
+			fillTxHash: FILL_TX,
+			deliveryCommitment: DELIVERY_COMMITMENT,
+		})
+		const { topUp, data, refreshBridgeBalance } = topUpWith(record)
+		const internals = topUp as unknown as TopUpInternals & {
+			hyperbridgeChain: Promise<unknown>
+			syncDelivery: () => Promise<boolean>
+		}
+		internals.record = record
+		internals.hyperbridgeChain = Promise.resolve({ queryRequestReceipt: async () => null })
+
+		expect(await internals.syncDelivery()).toBe(false)
+
+		const saved = (await data.state.get()).bridgeTopUp!
+		expect(saved.stage).toBe("delivering")
+		// The status still reaches the timeline.
+		expect(saved.deliveryStatuses?.map((status) => status.status)).toContain("DESTINATION")
+		expect(refreshBridgeBalance).not.toHaveBeenCalled()
+	})
+})
+
+describe("BRIDGE top-up start", () => {
+	const OTHER = "0x00000000000000000000000000000000000000ef" as HexString
+
+	/** A top-up whose quote fills 5 USDC (`FEE_TOKEN`), with the given balances and order fee. */
+	function startable(balances: Record<string, bigint>, fee: { fees: bigint; feeToken: HexString }) {
+		const { topUp } = topUpWith(stored("filled"))
+		const internals = topUp as unknown as TopUpInternals & {
+			quote: () => Promise<unknown>
+			buildOrder: () => Promise<unknown>
+		}
+		internals.quote = async () => ({ fillable: true, amountIn: "5", bridgeOut: "99", maxFillableIn: "100" })
+		internals.buildOrder = async () => ({ ...ORDER, fees: 0n })
+		const quoteOrderFees = vi.fn(async () => fee)
+		internals.gateways.set("EVM-8453", Promise.resolve({ ...placementGateway(), quoteOrderFees }))
+		const submitCalls = vi.fn(async () => ({ txHash: PLACE_TX, sponsored: true }))
+		internals.deps.tokenSender = { submitCalls } as never
+		;(internals.deps.configService as unknown as Record<string, unknown>).getSimplexPaymasterAddress = () => undefined
+		;(internals.deps.clientManager as unknown as Record<string, unknown>).getPublicClient = () => ({
+			readContract: async ({ functionName, address }: { functionName: string; address: HexString }) => {
+				if (functionName === "balanceOf") return balances[address] ?? 0n
+				if (functionName === "decimals") return 18
+				if (functionName === "symbol") return "USDT"
+				throw new Error(`unexpected read: ${functionName}`)
+			},
+			getBlockNumber: async () => 100n,
+			waitForTransactionReceipt: async () => ({ logs: [orderPlacedLog()] }),
+		})
+		return { topUp, quoteOrderFees, submitCalls }
+	}
+
+	it("refuses when the wallet covers the input but not the input plus the order fee", async () => {
+		// USDC is both the pay token and the host's fee token: 5 in plus a 0.3 fee is 5.3.
+		const { topUp, quoteOrderFees, submitCalls } = startable(
+			{ [FEE_TOKEN]: 5_100_000n },
+			{ fees: 300_000n, feeToken: FEE_TOKEN },
+		)
+		await expect(topUp.start({ chain: "EVM-8453", token: "USDC", amount: "5" })).rejects.toThrow(
+			"Not enough USDC: 5.1 spendable after the 0 USDC kept for gas, need 5.3 (5 plus a 0.3 order fee)",
+		)
+		expect(quoteOrderFees).toHaveBeenCalledTimes(1)
+		expect(submitCalls).not.toHaveBeenCalled()
+		expect(await topUp.current()).toMatchObject({ stage: "filled" })
+	})
+
+	it("refuses when the fee is charged in another token the wallet lacks", async () => {
+		const { topUp, submitCalls } = startable(
+			{ [FEE_TOKEN]: 10_000_000n, [OTHER]: 10n ** 17n },
+			{ fees: 3n * 10n ** 17n, feeToken: OTHER },
+		)
+		await expect(topUp.start({ chain: "EVM-8453", token: "USDC", amount: "5" })).rejects.toThrow(
+			"Not enough USDT for the order fee: 0.1 spendable after the 0 USDT kept for gas, need 0.3",
+		)
+		expect(submitCalls).not.toHaveBeenCalled()
+	})
+
+	it("places once the wallet covers the input and the fee", async () => {
+		const { topUp, submitCalls } = startable({ [FEE_TOKEN]: 5_300_000n }, { fees: 300_000n, feeToken: FEE_TOKEN })
+		await expect(topUp.start({ chain: "EVM-8453", token: "USDC", amount: "5" })).resolves.toMatchObject({
+			stage: "placing",
+		})
+		await vi.waitFor(async () => expect(await topUp.current()).toMatchObject({ stage: "awaiting_bids" }))
+		expect(submitCalls).toHaveBeenCalledTimes(1)
 	})
 })
 

@@ -138,6 +138,19 @@ describe("bidValidUntilBlock", () => {
 		await expect(service(2000, 300, 3)).resolves.toBe(HEAD + 165n)
 	})
 
+	it("discards a measurement below a quarter of the declared block time", async () => {
+		// Ethereum declares 12s; a sample claiming 1s blocks would stretch a 330s window to 330
+		// blocks (over an hour). The declared figure stands: 28 blocks.
+		await expect(service(12000, 300, 1)).resolves.toBe(HEAD + 28n)
+		// Just above the floor (3s against 12s declared) is still taken as a faster chain.
+		await expect(service(12000, 300, 3.5)).resolves.toBe(HEAD + 95n)
+	})
+
+	it("floors a measurement at 0.1s on a chain that declares no block time", async () => {
+		// 0.01s blocks would turn 330s into 33,000 blocks; 0.1s gives 3,300.
+		await expect(service(undefined, 300, 0.01)).resolves.toBe(HEAD + 3300n)
+	})
+
 	it("samples the last 1,000 blocks", async () => {
 		const { validUntil, getBlock } = setup(2000)
 		await validUntil()

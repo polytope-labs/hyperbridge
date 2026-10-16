@@ -77,18 +77,29 @@ function optionsWith(relayerFee: bigint): FillOptions {
 	return { relayerFee, nativeDispatchFee: 0n, validUntil: 0n, outputs, inputs }
 }
 
-function service(feeToken: HexString = USDC): ContractInteractionService {
+/**
+ * Every contract read is zero: no EntryPoint deposit for the account or for a paymaster.
+ * `native` is the account's own balance, which pays an unsponsored bid's gas. `paymaster`
+ * configures one, whose empty deposit then leaves selection with none.
+ */
+function service(
+	feeToken: HexString = USDC,
+	{ native = 10n ** 18n, paymaster = false }: { native?: bigint; paymaster?: boolean } = {},
+): ContractInteractionService {
 	const client = {
 		chain: { blockTime: 2000 },
 		getBlockNumber: async () => 100n,
 		readContract: async () => 0n,
+		getBalance: async () => native,
 	}
 	const contract = new ContractInteractionService(
 		{ getPublicClient: () => client, getWalletClient: () => ({}) } as any,
 		{
 			loggers: undefined,
 			getIntentGatewayAddress: () => GATEWAY,
-			getSimplexPaymasterAddress: () => undefined,
+			getSimplexPaymasterAddress: () => (paymaster ? "0x000000000000000000000000000000000051391e" : undefined),
+			getEntryPointAddress: () => ENTRY_POINT,
+			getChainId: () => 97,
 			getBidValiditySeconds: () => 60,
 		} as any,
 		privateKeySigner(SOLVER_KEY),
@@ -128,10 +139,16 @@ function approvedIn(batch: ERC7821Call[], token: HexString): bigint | undefined 
  * Drives `prepareBidUserOp` over a gateway helper that signs nothing and hands back
  * what it was asked to sign.
  */
-async function prepareBid(contract: ContractInteractionService, order: Order, cached?: LimitOrderBudget) {
+async function prepareBid(
+	contract: ContractInteractionService,
+	order: Order,
+	cached?: LimitOrderBudget,
+	/** What the bid's own preVerificationGas estimate comes back as; the fill estimate cached 50,000. */
+	bidPreVerificationGas = 50_000n,
+) {
 	let signed: any
 	const helper = {
-		estimateBidPreVerificationGas: async () => 50_000n,
+		estimateBidPreVerificationGas: async () => bidPreVerificationGas,
 		prepareSubmitBid: async (params: any): Promise<PackedUserOperation> => {
 			signed = params
 			return {
@@ -332,6 +349,34 @@ describe("preparing a bid", () => {
 		await expect(prepareBid(service(), sameChain, { ...budget, token: USDC })).rejects.toThrow(
 			`approves nothing in ${USDC}, the token budget ${budget.budgetId} is measured in`,
 		)
+	})
+
+	it("refuses a bid nothing can pay gas for when the paymaster cannot sponsor it", async () => {
+		// The paymaster's deposit is empty, so selection returns none, and the account has no
+		// EntryPoint deposit and no native: the op would fail AA21 after the bid fee was paid.
+		const contract = service(USDC, { paymaster: true, native: 0n })
+		await expect(prepareBid(contract, sameChain)).rejects.toThrow(
+			/No paymaster for this bid \(simplex: EntryPoint deposit 0 < .*\) and the account cannot pay its gas on EVM-97/,
+		)
+	})
+
+	it("bids without a paymaster when the account's native covers the op's gas", async () => {
+		// (call + verification + preVerification gas) at a max fee of 1 wei: 1,150,000 wei.
+		const required = BASE_CALL_GAS + 100_000n + 50_000n
+		await expect(prepareBid(service(USDC, { paymaster: true, native: required }), sameChain)).resolves.toBeDefined()
+		await expect(prepareBid(service(USDC, { paymaster: true, native: required - 1n }), sameChain)).rejects.toThrow(
+			"cannot pay its gas",
+		)
+	})
+
+	it("checks the gas the bid is signed with, after its own preVerificationGas estimate", async () => {
+		// On an L2 the bid's re-estimate is larger than the fill's: that is the prefund charged.
+		const required = BASE_CALL_GAS + 100_000n + 80_000n
+		const contract = (native: bigint) => service(USDC, { paymaster: true, native })
+		await expect(prepareBid(contract(required - 1n), sameChain, undefined, 80_000n)).rejects.toThrow(
+			"cannot pay its gas",
+		)
+		await expect(prepareBid(contract(required), sameChain, undefined, 80_000n)).resolves.toBeDefined()
 	})
 
 	it("allows call gas for the budget call only when the bid carries it", async () => {

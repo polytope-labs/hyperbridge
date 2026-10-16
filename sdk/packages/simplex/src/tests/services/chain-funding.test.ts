@@ -4,7 +4,7 @@ import type { HexString } from "@hyperbridge/sdk"
 import type { FillerConfigService } from "@/services/FillerConfigService"
 import { fundingShortfall, type ChainFunding } from "@/services/chain-funding"
 import { nativeSetupNeed } from "@/services/native-setup"
-import { readChainFunding } from "@/services/read-chain-funding"
+import { readChainFunding, readChainFundingFromUnverifiedRpcs } from "@/services/read-chain-funding"
 
 vi.mock("@/services/native-setup", async (importOriginal) => ({
 	...(await importOriginal<typeof import("@/services/native-setup")>()),
@@ -90,6 +90,67 @@ describe("readChainFunding", () => {
 		const reads = rpc.readContract.mock.calls.map(([call]) => call.functionName)
 		expect(reads.filter((name) => name === "feeToken")).toHaveLength(1)
 		expect(reads.filter((name) => name === "balanceOf")).toHaveLength(2)
+	})
+
+	describe("through the wizard's unverified RPCs", () => {
+		const GOOD = "https://good.example"
+		const OTHER = "https://other-chain.example"
+		const DEAD = "https://dead.example"
+
+		/** Probes answer by URL; `connect` records the URLs a read goes through. */
+		function wizardIo(chainId: number, rpc: ReturnType<typeof client>) {
+			const reportedBy: Record<string, number> = { [GOOD]: chainId, [OTHER]: 1 }
+			const connected: string[][] = []
+			return {
+				connected,
+				io: {
+					probeChainId: async (url: string) => {
+						if (!(url in reportedBy)) throw new Error("fetch failed")
+						return reportedBy[url]
+					},
+					connect: (urls: string[]) => {
+						connected.push(urls)
+						return rpc
+					},
+				},
+			}
+		}
+
+		it("refuses a URL that serves another chain, and caches nothing from it", async () => {
+			const chainId = 9000 + ++chains
+			const rpc = client(1n)
+			const { io, connected } = wizardIo(chainId, rpc)
+
+			await expect(readChainFundingFromUnverifiedRpcs([GOOD, OTHER], chainId, config, WALLET, io)).rejects.toThrow(
+				`RPC endpoint 2 serves chain 1, not chain ${chainId}`,
+			)
+			expect(connected).toEqual([])
+			expect(rpc.readContract).not.toHaveBeenCalled()
+
+			// The next, correct read still asks the host for its fee token: nothing was pinned.
+			await readChainFundingFromUnverifiedRpcs([GOOD], chainId, config, WALLET, io)
+			expect(rpc.readContract.mock.calls.map(([call]) => call.functionName)).toContain("feeToken")
+		})
+
+		it("reads through the URLs that answered, leaving an unreachable one out", async () => {
+			const chainId = 9000 + ++chains
+			const { io, connected } = wizardIo(chainId, client(parseUnits("250", 18)))
+
+			const funding = await readChainFundingFromUnverifiedRpcs([DEAD, GOOD], chainId, config, WALLET, io)
+
+			expect(connected).toEqual([[GOOD]])
+			expect(funding.feeToken).toEqual({ symbol: "USDT", balance: 250 })
+		})
+
+		it("fails clearly when no URL answers", async () => {
+			const chainId = 9000 + ++chains
+			const { io, connected } = wizardIo(chainId, client(1n))
+
+			await expect(readChainFundingFromUnverifiedRpcs([DEAD], chainId, config, WALLET, io)).rejects.toThrow(
+				`None of the RPC endpoints for chain ${chainId} answered`,
+			)
+			expect(connected).toEqual([])
+		})
 	})
 
 	it("uses a native balance it is given instead of reading one", async () => {

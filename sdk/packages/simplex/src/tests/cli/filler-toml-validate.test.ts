@@ -136,6 +136,32 @@ describe("validateConfig", () => {
 
 })
 
+describe("validateConfig [rebalancing]", () => {
+	const withRebalancing = (triggerPercentage: number, base = "12000"): FillerTomlConfig => ({
+		...minimalConfig(),
+		rebalancing: { triggerPercentage, baseBalances: { USDC: { "8453": base } } },
+	})
+
+	it.each([0, 1, -0.1, Number.NaN])("rejects a triggerPercentage of %s", (trigger) => {
+		expect(() => validateConfig(withRebalancing(trigger))).toThrow(/triggerPercentage must be a number between 0 and 1/)
+	})
+
+	it("says so when triggerPercentage is not a number at all", () => {
+		// A TOML `triggerPercentage = "0.5"` parses as a string.
+		expect(() => validateConfig(withRebalancing("0.5" as unknown as number))).toThrow(
+			'rebalancing.triggerPercentage must be a number between 0 and 1 (exclusive); got the string "0.5"',
+		)
+	})
+
+	it("accepts a triggerPercentage strictly between 0 and 1", () => {
+		expect(() => validateConfig(withRebalancing(0.5))).not.toThrow()
+	})
+
+	it.each(["0", "-5", "abc", "Infinity"])("rejects a base balance of %s", (base) => {
+		expect(() => validateConfig(withRebalancing(0.5, base))).toThrow(/baseBalances\.USDC for chain 8453/)
+	})
+})
+
 describe("validateConfig [orderbook]", () => {
 	const withOrderbook = (orderbook: FillerTomlConfig["orderbook"]): FillerTomlConfig => ({
 		...minimalConfig(),

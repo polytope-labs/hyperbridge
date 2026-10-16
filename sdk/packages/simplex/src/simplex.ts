@@ -4,7 +4,7 @@ import type { HexString, Order } from "@hyperbridge/sdk"
 import { bootFiller, type FillerRuntime } from "@/core/boot"
 import { formatChainKey } from "@/config/interpolated-curve"
 import type { AssetDefinition } from "@/config/asset-registry"
-import { assertConfirmationCoverage, type VaultToml } from "@/config/filler-toml"
+import { assertConfirmationCoverage, validateRebalancingConfig, type VaultToml } from "@/config/filler-toml"
 import type { ChainConfirmationPolicy, FillerTomlConfig, RebalancingConfig } from "@/config/filler-toml"
 import { resolveChainConfigs, validateRpcUrls, type AllowlistConfig } from "@/services/FillerConfigService"
 import { assertBundlersServeEntryPoint } from "@/services/bundler-preflight"
@@ -832,6 +832,7 @@ export class RebalanceController {
 
 	/** Replaces the rebalancing settings; trigger checks read them live. */
 	async set(rebalancing: RebalancingConfig | undefined): Promise<void> {
+		if (rebalancing) validateRebalancingConfig(rebalancing)
 		this.runtime.configService.setRebalancing(rebalancing)
 		this.runtime.config.rebalancing = rebalancing
 		await this.persist()

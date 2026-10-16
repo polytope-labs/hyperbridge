@@ -8,6 +8,7 @@ import {
 	type TokenInfo,
 	type IntentsCoprocessor,
 	ADDRESS_ZERO,
+	assertGatewayRelease,
 } from "@hyperbridge/sdk"
 import type { ChainClientManager, ContractInteractionService } from "@/services"
 import type { FillerConfigService } from "@/services/FillerConfigService"
@@ -74,6 +75,8 @@ export class FXFiller implements FillerStrategy {
 	private consecutiveClamps = 0
 	/** Once set, the filler refuses all orders until reset. Unreachable while the clamp is dormant. */
 	private halted = false
+	/** Source chains whose gateway reported the release a cross-chain partial fill needs. */
+	private readonly sourceReleaseChecked = new Set<string>()
 	/** Bps above the swapper's ask past which a limit order's offer is logged as suspicious. Warn only. */
 	private readonly maxOverfillBps: bigint
 	/** Consecutive clamped evaluations before halting. Dormant, as `consecutiveClamps` is. */
@@ -341,7 +344,9 @@ export class FXFiller implements FillerStrategy {
 					const partialEligible = async (): Promise<boolean> => {
 						if (!partialEligibleCheap) return false
 						if (priorPartialChecked === undefined) {
-							priorPartialChecked = !(await this.hasExistingPartialFill(order, destChain))
+							priorPartialChecked =
+								!(await this.hasExistingPartialFill(order, destChain)) &&
+								(sourceChain === destChain || (await this.sourceReleasesPartially(order, sourceChain)))
 						}
 						return priorPartialChecked
 					}
@@ -911,6 +916,30 @@ export class FXFiller implements FillerStrategy {
 			)
 			return true
 		}
+	}
+
+	/**
+	 * Whether the source chain's gateway runs the release this SDK requires. Only the destination
+	 * gateway's release is asserted when a fill is estimated, but a cross-chain under-fill is
+	 * settled on the source by `RedeemEscrowPartial`, which an older source gateway does not
+	 * handle: the fill would be paid out and its escrow never released. Only a supported release
+	 * is cached, so an upgraded gateway is picked up without a restart. A failed read, or a chain
+	 * with no gateway configured, counts as unsupported for this evaluation.
+	 */
+	private async sourceReleasesPartially(order: Order, chain: string): Promise<boolean> {
+		if (this.sourceReleaseChecked.has(chain)) return true
+		try {
+			const gateway = this.configService.getIntentGatewayAddress(chain)
+			await assertGatewayRelease(this.clientManager.getPublicClient(chain), gateway, chain)
+		} catch (err) {
+			this.logger.info(
+				{ orderId: order.id, sourceChain: chain, err },
+				"Skipping a cross-chain partial fill: the source gateway's release could not be confirmed",
+			)
+			return false
+		}
+		this.sourceReleaseChecked.add(chain)
+		return true
 	}
 
 	/**

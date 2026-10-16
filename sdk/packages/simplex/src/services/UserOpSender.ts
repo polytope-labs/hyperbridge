@@ -5,7 +5,7 @@ import {
 	type PackedUserOperation,
 	type HexString,
 } from "@hyperbridge/sdk"
-import { toHex, type PublicClient } from "viem"
+import { hashTypedData, toHex, type PublicClient } from "viem"
 import { ENTRYPOINT_ABI } from "@/config/abis/Entrypoint"
 import type { ChainClientManager } from "./ChainClientManager"
 import type { FillerConfigService } from "./FillerConfigService"
@@ -74,6 +74,91 @@ const FALLBACK_PRE_VERIFICATION_GAS = 150_000n
 const PRIORITY_FEE_BUMP_PERCENT = 8n
 const MAX_FEE_BUMP_PERCENT = 10n
 
+// Bounds the cheap bundler reads — the receipt and by-hash polls. A gateway that accepts the
+// connection but never answers would otherwise pin the send path indefinitely; the receipt wait
+// is time-based, so each poll must finish well within it.
+const BUNDLER_POLL_TIMEOUT_MS = 10_000
+
+// The send and estimate calls run the whole validation simulation, so they get a longer bound: a
+// slow-but-healthy send must not be aborted into the ambiguous path (which forces a lookup and
+// may read as unconfirmed), nor an estimate into the ~1.9M-gas fallback limits.
+const BUNDLER_SIMULATION_TIMEOUT_MS = 30_000
+
+// A receipt is polled every `RECEIPT_POLL_INTERVAL_MS` until this wall-clock deadline. Time-based
+// rather than a poll count so the per-poll timeout cannot stretch the wait (a 30-poll count with a
+// 10 s poll timeout would run to six minutes).
+const RECEIPT_WAIT_DEADLINE_MS = 90_000
+const RECEIPT_POLL_INTERVAL_MS = 2_000
+
+// No `BundlerMethod` entry for this one — it is not a method the send/estimate paths use, only
+// the post-failure lookup below.
+const ETH_GET_USER_OPERATION_BY_HASH = "eth_getUserOperationByHash"
+
+/**
+ * Node/undici codes for a failure in the connect phase — before any request bytes reached the
+ * bundler, so nothing can have been submitted. Anything else (a reset mid-request, an abort, a
+ * truncated/non-JSON body) leaves the op's fate unknown and is treated as ambiguous: guessing
+ * "not submitted" there would resend the calls natively and execute them twice.
+ */
+const UNREACHABLE_CODES = new Set([
+	"ECONNREFUSED",
+	"ENOTFOUND",
+	"EAI_AGAIN",
+	"EHOSTUNREACH",
+	"ENETUNREACH",
+	// undici's own connect-phase timeout; distinct from an earlier-established socket stalling.
+	"UND_ERR_CONNECT_TIMEOUT",
+	// TLS certificate verification failures (OpenSSL X509 codes, plus Node's hostname-mismatch).
+	"DEPTH_ZERO_SELF_SIGNED_CERT",
+	"SELF_SIGNED_CERT_IN_CHAIN",
+	"UNABLE_TO_GET_ISSUER_CERT",
+	"UNABLE_TO_GET_ISSUER_CERT_LOCALLY",
+	"UNABLE_TO_VERIFY_LEAF_SIGNATURE",
+	"CERT_HAS_EXPIRED",
+	"CERT_UNTRUSTED",
+	"ERR_TLS_CERT_ALTNAME_INVALID",
+])
+
+type BundlerCallOutcome = "rejected" | "unreachable" | "ambiguous"
+
+/**
+ * A bundler JSON-RPC call that returned no result. `outcome` records how definite the failure
+ * was, which the send path must not flatten: a `rejected` or `unreachable` call provably did not
+ * enter the op, while an `ambiguous` one may have been accepted with only the response lost.
+ */
+class BundlerCallError extends Error {
+	constructor(
+		message: string,
+		readonly outcome: BundlerCallOutcome,
+		readonly reason?: unknown,
+	) {
+		super(message)
+		this.name = "BundlerCallError"
+	}
+}
+
+function connectFailureCode(error: unknown): string | undefined {
+	const cause = (error as { cause?: { code?: unknown } } | undefined)?.cause
+	return typeof cause?.code === "string" ? cause.code : undefined
+}
+
+function describeError(error: unknown): string {
+	return error instanceof Error ? error.message : String(error)
+}
+
+/**
+ * Whether a JSON-RPC code is a deterministic rejection of the request: a parse/request error, or
+ * the ERC-4337 (ERC-7769) range the bundler uses for a definite refusal (which includes -32521,
+ * the validation/inclusion rejection). Only these codes let the send path fall back natively.
+ */
+function isDeterministicRejectionCode(code: unknown): boolean {
+	if (typeof code !== "number") return false
+	// Parse error (-32700) and invalid request/params (-32600…-32602).
+	if (code === -32700 || (code >= -32602 && code <= -32600)) return true
+	// The ERC-4337 rejection range, -32599…-32500.
+	return code >= -32599 && code <= -32500
+}
+
 /**
  * Submits self-initiated, paymaster-sponsored UserOperations through the bundler,
  * so the solver pays gas in stablecoins rather than native token. Shared by the
@@ -82,13 +167,19 @@ const MAX_FEE_BUMP_PERCENT = 10n
  * Submission contract (so callers can safely fall back to a native tx without
  * risking a double-execution):
  * - Returns `null` when the op was **never submitted** — paymaster/bundler not
- *   configured, insufficient USDC, preparation failed (approve tx or signing), or
- *   the bundler rejected `eth_sendUserOperation` outright (it never entered the
- *   mempool). The caller may fall back to native.
+ *   configured, insufficient USDC, preparation failed (approve tx or signing), the
+ *   bundler rejected `eth_sendUserOperation` outright, the connection could not be
+ *   established, or a post-failure lookup proved the op never entered the pool. The
+ *   caller may fall back to native.
+ *   `null` means *this* op never entered the pool, not that nothing is pending for
+ *   its EntryPoint nonce: a retry builds a new op on the same nonce, and the bundler's
+ *   "replacement underpriced"/"already known" answer for it rejects the new op only.
  * - Returns `{ txHash }` once a receipt is observed.
- * - **Throws** {@link SubmittedUnconfirmedError} when the op **was submitted** but no receipt
- *   arrived. The caller must NOT fall back (the op may still land) — retry on the next cycle,
- *   and resolve the op's fate later with {@link lookupUserOpReceipt}.
+ * - **Throws** {@link SubmittedUnconfirmedError} when the op **was submitted** but no
+ *   receipt arrived, or when its submission could not be determined at all (the send
+ *   response was lost and the lookup could not ask). The caller must NOT fall back (the
+ *   op may still land) — retry on the next cycle, and resolve the op's fate later with
+ *   {@link lookupUserOpReceipt}.
  */
 export class UserOpSender {
 	private logger: Logger
@@ -233,19 +324,80 @@ export class UserOpSender {
 		const bundlerUserOp = CryptoUtils.prepareBundlerCall(userOp)
 		if (formattedAuth) bundlerUserOp.eip7702Auth = formattedAuth
 
+		// The v0.8 EIP-712 digest of this typed data *is* the userOpHash — the exact payload
+		// `buildSignedUserOp` signs — so we can know the hash the bundler should return without
+		// asking it, which matters when the send response is lost.
+		const localUserOpHash = hashTypedData(
+			CryptoUtils.packedUserOpTypedData(userOp, entryPoint, BigInt(chainId)),
+		) as HexString
+
+		// Timestamped at the attempt: a lost response has no time of its own to record.
+		const submittedAt = Date.now()
+
 		let userOpHash: HexString
 		try {
-			userOpHash = await this.sendBundlerRpc<HexString>(bundlerUrl, BundlerMethod.ETH_SEND_USER_OPERATION, [
-				bundlerUserOp,
-				entryPoint,
-			])
+			const sent = await this.sendBundlerRpc<HexString | null>(
+				bundlerUrl,
+				BundlerMethod.ETH_SEND_USER_OPERATION,
+				[bundlerUserOp, entryPoint],
+				BUNDLER_SIMULATION_TIMEOUT_MS,
+			)
+			// A valid answer is the op's hash. Anything else (a null `result` from a malformed
+			// proxy response) is not an answer, so it falls into the ambiguous branch below.
+			if (typeof sent !== "string") {
+				throw new BundlerCallError(
+					`Bundler returned no UserOp hash (${BundlerMethod.ETH_SEND_USER_OPERATION})`,
+					"ambiguous",
+				)
+			}
+			if (sent.toLowerCase() !== localUserOpHash.toLowerCase()) {
+				this.logger.warn(
+					{ chain, expected: localUserOpHash, received: sent },
+					"Bundler returned a different UserOp hash than the signed op's; using the bundler's",
+				)
+			}
+			userOpHash = sent
 		} catch (error) {
-			// Rejected before entering the mempool — never submitted, safe to fall back.
-			this.logger.warn({ chain, error }, "Bundler rejected UserOp; caller should fall back to native")
-			return null
+			const outcome = error instanceof BundlerCallError ? error.outcome : "ambiguous"
+			if (outcome !== "ambiguous") {
+				// The bundler answered and refused the op, or the connection never reached it —
+				// either way nothing entered the pool, safe to fall back.
+				this.logger.warn(
+					{ chain, outcome, error },
+					`Bundler did not accept UserOp (${outcome}); caller should fall back to native`,
+				)
+				return null
+			}
+
+			// The request may have been accepted and only its response lost. Ask the bundler
+			// whether it holds the op before deciding; falling back here is what would
+			// double-execute the calls.
+			const found = await this.findSubmittedOp(bundlerUrl, localUserOpHash)
+			if (found === "absent") {
+				// We did ask, and it does not hold the op. A residual race remains: a bundler
+				// still validating the op when our request timed out could add it after our
+				// last lookup, so the lookup delays exist to make that window small.
+				this.logger.warn(
+					{ chain, userOpHash: localUserOpHash },
+					"Bundler's send response was lost and it does not hold the UserOp; caller should fall back to native",
+				)
+				return null
+			}
+			if (found === "unknown") {
+				// Every lookup failed too, so we cannot tell whether the op was accepted. The
+				// caller must not fall back — a resend could execute the calls twice.
+				throw new SubmittedUnconfirmedError(
+					`Sponsored UserOp ${localUserOpHash}: the bundler's answer was lost and the op could not be looked up`,
+					chain,
+					{ kind: "userOp", userOpHash: localUserOpHash, nonce, nonceKey, expires, submittedAt },
+				)
+			}
+			// The bundler holds the op: proceed exactly as a successful send, from the locally
+			// computed hash.
+			this.logger.info({ chain, userOpHash: localUserOpHash }, "Bundler accepted UserOp after a lost response")
+			userOpHash = localUserOpHash
 		}
 
-		const submittedAt = Date.now()
 		this.logger.info({ chain, userOpHash }, "Sponsored UserOp submitted to bundler")
 
 		const receipt = await this.waitForUserOpReceipt(bundlerUrl, userOpHash)
@@ -335,7 +487,12 @@ export class UserOpSender {
 				callGasLimit: string
 				verificationGasLimit: string
 				preVerificationGas: string
-			}>(p.bundlerUrl, BundlerMethod.ETH_ESTIMATE_USER_OPERATION_GAS, [bundlerUserOp, p.entryPoint])
+			}>(
+				p.bundlerUrl,
+				BundlerMethod.ETH_ESTIMATE_USER_OPERATION_GAS,
+				[bundlerUserOp, p.entryPoint],
+				BUNDLER_SIMULATION_TIMEOUT_MS,
+			)
 
 			return {
 				// Bias the execution limit up — sweep/redeem batches vary in size.
@@ -414,26 +571,125 @@ export class UserOpSender {
 		)
 	}
 
-	private async sendBundlerRpc<T>(bundlerUrl: string, method: string, params: unknown[]): Promise<T> {
-		const response = await fetch(bundlerUrl, {
-			method: "POST",
-			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
-		})
-		const result = (await response.json()) as { result?: T; error?: { message?: string } }
-		if (result.error) {
-			throw new Error(`Bundler RPC error (${method}): ${result.error.message || JSON.stringify(result.error)}`)
+	/**
+	 * One bundler JSON-RPC call, used by every request in this class. `timeoutMs` bounds the
+	 * request; a failure is thrown as a {@link BundlerCallError} whose `outcome` says whether it
+	 * is safe to treat the call as never having reached the bundler — the distinction the send
+	 * path relies on to avoid a native resend of an op that may already be submitted.
+	 */
+	private async sendBundlerRpc<T>(
+		bundlerUrl: string,
+		method: string,
+		params: unknown[],
+		timeoutMs = BUNDLER_POLL_TIMEOUT_MS,
+	): Promise<T> {
+		let response: Response
+		try {
+			response = await fetch(bundlerUrl, {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
+				signal: AbortSignal.timeout(timeoutMs),
+			})
+		} catch (error) {
+			// `fetch` rejects only when the request never completed. A connect-phase failure (no
+			// bytes sent) is unreachable; the abort timeout, a socket reset mid-flight or a TLS
+			// failure after the handshake is ambiguous — the op may have been accepted and only
+			// the response lost.
+			const code = connectFailureCode(error)
+			const outcome: BundlerCallOutcome = code && UNREACHABLE_CODES.has(code) ? "unreachable" : "ambiguous"
+			throw new BundlerCallError(
+				`Bundler request failed (${method})${code ? ` [${code}]` : ""}: ${describeError(error)}`,
+				outcome,
+				error,
+			)
 		}
-		return result.result as T
+
+		let body: { result?: T; error?: unknown }
+		try {
+			body = (await response.json()) as { result?: T; error?: unknown }
+		} catch (error) {
+			// A non-JSON body (an HTML proxy error page, a truncated stream) says nothing about
+			// whether the op was accepted.
+			throw new BundlerCallError(`Bundler returned a non-JSON response (${method})`, "ambiguous", error)
+		}
+
+		const rpcError = body?.error
+		if (rpcError !== undefined && rpcError !== null) {
+			if (typeof rpcError === "object") {
+				const message = (rpcError as { message?: string }).message ?? JSON.stringify(rpcError)
+				// Only an HTTP 200 carrying a deterministic rejection code is a definite refusal.
+				// A proxy's JSON 502/504 body carries an object error too, but it forwarded the
+				// request; rundler's -32603 "internal error" can also come after the pool admitted
+				// the op. Both are ambiguous — reading them as rejected would resend natively. A
+				// missing or non-numeric code, or any code outside the parse/rejection ranges, is
+				// likewise ambiguous: when in doubt, keep the op.
+				const rejected =
+					response.status === 200 && isDeterministicRejectionCode((rpcError as { code?: unknown }).code)
+				throw new BundlerCallError(
+					`Bundler RPC error (${method}): ${message}`,
+					rejected ? "rejected" : "ambiguous",
+				)
+			}
+			// A non-object `error` (a proxy's plain `{"error":"Bad Gateway"}`) is not a JSON-RPC
+			// answer, so it stays ambiguous.
+			throw new BundlerCallError(
+				`Bundler returned a malformed error (${method}): ${JSON.stringify(rpcError)}`,
+				"ambiguous",
+			)
+		}
+		// A `null` result is a real answer (e.g. "this op is unknown"); only a missing `result`
+		// key, or an HTTP error with no JSON-RPC body, is ambiguous.
+		if (body?.result !== undefined) return body.result
+		throw new BundlerCallError(`Bundler returned no result (${method}): HTTP ${response.status}`, "ambiguous")
 	}
 
+	/**
+	 * After an ambiguous `eth_sendUserOperation`, asks the bundler whether it actually holds the
+	 * op. Rundler's `eth_getUserOperationByHash` checks its mempool and then the chain, so a
+	 * non-null result means the op was accepted; a definite `null` on every attempt means it
+	 * never entered the pool.
+	 *
+	 * `lookupDelaysMs` are inter-attempt waits, so the default `[2_000, 5_000, 10_000]` looks up
+	 * at about 2 s, 7 s and 17 s after the failed send.
+	 *
+	 * Returns `"unknown"` when any attempt failed, because that is not proof of absence: a
+	 * bundler still validating the op after our request timed out could add it after the last
+	 * attempt, and the widening delays exist to shrink that window. Only `"absent"` — a `null`
+	 * from every attempt — lets the caller fall back.
+	 */
+	private async findSubmittedOp(
+		bundlerUrl: string,
+		userOpHash: HexString,
+		lookupDelaysMs: readonly number[] = [2_000, 5_000, 10_000],
+	): Promise<"found" | "absent" | "unknown"> {
+		let everyAttemptAnswered = true
+		for (const delayMs of lookupDelaysMs) {
+			await new Promise((resolve) => setTimeout(resolve, delayMs))
+			try {
+				const op = await this.sendBundlerRpc<unknown>(bundlerUrl, ETH_GET_USER_OPERATION_BY_HASH, [userOpHash])
+				if (op) return "found"
+			} catch {
+				// No definite answer this time; the next attempt may reach the bundler.
+				everyAttemptAnswered = false
+			}
+		}
+		return everyAttemptAnswered ? "absent" : "unknown"
+	}
+
+	/**
+	 * Polls for the op's receipt until `deadlineMs` has elapsed, 2 s apart. Time-based so the
+	 * wait cannot stretch with the per-poll timeout; `deadlineMs` and `intervalMs` stay
+	 * overridable for tests.
+	 */
 	private async waitForUserOpReceipt(
 		bundlerUrl: string,
 		userOpHash: HexString,
-		maxAttempts = 30,
-		intervalMs = 2000,
+		deadlineMs = RECEIPT_WAIT_DEADLINE_MS,
+		intervalMs = RECEIPT_POLL_INTERVAL_MS,
 	): Promise<{ success?: boolean; receipt?: { transactionHash: HexString } } | null> {
-		for (let i = 0; i < maxAttempts; i++) {
+		const deadline = Date.now() + deadlineMs
+		for (;;) {
 			try {
 				const receipt = await this.sendBundlerRpc<{
 					success?: boolean
@@ -443,8 +699,8 @@ export class UserOpSender {
 			} catch {
 				// Not indexed yet.
 			}
+			if (Date.now() >= deadline) return null
 			await new Promise((resolve) => setTimeout(resolve, intervalMs))
 		}
-		return null
 	}
 }

@@ -40,6 +40,7 @@ import type { LimitOrderController } from "@/simplex"
 import type { BalanceProvider } from "../BalanceProvider"
 import type { BridgeTopUp, TopUpPayToken } from "../BridgeTopUp"
 import { getLogger, type LogLevel } from "../Logger"
+import { SubmittedUnconfirmedError } from "../submission"
 import { DEFAULT_TUNNEL_RELAY, parseRelayAddress, relayKey, type TunnelControls } from "../tunnel/TunnelService"
 import {
 	readBody,
@@ -2069,6 +2070,28 @@ export class UiServer {
 			}
 			return sendJson(res, 200, result)
 		} catch (err) {
+			if (err instanceof SubmittedUnconfirmedError) {
+				// The send was broadcast but not confirmed within its wait. Reporting this as a
+				// plain failure invites the operator to click again, which would submit a second
+				// send. Report it as pending with the hash to check instead.
+				const submission = err.submission
+				const sponsored = submission.kind === "userOp"
+				const hash = sponsored ? submission.userOpHash : submission.txHash
+				this.logger.warn({ ...body, sponsored, hash }, "Operator send submitted but not confirmed")
+				// No wallet-history row is recorded: WalletTx.txHash is required, and a UserOp
+				// whose receipt has not arrived has no transaction hash yet.
+				return sendJson(res, 202, {
+					pending: true,
+					sponsored,
+					...(sponsored ? { userOpHash: hash } : { txHash: hash }),
+					// A sponsored UserOp has no tx hash, so there is nothing to look up on the
+					// explorer; the operator watches the wallet balance or history instead. A native
+					// tx does have one, and its message says to check it before resending.
+					message: sponsored
+						? "The send was submitted to the bundler but is not confirmed yet. Check the wallet balance or history in a few minutes before resending it."
+						: "The send was submitted but is not confirmed yet. Do not resend it until it has been checked on the explorer.",
+				})
+			}
 			return sendJson(res, 400, { error: err instanceof Error ? err.message : String(err) })
 		}
 	}

@@ -35,6 +35,7 @@ import { type CancelEvent, DEFAULT_GRAFFITI } from "@/protocols/intents/types"
 import { createQueryClient } from "@/queryClient"
 import { type HexString, type Order, RequestKind, RequestStatus } from "@/types"
 import { ADDRESS_ZERO, bytes20ToBytes32, getRequestCommitment, postRequestCommitment, sleep } from "@/utils"
+import { type Asset, type FundingRequirement, requireFunded, skipIfUnfunded } from "./funding"
 
 /**
  * Live cross-chain cancellations between Polygon Amoy and BSC Chapel. Each test places an order no
@@ -54,7 +55,8 @@ import { ADDRESS_ZERO, bytes20ToBytes32, getRequestCommitment, postRequestCommit
  * with it. Both tests use the same wallet and run in order.
  *
  * Needs PRIVATE_KEY, BSC_CHAPEL, POLYGON_AMOY and HYPERBRIDGE_GARGANTUA. GARGANTUA_INDEXER_URL
- * overrides the public gargantua indexer.
+ * overrides the public gargantua indexer. A test whose wallet holds less than its minimums below, or
+ * whose transaction is rejected for insufficient funds, is skipped with a warning (see ./funding).
  */
 
 const CHAPEL = "EVM-97"
@@ -89,6 +91,20 @@ const DELIVERY_GAS_HEADROOM = 2_000_000n
 // Per-transaction gas cap on Chapel; Amoy allows 2^25.
 const MAX_TX_GAS = 16_777_216n
 
+// Minimums, in whole units, checked before an order is placed: skipping after placement strands its escrow.
+// A source cancel has cost 1.83 POL in gas; the Amoy handler delivery (estimate + 2,000,000 gas) can cost as much again.
+const FROM_SOURCE_MIN_AMOY_POL = "5"
+// One cancel on Amoy (1.83 POL observed) plus a fee-token approval.
+const FROM_DESTINATION_MIN_AMOY_POL = "3"
+// Approvals, placement and the Chapel handler delivery: at most 16,777,216 gas at Chapel's ~0.1 gwei.
+const MIN_CHAPEL_BNB = "0.05"
+// The cancel's relayer fee, paid in the cancel chain's fee token on testnet, plus a source cancel's 0.01 order fees.
+const MIN_CANCEL_FEE_TOKEN = "10"
+// The order's 0.01 fees, paid in the source chain's fee token.
+const MIN_ORDER_FEE_TOKEN = "0.1"
+// The order escrows 0.01 USDC.
+const MIN_USDC = "0.1"
+
 const WITHDRAWAL_REQUEST = [
 	{
 		type: "tuple",
@@ -110,29 +126,38 @@ const WITHDRAWAL_REQUEST = [
 describe("IntentGateway cross-chain cancellation between Polygon Amoy and BSC Chapel (live)", () => {
 	it(
 		"cancels an expired Amoy to Chapel order from its source and refunds its escrow on Amoy",
-		async () => {
+		async (ctx) => {
 			const env = readEnv()
 			const { account, configService, chapel, amoy, hyperbridge, ismpClient } = await connect(env)
+			const onAmoy = <T>(step: () => Promise<T>) => skipIfUnfunded(ctx, account.address, amoy.native, step)
 			let stream: CancelStream | undefined
 
 			try {
 				const amoyFeeToken = await amoy.evm.getFeeTokenWithDecimals()
-				await approveGateway(amoy, configService.getUsdcAsset(AMOY))
-				await approveGateway(amoy, amoyFeeToken.address)
+				await requireFunded(ctx, account.address, [
+					nativeRequirement(amoy, FROM_SOURCE_MIN_AMOY_POL),
+					await tokenRequirement(amoy, amoyFeeToken.address, MIN_CANCEL_FEE_TOKEN),
+					await tokenRequirement(amoy, configService.getUsdcAsset(AMOY), MIN_USDC),
+				])
+				await onAmoy(() => approveGateway(amoy, configService.getUsdcAsset(AMOY)))
+				await onAmoy(() => approveGateway(amoy, amoyFeeToken.address))
 
 				const gateway = await IntentGateway.create(amoy.evm, chapel.evm)
-				const { order: placed, receipt: placement } = await placeOrder(
-					gateway,
-					amoy,
-					unfillableOrder(
-						configService,
-						account,
-						AMOY,
-						CHAPEL,
-						parseUnits("0.01", amoyFeeToken.decimals),
-						(await chapel.evm.client.getBlockNumber()) + EXPIRED_ORDER_LIFETIME_BLOCKS,
+				const deadline = (await chapel.evm.client.getBlockNumber()) + EXPIRED_ORDER_LIFETIME_BLOCKS
+				const { order: placed, receipt: placement } = await onAmoy(() =>
+					placeOrder(
+						gateway,
+						amoy,
+						unfillableOrder(
+							configService,
+							account,
+							AMOY,
+							CHAPEL,
+							parseUnits("0.01", amoyFeeToken.decimals),
+							deadline,
+						),
+						amoyFeeToken.address,
 					),
-					amoyFeeToken.address,
 				)
 				const escrowed = await assertOpen(gateway, amoy, placed)
 
@@ -151,11 +176,9 @@ describe("IntentGateway cross-chain cancellation between Polygon Amoy and BSC Ch
 				const cancelOptions = assertCancelTransaction(cancelTx, amoy.gateway)
 				assert.equal(cancelOptions.height, proof.height, "The cancel does not carry the proof height")
 
-				const { receipt } = await advanceTo(
-					stream,
-					"CANCEL_STARTED",
-					cancelDeadline,
-					await signTransaction(amoy, cancelTx),
+				const cancelling = stream
+				const { receipt } = await onAmoy(async () =>
+					advanceTo(cancelling, "CANCEL_STARTED", cancelDeadline, await signTransaction(amoy, cancelTx)),
 				)
 				console.log(`[cancel] cancel tx ${receipt.transactionHash} on Amoy`)
 				assert.equal(receipt.status, "success", "Cancel transaction reverted")
@@ -203,7 +226,7 @@ describe("IntentGateway cross-chain cancellation between Polygon Amoy and BSC Ch
 				)
 				assert.equal(await gateway.isOrderRefunded(placed), false)
 
-				const delivery = await deliverToHandler(amoy, finalized.metadata.calldata)
+				const delivery = await onAmoy(() => deliverToHandler(amoy, finalized.metadata.calldata))
 				const handled = parseEventLogs({
 					abi: EVM_HOST.ABI,
 					logs: delivery.logs,
@@ -240,31 +263,43 @@ describe("IntentGateway cross-chain cancellation between Polygon Amoy and BSC Ch
 
 	it(
 		"cancels a Chapel to Amoy order from its destination and refunds its escrow on Chapel",
-		async () => {
+		async (ctx) => {
 			const env = readEnv()
 			const { account, configService, chapel, amoy, hyperbridge, ismpClient } = await connect(env)
+			const onAmoy = <T>(step: () => Promise<T>) => skipIfUnfunded(ctx, account.address, amoy.native, step)
+			const onChapel = <T>(step: () => Promise<T>) => skipIfUnfunded(ctx, account.address, chapel.native, step)
 			let stream: CancelStream | undefined
 
 			try {
 				const chapelFeeToken = await chapel.evm.getFeeTokenWithDecimals()
 				const amoyFeeToken = await amoy.evm.getFeeTokenWithDecimals()
-				await approveGateway(chapel, configService.getUsdcAsset(CHAPEL))
-				await approveGateway(chapel, chapelFeeToken.address)
-				await approveGateway(amoy, amoyFeeToken.address)
+				await requireFunded(ctx, account.address, [
+					nativeRequirement(chapel, MIN_CHAPEL_BNB),
+					nativeRequirement(amoy, FROM_DESTINATION_MIN_AMOY_POL),
+					await tokenRequirement(chapel, chapelFeeToken.address, MIN_ORDER_FEE_TOKEN),
+					await tokenRequirement(chapel, configService.getUsdcAsset(CHAPEL), MIN_USDC),
+					await tokenRequirement(amoy, amoyFeeToken.address, MIN_CANCEL_FEE_TOKEN),
+				])
+				await onChapel(() => approveGateway(chapel, configService.getUsdcAsset(CHAPEL)))
+				await onChapel(() => approveGateway(chapel, chapelFeeToken.address))
+				await onAmoy(() => approveGateway(amoy, amoyFeeToken.address))
 
 				const gateway = await IntentGateway.create(chapel.evm, amoy.evm)
-				const { order: placed, receipt: placement } = await placeOrder(
-					gateway,
-					chapel,
-					unfillableOrder(
-						configService,
-						account,
-						CHAPEL,
-						AMOY,
-						parseUnits("0.01", chapelFeeToken.decimals),
-						(await amoy.evm.client.getBlockNumber()) + OPEN_ORDER_LIFETIME_BLOCKS,
+				const deadline = (await amoy.evm.client.getBlockNumber()) + OPEN_ORDER_LIFETIME_BLOCKS
+				const { order: placed, receipt: placement } = await onChapel(() =>
+					placeOrder(
+						gateway,
+						chapel,
+						unfillableOrder(
+							configService,
+							account,
+							CHAPEL,
+							AMOY,
+							parseUnits("0.01", chapelFeeToken.decimals),
+							deadline,
+						),
+						chapelFeeToken.address,
 					),
-					chapelFeeToken.address,
 				)
 				const escrowed = await assertOpen(gateway, chapel, placed)
 
@@ -275,11 +310,9 @@ describe("IntentGateway cross-chain cancellation between Polygon Amoy and BSC Ch
 				const cancelOptions = assertCancelTransaction(cancelTx, amoy.gateway)
 				assert.equal(cancelOptions.height, 0n, "A destination cancel needs no proof height")
 
-				const { receipt } = await advanceTo(
-					stream,
-					"CANCEL_STARTED",
-					deliveredDeadline,
-					await signTransaction(amoy, cancelTx),
+				const cancelling = stream
+				const { receipt } = await onAmoy(async () =>
+					advanceTo(cancelling, "CANCEL_STARTED", deliveredDeadline, await signTransaction(amoy, cancelTx)),
 				)
 				console.log(`[cancel] cancel tx ${receipt.transactionHash} on Amoy`)
 				assert.equal(receipt.status, "success", "Cancel transaction reverted")
@@ -345,7 +378,7 @@ describe("IntentGateway cross-chain cancellation between Polygon Amoy and BSC Ch
 				const finalized =
 					finalizedEarly ??
 					(await advanceTo(stream, "HYPERBRIDGE_FINALIZED", Date.now() + FINALIZED_TIMEOUT_MS))
-				const delivery = await deliverToHandler(chapel, finalized.metadata.calldata)
+				const delivery = await onChapel(() => deliverToHandler(chapel, finalized.metadata.calldata))
 				assert(
 					await chapel.evm.queryRequestReceipt(postCommitment),
 					"The Chapel host did not accept the refund POST; the gateway's onAccept failed",
@@ -367,6 +400,7 @@ describe("IntentGateway cross-chain cancellation between Polygon Amoy and BSC Ch
 
 interface LiveChain {
 	id: string
+	native: Asset
 	evm: EvmChain
 	wallet: WalletClient<Transport, Chain, Account>
 	gateway: HexString
@@ -534,6 +568,7 @@ function liveChain(
 	const host = configService.getHostAddress(id)
 	return {
 		id,
+		native: { chain: chain.name, symbol: chain.nativeCurrency.symbol, decimals: chain.nativeCurrency.decimals },
 		evm: EvmChain.fromParams({ chainId: chain.id, host, rpcUrl }),
 		wallet: createWalletClient({ account, chain, transport: http(rpcUrl) }),
 		gateway: configService.getIntentGatewayAddress(id),
@@ -576,6 +611,34 @@ function unfillableOrder(
 			],
 			call: "0x",
 		},
+	}
+}
+
+function nativeRequirement(chain: LiveChain, min: string): FundingRequirement {
+	return {
+		...chain.native,
+		min: parseUnits(min, chain.native.decimals),
+		read: () => chain.evm.client.getBalance({ address: chain.wallet.account.address }),
+	}
+}
+
+async function tokenRequirement(chain: LiveChain, token: HexString, min: string): Promise<FundingRequirement> {
+	const [symbol, decimals] = await Promise.all([
+		chain.evm.client.readContract({ address: token, abi: erc20Abi, functionName: "symbol" }),
+		chain.evm.client.readContract({ address: token, abi: erc20Abi, functionName: "decimals" }),
+	])
+	return {
+		chain: chain.native.chain,
+		symbol,
+		decimals,
+		min: parseUnits(min, decimals),
+		read: () =>
+			chain.evm.client.readContract({
+				address: token,
+				abi: erc20Abi,
+				functionName: "balanceOf",
+				args: [chain.wallet.account.address],
+			}),
 	}
 }
 

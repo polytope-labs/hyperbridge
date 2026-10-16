@@ -5,18 +5,26 @@ Chosen: `getTokenDecimals` reads `decimals()` on-chain first, falls back to
 source can supply a value. The registry value is **not** written into `CacheService`.
 
 The on-chain value is the real one — the registry is curated data that can drift from a
-redeployed or migrated token. Keeping the read authoritative means the registry only ever covers a
-transient RPC failure. Not caching the fallback is the load-bearing half: `CacheService.tokenDecimals`
-has no TTL, so caching a registry value during an outage would pin it for the lifetime of the
-process and silently outlive the failure that justified it. Leaving the cache empty means the next
-call retries the read and caches the real answer.
+redeployed or migrated token. Keeping the read authoritative is what makes the registry a
+fallback and a cross-check rather than the value written to the cache. Not caching the fallback
+is the load-bearing half: `CacheService.tokenDecimals` has no TTL, so caching a registry value
+during an outage would pin it for the lifetime of the process and silently outlive the failure
+that justified it. Leaving the cache empty means the next call retries the read and caches the
+real answer.
+
+The read goes through the plain fallback client, so the first endpoint to answer wins. Where the
+registry knows the token, a successful read is cross-checked against it: a disagreement is a hard
+error (`refusing to price it`) and nothing is cached, so the next call re-reads. The registry stays
+the fallback and the cross-check, never the value written to the cache — where it agrees, the
+on-chain number is what is cached.
 
 Alternatives rejected:
 
 - _Registry first, on-chain only for unregistered tokens._ Fewer RPC calls, and it would make the
   bad path unreachable rather than merely survivable. Rejected because it inverts which value is
   authoritative: a stale registry entry would then silently override the live token on every fill,
-  and the registry is edited by hand.
+  and the registry is edited by hand. Cross-checking turns that risk the right way round — a stale
+  entry now blocks the token loudly (`refusing to price it`) instead of overriding the chain.
 - _Return 18 when the registry has no entry either._ What this replaced. `decimals` is what
   scales a payout into the token's own units, so a wrong value does not degrade a fill — it changes
   its size by orders of magnitude. There is no safe guess, so the function now throws and the order is

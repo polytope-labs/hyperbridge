@@ -114,10 +114,10 @@ async function tuneOverfill(state: WizardState): Promise<void> {
 		maxOverfillBps: await askNumber(
 			"Max overfill (bps above user-requested output, default 500)",
 			state.overfillProtection?.maxOverfillBps ?? 500,
-			(n) => (n >= 0 && n <= 10_000 ? undefined : "Between 0 and 10000"),
+			(n) => (Number.isInteger(n) && n >= 0 && n <= 10_000 ? undefined : "Integer between 0 and 10000"),
 		),
 		maxConsecutiveClamps: await askNumber(
-			"Consecutive clamped orders before halting (default 3)",
+			"Dormant clamp counter (default 3; accepted but nothing halts)",
 			state.overfillProtection?.maxConsecutiveClamps ?? 3,
 			(n) => (n >= 1 ? undefined : "Must be at least 1"),
 		),

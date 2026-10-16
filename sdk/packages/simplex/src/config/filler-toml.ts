@@ -118,10 +118,12 @@ export interface FillerTomlConfig {
 		}
 		/**
 		 * Overfill protection knobs. Defaults: maxOverfillBps=500, maxConsecutiveClamps=3.
-		 * `maxOverfillBps` is warn-only: FXFiller logs a limit order whose offer exceeds
-		 * the swapper's ask by more than this, and clamps nothing. `maxConsecutiveClamps`
-		 * is accepted but dormant: the clamp that fed it was for Uniswap V4 venue pricing,
-		 * which is gone, so FXFiller never halts.
+		 * `maxOverfillBps` caps a bid at `ask × (1 + maxOverfillBps / 10000)`; a limit
+		 * order offering more is bid at the ceiling and logged, never more. `0` bids
+		 * exactly the ask. The ceiling is computed from the order's own output amount,
+		 * so it does not depend on the decimals read. `maxConsecutiveClamps` is accepted
+		 * but dormant: the clamp that fed it was for Uniswap V4 venue pricing, which is
+		 * gone, so FXFiller never halts — the `maxOverfillBps` cap does not feed it.
 		 */
 		overfillProtection?: {
 			maxOverfillBps?: number
@@ -361,6 +363,18 @@ export function validateConfig(config: FillerTomlConfig, cliWatchOnly = false): 
 	if (minPartialFill !== undefined) {
 		if (!Number.isFinite(minPartialFill) || minPartialFill < 0) {
 			throw new Error(`simplex.minPartialFillUsd must be a number >= 0 (USD); got ${minPartialFill}`)
+		}
+	}
+
+	// `getMaxOverfillBps` does `BigInt(...)`, which throws on a fractional or
+	// non-numeric value at construction. Fail at the gate instead, with a message
+	// that names the field.
+	const maxOverfillBps = config.simplex.overfillProtection?.maxOverfillBps
+	if (maxOverfillBps !== undefined) {
+		if (!Number.isInteger(maxOverfillBps) || maxOverfillBps < 0) {
+			throw new Error(
+				`simplex.overfillProtection.maxOverfillBps must be an integer >= 0 (basis points); got ${maxOverfillBps}`,
+			)
 		}
 	}
 

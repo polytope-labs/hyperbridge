@@ -113,15 +113,16 @@ export function emitFillerToml(config: FillerConfigFile, options: EmitOptions = 
 	}
 
 	if (config.simplex.overfillProtection) {
-		push("# Bounds per-leg loss when internal pricing is wrong (bug, stale cache, manipulated venue).")
+		push("# Caps a bid at maxOverfillBps above the swapper's requested output. An offer above")
+		push("# the ceiling is bid at the ceiling and logged; maxConsecutiveClamps never halts.")
 		push("[simplex.overfillProtection]")
 		for (const [key, value] of Object.entries(config.simplex.overfillProtection)) {
 			if (value !== undefined) push(kv(key, value))
 		}
 		push()
 	} else {
-		push("# Overfill protection defaults apply: output clamped at 5% above the user-requested")
-		push("# amount, halt after 3 consecutive clamped orders.")
+		push("# Overfill protection defaults apply: a bid is capped at 5% above the user-requested")
+		push("# amount. maxConsecutiveClamps is accepted but dormant.")
 		push("# [simplex.overfillProtection]")
 		push("# maxOverfillBps = 500")
 		push("# maxConsecutiveClamps = 3")

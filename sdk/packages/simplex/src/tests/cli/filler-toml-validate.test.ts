@@ -136,6 +136,27 @@ describe("validateConfig", () => {
 
 })
 
+describe("validateConfig [simplex.overfillProtection]", () => {
+	const withBps = (maxOverfillBps: number): FillerTomlConfig => {
+		const base = minimalConfig()
+		return { ...base, simplex: { ...base.simplex, overfillProtection: { maxOverfillBps } } }
+	}
+
+	it("accepts 0 and 500", () => {
+		for (const value of [0, 500]) {
+			expect(() => validateConfig(withBps(value))).not.toThrow()
+		}
+	})
+
+	// `getMaxOverfillBps` does `BigInt(...)`, which throws on a fractional or
+	// non-numeric value at construction; the gate names the field instead.
+	it("rejects a negative or fractional value", () => {
+		for (const bad of [-1, 0.5, 500.5]) {
+			expect(() => validateConfig(withBps(bad))).toThrow(/maxOverfillBps must be an integer >= 0/)
+		}
+	})
+})
+
 describe("validateConfig [orderbook]", () => {
 	const withOrderbook = (orderbook: FillerTomlConfig["orderbook"]): FillerTomlConfig => ({
 		...minimalConfig(),

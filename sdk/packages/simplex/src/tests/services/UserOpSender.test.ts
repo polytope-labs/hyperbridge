@@ -172,6 +172,34 @@ describe("UserOpSender EIP-7702 authorization ordering", () => {
 		expect(bundlerCalls.some((c) => c.method === "eth_sendUserOperation")).toBe(false)
 	})
 
+	it("returns null without submitting when the authorization factory throws", async () => {
+		// The delegation flow refuses to sign a bundler authorization while an EOA tx is in
+		// flight, and the fallback to native depends on that throw reading as "never
+		// submitted" (null) rather than an ambiguous submission.
+		vi.mocked(buildPaymasterAndData).mockResolvedValue({
+			paymasterAndData: permit2ModePaymasterAndData,
+			type: "simplex",
+			address: PAYMASTER,
+			token: TOKEN,
+		})
+		const sender = new UserOpSender(clientManager, configService, signer)
+
+		await expect(
+			sender.trySendSponsored({
+				chain: CHAIN,
+				callData: "0x" as HexString,
+				eip7702Auth: async () => {
+					throw new Error(
+						`The wallet has a transaction in flight on ${CHAIN}; the delegation is signed once it has landed`,
+					)
+				},
+				gas: GAS,
+			}),
+		).resolves.toBeNull()
+
+		expect(bundlerCalls.some((c) => c.method === "eth_sendUserOperation")).toBe(false)
+	})
+
 	it("returns null without signing an authorization when no paymaster is available", async () => {
 		vi.mocked(buildPaymasterAndData).mockResolvedValue({
 			paymasterAndData: "0x" as HexString,

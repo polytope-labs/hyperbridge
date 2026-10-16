@@ -133,6 +133,9 @@ export function spawnDaemon(
 	}
 }
 
+// A cold solver boot makes many sequential RPC calls and can exceed two minutes on slow endpoints.
+export const SOLVER_READY_TIMEOUT_MS = 5 * 60_000
+
 export async function ensureDaemon(options: {
 	launch: DaemonLaunch
 	probe?: (socketPath: string) => Promise<HealthProbe>
@@ -162,7 +165,7 @@ export async function ensureDaemon(options: {
 		failure = error
 	})
 
-	const timeoutMs = options.timeoutMs ?? 120_000
+	const timeoutMs = options.timeoutMs ?? SOLVER_READY_TIMEOUT_MS
 	const pollIntervalMs = options.pollIntervalMs ?? 250
 	const delay =
 		options.delay ?? ((milliseconds: number) => new Promise((resolve) => setTimeout(resolve, milliseconds)))

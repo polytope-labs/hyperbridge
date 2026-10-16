@@ -3,6 +3,7 @@ import { MemoryDataStore } from "@/data/memory"
 import type { LimitOrderSide, LimitOrderStore } from "@/data/types"
 import { ORDERBOOK_SCALE } from "@/orderbook/amounts"
 import { LimitOrderService, type CreateLimitOrderRequest, type VaultHoldings } from "@/orderbook/limit-orders"
+import type { DelegationService } from "@/services/DelegationService"
 import type {
 	CancelOrderResult,
 	HeartbeatResult,
@@ -157,6 +158,8 @@ export function limitOrderService(
 	startingNonce: () => bigint = () => 0n,
 	/** The configured vaults' holdings, when the case has any. */
 	vaultBalances?: VaultHoldings,
+	/** The delegation check `create` runs before storing an order, when the case cares. */
+	delegationService?: DelegationService,
 ) {
 	const contractService = {
 		getTokenDecimals: async (token: string) => (token === USDC ? 6 : 18),
@@ -191,7 +194,7 @@ export function limitOrderService(
 		assetRegistry as any,
 		signer as any,
 		900,
-		undefined,
+		delegationService,
 		undefined,
 		startingNonce,
 		vaultBalances,

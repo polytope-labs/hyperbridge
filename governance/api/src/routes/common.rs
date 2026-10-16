@@ -14,7 +14,7 @@ pub const POST_COLUMNS: &str = "
 	s.event_index AS s_event, s.ms AS s_ms,
 	l.name AS l_name, l.args AS l_args, l.block_number AS l_block, l.block_hash AS l_hash,
 	l.extrinsic_index AS l_extrinsic, l.event_index AS l_event, l.ms AS l_ms,
-	p.title, p.content, p.content_type, p.author, p.labels,
+	p.title, p.content, p.content_type, p.author, p.labels, p.comment_filter,
 	ms(p.updated_at) AS p_updated_ms,
 	c.count AS comments_count, c.last_ms AS comment_ms";
 
@@ -70,6 +70,7 @@ pub fn post_fields(row: &Row, kind: PostKind, number: i64, proposer: &str) -> Ma
 		"updatedAt": iso(row.get::<_, Option<i64>>("p_updated_ms").unwrap_or(last_event)),
 		"lastActivityAt": iso(last_event.max(last_comment)),
 		"commentsCount": row.get::<_, i64>("comments_count"),
+		"commentFilterSetting": row.get::<_, Option<Value>>("comment_filter"),
 		"refToPost": { "postId": post_id(kind, number), "postType": kind.post_type() },
 	}) else {
 		return Map::new();

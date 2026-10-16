@@ -108,13 +108,24 @@ impl Visitor {
 		entity: Value,
 		address: String,
 	) -> anyhow::Result<StatusCode> {
+		self.signed_with(Method::POST, path, signer, entity, address).await
+	}
+
+	async fn signed_with(
+		&self,
+		method: Method,
+		path: &str,
+		signer: &sr25519::Pair,
+		entity: Value,
+		address: String,
+	) -> anyhow::Result<StatusCode> {
 		let body = json!({
 			"entity": entity,
 			"address": address,
 			"signature": sign(signer, &entity.to_string()),
 			"signerWallet": "polkadot-js",
 		});
-		Ok(self.call(Method::POST, path, Some(body)).await?.0)
+		Ok(self.call(method, path, Some(body)).await?.0)
 	}
 }
 
@@ -325,6 +336,72 @@ async fn serves_the_forum() -> anyhow::Result<()> {
 		StatusCode::OK
 	);
 	assert_eq!(anyone.get(&appendants).await?[0]["content"], "Done");
+
+	// Admins mark spam, and an account's comments are listed with the post they were made on
+	let (_, spam) = as_bob
+		.call(Method::POST, &format!("posts/{post_id}/comments"), Some(json!({ "content": "Buy" })))
+		.await?;
+	let spam_path = format!("comments/{}/spam", spam["_id"].as_str().unwrap_or_default());
+	assert_eq!(as_bob.call(Method::POST, &spam_path, None).await?.0, StatusCode::FORBIDDEN);
+	assert_eq!(as_alice.call(Method::POST, &spam_path, None).await?.0, StatusCode::OK);
+	let mine = anyone
+		.get(&format!("users/{}/comments?page=1&page_size=10", address(&bob)))
+		.await?;
+	assert_eq!(mine["total"], 1, "deleted comments are left out");
+	assert_eq!(mine["items"][0]["spam"], true);
+	assert_eq!(mine["items"][0]["post"]["title"], "Hello");
+
+	// A referendum's comment filter is chosen by its proposer or an admin
+	let filter = format!("gov2/referendums/{REFERENDUM}/comment-filter-setting");
+	let hide = json!({ "filter": { "hide_0": true } });
+	assert_eq!(
+		as_bob.call(Method::PUT, &filter, Some(hide.clone())).await?.0,
+		StatusCode::FORBIDDEN
+	);
+	assert_eq!(as_alice.call(Method::PUT, &filter, Some(hide)).await?.0, StatusCode::OK);
+	let detail = anyone.get(&format!("gov2/referendums/{REFERENDUM}")).await?;
+	assert_eq!(detail["commentFilterSetting"]["hide_0"], true);
+	assert_eq!(detail["title"], "Upgrade the Intent Gateway", "the filter leaves the title alone");
+
+	let report = json!({ "postType": "post", "postId": post_id, "reason": "Spam" });
+	assert_eq!(as_bob.call(Method::POST, "report", Some(report.clone())).await?.0, StatusCode::OK);
+	assert_eq!(
+		anyone.call(Method::POST, "report", Some(report)).await?.0,
+		StatusCode::UNAUTHORIZED
+	);
+
+	// Saved multisigs, stored under the address their signatories and threshold control
+	let multisigs = format!("users/{}/multisigs", address(&alice));
+	let signatories = json!([address(&alice), address(&bob)]);
+	let add = |threshold: u64| {
+		json!({ "action": "add-multisig", "signatories": signatories, "threshold": threshold,
+			"name": "Council", "timestamp": now })
+	};
+	assert_eq!(
+		anyone.signed(&multisigs, &alice, add(3), address(&alice)).await?,
+		StatusCode::BAD_REQUEST
+	);
+	assert_eq!(
+		anyone.signed(&multisigs, &bob, add(2), address(&bob)).await?,
+		StatusCode::FORBIDDEN
+	);
+	assert_eq!(anyone.signed(&multisigs, &alice, add(2), address(&alice)).await?, StatusCode::OK);
+	let saved = anyone.get(&multisigs).await?;
+	let multisig = saved[0]["multisigAddress"].as_str().unwrap_or_default().to_owned();
+	assert_eq!(saved[0]["threshold"], 2);
+	let rename = json!({ "action": "update-multisig", "multisigAddress": multisig, "name": "Board",
+		"timestamp": now });
+	let path = format!("{multisigs}/{multisig}");
+	let renamed = anyone
+		.signed_with(Method::PATCH, &path, &alice, rename, address(&alice))
+		.await?;
+	assert_eq!(renamed, StatusCode::OK);
+	assert_eq!(anyone.get(&multisigs).await?[0]["name"], "Board");
+	let remove =
+		json!({ "action": "remove-multisig", "multisigAddress": multisig, "timestamp": now });
+	let path = format!("{multisigs}/{multisig}/delete");
+	assert_eq!(anyone.signed(&path, &alice, remove, address(&alice)).await?, StatusCode::OK);
+	assert_eq!(anyone.get(&multisigs).await?.as_array().map(Vec::len), Some(0));
 
 	// Rate limits apply to each visitor's writes on their own
 	let mut flooder = Visitor::new(&base);

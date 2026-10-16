@@ -5,7 +5,7 @@ use axum::{
 	Json,
 };
 use serde::Deserialize;
-use serde_json::{json, Value};
+use serde_json::{json, Map, Value};
 use tokio_postgres::Row;
 
 use super::{auth::Session, AppState, Params};
@@ -323,6 +323,59 @@ pub async fn unreact(
 		.execute(
 			"DELETE FROM reactions WHERE target = $1 AND address = $2",
 			&[&id, &session.address],
+		)
+		.await?;
+	Ok(Json(true))
+}
+
+#[derive(Deserialize)]
+pub struct CommentFilterInput {
+	filter: Map<String, Value>,
+}
+
+/// Saves how a referendum's comments are filtered for every visitor, which its proposer or an admin
+/// may choose.
+pub async fn set_comment_filter(
+	State(state): State<AppState>,
+	session: Session,
+	Path(index): Path<i64>,
+	Json(input): Json<CommentFilterInput>,
+) -> ApiResult<Json<bool>> {
+	let (kind, number) =
+		managed_post(&state, &session, &post_id(PostKind::Referendum, index)).await?;
+	state
+		.db
+		.execute(
+			"INSERT INTO posts (kind, number, comment_filter) VALUES ($1, $2, $3)
+			ON CONFLICT (kind, number) DO UPDATE SET comment_filter = $3",
+			&[&(kind as i16), &number, &Value::Object(input.filter)],
+		)
+		.await?;
+	Ok(Json(true))
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReportInput {
+	post_type: String,
+	post_id: String,
+	reason: String,
+}
+
+/// Records a visitor's report of a post for the admins to review.
+pub async fn report(
+	State(state): State<AppState>,
+	session: Session,
+	Json(input): Json<ReportInput>,
+) -> ApiResult<Json<bool>> {
+	if input.reason.trim().is_empty() || input.reason.chars().count() > 1000 {
+		return Err(ApiError::bad_request("The reason must be between 1 and 1000 characters"));
+	}
+	state
+		.db
+		.execute(
+			"INSERT INTO reports (post_type, post_id, reason, reporter) VALUES ($1, $2, $3, $4)",
+			&[&input.post_type, &input.post_id, &input.reason.trim(), &session.address],
 		)
 		.await?;
 	Ok(Json(true))

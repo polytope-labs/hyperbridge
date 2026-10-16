@@ -100,3 +100,28 @@ CREATE TABLE IF NOT EXISTS forum.sessions (
 	address TEXT NOT NULL,
 	expires_at TIMESTAMPTZ NOT NULL
 );
+
+-- Comments an admin marked as spam; the frontend hides them by default
+ALTER TABLE forum.comments ADD COLUMN IF NOT EXISTS spam BOOLEAN NOT NULL DEFAULT FALSE;
+
+-- How a referendum's proposer or an admin wants its comments filtered
+ALTER TABLE forum.posts ADD COLUMN IF NOT EXISTS comment_filter JSONB;
+
+CREATE TABLE IF NOT EXISTS forum.reports (
+	id BIGSERIAL PRIMARY KEY,
+	post_type TEXT NOT NULL,
+	post_id TEXT NOT NULL,
+	reason TEXT NOT NULL,
+	reporter TEXT NOT NULL,
+	created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- Multisig accounts an account saved, so it can sign for them
+CREATE TABLE IF NOT EXISTS forum.multisigs (
+	owner TEXT NOT NULL,
+	multisig_address TEXT NOT NULL,
+	name TEXT NOT NULL,
+	threshold SMALLINT NOT NULL,
+	signatories JSONB NOT NULL,
+	PRIMARY KEY (owner, multisig_address)
+);

@@ -3,7 +3,7 @@ use axum::{
 	Json,
 };
 use serde::Deserialize;
-use serde_json::{Map, Value};
+use serde_json::{json, Map, Value};
 use tokio_postgres::Row;
 
 use super::{
@@ -19,7 +19,7 @@ use crate::{
 };
 
 const COMMENTS: &str =
-	"SELECT id, post_kind, post_number, reply_to, author, content, content_type, deleted,
+	"SELECT id, post_kind, post_number, reply_to, author, content, content_type, deleted, spam,
 	ms(created_at) AS created_ms, ms(updated_at) AS updated_ms FROM comments";
 
 // A deleted top level comment stays in the thread while it has replies, so they keep their context
@@ -49,6 +49,7 @@ fn comment(row: &Row, height: i64, reactions: Value, replies: Vec<Value>) -> Val
 		("contentVersion", "2".into()),
 		("author", author(&row.get::<_, String>("author"))),
 		("height", height.into()),
+		("spam", row.get::<_, bool>("spam").into()),
 		("createdAt", iso(row.get("created_ms")).into()),
 		("updatedAt", iso(row.get("updated_ms")).into()),
 		("reactions", reactions),
@@ -272,6 +273,72 @@ pub async fn edit(
 		)
 		.await?;
 	Ok(Json(true))
+}
+
+/// Marks a comment as spam, which only admins may do. The frontend hides spam unless asked to show
+/// it.
+pub async fn mark_spam(
+	State(state): State<AppState>,
+	session: Session,
+	Path(id): Path<String>,
+) -> ApiResult<Json<bool>> {
+	if !state.admins.contains(&session.address) {
+		return Err(ApiError::forbidden());
+	}
+	let row = find(&state, &id).await?;
+	state
+		.db
+		.execute("UPDATE comments SET spam = TRUE WHERE id = $1", &[&row.get::<_, i64>("id")])
+		.await?;
+	Ok(Json(true))
+}
+
+/// An account's comments, newest first, each with the title and index of the post it was made on.
+pub async fn by_user(
+	State(state): State<AppState>,
+	Path(account): Path<String>,
+	RawQuery(query): RawQuery,
+) -> ApiResult<Json<Page<Value>>> {
+	let paging = Params::new(query).paging(10);
+	let rows = state
+		.db
+		.query(
+			&format!(
+				"SELECT c.*, p.title AS post_title, (SELECT count(*) FROM comments
+					WHERE post_kind = c.post_kind AND post_number = c.post_number AND {SHOWN_ROOTS}
+					AND id <= COALESCE(c.reply_to, c.id)) AS position
+				FROM ({COMMENTS} WHERE author = $1 AND NOT deleted) c
+				LEFT JOIN posts p ON p.kind = c.post_kind AND p.number = c.post_number
+				ORDER BY c.id DESC LIMIT {} OFFSET {}",
+				paging.page_size,
+				paging.offset()
+			),
+			&[&account],
+		)
+		.await?;
+	let total = state
+		.db
+		.query_one("SELECT count(*) FROM comments WHERE author = $1 AND NOT deleted", &[&account])
+		.await?
+		.get::<_, i64>(0);
+	let items = rows
+		.iter()
+		.map(|row| {
+			let mut item = comment(row, row.get("position"), Value::Array(Vec::new()), Vec::new());
+			let number = row.get::<_, i64>("post_number");
+			let title = row.get::<_, Option<String>>("post_title");
+			let kind = PostKind::from_code(row.get::<_, i16>("post_kind") as u8)
+				.unwrap_or(PostKind::Discussion);
+			item[kind.post_type()] = match kind {
+				PostKind::Discussion => json!({ "postUid": number.to_string(), "title": title }),
+				PostKind::Referendum => json!({ "referendumIndex": number, "title": title }),
+				PostKind::Motion => json!({ "motionIndex": number, "title": title }),
+				PostKind::TreasurySpend => json!({ "index": number, "title": title }),
+			};
+			item
+		})
+		.collect();
+	Ok(Json(paging.page(items, total)))
 }
 
 pub async fn delete(

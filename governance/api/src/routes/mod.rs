@@ -4,6 +4,7 @@ mod comments;
 mod common;
 pub mod files;
 mod motions;
+mod multisigs;
 mod posts;
 mod referenda;
 mod signed;
@@ -124,6 +125,13 @@ pub fn router(state: AppState) -> Router {
 		.route("/posts/:id", get(posts::detail).patch(posts::edit).delete(posts::delete))
 		.route("/posts/:id/hide", patch(posts::hide))
 		.route("/comments/:id", get(comments::get).patch(comments::edit).delete(comments::delete))
+		.route("/comments/:id/spam", post(comments::mark_spam))
+		.route("/users/:address/comments", get(comments::by_user))
+		.route("/users/:address/multisigs", get(multisigs::list).post(multisigs::add))
+		.route("/users/:address/multisigs/:multisig", patch(multisigs::rename))
+		.route("/users/:address/multisigs/:multisig/delete", post(multisigs::remove))
+		.route("/gov2/referendums/:id/comment-filter-setting", put(posts::set_comment_filter))
+		.route("/report", post(posts::report))
 		.route("/comments/:id/reaction", put(posts::react).delete(posts::unreact));
 
 	// Every kind of post shares its comment and reaction routes, the post id says which kind it is

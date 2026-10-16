@@ -32,9 +32,12 @@ import {
 	type PublicClient,
 	stringToHex,
 	toHex,
+	TransactionNotFoundError,
 } from "viem"
+import { privateKeyToAccount } from "viem/accounts"
 import { bsc as bscChain } from "viem/chains"
 import { ERC20_ABI } from "@/config/abis/ERC20"
+import { ENTRYPOINT_ABI } from "@/config/abis/Entrypoint"
 import { hyperbridgeBundlerUrl } from "@/config/bundlers"
 import { INTENT_GATEWAY_V2_ABI } from "@/config/abis/IntentGatewayV2"
 import { EVM_HOST } from "@/config/abis/EvmHost"
@@ -53,6 +56,8 @@ import type { DelegationService } from "./DelegationService"
 import type { FillerConfigService } from "./FillerConfigService"
 import { moduleLogger, type Logger } from "./Logger"
 import { paymasterReserveForToken } from "./paymaster"
+import { PERMIT2_DEADLINE_SECONDS } from "./paymaster/types"
+import { SubmittedUnconfirmedError } from "./submission"
 import type { TokenSender } from "./TokenSender"
 
 /**
@@ -103,6 +108,23 @@ const SELF_RELAY_GRACE_MS = 90_000
 const RELAYER_DELIVERY_WAIT_MS = 3 * 60_000
 /** How long after delivery the request's last statuses are still read for the timeline. */
 const STATUS_BACKFILL_MS = 30 * 60_000
+/**
+ * How long a submitted placement UserOp is still looked up before its permit must have expired.
+ * Every sponsored top-up op authorizes through Permit2 with a deadline of at most
+ * {@link PERMIT2_DEADLINE_SECONDS}; a margin covers the bundler's submission latency.
+ */
+const PLACEMENT_WINDOW_MS = (Number(PERMIT2_DEADLINE_SECONDS) + 10 * 60) * 1000
+/**
+ * How long a placement tx the node no longer knows about could still be mined before it is
+ * settled as dropped. A mempool tx a node has forgotten is very unlikely to appear much later.
+ */
+const PLACEMENT_DROPPED_MS = 30 * 60_000
+/** Chunk for the paying-chain placement scan; wider than BSC's fill search, which public BSC nodes cap. */
+const PLACEMENT_CHUNK_BLOCKS = 2_000n
+/** A chunk a public endpoint refuses is halved down to this before the attempt gives up. */
+const MIN_PLACEMENT_CHUNK_BLOCKS = 100n
+/** The scan cursor trails the tip by this much, so a reorg just under it is re-read next time. */
+const REORG_MARGIN_BLOCKS = 64n
 /** Every chain, indexer and Hyperbridge read is bounded, so a stalled endpoint cannot hang a step. */
 const NETWORK_TIMEOUT_MS = 30_000
 /** Public BSC endpoints serve logs over a few hundred blocks at a time; the search stays near the fill. */
@@ -111,6 +133,9 @@ const FILL_SEARCH_BEFORE_MS = 3 * 60_000
 const FILL_SEARCH_AFTER_MS = 60_000
 const ORDER_FILLED_EVENT = IntentGatewayABI.find(
 	(item) => item.type === "event" && item.name === "OrderFilled",
+) as AbiEvent
+const ORDER_PLACED_EVENT = IntentGatewayABI.find(
+	(item) => item.type === "event" && item.name === "OrderPlaced",
 ) as AbiEvent
 const DELIVERY_REQUEST_QUERY = `query TopUpDelivery($hash: String!) {
 	requestV2s(
@@ -348,12 +373,18 @@ export class BridgeTopUp {
 			}
 			const record = this.record
 			// A placement that failed only on reading its receipt back may still hold an order.
-			if (record?.stage === "failed" && record.placeTxHash && !record.commitment && record.sessionPrivateKey) {
+			// The UserOp hash counts too: its receipt may arrive after the process restarted.
+			if (
+				record?.stage === "failed" &&
+				(record.placeTxHash || record.placeUserOpHash) &&
+				!record.commitment &&
+				record.sessionPrivateKey
+			) {
 				void this.recoverPlacement()
 				return
 			}
 			if (!record || !isBridgeTopUpPending(record.stage)) return
-			if (record.stage === "placing" && !record.placeTxHash) {
+			if (record.stage === "placing" && !record.placeTxHash && !record.placeUserOpHash) {
 				await this.update({
 					stage: "failed",
 					error: "Simplex restarted before the order was placed. Nothing was escrowed.",
@@ -518,25 +549,73 @@ export class BridgeTopUp {
 				throw new Error("The SDK did not produce a placement transaction")
 			}
 			const placement = first.value
-			await this.update({ sessionPrivateKey: placement.sessionPrivateKey })
+			// The session key's address is what names this order's `OrderPlaced` log, and the
+			// block it is placed in bounds the scan that finds it if no receipt ever arrives.
+			const sessionKeyAddress = privateKeyToAccount(placement.sessionPrivateKey).address as HexString
+			const fromBlock = await withTimeout(
+				this.deps.clientManager.getPublicClient(this.record!.chain).getBlockNumber(),
+				"the paying chain's height",
+			)
+			await this.update({
+				sessionPrivateKey: placement.sessionPrivateKey,
+				placeSession: sessionKeyAddress,
+				placeFromBlock: fromBlock.toString(),
+			})
 			const calls = this.placementCalls(order, tokenIn, placement)
-			const { txHash } = await this.deps.tokenSender.submitCalls(this.record!.chain, calls)
+			let txHash: HexString
+			try {
+				;({ txHash } = await this.deps.tokenSender.submitCalls(this.record!.chain, calls))
+			} catch (err) {
+				// The batch was broadcast before the failure, so it may yet place the order.
+				// Record what was sent so drive() keeps the top-up pending and recovery can
+				// find out whether anything was escrowed, then let drive() schedule that.
+				if (!(err instanceof SubmittedUnconfirmedError)) throw err
+				await this.update(
+					err.submission.kind === "tx"
+						? { placeTxHash: err.submission.txHash, placeSubmittedAt: err.submission.submittedAt }
+						: {
+								placeUserOpHash: err.submission.userOpHash,
+								placeUserOpNonce: err.submission.nonce.toString(),
+								placeUserOpNonceKey: err.submission.nonceKey.toString(),
+								placeUserOpExpires: err.submission.expires,
+								placeSubmittedAt: err.submission.submittedAt,
+							},
+				)
+				throw err
+			}
 			await this.update({ placeTxHash: txHash })
-			await this.recordPlacement(order, txHash)
-			await this.trackOrder(gateway)
+			if (await this.recordPlacement(order, txHash)) await this.trackOrder(gateway)
 		})
 	}
 
 	/**
-	 * Reads the placement receipt and stores the order as the gateway committed it. Throws
-	 * when the transaction placed no order, so the top-up is marked failed.
+	 * Reads the placement receipt and stores the order as the gateway committed it, from the
+	 * `OrderPlaced` log that names this top-up's session key. A UserOp placement's receipt is a
+	 * bundle that can carry other users' placements, so the first log is not necessarily ours.
+	 *
+	 * A mined receipt with no such log, or one that reverted, is settled: the placement is final
+	 * and nothing was escrowed, so it is written `failed` and false is returned. A receipt that
+	 * cannot be read throws, so the caller retries or falls back to the chain scan.
 	 */
-	private async recordPlacement(order: Order, txHash: HexString): Promise<void> {
+	private async recordPlacement(order: Order, txHash: HexString): Promise<boolean> {
 		const receipt = await this.deps.clientManager
 			.getPublicClient(this.record!.chain)
 			.waitForTransactionReceipt({ hash: txHash, timeout: RECEIPT_TIMEOUT_MS })
-		const [placed] = parseEventLogs({ abi: IntentGatewayABI, logs: receipt.logs, eventName: "OrderPlaced" })
-		if (!placed) throw new Error(`Transaction ${txHash} placed no order`)
+		const placements = parseEventLogs({ abi: IntentGatewayABI, logs: receipt.logs, eventName: "OrderPlaced" })
+		// The session address names ours; a record from before it was stored falls back to the
+		// order's `user`, which is this filler's own account.
+		const session = this.record!.placeSession?.toLowerCase()
+		const user = bytes20ToBytes32(this.deps.solver).toLowerCase()
+		const placed = session
+			? placements.find((log) => (log.args as { session?: string }).session?.toLowerCase() === session)
+			: placements.find((log) => (log.args as { user?: string }).user?.toLowerCase() === user)
+		if (receipt.status === "reverted" || !placed) {
+			await this.update({
+				stage: "failed",
+				error: `Placement tx ${txHash} was mined but placed no order. Nothing was escrowed.`,
+			})
+			return false
+		}
 		const canonical = deriveCanonicalPlacedOrder(order, placed.args as DecodedOrderPlacedLog["args"])
 		await this.update({
 			stage: "awaiting_bids",
@@ -544,15 +623,275 @@ export class BridgeTopUp {
 			order: serializeOrder(canonical),
 			error: undefined,
 		})
+		return true
 	}
 
-	/** Continues an order whose placement landed but was not recorded. */
+	/**
+	 * Continues a placement whose outcome was never recorded, using every piece of evidence the
+	 * chain offers: the tx receipt if there is one, the bundler's receipt for a UserOp, and the
+	 * paying chain's own `OrderPlaced` log for this session. It settles the record as failed only
+	 * once the batch can no longer land; otherwise it throws so the caller retries.
+	 */
 	private async recoverPlacement(): Promise<void> {
 		await this.drive(async (gateway) => {
 			const record = this.record!
-			await this.recordPlacement(deserializeOrder(record.order), record.placeTxHash!)
-			await this.trackOrder(gateway)
+			const order = deserializeOrder(record.order)
+
+			// (a) A known tx: its own receipt decides. A receipt that cannot be read yet falls
+			// through, because the chain scan may still find the placement.
+			if (record.placeTxHash) {
+				try {
+					if (await this.recordPlacement(order, record.placeTxHash)) await this.trackOrder(gateway)
+					return
+				} catch (err) {
+					this.logger.debug(
+						{ err, txHash: record.placeTxHash },
+						"Placement receipt not readable yet; scanning the paying chain",
+					)
+				}
+			}
+
+			// (b) A submitted UserOp: the bundler's receipt is the fast path.
+			if (!record.placeTxHash && record.placeUserOpHash) {
+				const receipt = await this.deps.tokenSender.userOpReceipt(record.chain, record.placeUserOpHash).catch((err) => {
+					this.logger.debug({ err }, "Could not ask the bundler for the placement's receipt")
+					return null
+				})
+				if (receipt && !receipt.success) {
+					// The batch reverted; ERC-7821 executeBatch is atomic, so nothing was placed.
+					await this.update({
+						stage: "failed",
+						error: `Placement UserOp ${record.placeUserOpHash} reverted on-chain. Nothing was escrowed.`,
+					})
+					return
+				}
+				if (receipt) {
+					await this.update({ placeTxHash: receipt.txHash })
+					if (await this.recordPlacement(order, receipt.txHash)) await this.trackOrder(gateway)
+					return
+				}
+			}
+
+			// (c) Scan the paying chain for this session's `OrderPlaced`. A scan failure throws
+			// here, so an unread range is never mistaken for "not found".
+			const scan = await this.findPlacementLog(record)
+			if (scan?.txHash) {
+				await this.update({ placeTxHash: scan.txHash })
+				if (await this.recordPlacement(order, scan.txHash)) await this.trackOrder(gateway)
+				return
+			}
+
+			// (d) Nothing on chain: settle only once the batch can no longer land. `scannedTo`
+			// pins the EntryPoint nonce read to a height the scan has actually covered.
+			await this.settleUnplaceable(record, scan?.scannedTo)
 		})
+	}
+
+	/**
+	 * The transaction that placed this order, found on the paying chain rather than from a
+	 * receipt: the `OrderPlaced` log whose `session` is this top-up's session key, from the scan
+	 * cursor (or the block stored before submission) up to the latest. Returns `undefined` when
+	 * the record predates the scan; a read failure, or a node behind the range that must be read,
+	 * throws, so an unread range is never counted as "not found". `scannedTo` is the height the
+	 * scan reached, the reference for every later read of the chain.
+	 */
+	private async findPlacementLog(
+		record: StoredBridgeTopUp,
+	): Promise<{ txHash?: HexString; scannedTo: bigint } | undefined> {
+		const session = record.placeSession?.toLowerCase()
+		if (!session || !record.placeFromBlock) return undefined
+		const client = this.deps.clientManager.getPublicClient(record.chain)
+		const placeFrom = BigInt(record.placeFromBlock)
+		const cursor = record.placeScannedTo ? BigInt(record.placeScannedTo) : placeFrom
+		const fromBlock = cursor > placeFrom ? cursor : placeFrom
+		const latest = await withTimeout(client.getBlockNumber(), "the latest block")
+		if (latest < fromBlock) {
+			// A node behind the range we must read would return nothing for it; that is not evidence.
+			throw new Error(`The paying chain is at ${latest}, behind the placement's range from ${fromBlock}`)
+		}
+		const txHash = await this.scanPlacementLogs(fromBlock, latest, async (from, to) => {
+			const logs = await withTimeout(
+				client.getLogs({
+					address: this.deps.configService.getIntentGatewayAddress(record.chain),
+					event: ORDER_PLACED_EVENT,
+					fromBlock: from,
+					toBlock: to,
+				}),
+				"the placement on the paying chain",
+			)
+			const match = logs.find((log) => (log.args as { session?: string }).session?.toLowerCase() === session)
+			return match?.transactionHash
+		})
+		// The cursor trails the tip, so a placement just under it is re-read after a reorg. It
+		// never decides anything on its own: the evidence was read up to `latest`.
+		const next = latest - REORG_MARGIN_BLOCKS > placeFrom ? latest - REORG_MARGIN_BLOCKS : placeFrom
+		await this.update({ placeScannedTo: next.toString() })
+		return { txHash, scannedTo: latest }
+	}
+
+	/**
+	 * Scans a block range in the small chunks public endpoints accept, handing each page to `read`
+	 * and stopping at the first page that resolves a value. A failure propagates, so a caller
+	 * retries rather than treating an unread range as empty.
+	 */
+	private async scanLogs<T>(
+		fromBlock: bigint,
+		toBlock: bigint,
+		read: (fromBlock: bigint, toBlock: bigint) => Promise<T | undefined>,
+	): Promise<T | undefined> {
+		for (let start = fromBlock; start <= toBlock; start += LOG_CHUNK_BLOCKS) {
+			const end = start + LOG_CHUNK_BLOCKS - 1n < toBlock ? start + LOG_CHUNK_BLOCKS - 1n : toBlock
+			const found = await read(start, end)
+			if (found !== undefined) return found
+		}
+		return undefined
+	}
+
+	/**
+	 * The paying-chain scan, in chunks wider than BSC's fill search. A chunk a public endpoint
+	 * refuses is halved and retried, down to a floor, before the attempt gives up and the caller
+	 * retries. Kept separate from {@link scanLogs} so the BSC fill search is unchanged.
+	 */
+	private async scanPlacementLogs(
+		fromBlock: bigint,
+		toBlock: bigint,
+		read: (fromBlock: bigint, toBlock: bigint) => Promise<HexString | undefined>,
+	): Promise<HexString | undefined> {
+		let start = fromBlock
+		let chunk = PLACEMENT_CHUNK_BLOCKS
+		while (start <= toBlock) {
+			const end = start + chunk - 1n < toBlock ? start + chunk - 1n : toBlock
+			let found: HexString | undefined
+			try {
+				found = await read(start, end)
+			} catch (err) {
+				if (chunk <= MIN_PLACEMENT_CHUNK_BLOCKS) throw err
+				const halved = chunk / 2n
+				chunk = halved < MIN_PLACEMENT_CHUNK_BLOCKS ? MIN_PLACEMENT_CHUNK_BLOCKS : halved
+				continue
+			}
+			if (found !== undefined) return found
+			start = end + 1n
+		}
+		return undefined
+	}
+
+	/**
+	 * Settles a placement with no order on chain. "Nothing was escrowed" is written only on
+	 * positive evidence that the batch can no longer land:
+	 *
+	 * - a native tx (no UserOp hash) the node has forgotten after its retry window, or whose nonce
+	 *   the wallet has moved past — read at the height the scan covered, so it is asserted against
+	 *   the same state as the rest of the evidence;
+	 * - a UserOp whose EntryPoint nonce was consumed at the scanned height, or whose Permit2 permit
+	 *   expired within a range the scan covered.
+	 *
+	 * A tx hash that came from the bundler's receipt is never settled as dropped: a bundle reorged
+	 * out can be re-bundled under a different hash, so a `TransactionNotFoundError` on it falls
+	 * through to the UserOp rules (the scan would find a re-bundled placement). A tx the node
+	 * reports with a block number has been mined, so its receipt will be readable. A bootstrap
+	 * UserOp has no expiry and stays pending until its nonce moves or its log appears — it could
+	 * still land. Inconclusive cases throw, so the caller retries.
+	 */
+	private async settleUnplaceable(record: StoredBridgeTopUp, scannedTo?: bigint): Promise<void> {
+		const submittedAt = record.placeSubmittedAt ?? record.updatedAt
+		const client = this.deps.clientManager.getPublicClient(record.chain)
+
+		const txHash = record.placeTxHash
+		if (txHash) {
+			if (Date.now() - submittedAt < PLACEMENT_DROPPED_MS) {
+				throw new Error(`Placement tx ${txHash} is not mined yet; it is being checked`)
+			}
+			let tx: { blockNumber: bigint | null; nonce: number } | undefined
+			try {
+				tx = await withTimeout(client.getTransaction({ hash: txHash }), "the placement tx")
+			} catch (err) {
+				if (!(err instanceof TransactionNotFoundError)) throw err
+				if (!record.placeUserOpHash) {
+					// A native tx we sent that the node has forgotten can never be mined.
+					await this.update({
+						stage: "failed",
+						error: `Placement tx ${txHash} was dropped and never mined. Nothing was escrowed.`,
+					})
+					return
+				}
+				// A bundler-sourced hash may simply have been reorged out and re-bundled under
+				// another; fall through to the UserOp rules and let the scan look again.
+				this.logger.debug({ txHash }, "The bundler's placement tx is not on chain; checking the op itself")
+			}
+			if (tx) {
+				if (tx.blockNumber !== null) {
+					// Mined: its receipt will be readable, so nothing is settled here.
+					throw new Error(`Placement tx ${txHash} is mined; its receipt is being read`)
+				}
+				if (!record.placeUserOpHash) {
+					// A native tx we sent: once the wallet's nonce is past it, it can never be mined.
+					// Read at the scanned height so it is asserted against covered state.
+					const accountNonce = (await withTimeout(
+						scannedTo !== undefined
+							? client.getTransactionCount({ address: this.deps.solver, blockNumber: scannedTo })
+							: client.getTransactionCount({ address: this.deps.solver, blockTag: "latest" }),
+						"the filler wallet's nonce",
+					)) as number
+					if (BigInt(accountNonce) > BigInt(tx.nonce)) {
+						await this.update({
+							stage: "failed",
+							error: `Placement tx ${txHash} was replaced or dropped; the filler wallet's nonce has moved past it. Nothing was escrowed.`,
+						})
+						return
+					}
+				}
+				// The node still knows the tx, so it may yet be mined.
+				throw new Error(`Placement tx ${txHash} is not mined yet; it is being checked`)
+			}
+		}
+
+		const userOpHash = record.placeUserOpHash
+		if (!userOpHash) throw new Error("No placement tx or UserOp hash is recorded; waiting")
+		if (record.placeUserOpExpires && scannedTo !== undefined && Date.now() - submittedAt >= PLACEMENT_WINDOW_MS) {
+			// Permit2 mode: the permit's deadline has passed within a range the scan covered.
+			await this.update({
+				stage: "failed",
+				error: `Placement UserOp ${userOpHash} did not land before its permit expired. Nothing was escrowed.`,
+			})
+			return
+		}
+		// The nonce is read at `scannedTo`, the height the scan reached, so it is asserted against
+		// a state the evidence already covers; a later height is not part of this attempt.
+		const nonceCall = {
+			abi: ENTRYPOINT_ABI,
+			address: this.deps.configService.getEntryPointAddress(record.chain)!,
+			functionName: "getNonce" as const,
+			args: [this.deps.solver, BigInt(record.placeUserOpNonceKey ?? "0")] as const,
+		}
+		const nonce = (await withTimeout(
+			scannedTo !== undefined ? client.readContract({ ...nonceCall, blockNumber: scannedTo }) : client.readContract(nonceCall),
+			"the EntryPoint nonce",
+		)) as bigint
+		if (nonce > BigInt(record.placeUserOpNonce ?? "0")) {
+			// The nonce was consumed as of a covered height; if it were ours, the scan would have found our log.
+			await this.update({
+				stage: "failed",
+				error: `Placement UserOp ${userOpHash} was never placed and its EntryPoint nonce has moved on. Nothing was escrowed.`,
+			})
+			return
+		}
+		throw new Error(`Placement UserOp ${userOpHash} can still land; it is being checked`)
+	}
+
+	/**
+	 * Whether the order's deadline has passed. The deadline is a block height on the order's
+	 * destination (BSC), so it is read there; the gateway rejects a fill only once the height is
+	 * strictly past it. An unreadable height is treated as not passed: an order must not be
+	 * settled from a read that failed.
+	 */
+	private async deadlinePassed(order: Order): Promise<boolean> {
+		try {
+			return (await withTimeout(this.bsc().getBlockNumber(), "the latest BSC block")) > order.deadline
+		} catch (err) {
+			this.logger.debug({ err }, "Could not read BSC's height for the order's deadline")
+			return false
+		}
 	}
 
 	private async resumeDelivery(): Promise<void> {
@@ -679,11 +1018,44 @@ export class BridgeTopUp {
 	}
 
 	/**
-	 * The HyperFungibleToken request the fill dispatched to Hyperbridge. The indexer finds it by
-	 * the fill's transaction, as the explorer's search does; the fill's own `Sent` log is the
-	 * fallback while the indexer catches up.
+	 * The HyperFungibleToken request the fill dispatched to this filler's Hyperbridge account.
+	 *
+	 * The fill's own receipt is read first and the `Sent` log it carries is taken, because it is
+	 * the transaction this order's output call ran in. A bundled fill can carry several HFT sends,
+	 * so only logs from the BRIDGE token addressed to this filler's substrate key count; when more
+	 * than one matches, the amount the order's output call sends picks the right one. The indexer
+	 * finds the request by the fill's transaction too, as the explorer's search does, and is the
+	 * fallback only while the receipt cannot be read — and only when it is unambiguous.
 	 */
 	private async deliveryRequest(fillTxHash: HexString): Promise<HexString> {
+		const receipt = await withTimeout(this.bsc().getTransactionReceipt({ hash: fillTxHash }), "the fill receipt").catch(
+			(err) => {
+				this.logger.debug({ err, fillTxHash }, "Could not read the fill receipt; falling back to the indexer")
+				return undefined
+			},
+		)
+		if (receipt) {
+			const filler = this.deps.substratePublicKey.toLowerCase()
+			const sends = parseEventLogs({ abi: HyperFungibleTokenABI, logs: receipt.logs, eventName: "Sent" })
+				.filter((log) => log.address.toLowerCase() === this.bridgeToken.toLowerCase())
+				.map((log) => log.args as { to: HexString; amount: bigint; commitment: HexString })
+				.filter((args) => args.to.toLowerCase() === filler)
+			if (sends.length === 0) {
+				throw new Error(`The fill ${fillTxHash} sent no BRIDGE to this filler's Hyperbridge account`)
+			}
+			if (sends.length === 1) return sends[0].commitment
+
+			// The order's own output amount names which of several sends is this order's.
+			const amount = deserializeOrder(this.record!.order).output.assets[0]?.amount
+			const matches = sends.filter((sent) => sent.amount === amount)
+			if (matches.length !== 1) {
+				throw new Error(
+					`The fill ${fillTxHash} has ${sends.length} BRIDGE sends to this filler and ${matches.length} match the order's amount`,
+				)
+			}
+			return matches[0].commitment
+		}
+
 		const response = await withTimeout(
 			fetch(this.deps.indexerUrl, {
 				method: "POST",
@@ -693,13 +1065,13 @@ export class BridgeTopUp {
 			"the indexer",
 		)
 		const body = (await response.json()) as { data?: { requestV2s?: { nodes: { commitment: HexString }[] } } }
-		const indexed = body.data?.requestV2s?.nodes[0]?.commitment
-		if (indexed) return indexed
-
-		const fill = await withTimeout(this.bsc().getTransactionReceipt({ hash: fillTxHash }), "the fill receipt")
-		const [sent] = parseEventLogs({ abi: HyperFungibleTokenABI, logs: fill.logs, eventName: "Sent" })
-		if (!sent) throw new Error(`The fill ${fillTxHash} sent no BRIDGE to Hyperbridge`)
-		return (sent.args as { commitment: HexString }).commitment
+		const nodes = body.data?.requestV2s?.nodes ?? []
+		if (nodes.length !== 1) {
+			throw new Error(
+				`The fill ${fillTxHash}'s receipt could not be read and the indexer returned ${nodes.length} requests for it`,
+			)
+		}
+		return nodes[0].commitment
 	}
 
 	/**
@@ -740,21 +1112,19 @@ export class BridgeTopUp {
 			const end = blockAt(seenAt + FILL_SEARCH_AFTER_MS)
 			return end < latest.number ? end : latest.number
 		})()
-		for (let start = from; start <= to; start += LOG_CHUNK_BLOCKS) {
-			const end = start + LOG_CHUNK_BLOCKS - 1n < to ? start + LOG_CHUNK_BLOCKS - 1n : to
+		return this.scanLogs<HexString>(from, to, async (fromBlock, toBlock) => {
 			const logs = await withTimeout(
 				client.getLogs({
 					address: this.deps.configService.getIntentGatewayAddress(BRIDGE_TOP_UP_CHAIN),
 					event: ORDER_FILLED_EVENT,
 					args: { commitment: record.commitment },
-					fromBlock: start,
-					toBlock: end,
+					fromBlock,
+					toBlock,
 				}),
 				"the fill on BSC",
 			)
-			if (logs[0]) return logs[0].transactionHash
-		}
-		return undefined
+			return logs[0]?.transactionHash
+		})
 	}
 
 	/** The order's statuses as the indexer has them: placed, filled, redeemed or refunded. */
@@ -822,7 +1192,24 @@ export class BridgeTopUp {
 		}
 		if (record.stage === "unfilled" || record.stage === "reclaiming") {
 			const gateway = await this.gateway(record.chain)
-			await this.refunded(gateway, deserializeOrder(record.order))
+			const order = deserializeOrder(record.order)
+			// An order reported unfilled may have been filled after all — by a late fill the
+			// executor never saw. Check for one before the refund, or the reclaim would cancel
+			// an order that already paid out.
+			if (record.stage === "unfilled") {
+				const fill = (await this.indexedOrder())?.find((status) => status.status === "FILLED")
+				if (fill || (await gateway.isOrderFilled(order).catch(() => false))) {
+					await this.update({
+						stage: "delivering",
+						fillTxHash: fill?.transactionHash ?? record.fillTxHash,
+						filler: fill?.filler ?? record.filler,
+						stageTimes: { ...record.stageTimes, delivering: fill?.timestamp ?? Date.now() },
+					})
+					void this.resumeDelivery()
+					return
+				}
+			}
+			await this.refunded(gateway, order)
 		}
 	}
 
@@ -891,9 +1278,17 @@ export class BridgeTopUp {
 				})
 				return true
 			case "EXPIRED":
-			case "FAILED":
 				await this.update({ stage: "unfilled", error: value.error as string | undefined })
 				return true
+			case "FAILED": {
+				// The executor reports transient faults — an unreadable destination chain, an
+				// unexpected error — as FAILED. Before the deadline the order is still live, so
+				// the failure is thrown for drive() to retry rather than settling as unfilled.
+				const message = (value.error as string | undefined) ?? "The order's executor reported a failure"
+				if (!(await this.deadlinePassed(deserializeOrder(this.record!.order)))) throw new Error(message)
+				await this.update({ stage: "unfilled", error: message })
+				return true
+			}
 			case "CANCELLED":
 				await this.update({ stage: "reclaimed" })
 				return true
@@ -939,7 +1334,16 @@ export class BridgeTopUp {
 								break
 							}
 							const calls = await this.cancelCalls(record.chain, value)
-							const { txHash } = await this.deps.tokenSender.submitCalls(record.chain, calls)
+							let txHash: HexString
+							try {
+								;({ txHash } = await this.deps.tokenSender.submitCalls(record.chain, calls))
+							} catch (err) {
+								// The cancel was broadcast before the failure; keep its hash so a retry
+								// hands it back instead of sending, and paying for, a second one.
+								if (!(err instanceof SubmittedUnconfirmedError) || err.submission.kind !== "tx") throw err
+								await this.update({ reclaimTxHash: err.submission.txHash })
+								throw err
+							}
 							await this.update({ reclaimTxHash: txHash })
 							input = txHash
 							break
@@ -1083,6 +1487,17 @@ export class BridgeTopUp {
 		await this.update({ recoverySteps: steps })
 	}
 
+	/**
+	 * Schedules a retry in {@link DELIVERY_RETRY_MS}, but only while the record it was scheduled
+	 * for is still the current one. A timer from a finished top-up must never drive the next one:
+	 * a top-up the operator started after this record was replaced has its own state to protect.
+	 */
+	private scheduleRetry(id: string, run: () => void): void {
+		setTimeout(() => {
+			if (this.record?.id === id) run()
+		}, DELIVERY_RETRY_MS)
+	}
+
 	/** Runs one background flow for the record; a failure is recorded rather than thrown. */
 	private async drive(flow: (gateway: IntentGateway) => Promise<void>): Promise<void> {
 		const record = this.record
@@ -1094,12 +1509,20 @@ export class BridgeTopUp {
 		} catch (err) {
 			const error = err instanceof Error ? err.message : String(err)
 			this.logger.warn({ err, id: record.id, stage: record.stage }, "BRIDGE top-up step failed")
-			if (record.stage === "placing" && !record.placeTxHash) {
+			const id = record.id
+			const submitted = !!record.placeTxHash || !!record.placeUserOpHash
+			if (record.stage === "placing" && !submitted) {
 				await this.update({ stage: "failed", error })
+			} else if (submitted && (record.stage === "placing" || record.stage === "failed")) {
+				// The batch went out but its receipt never arrived, so the order may be live.
+				// Stay pending — start() must refuse another top-up — and check again; only a
+				// read that settles the batch (dropped, reverted, expired) may mark it failed.
+				await this.update({ error: `Placement is unconfirmed; still checking: ${error}` })
+				this.scheduleRetry(id, () => void this.recoverPlacement())
 			} else if (record.stage === "delivering") {
 				// Filled and paid for: only the relay is outstanding, so it is retried, never abandoned.
 				await this.update({ error: `Delivery to Hyperbridge is retrying: ${error}` })
-				setTimeout(() => void this.resumeDelivery(), DELIVERY_RETRY_MS)
+				this.scheduleRetry(id, () => void this.resumeDelivery())
 			} else if (record.stage === "reclaiming") {
 				// A failure after a long finality wait is not a fast failure, so it starts a fresh count.
 				if (Date.now() - startedAt >= RECLAIM_LONG_ATTEMPT_MS) this.reclaimFailures = 0
@@ -1114,14 +1537,22 @@ export class BridgeTopUp {
 				} else {
 					// The SDK keeps the cancellation's progress; the recovery resumes where it stopped.
 					await this.update({ error: `Recovery is retrying: ${error}` })
-					setTimeout(() => void this.driveReclaim(), DELIVERY_RETRY_MS)
+					this.scheduleRetry(id, () => void this.driveReclaim())
 				}
-			} else if (record.stage === "placing") {
-				// The batch went out; whether it placed an order is settled by reading its
-				// receipt again, at the next start.
-				await this.update({ stage: "failed", error: `${error} (placement tx ${record.placeTxHash})` })
+			} else if (record.stage === "awaiting_bids" || record.stage === "filling") {
+				// A live order's transient failure — an unreadable destination chain, a location
+				// read that timed out — must not settle it as unfilled. Only its own deadline does.
+				const order = deserializeOrder(record.order)
+				if (await this.deadlinePassed(order)) {
+					await this.update({ stage: "unfilled", error })
+				} else {
+					await this.update({ error: `Tracking is retrying: ${error}` })
+					this.scheduleRetry(id, () => void this.resumeOrder())
+				}
 			} else {
-				await this.update({ stage: "unfilled", error })
+				// Only an order past its auction is unfilled. A failure anywhere else (a legacy
+				// failure, a stage a stale flow left behind) records the error and moves nothing.
+				await this.update({ error })
 			}
 		} finally {
 			if (this.driving === record.id) this.driving = undefined

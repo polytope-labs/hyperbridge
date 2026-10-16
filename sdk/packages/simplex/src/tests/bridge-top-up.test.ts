@@ -1,6 +1,23 @@
 import { describe, expect, it, vi } from "vitest"
-import { type AbiEvent, decodeAbiParameters, decodeFunctionData, encodeAbiParameters, encodeEventTopics, encodeFunctionData, fromHex, toHex } from "viem"
-import { HyperFungibleTokenABI, IntentGatewayABI, transformOrderForContract, type HexString } from "@hyperbridge/sdk"
+import {
+	type AbiEvent,
+	decodeAbiParameters,
+	decodeFunctionData,
+	encodeAbiParameters,
+	encodeEventTopics,
+	encodeFunctionData,
+	fromHex,
+	toHex,
+	TransactionNotFoundError,
+} from "viem"
+import { privateKeyToAccount } from "viem/accounts"
+import {
+	bytes20ToBytes32,
+	HyperFungibleTokenABI,
+	IntentGatewayABI,
+	transformOrderForContract,
+	type HexString,
+} from "@hyperbridge/sdk"
 import { ERC20_ABI } from "@/config/abis/ERC20"
 import { MemoryDataStore } from "@/data/memory"
 import type { StoredBridgeTopUp } from "@/data/types"
@@ -13,9 +30,13 @@ import {
 	SIMPLEX_REFERRER,
 	serializeOrder,
 } from "@/services/BridgeTopUp"
+import { SubmittedUnconfirmedError } from "@/services/submission"
 
 const BRIDGE = "0x5b0c50fDd52ECC0d4c682c441eaBaD41FfDEABBB" as HexString
 const RECIPIENT = `0x${"ab".repeat(32)}` as HexString
+/** The session key a placement uses; its address is what `OrderPlaced.session` names. */
+const SESSION_KEY = `0x${"55".repeat(32)}` as HexString
+const SESSION_ADDRESS = privateKeyToAccount(SESSION_KEY).address
 
 describe("BRIDGE top-up output call", () => {
 	it("is one CallDispatcher call that sends the whole output to Hyperbridge with no timeout or fee", () => {
@@ -74,8 +95,11 @@ describe("bridgeTopUpOutput", () => {
 	})
 })
 
+const SOLVER = "0xce319986ca4D5d0893751a628D0db3Dc8fc91d62" as HexString
+
 const ORDER = {
-	user: `0x${"00".repeat(12)}${"11".repeat(20)}`,
+	// The filler's own account, which identifies our placement when no session address is stored.
+	user: bytes20ToBytes32(SOLVER),
 	source: "EVM-8453",
 	destination: "EVM-56",
 	deadline: 123_456_789n,
@@ -107,7 +131,7 @@ function stored(stage: StoredBridgeTopUp["stage"], patch: Partial<StoredBridgeTo
 }
 
 /** An `OrderPlaced` log for {@link ORDER}, as the gateway emits it with its own nonce. */
-function orderPlacedLog() {
+function orderPlacedLog(patch: Record<string, unknown> = {}) {
 	const event = IntentGatewayABI.find((item) => item.type === "event" && item.name === "OrderPlaced") as AbiEvent
 	const args: Record<string, unknown> = {
 		user: ORDER.user,
@@ -116,7 +140,8 @@ function orderPlacedLog() {
 		deadline: ORDER.deadline,
 		nonce: 7n,
 		fees: ORDER.fees,
-		session: "0x0000000000000000000000000000000000000077",
+		// This filler's placement names the session key of `place()`'s placement.
+		session: SESSION_ADDRESS,
 		beneficiary: ORDER.output.beneficiary,
 		predispatch: [],
 		inputs: ORDER.inputs,
@@ -124,6 +149,7 @@ function orderPlacedLog() {
 		predispatchCall: "0x",
 		outputCall: ORDER.output.call,
 		graffiti: `0x${"00".repeat(32)}`,
+		...patch,
 	}
 	const indexed = event.inputs.filter((input) => input.indexed)
 	const plain = event.inputs.filter((input) => !input.indexed)
@@ -142,7 +168,6 @@ function orderPlacedLog() {
 }
 
 const FILL_TX = `0x${"88".repeat(32)}` as HexString
-const SOLVER = "0xce319986ca4D5d0893751a628D0db3Dc8fc91d62" as HexString
 const DELIVERY_COMMITMENT = `0x${"99".repeat(32)}` as HexString
 /** The source gateway the SDK's cancel calldata targets, and the source host's fee token. */
 const GATEWAY = "0x00000000000000000000000000000000000000ab" as HexString
@@ -157,7 +182,7 @@ const CANCEL_DATA = encodeFunctionData({
 const APPROVE_DATA = encodeFunctionData({ abi: ERC20_ABI, functionName: "approve", args: [GATEWAY, RELAYER_FEE] })
 
 /** The HyperFungibleToken `Sent` log a fill's output call emits. */
-function sentLog() {
+function sentLog(patch: Record<string, unknown> = {}) {
 	const event = HyperFungibleTokenABI.find((item) => item.type === "event" && item.name === "Sent") as AbiEvent
 	const args: Record<string, unknown> = {
 		from: "0xE2C7e576E26E0bE7aC97c6fE925bcDAbD87c4bEd",
@@ -165,6 +190,7 @@ function sentLog() {
 		dest: "POLKADOT-3367",
 		amount: 99n * 10n ** 18n,
 		commitment: DELIVERY_COMMITMENT,
+		...patch,
 	}
 	const plain = event.inputs.filter((input) => !input.indexed)
 	return {
@@ -191,13 +217,18 @@ function topUpWith(record: StoredBridgeTopUp, chain: { receipt?: { logs: unknown
 			getPublicClient: () => ({
 				waitForTransactionReceipt: async () => chain.receipt,
 				getTransactionReceipt: async () => ({ transactionHash: FILL_TX, blockNumber: 100n, logs: [sentLog()] }),
+				getTransaction: async () => ({ hash: FILL_TX }),
+				getBlockNumber: async () => 100n,
 			}),
 		},
 		configService: {
 			getConfiguredChainIds: () => [8453, 56],
 			getHostAddress: () => "0x620128E2B19193d6Bd244a3AC8D3bBa0541B19c3",
 			getRpcUrl: () => "http://localhost:1",
+			getRpcUrls: () => [],
 			getBundlerUrl: () => undefined,
+			getEntryPointAddress: () => "0x4337843378433784337843378433784337843378",
+			getAssetBySymbol: (_chain: string, symbol: string) => (symbol === "BRIDGE" ? BRIDGE : undefined),
 			getIntentGatewayAddress: () => "0xAe041F7B0CB581876832830baeB6a2Aa2a3C9716",
 			getUsdcAsset: () => FEE_TOKEN,
 			getUsdcDecimals: () => 6,
@@ -206,6 +237,9 @@ function topUpWith(record: StoredBridgeTopUp, chain: { receipt?: { logs: unknown
 		},
 		// Base is delegated; BSC still points at an older SolverAccount.
 		delegation: { isDelegated: async (chain: string) => chain === "EVM-8453" },
+		solver: SOLVER,
+		// sentLog() addresses its `Sent` to this key, so a read receipt reads as this filler's.
+		substratePublicKey: RECIPIENT,
 		refreshBridgeBalance,
 	} as unknown as BridgeTopUpDeps)
 	// Hyperbridge already holds the request, as when another relayer delivered it.
@@ -676,5 +710,976 @@ describe("BRIDGE top-up persistence", () => {
 	it("only reclaims an unfilled order", async () => {
 		const { topUp } = topUpWith(stored("filled"))
 		await expect(topUp.reclaim()).rejects.toThrow("There is no unfilled top-up to reclaim")
+	})
+})
+
+const USER_OP_HASH = `0x${"aa".repeat(32)}` as HexString
+const PLACE_TX = `0x${"bb".repeat(32)}` as HexString
+const SCAN_TX = `0x${"cc".repeat(32)}` as HexString
+/** A session key that is not this filler's, for a receipt carrying someone else's placement. */
+const OTHER_SESSION = `0x${"77".repeat(20)}` as HexString
+
+/** The internals these recovery tests reach into, as the file's other tests do. */
+type TopUpInternals = {
+	record: StoredBridgeTopUp
+	gateways: Map<string, Promise<unknown>>
+	deps: BridgeTopUpDeps
+	bsc: () => unknown
+	place: (order: unknown, tokenIn: HexString) => Promise<void>
+	deliveryRequest: (fillTxHash: HexString) => Promise<HexString>
+	resumeDelivery: () => Promise<void>
+}
+
+/** A gateway that yields a placement transaction, reports no fill, and resumes into nothing. */
+function placementGateway(overrides: Record<string, unknown> = {}) {
+	return {
+		executeBest: () =>
+			(async function* () {
+				yield {
+					status: "AWAITING_PLACE_ORDER",
+					sessionPrivateKey: SESSION_KEY,
+					to: GATEWAY,
+					data: "0xdead",
+					value: 0n,
+					feeTokenAmount: 0n,
+					feeTokenAddress: FEE_TOKEN,
+				}
+			})(),
+		isOrderFilled: async () => false,
+		async *resumeBest() {},
+		...overrides,
+	}
+}
+
+/** A paying-chain client the recovery reads: its receipt, its scan, its EntryPoint nonce and tx. */
+function payingClient(
+	opts: {
+		receipt?: { status?: string; logs: unknown[] }
+		receiptError?: unknown
+		logs?: unknown[]
+		getLogsError?: unknown
+		latestBlock?: bigint
+		nonce?: bigint
+		/** The EntryPoint nonce, as it depends on the height the read was pinned to (undefined = latest). */
+		nonceAt?: (blockNumber: bigint | undefined) => bigint
+		getTransaction?: () => Promise<unknown>
+		accountNonce?: number
+		/** The wallet's nonce, as it depends on the height the read was pinned to (undefined = latest). */
+		accountNonceAt?: (blockNumber: bigint | undefined) => number
+		/** Records each scan page, for tests that assert where a scan starts. */
+		onGetLogs?: (range: { fromBlock: bigint; toBlock: bigint }) => void
+	} = {},
+) {
+	return {
+		waitForTransactionReceipt: async () => {
+			if (opts.receiptError !== undefined) throw opts.receiptError
+			return opts.receipt ?? { logs: [] }
+		},
+		getBlockNumber: async () => opts.latestBlock ?? 100n,
+		getLogs: async (args: { fromBlock: bigint; toBlock: bigint }) => {
+			opts.onGetLogs?.(args)
+			if (opts.getLogsError !== undefined) throw opts.getLogsError
+			return opts.logs ?? []
+		},
+		// A pending tx: `blockNumber` is null until it is mined, as viem reports it.
+		getTransaction: opts.getTransaction ?? (async () => ({ hash: PLACE_TX, nonce: 0, blockNumber: null })),
+		getTransactionCount: async (args: { blockNumber?: bigint }) =>
+			opts.accountNonceAt ? opts.accountNonceAt(args.blockNumber) : opts.accountNonce ?? 0,
+		readContract: async (args: { blockNumber?: bigint }) =>
+			opts.nonceAt ? opts.nonceAt(args.blockNumber) : opts.nonce ?? 0n,
+	}
+}
+
+/** Installs a paying-chain client built from `opts`. */
+function installPayingClient(internals: TopUpInternals, opts: Parameters<typeof payingClient>[0] = {}) {
+	;(internals.deps.clientManager as unknown as Record<string, unknown>).getPublicClient = () => payingClient(opts)
+}
+
+/** A placing record for a UserOp placement that never got a receipt. */
+function userOpPlacement(patch: Record<string, unknown> = {}) {
+	return stored("placing", {
+		placeUserOpHash: USER_OP_HASH,
+		placeUserOpNonce: "3",
+		placeUserOpNonceKey: "0",
+		placeUserOpExpires: true,
+		placeSubmittedAt: Date.now() - 2 * 60 * 60_000,
+		placeSession: SESSION_ADDRESS,
+		placeFromBlock: "10",
+		sessionPrivateKey: SESSION_KEY,
+		...patch,
+	})
+}
+
+/** The `OrderPlaced` log a scan returns for this filler's session. */
+function scannedPlacement() {
+	return { transactionHash: SCAN_TX, args: { session: SESSION_ADDRESS } }
+}
+
+describe("BRIDGE top-up placement recovery", () => {
+	it("keeps a top-up pending while a sponsored placement has no receipt, then recovers it", async () => {
+		vi.useFakeTimers()
+		try {
+			const record = stored("placing")
+			const { topUp, data } = topUpWith(record)
+			const internals = topUp as unknown as TopUpInternals
+			internals.record = record
+			internals.gateways.set("EVM-8453", Promise.resolve(placementGateway()))
+			const userOpReceipt = vi.fn(async () => ({ txHash: PLACE_TX, success: true }))
+			internals.deps.tokenSender = {
+				submitCalls: async () => {
+					throw new SubmittedUnconfirmedError(
+						`Sponsored UserOp ${USER_OP_HASH} submitted but no receipt within timeout`,
+						"EVM-8453",
+						{ kind: "userOp", userOpHash: USER_OP_HASH, nonce: 0n, nonceKey: 0n, expires: true, submittedAt: Date.now() },
+					)
+				},
+				userOpReceipt,
+			} as never
+			installPayingClient(internals, { receipt: { logs: [orderPlacedLog()] } })
+
+			await internals.place(deserializeOrder(record.order), FEE_TOKEN)
+
+			let saved = (await data.state.get()).bridgeTopUp!
+			expect(saved.stage).toBe("placing")
+			expect(saved.placeUserOpHash).toBe(USER_OP_HASH)
+			expect(saved.placeUserOpNonce).toBe("0")
+			expect(saved.placeUserOpExpires).toBe(true)
+			// The session address names this placement's log, and the block bounds the scan.
+			expect(saved.placeSession).toBe(SESSION_ADDRESS)
+			expect(saved.placeFromBlock).toBe("100")
+			expect(saved.error).toContain("Placement is unconfirmed")
+			// Pending, so another top-up is refused without a restart.
+			await expect(topUp.start({ chain: "EVM-8453", token: "USDC", amount: "5" })).rejects.toThrow(
+				"A BRIDGE top-up is already pending",
+			)
+
+			// The retry finds the op's receipt and tracks the order it placed.
+			await vi.advanceTimersByTimeAsync(60_000)
+			saved = (await data.state.get()).bridgeTopUp!
+			expect(saved.stage).toBe("awaiting_bids")
+			expect(saved.placeTxHash).toBe(PLACE_TX)
+			expect(userOpReceipt).toHaveBeenCalled()
+		} finally {
+			vi.clearAllTimers()
+			vi.useRealTimers()
+		}
+	})
+
+	it("keeps a top-up pending while a native placement has no receipt, then recovers it", async () => {
+		vi.useFakeTimers()
+		try {
+			const record = stored("placing")
+			const { topUp, data } = topUpWith(record)
+			const internals = topUp as unknown as TopUpInternals
+			internals.record = record
+			internals.gateways.set("EVM-8453", Promise.resolve(placementGateway()))
+			internals.deps.tokenSender = {
+				submitCalls: async () => {
+					throw new SubmittedUnconfirmedError(`Timed out waiting for ${PLACE_TX}`, "EVM-8453", {
+						kind: "tx",
+						txHash: PLACE_TX,
+						submittedAt: Date.now(),
+					})
+				},
+				userOpReceipt: async () => null,
+			} as never
+			installPayingClient(internals, { receipt: { logs: [orderPlacedLog()] } })
+
+			await internals.place(deserializeOrder(record.order), FEE_TOKEN)
+
+			let saved = (await data.state.get()).bridgeTopUp!
+			expect(saved.stage).toBe("placing")
+			expect(saved.placeTxHash).toBe(PLACE_TX)
+			expect(saved.error).toContain("Placement is unconfirmed")
+
+			await vi.advanceTimersByTimeAsync(60_000)
+			saved = (await data.state.get()).bridgeTopUp!
+			expect(saved.stage).toBe("awaiting_bids")
+		} finally {
+			vi.clearAllTimers()
+			vi.useRealTimers()
+		}
+	})
+
+	it("picks this filler's OrderPlaced out of a receipt that carries another user's first", async () => {
+		const placeTxHash = `0x${"66".repeat(32)}` as HexString
+		const { topUp, data } = topUpWith(
+			stored("placing", { placeTxHash, placeSession: SESSION_ADDRESS, placeSubmittedAt: Date.now() }),
+		)
+		const internals = topUp as unknown as TopUpInternals
+		installPayingClient(internals, {
+			receipt: { logs: [orderPlacedLog({ session: OTHER_SESSION, nonce: 9n }), orderPlacedLog()] },
+		})
+
+		await topUp.current()
+
+		await vi.waitFor(async () => expect((await data.state.get()).bridgeTopUp?.stage).toBe("awaiting_bids"))
+		const saved = (await data.state.get()).bridgeTopUp!
+		// The second log is ours: its nonce, not the other user's 9, and its session.
+		expect(deserializeOrder(saved.order).nonce).toBe(7n)
+		expect(deserializeOrder(saved.order).session).toBe(SESSION_ADDRESS)
+	})
+
+	it("settles a mined placement that placed no order, and does not retry", async () => {
+		vi.useFakeTimers()
+		try {
+			const placeTxHash = `0x${"66".repeat(32)}` as HexString
+			const { topUp, data } = topUpWith(
+				stored("placing", { placeTxHash, placeSession: OTHER_SESSION, placeSubmittedAt: Date.now() }),
+			)
+			const internals = topUp as unknown as TopUpInternals
+			let receipts = 0
+			;(internals.deps.clientManager as unknown as Record<string, unknown>).getPublicClient = () => ({
+				...payingClient(),
+				waitForTransactionReceipt: async () => {
+					receipts += 1
+					return { logs: [orderPlacedLog()] }
+				},
+			})
+
+			await topUp.current()
+			await vi.advanceTimersByTimeAsync(0)
+
+			let saved = (await data.state.get()).bridgeTopUp!
+			expect(saved.stage).toBe("failed")
+			expect(saved.error).toContain("was mined but placed no order")
+			expect(saved.error).toContain("Nothing was escrowed")
+
+			// Settled, not retried: no timer fires another receipt read.
+			await vi.advanceTimersByTimeAsync(120_000)
+			saved = (await data.state.get()).bridgeTopUp!
+			expect(saved.stage).toBe("failed")
+			expect(receipts).toBe(1)
+		} finally {
+			vi.clearAllTimers()
+			vi.useRealTimers()
+		}
+	})
+
+	it("settles a reverted placement as failed", async () => {
+		const placeTxHash = `0x${"66".repeat(32)}` as HexString
+		const { topUp, data } = topUpWith(
+			stored("placing", { placeTxHash, placeSession: SESSION_ADDRESS, placeSubmittedAt: Date.now() }),
+		)
+		const internals = topUp as unknown as TopUpInternals
+		installPayingClient(internals, { receipt: { status: "reverted", logs: [] } })
+
+		await topUp.current()
+
+		await vi.waitFor(async () => expect((await data.state.get()).bridgeTopUp?.stage).toBe("failed"))
+		expect((await data.state.get()).bridgeTopUp?.error).toContain("was mined but placed no order")
+	})
+
+	it("recovers from the scan when the bundler does not know the placement op", async () => {
+		const { topUp, data } = topUpWith(userOpPlacement())
+		const internals = topUp as unknown as TopUpInternals
+		internals.gateways.set("EVM-8453", Promise.resolve(placementGateway()))
+		internals.deps.tokenSender = { userOpReceipt: async () => null } as never
+		installPayingClient(internals, { logs: [scannedPlacement()], receipt: { logs: [orderPlacedLog()] } })
+
+		await topUp.current()
+
+		await vi.waitFor(async () => expect((await data.state.get()).bridgeTopUp?.stage).toBe("awaiting_bids"))
+		expect((await data.state.get()).bridgeTopUp?.placeTxHash).toBe(SCAN_TX)
+	})
+
+	it("fails a placement with no log once its EntryPoint nonce has moved on", async () => {
+		const { topUp, data } = topUpWith(userOpPlacement({ placeUserOpExpires: false }))
+		const internals = topUp as unknown as TopUpInternals
+		internals.deps.tokenSender = { userOpReceipt: async () => null } as never
+		installPayingClient(internals, { logs: [], nonce: 4n })
+
+		await topUp.current()
+
+		await vi.waitFor(async () => expect((await data.state.get()).bridgeTopUp?.stage).toBe("failed"))
+		expect((await data.state.get()).bridgeTopUp?.error).toContain("nonce has moved on")
+		expect((await data.state.get()).bridgeTopUp?.error).toContain("Nothing was escrowed")
+	})
+
+	it("fails a Permit2 op with no log once its permit window has passed", async () => {
+		const { topUp, data } = topUpWith(userOpPlacement())
+		const internals = topUp as unknown as TopUpInternals
+		internals.deps.tokenSender = { userOpReceipt: async () => null } as never
+		installPayingClient(internals, { logs: [], nonce: 3n })
+
+		await topUp.current()
+
+		await vi.waitFor(async () => expect((await data.state.get()).bridgeTopUp?.stage).toBe("failed"))
+		expect((await data.state.get()).bridgeTopUp?.error).toContain("permit expired")
+	})
+
+	it("keeps a bootstrap op pending: it has no expiry and can still land", async () => {
+		vi.useFakeTimers()
+		try {
+			const { topUp, data } = topUpWith(userOpPlacement({ placeUserOpExpires: false }))
+			const internals = topUp as unknown as TopUpInternals
+			internals.deps.tokenSender = { userOpReceipt: async () => null } as never
+			installPayingClient(internals, { logs: [], nonce: 3n })
+
+			await topUp.current()
+			await vi.advanceTimersByTimeAsync(0)
+
+			const saved = (await data.state.get()).bridgeTopUp!
+			expect(saved.stage).toBe("placing")
+			expect(saved.error).toContain("Placement is unconfirmed")
+			expect((await topUp.current())?.pending).toBe(true)
+		} finally {
+			vi.clearAllTimers()
+			vi.useRealTimers()
+		}
+	})
+
+	it("keeps retrying while the placement scan cannot be read", async () => {
+		vi.useFakeTimers()
+		try {
+			const { topUp, data } = topUpWith(userOpPlacement())
+			const internals = topUp as unknown as TopUpInternals
+			internals.deps.tokenSender = { userOpReceipt: async () => null } as never
+			installPayingClient(internals, { getLogsError: new Error("range too wide") })
+
+			await topUp.current()
+			await vi.advanceTimersByTimeAsync(0)
+
+			const saved = (await data.state.get()).bridgeTopUp!
+			expect(saved.stage).toBe("placing")
+			expect(saved.error).toContain("Placement is unconfirmed")
+			expect(saved.error).toContain("range too wide")
+		} finally {
+			vi.clearAllTimers()
+			vi.useRealTimers()
+		}
+	})
+
+	it("fails a native placement the node no longer knows after its retry window", async () => {
+		const placeTxHash = `0x${"66".repeat(32)}` as HexString
+		const { topUp, data } = topUpWith(
+			stored("placing", {
+				placeTxHash,
+				placeSession: SESSION_ADDRESS,
+				placeFromBlock: "10",
+				placeSubmittedAt: Date.now() - 2 * 60 * 60_000,
+			}),
+		)
+		const internals = topUp as unknown as TopUpInternals
+		installPayingClient(internals, {
+			receiptError: new Error("receipt not readable"),
+			logs: [],
+			getTransaction: async () => {
+				throw new TransactionNotFoundError({ hash: PLACE_TX })
+			},
+		})
+
+		await topUp.current()
+
+		await vi.waitFor(async () => expect((await data.state.get()).bridgeTopUp?.stage).toBe("failed"))
+		expect((await data.state.get()).bridgeTopUp?.error).toContain("was dropped and never mined")
+	})
+
+	it("retries a native placement when the node read itself fails", async () => {
+		vi.useFakeTimers()
+		try {
+			const placeTxHash = `0x${"66".repeat(32)}` as HexString
+			const { topUp, data } = topUpWith(
+				stored("placing", {
+					placeTxHash,
+					placeSession: SESSION_ADDRESS,
+					placeFromBlock: "10",
+					placeSubmittedAt: Date.now() - 2 * 60 * 60_000,
+				}),
+			)
+			const internals = topUp as unknown as TopUpInternals
+			installPayingClient(internals, {
+				receiptError: new Error("receipt not readable"),
+				logs: [],
+				getTransaction: async () => {
+					throw new Error("rpc exploded")
+				},
+			})
+
+			await topUp.current()
+			await vi.advanceTimersByTimeAsync(0)
+
+			const saved = (await data.state.get()).bridgeTopUp!
+			expect(saved.stage).toBe("placing")
+			expect(saved.error).toContain("rpc exploded")
+		} finally {
+			vi.clearAllTimers()
+			vi.useRealTimers()
+		}
+	})
+
+	it("keeps a legacy placement failure failed when it mined no order, never unfilled", async () => {
+		const placeTxHash = `0x${"66".repeat(32)}` as HexString
+		const { topUp, data } = topUpWith(
+			stored("failed", { placeTxHash, sessionPrivateKey: SESSION_KEY, error: "receipt read failed" }),
+		)
+		const internals = topUp as unknown as TopUpInternals
+		installPayingClient(internals, { receipt: { logs: [] } })
+
+		await topUp.current()
+
+		await vi.waitFor(async () => expect((await data.state.get()).bridgeTopUp?.stage).toBe("failed"))
+		// A reclaim of a never-placed order would mark it reclaimed (X1); it must stay failed.
+		expect((await data.state.get()).bridgeTopUp?.error).toContain("was mined but placed no order")
+	})
+
+	it("does not drive a new top-up from a legacy record's retry timer", async () => {
+		vi.useFakeTimers()
+		try {
+			const placeTxHash = `0x${"66".repeat(32)}` as HexString
+			const { topUp, data } = topUpWith(
+				stored("failed", { placeTxHash, sessionPrivateKey: SESSION_KEY, error: "receipt read failed" }),
+			)
+			const internals = topUp as unknown as TopUpInternals
+			// The receipt read keeps failing, so the record arms a retry timer.
+			installPayingClient(internals, { receiptError: new Error("receipt read failed") })
+
+			await topUp.current()
+			await vi.advanceTimersByTimeAsync(0)
+			expect((await data.state.get()).bridgeTopUp?.stage).toBe("failed")
+			expect((await data.state.get()).bridgeTopUp?.error).toContain("Placement is unconfirmed")
+
+			// The operator starts a new top-up, which start() records in place of the old one.
+			const next = stored("placing", { id: "next" })
+			internals.record = next
+			await data.state.set({ bridgeTopUp: next })
+
+			// The old record's timer fires, but must leave the new record alone.
+			await vi.advanceTimersByTimeAsync(60_000)
+			expect(internals.record.id).toBe("next")
+			expect(internals.record.stage).toBe("placing")
+			expect((await data.state.get()).bridgeTopUp?.id).toBe("next")
+			expect((await data.state.get()).bridgeTopUp?.stage).toBe("placing")
+		} finally {
+			vi.clearAllTimers()
+			vi.useRealTimers()
+		}
+	})
+
+	it("keeps a broadcast reclaim cancel's hash so the retry does not send a second one", async () => {
+		vi.useFakeTimers()
+		const fetchSpy = vi
+			.spyOn(globalThis, "fetch")
+			.mockImplementation(
+				async () => new Response(JSON.stringify({ data: { iOrderV3s: { nodes: [{ statusMetadata: { nodes: [] } }] } } })),
+			)
+		try {
+			const { topUp, data } = topUpWith(stored("unfilled", { commitment: `0x${"77".repeat(32)}` }))
+			const internals = topUp as unknown as TopUpInternals
+			const handedBack: string[] = []
+			internals.gateways.set(
+				"EVM-8453",
+				Promise.resolve({
+					isOrderRefunded: async () => false,
+					async *cancelOrder() {
+						yield { status: "DESTINATION_FINALIZED", proof: {} }
+						const input: string = yield {
+							status: "AWAITING_CANCEL_TRANSACTION",
+							to: GATEWAY,
+							data: CANCEL_DATA,
+							value: 5n,
+						}
+						handedBack.push(input)
+					},
+				}),
+			)
+			let submits = 0
+			;(internals.deps as unknown as Record<string, unknown>).tokenSender = {
+				submitCalls: async () => {
+					submits += 1
+					throw new SubmittedUnconfirmedError(`Timed out waiting for ${PLACE_TX}`, "EVM-8453", {
+						kind: "tx",
+						txHash: "0xcanceltx",
+						submittedAt: Date.now(),
+					})
+				},
+			}
+			;(internals.deps.clientManager as unknown as Record<string, unknown>).getPublicClient = () => ({
+				readContract: async ({ functionName }: { functionName: string }) => {
+					if (functionName === "feeToken") return FEE_TOKEN
+					if (functionName === "balanceOf") return 1_000_000n
+					return {}
+				},
+			})
+
+			await topUp.reclaim()
+			await vi.advanceTimersByTimeAsync(60_000)
+
+			expect((await data.state.get()).bridgeTopUp?.reclaimTxHash).toBe("0xcanceltx")
+			// The retry handed the stored hash back to the SDK rather than sending a second cancel.
+			expect(submits).toBe(1)
+			expect(handedBack).toContain("0xcanceltx")
+		} finally {
+			vi.clearAllTimers()
+			fetchSpy.mockRestore()
+			vi.useRealTimers()
+		}
+	})
+
+	it("keeps a bundler-confirmed placement pending when its receipt cannot be read", async () => {
+		vi.useFakeTimers()
+		try {
+			const { topUp, data } = topUpWith(userOpPlacement())
+			const internals = topUp as unknown as TopUpInternals
+			internals.deps.tokenSender = { userOpReceipt: async () => ({ txHash: PLACE_TX, success: true }) } as never
+			installPayingClient(internals, { receiptError: new Error("receipt not readable"), logs: [] })
+
+			await topUp.current()
+			await vi.advanceTimersByTimeAsync(60_000)
+			await vi.advanceTimersByTimeAsync(60_000)
+
+			const saved = (await data.state.get()).bridgeTopUp!
+			// The known tx decides by the tx rules: it is not settled by the op's permit window.
+			expect(saved.stage).toBe("placing")
+			expect(saved.placeTxHash).toBe(PLACE_TX)
+			expect(saved.error).not.toContain("Nothing was escrowed")
+		} finally {
+			vi.clearAllTimers()
+			vi.useRealTimers()
+		}
+	})
+
+	it("does not treat a paying chain behind the placement range as not found", async () => {
+		vi.useFakeTimers()
+		try {
+			const { topUp, data } = topUpWith(userOpPlacement({ placeFromBlock: "500" }))
+			const internals = topUp as unknown as TopUpInternals
+			internals.deps.tokenSender = { userOpReceipt: async () => null } as never
+			installPayingClient(internals, { latestBlock: 100n, logs: [] })
+
+			await topUp.current()
+			await vi.advanceTimersByTimeAsync(0)
+
+			const saved = (await data.state.get()).bridgeTopUp!
+			expect(saved.stage).toBe("placing")
+			expect(saved.error).toContain("behind the placement's range")
+		} finally {
+			vi.clearAllTimers()
+			vi.useRealTimers()
+		}
+	})
+
+	it("reads the EntryPoint nonce at the height the scan covered", async () => {
+		vi.useFakeTimers()
+		try {
+			const { topUp, data } = topUpWith(userOpPlacement({ placeUserOpExpires: false }))
+			const internals = topUp as unknown as TopUpInternals
+			internals.deps.tokenSender = { userOpReceipt: async () => null } as never
+			// The nonce has moved at the tip, but not as of the height the scan reached.
+			installPayingClient(internals, { logs: [], nonceAt: (block) => (block === 100n ? 3n : 4n) })
+
+			await topUp.current()
+			await vi.advanceTimersByTimeAsync(0)
+
+			expect((await data.state.get()).bridgeTopUp?.stage).toBe("placing")
+		} finally {
+			vi.clearAllTimers()
+			vi.useRealTimers()
+		}
+	})
+
+	it("continues a placement scan from the stored cursor", async () => {
+		vi.useFakeTimers()
+		try {
+			const { topUp, data } = topUpWith(userOpPlacement({ placeUserOpExpires: false }))
+			const internals = topUp as unknown as TopUpInternals
+			internals.deps.tokenSender = { userOpReceipt: async () => null } as never
+			const ranges: bigint[] = []
+			installPayingClient(internals, {
+				logs: [],
+				latestBlock: 100n,
+				nonce: 3n,
+				onGetLogs: ({ fromBlock }) => ranges.push(fromBlock),
+			})
+
+			await topUp.current()
+			await vi.advanceTimersByTimeAsync(0)
+			expect(ranges).toEqual([10n])
+			// A complete scan leaves the cursor a reorg margin below the tip.
+			expect((await data.state.get()).bridgeTopUp?.placeScannedTo).toBe("36")
+
+			await vi.advanceTimersByTimeAsync(60_000)
+			// The next attempt starts at the cursor, not at the placement's first block.
+			expect(ranges[ranges.length - 1]).toBe(36n)
+		} finally {
+			vi.clearAllTimers()
+			vi.useRealTimers()
+		}
+	})
+
+	it("picks our placement by user when no session address is stored", async () => {
+		const placeTxHash = `0x${"66".repeat(32)}` as HexString
+		const { topUp, data } = topUpWith(stored("placing", { placeTxHash, placeSubmittedAt: Date.now() }))
+		const internals = topUp as unknown as TopUpInternals
+		// Another user's placement comes first; ours is identified by the order's user.
+		installPayingClient(internals, {
+			receipt: {
+				logs: [orderPlacedLog({ user: bytes20ToBytes32(`0x${"22".repeat(20)}`), nonce: 9n }), orderPlacedLog()],
+			},
+		})
+
+		await topUp.current()
+
+		await vi.waitFor(async () => expect((await data.state.get()).bridgeTopUp?.stage).toBe("awaiting_bids"))
+		expect(deserializeOrder((await data.state.get()).bridgeTopUp!.order).nonce).toBe(7n)
+	})
+
+	it("fails a native placement the wallet's nonce has moved past", async () => {
+		const placeTxHash = `0x${"66".repeat(32)}` as HexString
+		const { topUp, data } = topUpWith(
+			stored("placing", {
+				placeTxHash,
+				placeSession: SESSION_ADDRESS,
+				placeFromBlock: "10",
+				placeSubmittedAt: Date.now() - 2 * 60 * 60_000,
+			}),
+		)
+		const internals = topUp as unknown as TopUpInternals
+		installPayingClient(internals, {
+			receiptError: new Error("receipt not readable"),
+			logs: [],
+			// The node still has the pending tx, but the wallet has sent another since: it can never be mined.
+			getTransaction: async () => ({ hash: placeTxHash, nonce: 1, blockNumber: null }),
+			accountNonce: 2,
+		})
+
+		await topUp.current()
+
+		await vi.waitFor(async () => expect((await data.state.get()).bridgeTopUp?.stage).toBe("failed"))
+		expect((await data.state.get()).bridgeTopUp?.error).toContain("nonce has moved past it")
+		expect((await data.state.get()).bridgeTopUp?.error).toContain("Nothing was escrowed")
+	})
+
+	it("does not settle a bundler-sourced tx the node has forgotten", async () => {
+		vi.useFakeTimers()
+		try {
+			const placeTxHash = `0x${"66".repeat(32)}` as HexString
+			const { topUp, data } = topUpWith(
+				userOpPlacement({
+					placeTxHash,
+					// Past the dropped-tx window, inside the Permit2 permit window.
+					placeSubmittedAt: Date.now() - 40 * 60_000,
+				}),
+			)
+			const internals = topUp as unknown as TopUpInternals
+			installPayingClient(internals, {
+				receiptError: new Error("receipt not readable"),
+				logs: [],
+				getTransaction: async () => {
+					throw new TransactionNotFoundError({ hash: placeTxHash })
+				},
+				nonce: 3n,
+			})
+
+			await topUp.current()
+			await vi.advanceTimersByTimeAsync(0)
+
+			const saved = (await data.state.get()).bridgeTopUp!
+			// The op could be re-bundled, so the UserOp rules decide, not "dropped".
+			expect(saved.stage).toBe("placing")
+			expect(saved.error).not.toContain("Nothing was escrowed")
+		} finally {
+			vi.clearAllTimers()
+			vi.useRealTimers()
+		}
+	})
+
+	it("recovers a re-bundled placement the scan finds under a new tx hash", async () => {
+		const placeTxHash = `0x${"66".repeat(32)}` as HexString
+		const { topUp, data } = topUpWith(userOpPlacement({ placeTxHash, placeSubmittedAt: Date.now() - 40 * 60_000 }))
+		const internals = topUp as unknown as TopUpInternals
+		internals.gateways.set("EVM-8453", Promise.resolve(placementGateway()))
+		// The old tx's receipt is unreadable; the scan finds the placement under a new one.
+		;(internals.deps.clientManager as unknown as Record<string, unknown>).getPublicClient = () => ({
+			...payingClient({ logs: [scannedPlacement()], nonce: 3n }),
+			waitForTransactionReceipt: async ({ hash }: { hash: string }) => {
+				if (hash.toLowerCase() === placeTxHash.toLowerCase()) throw new Error("receipt not readable")
+				return { logs: [orderPlacedLog()] }
+			},
+		})
+
+		await topUp.current()
+
+		await vi.waitFor(async () => expect((await data.state.get()).bridgeTopUp?.stage).toBe("awaiting_bids"))
+		expect((await data.state.get()).bridgeTopUp?.placeTxHash).toBe(SCAN_TX)
+	})
+
+	it("retries a native placement the node reports as mined", async () => {
+		vi.useFakeTimers()
+		try {
+			const placeTxHash = `0x${"66".repeat(32)}` as HexString
+			const { topUp, data } = topUpWith(
+				stored("placing", {
+					placeTxHash,
+					placeSession: SESSION_ADDRESS,
+					placeFromBlock: "10",
+					placeSubmittedAt: Date.now() - 2 * 60 * 60_000,
+				}),
+			)
+			const internals = topUp as unknown as TopUpInternals
+			installPayingClient(internals, {
+				receiptError: new Error("receipt not readable"),
+				logs: [],
+				// Mined, so its receipt will be readable; never settle it.
+				getTransaction: async () => ({ hash: placeTxHash, nonce: 1, blockNumber: 42n }),
+				accountNonce: 5,
+			})
+
+			await topUp.current()
+			await vi.advanceTimersByTimeAsync(0)
+
+			const saved = (await data.state.get()).bridgeTopUp!
+			expect(saved.stage).toBe("placing")
+			expect(saved.error).not.toContain("Nothing was escrowed")
+		} finally {
+			vi.clearAllTimers()
+			vi.useRealTimers()
+		}
+	})
+
+	it("fails a native placement the wallet's nonce has moved past at the scanned height", async () => {
+		const placeTxHash = `0x${"66".repeat(32)}` as HexString
+		const { topUp, data } = topUpWith(
+			stored("placing", {
+				placeTxHash,
+				placeSession: SESSION_ADDRESS,
+				placeFromBlock: "10",
+				placeSubmittedAt: Date.now() - 2 * 60 * 60_000,
+			}),
+		)
+		const internals = topUp as unknown as TopUpInternals
+		installPayingClient(internals, {
+			receiptError: new Error("receipt not readable"),
+			logs: [],
+			getTransaction: async () => ({ hash: placeTxHash, nonce: 1, blockNumber: null }),
+			accountNonceAt: (block) => (block === 100n ? 2 : 0),
+		})
+
+		await topUp.current()
+
+		await vi.waitFor(async () => expect((await data.state.get()).bridgeTopUp?.stage).toBe("failed"))
+		expect((await data.state.get()).bridgeTopUp?.error).toContain("nonce has moved past it")
+	})
+
+	it("reads the wallet's nonce at the scanned height, not the tip", async () => {
+		vi.useFakeTimers()
+		try {
+			const placeTxHash = `0x${"66".repeat(32)}` as HexString
+			const { topUp, data } = topUpWith(
+				stored("placing", {
+					placeTxHash,
+					placeSession: SESSION_ADDRESS,
+					placeFromBlock: "10",
+					placeSubmittedAt: Date.now() - 2 * 60 * 60_000,
+				}),
+			)
+			const internals = topUp as unknown as TopUpInternals
+			installPayingClient(internals, {
+				receiptError: new Error("receipt not readable"),
+				logs: [],
+				getTransaction: async () => ({ hash: placeTxHash, nonce: 1, blockNumber: null }),
+				// Past the tx only at the tip, not as of the height the scan reached.
+				accountNonceAt: (block) => (block === 100n ? 1 : 2),
+			})
+
+			await topUp.current()
+			await vi.advanceTimersByTimeAsync(0)
+
+			expect((await data.state.get()).bridgeTopUp?.stage).toBe("placing")
+		} finally {
+			vi.clearAllTimers()
+			vi.useRealTimers()
+		}
+	})
+})
+
+describe("BRIDGE top-up live order tracking", () => {
+	const OPEN = stored("awaiting_bids", {
+		commitment: `0x${"77".repeat(32)}`,
+		sessionPrivateKey: `0x${"55".repeat(32)}`,
+	})
+
+	it("keeps retrying a live order whose destination read fails, and resumes it", async () => {
+		vi.useFakeTimers()
+		try {
+			const { topUp, data } = topUpWith(OPEN)
+			const internals = topUp as unknown as TopUpInternals
+			const isOrderFilled = vi
+				.fn()
+				.mockRejectedValueOnce(new Error("Could not read the order on its destination chain"))
+				.mockResolvedValue(false)
+			internals.gateways.set(
+				"EVM-8453",
+				Promise.resolve({ isOrderFilled, async *resumeBest() {} }),
+			)
+			// The order's deadline is a BSC height far above this; only then is it settled.
+			internals.bsc = () => ({ getBlockNumber: async () => 1n })
+
+			await topUp.current()
+			await vi.advanceTimersByTimeAsync(0)
+
+			let saved = (await data.state.get()).bridgeTopUp!
+			expect(saved.stage).toBe("awaiting_bids")
+			expect(saved.error).toContain("Tracking is retrying")
+
+			await vi.advanceTimersByTimeAsync(60_000)
+			saved = (await data.state.get()).bridgeTopUp!
+			expect(saved.stage).toBe("awaiting_bids")
+			expect(isOrderFilled).toHaveBeenCalledTimes(2)
+		} finally {
+			vi.clearAllTimers()
+			vi.useRealTimers()
+		}
+	})
+
+	it("does not settle a live order whose executor reports a transient failure", async () => {
+		vi.useFakeTimers()
+		try {
+			const { topUp, data } = topUpWith(OPEN)
+			const internals = topUp as unknown as TopUpInternals
+			internals.gateways.set(
+				"EVM-8453",
+				Promise.resolve({
+					isOrderFilled: async () => false,
+					async *resumeBest() {
+						yield { status: "FAILED", error: "Unexpected error: destination read failed" }
+					},
+				}),
+			)
+			internals.bsc = () => ({ getBlockNumber: async () => 1n })
+
+			await topUp.current()
+			await vi.advanceTimersByTimeAsync(0)
+
+			const saved = (await data.state.get()).bridgeTopUp!
+			expect(saved.stage).toBe("awaiting_bids")
+			expect(saved.error).toContain("Unexpected error: destination read failed")
+			expect(saved.error).toContain("Tracking is retrying")
+		} finally {
+			vi.clearAllTimers()
+			vi.useRealTimers()
+		}
+	})
+
+	it("settles a live order whose executor fails once its deadline has passed", async () => {
+		const { topUp, data } = topUpWith(OPEN)
+		const internals = topUp as unknown as TopUpInternals
+		internals.gateways.set(
+			"EVM-8453",
+			Promise.resolve({
+				isOrderFilled: async () => false,
+				async *resumeBest() {
+					yield { status: "FAILED", error: "Unexpected error: destination read failed" }
+				},
+			}),
+		)
+		internals.bsc = () => ({ getBlockNumber: async () => 999_999_999n })
+
+		await topUp.current()
+
+		await vi.waitFor(async () => expect((await data.state.get()).bridgeTopUp?.stage).toBe("unfilled"))
+		expect((await data.state.get()).bridgeTopUp?.error).toContain("Unexpected error: destination read failed")
+	})
+
+	it("picks up an unfilled order the indexer shows as filled", async () => {
+		const { topUp, data } = topUpWith(stored("unfilled", { commitment: `0x${"77".repeat(32)}` }))
+		const internals = topUp as unknown as TopUpInternals
+		const resumeDelivery = vi.fn(async () => {})
+		internals.resumeDelivery = resumeDelivery
+		internals.gateways.set("EVM-8453", Promise.resolve({ isOrderFilled: async () => false, isOrderRefunded: async () => false }))
+		const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(
+			async () =>
+				new Response(
+					JSON.stringify({
+						data: {
+							iOrderV3s: {
+								nodes: [
+									{
+										statusMetadata: {
+											nodes: [{ status: "FILLED", timestamp: "100", transactionHash: FILL_TX, filler: SOLVER }],
+										},
+									},
+								],
+							},
+						},
+					}),
+				),
+		)
+
+		await topUp.sync()
+
+		const saved = (await data.state.get()).bridgeTopUp!
+		expect(saved.stage).toBe("delivering")
+		expect(saved.fillTxHash).toBe(FILL_TX)
+		expect(saved.filler).toBe(SOLVER)
+		expect(saved.stageTimes?.delivering).toBeTypeOf("number")
+		expect(resumeDelivery).toHaveBeenCalledTimes(1)
+		fetchSpy.mockRestore()
+	})
+
+	it("picks up an unfilled order the gateway itself shows as filled", async () => {
+		const { topUp, data } = topUpWith(stored("unfilled", { commitment: `0x${"77".repeat(32)}` }))
+		const internals = topUp as unknown as TopUpInternals
+		const resumeDelivery = vi.fn(async () => {})
+		internals.resumeDelivery = resumeDelivery
+		internals.gateways.set("EVM-8453", Promise.resolve({ isOrderFilled: async () => true, isOrderRefunded: async () => false }))
+		const fetchSpy = vi
+			.spyOn(globalThis, "fetch")
+			.mockImplementation(
+				async () => new Response(JSON.stringify({ data: { iOrderV3s: { nodes: [{ statusMetadata: { nodes: [] } }] } } })),
+			)
+
+		await topUp.sync()
+
+		expect((await data.state.get()).bridgeTopUp?.stage).toBe("delivering")
+		expect(resumeDelivery).toHaveBeenCalledTimes(1)
+		fetchSpy.mockRestore()
+	})
+})
+
+describe("BRIDGE top-up delivery request", () => {
+	it("takes this order's send from a fill that also paid another account", async () => {
+		const record = stored("delivering", { commitment: `0x${"77".repeat(32)}`, fillTxHash: FILL_TX })
+		const { topUp } = topUpWith(record)
+		const internals = topUp as unknown as TopUpInternals
+		internals.record = record
+		// Another recipient is paid first; the indexer also returns two requests.
+		internals.bsc = () => ({
+			getTransactionReceipt: async () => ({
+				logs: [sentLog({ to: `0x${"cd".repeat(32)}`, amount: 1n, commitment: `0x${"11".repeat(32)}` }), sentLog()],
+			}),
+		})
+		const fetchSpy = vi.spyOn(globalThis, "fetch")
+
+		expect(await internals.deliveryRequest(FILL_TX)).toBe(DELIVERY_COMMITMENT)
+		// The readable receipt decides; the indexer is never asked.
+		expect(fetchSpy).not.toHaveBeenCalled()
+		fetchSpy.mockRestore()
+	})
+
+	it("uses the order's output amount to pick its send when the account is paid twice", async () => {
+		const record = stored("delivering", { commitment: `0x${"77".repeat(32)}`, fillTxHash: FILL_TX })
+		const { topUp } = topUpWith(record)
+		const internals = topUp as unknown as TopUpInternals
+		internals.record = record
+		internals.bsc = () => ({
+			getTransactionReceipt: async () => ({ logs: [sentLog({ amount: 1n, commitment: `0x${"11".repeat(32)}` }), sentLog()] }),
+		})
+
+		expect(await internals.deliveryRequest(FILL_TX)).toBe(DELIVERY_COMMITMENT)
+	})
+
+	it("throws when a readable fill sent no BRIDGE to this filler", async () => {
+		const record = stored("delivering", { commitment: `0x${"77".repeat(32)}`, fillTxHash: FILL_TX })
+		const { topUp } = topUpWith(record)
+		const internals = topUp as unknown as TopUpInternals
+		internals.record = record
+		internals.bsc = () => ({
+			getTransactionReceipt: async () => ({ logs: [sentLog({ to: `0x${"cd".repeat(32)}` })] }),
+		})
+
+		await expect(internals.deliveryRequest(FILL_TX)).rejects.toThrow(
+			`The fill ${FILL_TX} sent no BRIDGE to this filler's Hyperbridge account`,
+		)
 	})
 })

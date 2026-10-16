@@ -1,10 +1,18 @@
 import { describe, expect, it, vi } from "vitest"
-import { decodeAbiParameters, decodeFunctionData, encodeFunctionData, maxUint256, parseAbi } from "viem"
+import {
+	decodeAbiParameters,
+	decodeFunctionData,
+	encodeFunctionData,
+	maxUint256,
+	parseAbi,
+	WaitForTransactionReceiptTimeoutError,
+} from "viem"
 
 const ERC7821_EXECUTE_ABI = parseAbi(["function execute(bytes32 mode, bytes executionData)"])
 import { ERC20_ABI } from "@/config/abis/ERC20"
 import { ERC4626_ABI } from "@/config/abis/Erc4626"
 import { TokenSender } from "@/services/TokenSender"
+import { SubmittedUnconfirmedError } from "@/services/submission"
 import type { ChainClientManager } from "@/services/ChainClientManager"
 import { resolvePendingPermit2Approval } from "@/services/paymaster/provider/simplex"
 
@@ -351,5 +359,79 @@ describe("TokenSender sponsored batches", () => {
 		const tx = sendTransaction.mock.calls[0][0]
 		expect(tx.to).toBe(TOKEN)
 		expect(decodeFunctionData({ abi: ERC20_ABI, data: tx.data }).functionName).toBe("transfer")
+	})
+})
+
+describe("TokenSender native batch safety", () => {
+	const TX = `0x${"ab".repeat(32)}` as `0x${string}`
+	const CALL = { target: TOKEN, value: 0n, data: "0x1234" as `0x${string}` }
+	const BATCH = [CALL, { target: TOKEN, value: 0n, data: "0x5678" as `0x${string}` }]
+
+	function makeNativeSender(isDelegated?: (chain: string) => Promise<boolean>) {
+		const sendTransaction = vi.fn().mockResolvedValue(TX)
+		const waitForTransactionReceipt = vi.fn().mockResolvedValue({ status: "success" })
+		const clientManager = {
+			getPublicClient: () => ({ waitForTransactionReceipt }),
+			getWalletClient: () => ({ sendTransaction, chain: undefined }),
+		} as unknown as ChainClientManager
+		const sender = new TokenSender(clientManager, SOLVER, () => [], undefined, undefined, isDelegated)
+		return { sender, sendTransaction, waitForTransactionReceipt }
+	}
+
+	it("reports a native tx whose receipt timed out as submitted but unconfirmed", async () => {
+		const { sender, waitForTransactionReceipt } = makeNativeSender()
+		waitForTransactionReceipt.mockRejectedValue(new WaitForTransactionReceiptTimeoutError({ hash: TX }))
+
+		const error = await sender.submitCalls("EVM-8453", [CALL]).catch((err) => err)
+
+		expect(error).toBeInstanceOf(SubmittedUnconfirmedError)
+		expect(error.message).toContain("Timed out while waiting for transaction")
+		expect(error.chain).toBe("EVM-8453")
+		expect(error.submission).toMatchObject({ kind: "tx", txHash: TX })
+	})
+
+	it("reports any receipt-read failure as submitted but unconfirmed", async () => {
+		const { sender, waitForTransactionReceipt } = makeNativeSender()
+		// Not a timeout: the node accepted the tx, so its outcome is still unknown.
+		waitForTransactionReceipt.mockRejectedValue(new Error("connection reset"))
+
+		const error = await sender.submitCalls("EVM-8453", [CALL]).catch((err) => err)
+
+		expect(error).toBeInstanceOf(SubmittedUnconfirmedError)
+		expect(error.message).toContain("connection reset")
+		expect(error.submission).toMatchObject({ kind: "tx", txHash: TX })
+	})
+
+	it("reports a mined revert as a plain failure, not an unconfirmed submission", async () => {
+		const { sender, waitForTransactionReceipt } = makeNativeSender()
+		waitForTransactionReceipt.mockResolvedValue({ status: "reverted" })
+
+		const error = await sender.submitCalls("EVM-8453", [CALL]).catch((err) => err)
+
+		expect(error).not.toBeInstanceOf(SubmittedUnconfirmedError)
+		expect(error.message).toContain(`Send tx reverted: ${TX}`)
+	})
+
+	it("refuses a native batch on a wallet that is not 7702-delegated", async () => {
+		const { sender, sendTransaction } = makeNativeSender(async () => false)
+
+		await expect(sender.submitCalls("EVM-8453", BATCH)).rejects.toThrow(
+			"The wallet is not 7702-delegated on EVM-8453 (or its delegation could not be read); a batch sent to it would do nothing",
+		)
+		expect(sendTransaction).not.toHaveBeenCalled()
+	})
+
+	it("sends a native batch through executeBatch when the wallet is delegated", async () => {
+		const { sender, sendTransaction } = makeNativeSender(async () => true)
+
+		expect(await sender.submitCalls("EVM-8453", BATCH)).toEqual({ txHash: TX, sponsored: false })
+		expect(sendTransaction.mock.calls[0][0].to).toBe(SOLVER)
+	})
+
+	it("sends a single native call straight to the target regardless of delegation", async () => {
+		const { sender, sendTransaction } = makeNativeSender(async () => false)
+
+		expect(await sender.submitCalls("EVM-8453", [CALL])).toEqual({ txHash: TX, sponsored: false })
+		expect(sendTransaction.mock.calls[0][0].to).toBe(TOKEN)
 	})
 })

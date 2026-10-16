@@ -615,19 +615,23 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 		if (options.ownsData) await options.data.close?.()
 	}
 
+	// One delegation view shared by the operator's sends and the BRIDGE top-up. TokenSender reads
+	// it to refuse a native batch on an undelegated wallet, which would succeed and do nothing.
+	const delegationService = new DelegationService(chainClientManager, configService, runtimeSigner)
 	const tokenSender = new TokenSender(
 		chainClientManager,
 		runtimeSigner.address as HexString,
 		() => config.vault?.vaults ?? [],
 		userOpSender,
 		configService,
+		(chain) => delegationService.isDelegated(chain),
 	)
 	// BRIDGE trades only on mainnet BSC, so a testnet filler has nothing to top up with.
 	const bridgeTopUp =
 		config.simplex.substratePrivateKey && network === "mainnet"
 			? new BridgeTopUp({
 					clientManager: chainClientManager,
-					delegation: new DelegationService(chainClientManager, configService, runtimeSigner),
+					delegation: delegationService,
 					configService,
 					tokenSender,
 					state: options.data.state,

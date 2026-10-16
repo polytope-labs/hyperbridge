@@ -3,6 +3,7 @@ import { toHex } from "viem"
 import { rundlerUserOperationFees, type HexString } from "@hyperbridge/sdk"
 
 import { UserOpSender, type Eip7702Authorization } from "@/services/UserOpSender"
+import { SubmittedUnconfirmedError } from "@/services/submission"
 import { buildPaymasterAndData } from "@/services/paymaster"
 import { packPaymasterAndData, VERIFICATION_GAS_LIMIT_PERMIT2, POST_OP_GAS_LIMIT_SIMPLEX } from "@/services/paymaster/types"
 import type { ChainClientManager } from "@/services/ChainClientManager"
@@ -254,5 +255,94 @@ describe("UserOpSender gas price", () => {
 		const chainFees = { maxPriorityFeePerGas: 1_080_000_000n, maxFeePerGas: 1_100_000_000n }
 		expect(sentFees()).toEqual([chainFees, chainFees])
 		expect(rundlerCalls()).toEqual(["rundler_getUserOperationGasPrice", "rundler_maxPriorityFeePerGas"])
+	})
+})
+
+describe("UserOpSender submitted but unconfirmed", () => {
+	const USER_OP_HASH = `0x${"ab".repeat(32)}` as HexString
+
+	const sponsor = async (nonceKey?: bigint) => {
+		vi.mocked(buildPaymasterAndData).mockResolvedValue({
+			paymasterAndData: permit2ModePaymasterAndData,
+			type: "simplex",
+			address: PAYMASTER,
+			token: TOKEN,
+		})
+		const sender = new UserOpSender(clientManager, configService, signer)
+		return sender.trySendSponsored({ chain: CHAIN, callData: "0x" as HexString, nonceKey, gas: GAS })
+	}
+
+	const lookup = (service = configService) =>
+		new UserOpSender(clientManager, service, signer).lookupUserOpReceipt(CHAIN, USER_OP_HASH)
+
+	it("throws a SubmittedUnconfirmedError carrying the op hash, nonce and nonce key", async () => {
+		// A receipt the bundler indexed but that carries no tx hash: the op is unmined.
+		bundlerReplies.eth_getUserOperationReceipt = { result: { success: true } }
+
+		const error = await sponsor(7n).catch((err) => err)
+
+		expect(error).toBeInstanceOf(SubmittedUnconfirmedError)
+		// The message is the one callers already matched on before the type existed.
+		expect(error.message).toBe(`Sponsored UserOp ${USER_OP_HASH} submitted but no receipt within timeout`)
+		expect(error.chain).toBe(CHAIN)
+		expect(error.submission).toMatchObject({
+			kind: "userOp",
+			userOpHash: USER_OP_HASH,
+			nonce: 0n,
+			nonceKey: 7n,
+			// Permit2 mode reports a validity deadline, so the op expires.
+			expires: true,
+		})
+		expect(error.submission.submittedAt).toBeTypeOf("number")
+	})
+
+	it("marks a bootstrap op as not expiring: its permit deadline is unbounded", async () => {
+		vi.mocked(buildPaymasterAndData).mockResolvedValue({
+			paymasterAndData: permit2ModePaymasterAndData,
+			type: "simplex",
+			address: PAYMASTER,
+			token: TOKEN,
+		})
+		bundlerReplies.eth_getUserOperationReceipt = { result: { success: true } }
+		const sender = new UserOpSender(clientManager, configService, signer)
+
+		const error = await sender
+			.trySendSponsored({ chain: CHAIN, callData: "0x" as HexString, gas: GAS, permitBootstrap: true })
+			.catch((err) => err)
+
+		expect(error).toBeInstanceOf(SubmittedUnconfirmedError)
+		expect(error.submission).toMatchObject({ kind: "userOp", expires: false })
+	})
+
+	it("resolves the op's receipt when the bundler has one", async () => {
+		const txHash = `0x${"cd".repeat(32)}` as HexString
+		bundlerReplies.eth_getUserOperationReceipt = { result: { success: true, receipt: { transactionHash: txHash } } }
+
+		await expect(lookup()).resolves.toEqual({ txHash, success: true })
+	})
+
+	it("reports a reverted op as unsuccessful", async () => {
+		const txHash = `0x${"cd".repeat(32)}` as HexString
+		bundlerReplies.eth_getUserOperationReceipt = { result: { success: false, receipt: { transactionHash: txHash } } }
+
+		await expect(lookup()).resolves.toEqual({ txHash, success: false })
+	})
+
+	it("returns null when the bundler does not know the op", async () => {
+		bundlerReplies.eth_getUserOperationReceipt = { result: null }
+
+		await expect(lookup()).resolves.toBeNull()
+	})
+
+	it("throws when the bundler cannot be asked", async () => {
+		bundlerReplies.eth_getUserOperationReceipt = { error: { message: "boom" } }
+
+		await expect(lookup()).rejects.toThrow("Bundler RPC error (eth_getUserOperationReceipt): boom")
+	})
+
+	it("throws when no bundler is configured for the chain", async () => {
+		await expect(lookup(configServiceFor(undefined as unknown as string))).rejects.toThrow(
+			`No bundler is configured for ${CHAIN}`,
+		)
 	})
 })

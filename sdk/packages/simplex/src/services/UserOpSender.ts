@@ -13,6 +13,7 @@ import { type Logger , moduleLogger} from "./Logger"
 import type { Signer } from "./wallet"
 import { buildPaymasterAndData, hasPaymaster } from "./paymaster"
 import type { PaymasterDataResult } from "./paymaster"
+import { SubmittedUnconfirmedError } from "./submission"
 
 /**
  * Raw EIP-7702 authorization, as produced by the delegation flow. Attached to the
@@ -85,8 +86,9 @@ const MAX_FEE_BUMP_PERCENT = 10n
  *   the bundler rejected `eth_sendUserOperation` outright (it never entered the
  *   mempool). The caller may fall back to native.
  * - Returns `{ txHash }` once a receipt is observed.
- * - **Throws** only when the op **was submitted** but no receipt arrived. The
- *   caller must NOT fall back (the op may still land) — retry on the next cycle.
+ * - **Throws** {@link SubmittedUnconfirmedError} when the op **was submitted** but no receipt
+ *   arrived. The caller must NOT fall back (the op may still land) — retry on the next cycle,
+ *   and resolve the op's fate later with {@link lookupUserOpReceipt}.
  */
 export class UserOpSender {
 	private logger: Logger
@@ -110,6 +112,9 @@ export class UserOpSender {
 
 	async trySendSponsored(req: SponsoredUserOpRequest): Promise<{ txHash: HexString } | null> {
 		const { chain, callData, eip7702Auth, nonceKey = 0n, gas, permitBootstrap } = req
+		// A Permit2-mode op reports a validity deadline the paymaster enforces; a PERMIT bootstrap
+		// op's EIP-2612 permit never expires. Only the former stops landing after its deadline.
+		const expires = !permitBootstrap
 
 		const entryPoint = this.configService.getEntryPointAddress(chain)
 		const bundlerUrl = this.configService.getBundlerUrl(chain)
@@ -240,14 +245,20 @@ export class UserOpSender {
 			return null
 		}
 
+		const submittedAt = Date.now()
 		this.logger.info({ chain, userOpHash }, "Sponsored UserOp submitted to bundler")
 
 		const receipt = await this.waitForUserOpReceipt(bundlerUrl, userOpHash)
 		const txHash = receipt?.receipt?.transactionHash
 		if (!txHash) {
 			// Submitted but unconfirmed — it may still land, so the caller must NOT
-			// fall back to a native tx (that would double-execute).
-			throw new Error(`Sponsored UserOp ${userOpHash} submitted but no receipt within timeout`)
+			// fall back to a native tx (that would double-execute). The nonce and key
+			// travel with the error so a later recovery can read the EntryPoint nonce.
+			throw new SubmittedUnconfirmedError(
+				`Sponsored UserOp ${userOpHash} submitted but no receipt within timeout`,
+				chain,
+				{ kind: "userOp", userOpHash, nonce, nonceKey, expires, submittedAt },
+			)
 		}
 		if (receipt?.success === false) {
 			// Included but the inner execution reverted — surface it rather than report
@@ -257,6 +268,30 @@ export class UserOpSender {
 
 		this.logger.info({ chain, userOpHash, txHash }, "Sponsored UserOp confirmed — paymaster paid gas")
 		return { txHash }
+	}
+
+	/**
+	 * One `eth_getUserOperationReceipt` for an op this filler submitted. Null when the bundler
+	 * does not know it — the op has not been indexed, which is not proof it never landed. Throws
+	 * when the bundler could not be asked, so a caller can tell "not found" apart from "couldn't ask".
+	 */
+	async lookupUserOpReceipt(
+		chain: string,
+		userOpHash: HexString,
+	): Promise<{ txHash: HexString; success: boolean } | null> {
+		const bundlerUrl = this.configService.getBundlerUrl(chain)
+		if (!bundlerUrl) throw new Error(`No bundler is configured for ${chain}`)
+		const receipt = await this.sendBundlerRpc<{ success?: boolean; receipt?: { transactionHash?: HexString } } | null>(
+			bundlerUrl,
+			BundlerMethod.ETH_GET_USER_OPERATION_RECEIPT,
+			[userOpHash],
+		)
+		if (!receipt) return null
+		const txHash = receipt.receipt?.transactionHash
+		// A receipt with no transaction hash cannot be acted on; the caller must not read it as "not found".
+		if (!txHash) throw new Error(`Bundler returned a receipt for ${userOpHash} with no transaction hash`)
+		// Mirrors the send path: only `success === false` means the inner execution reverted.
+		return { txHash, success: receipt.success !== false }
 	}
 
 	// ── Internals ────────────────────────────────────────────────────────

@@ -580,6 +580,40 @@ export interface StoredBridgeTopUp {
 	sessionPrivateKey?: HexString
 	commitment?: HexString
 	placeTxHash?: HexString
+	/**
+	 * The placement UserOp the bundler accepted when its receipt never arrived. The batch may have
+	 * been mined, so the record stays pending and the op is looked up again; without it a restart
+	 * would declare that nothing was escrowed while the order could still be live.
+	 */
+	placeUserOpHash?: HexString
+	/** The EntryPoint `nonce` the op was signed with, as a decimal string (the record is JSON-persisted). */
+	placeUserOpNonce?: string
+	/** The EntryPoint `nonceKey` the op was signed with, as a decimal string. */
+	placeUserOpNonceKey?: string
+	/**
+	 * Whether a UserOp placement's paymaster attached a validity deadline (Permit2 mode). A
+	 * bootstrap op has none, so it can still land; without this a restart cannot tell them apart.
+	 */
+	placeUserOpExpires?: boolean
+	/**
+	 * When the placement batch was submitted, in ms. Bounds how long an unindexed UserOp is still
+	 * looked up and how long a native tx may yet be mined. Records placed before this was recorded
+	 * are dated by `updatedAt` instead.
+	 */
+	placeSubmittedAt?: number
+	/**
+	 * The order's session-key address, matched against `OrderPlaced.session`. A placement receipt
+	 * can carry other users' placements (a UserOp is a bundle), so only the log naming this address
+	 * is this top-up's.
+	 */
+	placeSession?: HexString
+	/** Block the paying chain was at before the placement was submitted, as a decimal string; the scan starts here. */
+	placeFromBlock?: string
+	/**
+	 * The height a recovery scan has read up to, as a decimal string, trailing the tip by a reorg
+	 * margin. The next scan starts here instead of re-reading the whole range.
+	 */
+	placeScannedTo?: string
 	fillTxHash?: HexString
 	reclaimTxHash?: HexString
 	/** The HyperFungibleToken request that carries the BRIDGE to Hyperbridge. */

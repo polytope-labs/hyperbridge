@@ -7,6 +7,7 @@ import { paymasterReserveForToken } from "@/services/paymaster"
 import { resolvePendingPermit2Approval } from "@/services/paymaster/provider/simplex"
 import type { UserOpSender } from "@/services/UserOpSender"
 import { type Logger , moduleLogger} from "@/services/Logger"
+import { SubmittedUnconfirmedError } from "@/services/submission"
 import { encodeERC7821ExecuteBatch, type ERC7821Call, type HexString } from "@hyperbridge/sdk"
 import { encodeFunctionData, isAddress, maxUint256, parseUnits } from "viem"
 
@@ -48,6 +49,12 @@ export class TokenSender {
 		private readonly userOpSender?: UserOpSender,
 		/** Only needed to size the paymaster's gas reserve; without it a send reserves nothing. */
 		private readonly configService?: FillerConfigService,
+		/**
+		 * Whether the filler's account is EIP-7702-delegated on a chain. A native multi-call
+		 * batch is addressed to the account itself, so an undelegated EOA would accept the
+		 * transaction and do nothing; without this check the send is reported as done.
+		 */
+		private readonly isDelegated?: (chain: string) => Promise<boolean>,
 	) {
 		this.logger = moduleLogger(clientManager.loggers, "token-sender")
 	}
@@ -194,6 +201,16 @@ export class TokenSender {
 	}
 
 	/**
+	 * One bundler lookup for an op this sender submitted, for a caller that has to settle whether
+	 * a placement landed. Null when the bundler does not know the op; throws when it could not be
+	 * asked. See {@link UserOpSender.lookupUserOpReceipt}.
+	 */
+	async userOpReceipt(chain: string, userOpHash: HexString): Promise<{ txHash: HexString; success: boolean } | null> {
+		if (!this.userOpSender) throw new Error(`No sponsored UserOp sender is configured for ${chain}`)
+		return this.userOpSender.lookupUserOpReceipt(chain, userOpHash)
+	}
+
+	/**
 	 * Executes a batch from the filler wallet: sponsored UserOp first, native tx
 	 * when no sponsor is available. Shared by every operator-initiated outbound flow.
 	 */
@@ -217,8 +234,13 @@ export class TokenSender {
 
 		const walletClient = this.clientManager.getWalletClient(chain)
 		const publicClient = this.clientManager.getPublicClient(chain)
-		// Batches route through the delegated account's executeBatch (as vault
-		// sweeps do); single calls go straight to the target.
+		// A batch goes to the account's own executeBatch (as vault sweeps do); a single call
+		// goes straight to the target and works on a plain EOA.
+		if (calls.length > 1 && this.isDelegated && !(await this.isDelegated(chain))) {
+			throw new Error(
+				`The wallet is not 7702-delegated on ${chain} (or its delegation could not be read); a batch sent to it would do nothing`,
+			)
+		}
 		const tx =
 			calls.length === 1
 				? await walletClient.sendTransaction({
@@ -233,7 +255,21 @@ export class TokenSender {
 						value: 0n,
 						chain: walletClient.chain,
 					})
-		const receipt = await publicClient.waitForTransactionReceipt({ hash: tx, confirmations: 1, timeout: 60_000 })
+		const submittedAt = Date.now()
+		let receipt: Awaited<ReturnType<typeof publicClient.waitForTransactionReceipt>>
+		try {
+			receipt = await publicClient.waitForTransactionReceipt({ hash: tx, confirmations: 1, timeout: 60_000 })
+		} catch (error) {
+			// The node accepted the tx, so any failure to read its receipt — a timeout, a dropped
+			// connection — leaves its outcome unknown. The caller must not treat it as "nothing
+			// happened" and send again; it may resume from the hash once the receipt is readable.
+			throw new SubmittedUnconfirmedError(error instanceof Error ? error.message : String(error), chain, {
+				kind: "tx",
+				txHash: tx,
+				submittedAt,
+			})
+		}
+		// Mined and reverted is a definite failure, not an unknown outcome; keep it outside the wait.
 		if (receipt.status !== "success") throw new Error(`Send tx reverted: ${tx}`)
 		return { txHash: tx, sponsored: false }
 	}

@@ -129,7 +129,7 @@ function makeSweepPlanner(
 const u = (n: string) => parseUnits(n, 6)
 
 describe("VaultFundingPlanner", () => {
-	it("exposes owned, available and reserved vault liquidity as one coherent snapshot", async () => {
+	it("exposes owned and withdrawable vault liquidity as one coherent snapshot", async () => {
 		const planner = makeWithdrawPlanner(
 			{ positionAssets: u("4200"), maxWithdrawable: u("3500") },
 			{ vault: VAULT_USDC, minBalance: "300" },
@@ -146,7 +146,8 @@ describe("VaultFundingPlanner", () => {
 			symbol: "USDC",
 			decimals: 6,
 			positionAssets: u("4200"),
-			availableAssets: u("3000"),
+			// The vault's own maxWithdraw: the plan above holds nothing back.
+			availableAssets: u("3500"),
 			walletReserve: u("300"),
 			acceptsDeposits: true,
 		})
@@ -204,20 +205,33 @@ describe("VaultFundingPlanner", () => {
 		expect(res.credited).toBe(0n)
 	})
 
-	it("does not over-source across concurrent plans (consume accounting)", async () => {
+	it("lets consecutive plans each draw up to maxWithdraw: the chain settles conflicts", async () => {
 		const planner = makeWithdrawPlanner({ positionAssets: 400_000n, maxWithdrawable: 400_000n })
 		await planner.initialise(SOLVER)
 
 		const first = await planner.planWithdrawalForToken(CHAIN, SOLVER, USDC.toLowerCase(), 300_000n)
 		const second = await planner.planWithdrawalForToken(CHAIN, SOLVER, USDC.toLowerCase(), 300_000n)
 
+		// Nothing planned is held back locally. Whichever withdrawal executes second
+		// finds the vault short and reverts its fill batch on chain.
 		expect(first.credited).toBe(300_000n)
-		// Only 100k remains unreserved after the first plan; refresh sees the same
-		// on-chain position (withdrawal not yet executed) so consume must hold it back.
-		expect(second.credited).toBe(100_000n)
+		expect(second.credited).toBe(300_000n)
 	})
 
-	it("releases a reservation as soon as the on-chain position drops (back-to-back fills)", async () => {
+	it("takes off what the caller's evaluation already planned, never planning below zero", async () => {
+		const planner = makeWithdrawPlanner({ positionAssets: 400_000n, maxWithdrawable: 400_000n })
+		await planner.initialise(SOLVER)
+
+		const rest = await planner.planWithdrawalForToken(CHAIN, SOLVER, USDC.toLowerCase(), 300_000n, undefined, 300_000n)
+		expect(rest.credited).toBe(100_000n)
+		const decoded = decodeFunctionData({ abi: ERC4626_ABI, data: rest.calls[0].data })
+		expect(decoded.args[0]).toBe(100_000n)
+
+		const none = await planner.planWithdrawalForToken(CHAIN, SOLVER, USDC.toLowerCase(), 300_000n, undefined, 500_000n)
+		expect(none).toEqual({ calls: [], credited: 0n })
+	})
+
+	it("plans against the maxWithdraw read for each plan", async () => {
 		const balances = { positionAssets: 1_000_000n, maxWithdrawable: 1_000_000n }
 		const planner = makeWithdrawPlanner(balances)
 		await planner.initialise(SOLVER)
@@ -225,37 +239,12 @@ describe("VaultFundingPlanner", () => {
 		const first = await planner.planWithdrawalForToken(CHAIN, SOLVER, USDC.toLowerCase(), 300_000n)
 		expect(first.credited).toBe(300_000n)
 
-		// The planned withdrawal executes on-chain: position drops by 300k.
+		// The planned withdrawal executes on-chain: the vault now honours 700k.
 		balances.positionAssets = 700_000n
 		balances.maxWithdrawable = 700_000n
 
-		// Next fill sees the full 700k — the reservation was reconciled away by the
-		// position drop, not left to linger until the TTL (which would show 400k).
-		const second = await planner.planWithdrawalForToken(CHAIN, SOLVER, USDC.toLowerCase(), 700_000n)
+		const second = await planner.planWithdrawalForToken(CHAIN, SOLVER, USDC.toLowerCase(), 1_000_000n)
 		expect(second.credited).toBe(700_000n)
-	})
-
-	it("frees reservations after the TTL so lost bids don't starve sourcing", async () => {
-		vi.useFakeTimers()
-		try {
-			const planner = makeWithdrawPlanner({ positionAssets: 400_000n, maxWithdrawable: 400_000n })
-			await planner.initialise(SOLVER)
-
-			const first = await planner.planWithdrawalForToken(CHAIN, SOLVER, USDC.toLowerCase(), 300_000n)
-			expect(first.credited).toBe(300_000n)
-
-			// Same round: the 300k reservation still holds liquidity back.
-			const second = await planner.planWithdrawalForToken(CHAIN, SOLVER, USDC.toLowerCase(), 300_000n)
-			expect(second.credited).toBe(100_000n)
-
-			// Neither bid is won (no on-chain withdrawal). After the TTL the
-			// reservations expire and the full position is sourceable again.
-			await vi.advanceTimersByTimeAsync(61_000)
-			const third = await planner.planWithdrawalForToken(CHAIN, SOLVER, USDC.toLowerCase(), 300_000n)
-			expect(third.credited).toBe(300_000n)
-		} finally {
-			vi.useRealTimers()
-		}
 	})
 
 	it("exposes the configured minBalance as the wallet reserve for the token", async () => {

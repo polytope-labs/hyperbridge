@@ -12,6 +12,7 @@ import {
 	limitOrderService,
 	ORDERBOOK_FIXTURES,
 	postedOrder,
+	settleFill,
 } from "../helpers/limit-orders"
 
 const { ONE } = ORDERBOOK_FIXTURES
@@ -198,7 +199,7 @@ describe("a posting signed for an EntryPoint the chain has moved off", () => {
 		const cancel = client.cancelOrder
 		client.cancelOrder = async (params) => {
 			if (!fill) {
-				fill = service.settleFill(order.id, 500_000n * ONE)
+				fill = settleFill(service, order.id, 500_000n * ONE)
 				await new Promise((resolve) => setTimeout(resolve, 0))
 			}
 			return cancel(params)
@@ -250,7 +251,7 @@ describe("a posting signed for an EntryPoint the chain has moved off", () => {
 			return cancel(params)
 		}
 
-		await service.settleFill(order.id, 1_499_500n * ONE)
+		await settleFill(service, order.id, 1_499_500n * ONE)
 		await pass
 
 		expect(events).toEqual(["filled"])

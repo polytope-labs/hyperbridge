@@ -56,6 +56,7 @@ async function build() {
 		{ id: FIRST, base: "USDC", quote: "CNGN", side: "BID", fillChain: "EVM-1", price: "1500", size: "3000" },
 		{ id: SECOND, base: "USDC", quote: "CNGN", side: "BID", fillChain: "EVM-1", price: "1450", size: "5000" },
 	])
+	const bids = new MemoryDataStore().bids
 	const filler = new IntentFiller(
 		[{ chainId: 1 } as never],
 		[strategy as never],
@@ -72,7 +73,7 @@ async function build() {
 		{ address: OUR_ADDRESS } as never,
 		{ orders: stubOrderScanner([1]) },
 		undefined,
-		new MemoryDataStore().bids,
+		bids,
 		limitOrders,
 	)
 	const executed: { success: boolean }[] = []
@@ -81,15 +82,14 @@ async function build() {
 		await (filler as any).executeOrder(ORDER, (filler as any).strategies[0], false, { toNumber: () => 1 }, 1)
 		await (filler as any).chainQueues.get(1)?.onIdle()
 	}
-	const reserved = async (id: string) => (await limitOrders.get(id))!.reserved
-	return { cache, seen, execute, executed, reserved }
+	return { cache, seen, execute, executed, bids, limitOrders }
 }
 
 describe("a bid's limit order budget", () => {
 	afterEach(() => vi.restoreAllMocks())
 
 	it("is there for the bid builder when a limit order priced the bid", async () => {
-		const { cache, seen, execute, executed, reserved } = await build()
+		const { cache, seen, execute, executed, bids, limitOrders } = await build()
 		const budget = budgetOf(FIRST, 3000n * 10n ** 18n)
 		cache.setBidPlans(ORDER.id, [plan(FIRST, budget)])
 
@@ -97,13 +97,15 @@ describe("a bid's limit order budget", () => {
 
 		expect(seen).toEqual([budget])
 		expect(seen[0]?.cap).toBe(3000n * 10n ** 18n)
-		// The bid went out and stands: reported as executed, its hold still in place.
+		// The bid went out and stands, its row naming the order that priced it. Nothing is
+		// held against the order: its budget on chain is what refuses an overfill.
 		expect(executed).toEqual([expect.objectContaining({ success: true })])
-		expect(await reserved(FIRST)).toBe(PAYOUT.toString())
+		expect((await bids.byCommitment(COMMITMENT))?.pricedBy).toEqual({ limitOrderId: FIRST, payout: PAYOUT.toString() })
+		expect((await limitOrders.get(FIRST))?.remaining).toBe((3000n * 10n ** 18n).toString())
 	})
 
 	it("is each bid's own when several limit orders priced one order", async () => {
-		const { cache, seen, execute, executed } = await build()
+		const { cache, seen, execute, executed, bids } = await build()
 		const first = budgetOf(FIRST, 3000n * 10n ** 18n)
 		const second = budgetOf(SECOND, 5000n * 10n ** 18n)
 		cache.setBidPlans(ORDER.id, [plan(SECOND, second), plan(FIRST, first)])
@@ -112,6 +114,10 @@ describe("a bid's limit order budget", () => {
 
 		expect(seen).toEqual([second, first])
 		expect(executed).toHaveLength(2)
+		expect((await bids.byCommitments([COMMITMENT])).map((row) => [row.bid, row.pricedBy?.limitOrderId])).toEqual([
+			["0x2", FIRST],
+			["0x1", SECOND],
+		])
 	})
 
 	it("is absent for a bid no limit order priced", async () => {

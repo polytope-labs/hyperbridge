@@ -19,7 +19,7 @@ import { limitOrderStore } from "../helpers/limit-orders"
 const COMMITMENT = "0xc0mm1tment" as HexString
 const OUR_ADDRESS = "0xAAAA00000000000000000000000000000000AAAA" as HexString
 const LIMIT_ORDER = "limit-0"
-/** 1,000 of an 18-decimal token: what the bid below holds against the limit order. */
+/** 1,000 of an 18-decimal token: what the bids below offer from their limit orders. */
 const PAYOUT = 1000n * 10n ** 18n
 const MATCH = { limitOrderId: LIMIT_ORDER, payout: PAYOUT }
 
@@ -121,30 +121,6 @@ describe("fill path safety", () => {
 		expect((await data.bids.stats()).pendingRetraction).toBe(1)
 	})
 
-	it("gives a limit order's hold back exactly once when the fill path throws late", async () => {
-		// The hold belongs to the bid row from the moment it is written, so a throw
-		// after that has to claim it rather than release it: releasing here and
-		// again on the retraction would free capacity a second bid is holding.
-		const limitOrders = await limitOrderStore([
-			{ id: LIMIT_ORDER, base: "USDC", quote: "CNGN", side: "BID", fillChain: "EVM-1", price: "1500", size: "3000" },
-		])
-		// A second bid, still open, holding the same amount against the same order.
-		expect(await limitOrders.reserve(LIMIT_ORDER, PAYOUT.toString())).toBe(true)
-
-		const { filler } = build({ success: true, commitment: COMMITMENT, txHash: "0xtx" }, limitOrders)
-		filler.monitor.on("orderFilled", () => {
-			throw new Error("consumer exploded")
-		})
-
-		await execute(filler, ORDER)
-		expect((await limitOrders.get(LIMIT_ORDER))!.reserved).toBe(PAYOUT.toString())
-
-		// The retraction that follows finds the hold already claimed and takes nothing.
-		// biome-ignore lint/suspicious/noExplicitAny: the settlement path is private
-		await (filler as any).releaseReservation(COMMITMENT)
-		expect((await limitOrders.get(LIMIT_ORDER))!.reserved).toBe(PAYOUT.toString())
-	})
-
 	it("leaves an outright failed bid out of the sweep", async () => {
 		const { filler, data } = build({ success: false, commitment: COMMITMENT, error: "rejected" })
 
@@ -231,7 +207,8 @@ describe("every bid on one order", () => {
 
 	it("files each bid's row under the identifier Hyperbridge knows it by", async () => {
 		// Two bids on one order share a commitment; the identifier, keccak256 of each
-		// one's calldata, is what keeps their rows and their holds apart.
+		// one's calldata, is what keeps their rows apart, each naming the limit order
+		// that priced it.
 		const { filler, data } = await twoBids([
 			{ success: true, commitment: COMMITMENT, txHash: "0xtx", bid: FIRST_BID },
 			{ success: true, commitment: COMMITMENT, txHash: "0xtx2", bid: SECOND_BID },
@@ -240,6 +217,9 @@ describe("every bid on one order", () => {
 		await execute(filler, ORDER)
 
 		const rows = await data.bids.byCommitments([COMMITMENT])
-		expect(rows.map((row) => row.bid).sort()).toEqual([FIRST_BID, SECOND_BID])
+		expect(rows.map((row) => [row.bid, row.pricedBy]).sort()).toEqual([
+			[FIRST_BID, { limitOrderId: LIMIT_ORDER, payout: PAYOUT.toString() }],
+			[SECOND_BID, { limitOrderId: SECOND_ORDER, payout: PAYOUT.toString() }],
+		])
 	})
 })

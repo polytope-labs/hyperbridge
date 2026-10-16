@@ -187,6 +187,14 @@ export class FXFiller implements FillerStrategy {
 			const destClient = this.clientManager.getPublicClient(destChain)
 			const walletAddress = this.signer.address as HexString
 			const balanceCache = new Map<string, bigint>()
+			// What this evaluation has planned to withdraw from each funding venue, keyed by
+			// venue, chain and token (the venue keys its liquidity by chain and asset). Like
+			// `balanceCache` it lives for this evaluation only, and only stops two of its
+			// candidates or legs planning the same vault liquidity twice. It is not a hold:
+			// the next evaluation starts at zero and reads `maxWithdraw` from the chain
+			// again, and a conflict between evaluations is left to the chain, where the
+			// second `withdraw` reverts its fill batch and only gas is spent.
+			const venuePlanned = new Map<string, bigint>()
 
 			// Every leg is priced on its own: each is an input escrowed against an output,
 			// and the gateway fills and credits them separately (`_partialFills` per leg).
@@ -372,7 +380,7 @@ export class FXFiller implements FillerStrategy {
 					// relayer fee for it. When the leg is already known to be a partial and
 					// even the most this bid could pay (`targetOutput`) is below the floor,
 					// skip before any balance or venue planning: a dust bid must hold no
-					// wallet room and reserve no vault liquidity. A leg not safely partial
+					// wallet room and cost no vault read. A leg not safely partial
 					// here is left to the check after sizing, which also judges a payout the
 					// wallet cuts below the ask. A value nothing prices is left there too.
 					const minPartialFillUsd = this.configService.getMinPartialFillUsd()
@@ -423,19 +431,31 @@ export class FXFiller implements FillerStrategy {
 
 					let credited = 0n
 					let needed = targetOutput - walletContribution
+					// What this candidate would draw from each venue, added to `venuePlanned`
+					// only once it becomes a plan.
+					const venueDraws: [string, bigint][] = []
 					for (const venue of this.fundingVenues) {
 						if (needed <= 0n) break
-						const planned = await venue.planWithdrawalForToken(destChain, walletAddress, tokenAddress, needed, deadlineTimestamp)
+						const key = `${venue.name}:${destChain}:${tokenAddress}`
+						const planned = await venue.planWithdrawalForToken(
+							destChain,
+							walletAddress,
+							tokenAddress,
+							needed,
+							deadlineTimestamp,
+							venuePlanned.get(key) ?? 0n,
+						)
 						if (planned.calls.length > 0) {
 							fundingCalls.push(...planned.calls)
 							credited += planned.credited
 							needed -= planned.credited
+							venueDraws.push([key, planned.credited])
 						}
 					}
 
 					const effectiveBalance = walletContribution + credited
-					// Brought down to a whole 1e18 unit, the unit the hold beside it is kept in:
-					// a token finer than that could otherwise sign an output its hold cannot
+					// Brought down to a whole 1e18 unit, the unit the bid's payout is recorded in:
+					// a token finer than that could otherwise sign an output its payout cannot
 					// express. No other token is changed by it.
 					const finalOutputAmount = toRaw(
 						toScaled(effectiveBalance > targetOutput ? targetOutput : effectiveBalance, outputDecimals),
@@ -507,7 +527,7 @@ export class FXFiller implements FillerStrategy {
 					//    limit order's price is the ask itself.
 					//
 					// Sized before the wallet pool is drawn down: a bid the floor below refuses
-					// must leave the pool and the venue reservations for later candidates.
+					// must leave the pool for later candidates.
 					const releasedInput =
 						finalOutputAmount >= output.amount
 							? input.amount
@@ -611,8 +631,8 @@ export class FXFiller implements FillerStrategy {
 						}
 					}
 
-					// Decrement the wallet pool by what this fill drew from it (vault-sourced
-					// tokens are tracked by the venue's own reservations).
+					// Decrement the wallet pool by what this fill drew from it. The vault draw
+					// is added to `venuePlanned` later, once the candidate becomes a plan.
 					const walletRemaining = balance - walletContribution
 					balanceCache.set(tokenAddress, walletRemaining > 0n ? walletRemaining : 0n)
 
@@ -788,6 +808,13 @@ export class FXFiller implements FillerStrategy {
 						candidate.order.id,
 						(plannedOn.get(candidate.order.id) ?? 0n) + toScaled(finalOutputAmount, outputDecimals),
 					)
+					// Counted here, beside `plannedOn`, once every skip has passed: a candidate
+					// refused by the partial floor, the dispatch-fee check, either gate or a zero
+					// release leaves its vault draw to later candidates. The wallet pool is
+					// decremented earlier, before the dispatch-fee check that reads the net
+					// balance, so a candidate those later checks refuse still holds its wallet
+					// share for the rest of the evaluation; the vault tally does not.
+					for (const [key, amount] of venueDraws) venuePlanned.set(key, (venuePlanned.get(key) ?? 0n) + amount)
 					plans.push({
 						limitOrderId: candidate.order.id,
 						leg,

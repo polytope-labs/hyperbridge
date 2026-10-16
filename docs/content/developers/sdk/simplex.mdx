@@ -277,14 +277,14 @@ const store: SimplexDataStore = {
     activity: myActivityLog,
     // get, set
     state: myStateStore,
-    // create, get, list, open, reserve, release, drawDown, recordFill, fills, …
+    // create, get, list, open, drawDown, clampRemaining, recordFill, fills, …
     limitOrders: myLimitOrderStore,
 }
 ```
 
-Every method is async. `bids` and `limitOrders` are correctness-critical: `store` must be durable
-before it resolves, and a limit order's `remaining` and `reserved` are what stop two chains paying
-out the same liability twice. `activity` is observability — prune, sample or cap it freely.
+Every method is async. `bids` is correctness-critical: `store` must be durable before it resolves,
+or a bid's deposit is never reclaimed. A limit order's `remaining` follows its budget on chain, which
+is what refuses an overfill. `activity` is observability — prune, sample or cap it freely.
 
 ## Reacting to orders
 

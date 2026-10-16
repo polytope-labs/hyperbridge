@@ -241,7 +241,7 @@ export class LimitOrderController {
 	}
 
 	/**
-	 * One limit order with its fills and the bids still drawing on it, newest first.
+	 * One limit order with its fills and the bids it priced, newest first.
 	 *
 	 * What makes `remaining` explicable: a size that shrank is the sum of the fills
 	 * behind it, and the operator can see which ones. Fills are recorded when they

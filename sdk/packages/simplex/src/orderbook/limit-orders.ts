@@ -549,7 +549,7 @@ export class LimitOrderService {
 	 * balance between them. Whichever order fills first draws the inventory down,
 	 * and the rest are cut to what is left. Netting them here would refuse the
 	 * second side of every book. Vault positions are counted the same way: the
-	 * whole position, not what is left after reservations for fills in flight.
+	 * whole position.
 	 */
 	private async assertWalletCanPay(symbol: string, chain: string, payout: bigint): Promise<void> {
 		const token = this.assetRegistry.getAddress(symbol, chain)
@@ -596,33 +596,14 @@ export class LimitOrderService {
 	}
 
 	/**
-	 * Works a limit order down by what a fill delivered, and puts the rest back on
-	 * the orderbook.
-	 *
-	 * The order is moved to `resizing` and its new size written before the
-	 * orderbook is touched, so a crash mid-way leaves a row that says what it was
-	 * doing rather than one that silently advertises output it has already paid.
-	 *
-	 * The old entry is cancelled before the new one is posted. Two live entries
-	 * for one liability would advertise the same output twice, and the gap between
-	 * the two calls is at most one request.
-	 */
-	async settleFill(id: string, delivered: bigint): Promise<LimitOrder | null> {
-		const order = await this.store.get(id)
-		if (!order) return null
-
-		const remaining = await this.store.drawDown(id, delivered.toString())
-		if (!remaining) return null
-		return this.resize(remaining, delivered)
-	}
-
-	/**
 	 * Puts an order that has already been worked down back on the book, or closes
 	 * it when what is left is under the orderbook's dust floor for what it pays.
 	 *
-	 * Separate from the draw-down because that is a store write that belongs in
-	 * the same transaction as the hold it settles, while this is a round trip to
-	 * the orderbook and must not be inside one.
+	 * The order is moved to `resizing` before the orderbook is touched, so a crash
+	 * mid-way leaves a row that says what it was doing rather than one that silently
+	 * advertises output it has already paid. The old entry is cancelled before the
+	 * new one is posted: two live entries for one liability would advertise the same
+	 * output twice, and the gap between the two calls is at most one request.
 	 */
 	async resize(remaining: LimitOrder, delivered: bigint): Promise<LimitOrder | null> {
 		const id = remaining.id
@@ -882,10 +863,11 @@ export class LimitOrderService {
 	 * pay for it, and puts the order back on the book at that size.
 	 *
 	 * The account tallies each order's payouts on the fill chain and refuses a fill
-	 * that would take the tally past the order's size. A fill that never settled
-	 * here, or a store restored from an older copy, leaves `remaining` above that
-	 * room and the order posted at a size the account will refuse. A tally behind
-	 * the store changes nothing: `remaining` is never raised.
+	 * that would take the tally past the order's size. Settlement brings an order
+	 * down to its tally after each fill; this pass catches what that missed: a sync
+	 * that failed, a chain read that did not yet show the fill, a store restored
+	 * from an older copy. A tally behind the store changes nothing: `remaining` is
+	 * never raised.
 	 *
 	 * Answers how many orders were lowered.
 	 */
@@ -893,10 +875,8 @@ export class LimitOrderService {
 		let lowered = 0
 		for (const order of await this.store.list({ status: "open" })) {
 			try {
-				const clamped = await this.clampToTally(order)
-				if (!clamped) continue
-				lowered++
-				await this.resize(clamped, BigInt(order.remaining) - BigInt(clamped.remaining))
+				// Settlement lowers an order after each fill, so one lowered here is one it missed.
+				if (await this.lowerToTally(order, "warn")) lowered++
 			} catch (err) {
 				this.logger.error({ id: order.id, err }, "Could not bring the limit order in line with its on-chain tally")
 			}
@@ -904,8 +884,30 @@ export class LimitOrderService {
 		return lowered
 	}
 
+	/**
+	 * Brings one order's `remaining` down to its on-chain tally and puts it back on
+	 * the book at that size, or closes it under the dust floor: what
+	 * {@link reconcileTallies} does for every open order.
+	 *
+	 * Answers whether the order was lowered. False when it is not `open`, or when
+	 * the tally leaves it where it is, including a chain that has not yet counted a
+	 * fill. Throws when the chain cannot be read.
+	 */
+	async syncToChain(id: string): Promise<boolean> {
+		const order = await this.store.get(id)
+		if (!order || order.status !== "open") return false
+		return this.lowerToTally(order, "info")
+	}
+
+	private async lowerToTally(order: LimitOrder, level: "info" | "warn"): Promise<boolean> {
+		const clamped = await this.clampToTally(order, level)
+		if (!clamped) return false
+		await this.resize(clamped, BigInt(order.remaining) - BigInt(clamped.remaining))
+		return true
+	}
+
 	/** The order as the store now holds it when its tally lowered it, null when it was left alone. */
-	private async clampToTally(order: LimitOrder): Promise<LimitOrder | null> {
+	private async clampToTally(order: LimitOrder, level: "info" | "warn"): Promise<LimitOrder | null> {
 		const token = this.assetRegistry.getAddress(limitOrderLegs(order).output, order.fillChain)
 		if (!token) return null
 
@@ -918,25 +920,23 @@ export class LimitOrderService {
 
 		// A size finer than the token truncates into the cap, which leaves `remaining`
 		// above the room by less than one unit of the token. No bid could pay that
-		// out, so it is not worth a repost. `reserved` is added back as
-		// `clampRemaining` adds it.
+		// out, so it is not worth a repost.
 		const room = budgetRoom(budget, spent, decimals)
-		const over = BigInt(order.remaining) - (room + BigInt(order.reserved))
+		const over = BigInt(order.remaining) - room
 		if (over < toScaled(1n, decimals)) return null
 
 		const clamped = await this.store.clampRemaining(order.id, room.toString())
 		if (!clamped) return null
 
-		this.logger.warn(
+		this.logger[level](
 			{
 				id: order.id,
 				before: order.remaining,
 				after: clamped.remaining,
 				spent: spent.toString(),
 				cap: budget.cap.toString(),
-				reserved: clamped.reserved,
 			},
-			"Limit order had more left than its on-chain tally allows; lowering it",
+			"Lowered the limit order to what its on-chain tally has left",
 		)
 		return clamped
 	}
@@ -1090,8 +1090,11 @@ export class LimitOrderService {
 		// `rejected` would retire an order the operator still wants over one timeout.
 		if (result.kind === "failed" && result.retryable) {
 			this.logger.warn({ id: order.id, err: message }, "Could not post the limit order; leaving it to be posted again")
-			return {
-				order: (await this.store.setPosting(order.id, {
+			// Guarded like the other writes here: a cancel or an expiry that landed while the
+			// post was in flight owns the row, and says nothing is left to post again.
+			const left = await this.store.setPosting(
+				order.id,
+				{
 					commitment: null,
 					bookExpiresAt: null,
 					bookPrice: null,
@@ -1099,9 +1102,10 @@ export class LimitOrderService {
 					entryPoint: null,
 					status: "open",
 					lastError: message,
-				}))!,
-				result,
-			}
+				},
+				POSTABLE,
+			)
+			return { order: left ?? (await this.store.get(order.id))!, result }
 		}
 
 		this.logger.error({ id: order.id, err: message }, "Orderbook refused the limit order")

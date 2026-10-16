@@ -9,6 +9,7 @@ import {
 	limitOrderService as makeService,
 	ORDERBOOK_FIXTURES,
 	postedOrder,
+	settleFill,
 } from "../helpers/limit-orders"
 
 const { ONE } = ORDERBOOK_FIXTURES
@@ -164,7 +165,7 @@ describe("the operator's own expiry", () => {
 		const created = await service.create(REQUEST)
 		await store.create({ ...created.order, id: "late", expiresAt: "2020-01-01T00:00:00.000Z" })
 
-		const settled = await service.settleFill("late", 500_000n * ONE)
+		const settled = await settleFill(service, "late", 500_000n * ONE)
 		expect(settled?.status).toBe("expired")
 		expect(settled?.commitment).toBeNull()
 		expect(client.submitted).toEqual(["0x00"])
@@ -275,6 +276,28 @@ describe("reconciliation", () => {
 		expect(client.submitted).toEqual(["0x00"])
 	})
 
+	it("does not reopen an order the operator cancelled while a post that then failed was in flight", async () => {
+		// A failure the orderbook could not decide leaves the order open to be posted again,
+		// but only if nothing else has closed it since: the cancel owns the row.
+		const client = fakeClient([])
+		const { service, store } = makeService(client)
+		client.submitOrder = async () => {
+			const [created] = await store.list()
+			await service.cancel(created.id)
+			throw new OrderbookRequestError("connect ECONNREFUSED")
+		}
+
+		const { order, result } = await service.create(REQUEST)
+
+		expect(result).toMatchObject({ kind: "failed", retryable: true })
+		expect(order.status).toBe("cancelled")
+		expect((await store.get(order.id))?.status).toBe("cancelled")
+		expect(order.lastError).toBeNull()
+		// Nothing is left to post again.
+		expect(await service.reconcile(later())).toEqual({ cancelled: 0, reposted: 0, underFunded: 0 })
+		expect(client.submitted).toEqual([])
+	})
+
 	it("does not put back a posting the operator cancelled while it paged the orderbook", async () => {
 		// The pass snapshots the row as open, then awaits the orderbook's entries. A
 		// cancel that lands inside that window owns the row; writing the snapshot back
@@ -325,7 +348,7 @@ describe("a posting through a fill and a reconciliation", () => {
 
 		// A fill takes 500,000 of the 1,500,000 cNGN offered, and the rest goes back
 		// up at its new size.
-		const resized = (await service.settleFill(order.id, 500_000n * ONE))!
+		const resized = (await settleFill(service, order.id, 500_000n * ONE))!
 		expect(resized.commitment).toBe("0xa2")
 		expect(resized.remaining).toBe((1_000_000n * ONE).toString())
 

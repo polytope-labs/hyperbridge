@@ -20,7 +20,6 @@ function order(overrides: Partial<LimitOrder> = {}): LimitOrder {
 		price: (1545n * ONE).toString(),
 		size: (1_545_000n * ONE).toString(),
 		remaining: (1_545_000n * ONE).toString(),
-		reserved: "0",
 		acceptedSources: ["EVM-8453"],
 		ttlSecs: 900,
 		expiresAt: null,

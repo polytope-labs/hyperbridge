@@ -7,14 +7,13 @@ import { budgetFor, toRaw, toScaled } from "@/orderbook/amounts"
 import { CacheService } from "@/services/CacheService"
 import { FXFiller } from "@/strategies/fx"
 import { stubOrderScanner } from "../helpers/stub-scanner"
-import { limitOrderStore } from "../helpers/limit-orders"
+import { fakeClient, LIMITS, limitOrderService, limitOrderStore } from "../helpers/limit-orders"
 
 /**
  * A limit order's budget is tallied on the fill chain in the output token's own units,
- * from what the gateway charged each fill. The store works the order down from the fill
- * events instead, and sizes the next bid from what it has left. The two have to agree to
- * the unit: a store that has drawn down less than the chain counted offers more than the
- * budget has room for, and that bid reverts every time it is rebuilt.
+ * from what the gateway charged each fill. Settlement brings the order's `remaining` down
+ * to the room that tally leaves, so the next bid is never sized past what the budget will
+ * pay, and records each fill at what the gateway charged it, for its history and profit.
  */
 
 const OUR_ADDRESS = "0xAAAA00000000000000000000000000000000AAAA" as HexString
@@ -64,33 +63,46 @@ async function build(decimals: number, size: string) {
 	) as any
 	filler.assetRegistry = { getAddress: () => CNGN }
 	filler.contractService = { getTokenDecimals: async () => decimals }
-	filler.limitOrderService = { resize: async () => null }
+
+	let tally = 0n
+	// The real service, reading this test's tally and token. No dust floor, so the order
+	// stays on the book however far it is worked down.
+	const client = fakeClient([])
+	client.limits = async () => ({ ...LIMITS, serverInfo: { ...LIMITS.serverInfo, minOrderSizes: [] } })
+	const { service } = limitOrderService(client, limitOrders)
+	;(service as any).assetRegistry = { getAddress: () => CNGN }
+	;(service as any).contractService = {
+		getTokenDecimals: async () => decimals,
+		limitOrderSpent: async () => tally,
+		prepareLimitOrderUserOp: async () => ({ commitment: "0xabc" as HexString, userOp: "0x01" as HexString }),
+	}
+	filler.setLimitOrderService(service)
 
 	const order = (await limitOrders.get(LIMIT_ORDER))!
 	const { cap } = budgetFor(order, CNGN, decimals)
 	const remaining = async () => BigInt((await limitOrders.get(LIMIT_ORDER))!.remaining)
-	let tally = 0n
+	/** Every fill recorded against the order, summed at 1e18. */
+	const recorded = async () =>
+		(await limitOrders.fills(LIMIT_ORDER, 500)).reduce((sum, fill) => sum + BigInt(fill.amount), 0n)
 	let fills = 0
 
 	/**
-	 * One bid of ours landing on a swap that others have part filled: held, charged by the
+	 * One bid of ours landing on a swap that others have part filled: charged by the
 	 * gateway, tallied against the budget, and settled from the fill event.
 	 */
 	const fill = async (
 		leg: { escrow: bigint; required: bigint; previousCredit: bigint },
 		quoted: bigint,
 		offered: bigint,
-		/** What the bid held against the limit order, when the strategy said so itself. */
-		held: bigint = toScaled(offered, decimals),
+		/** What the bid offered at 1e18, when the strategy said so itself. */
+		payout: bigint = toScaled(offered, decimals),
 	) => {
 		const commitment = `0x${(++fills).toString(16).padStart(64, "0")}` as HexString
-		const amount = held.toString()
-		expect(await limitOrders.reserve(LIMIT_ORDER, amount)).toBe(true)
 		await data.bids.store({
 			commitment,
 			bid: `0x${"b".repeat(63)}${fills}`,
 			success: true,
-			reservations: [{ limitOrderId: LIMIT_ORDER, amount, take: quoted.toString() }],
+			pricedBy: { limitOrderId: LIMIT_ORDER, payout: payout.toString(), take: quoted.toString() },
 		})
 
 		const charge = priceLeg(leg, quoted, offered)
@@ -102,12 +114,24 @@ async function build(decimals: number, size: string) {
 			8453,
 			[{ token: CNGN, amount: charge.credited }],
 			[{ token: USDC, amount: charge.released }],
-			true,
 		)
 		return charge
 	}
 
-	return { cap, fill, remaining, limitOrders, bids: data.bids, filler, tally: () => tally, size: BigInt(order.size) }
+	return {
+		cap,
+		fill,
+		remaining,
+		recorded,
+		limitOrders,
+		bids: data.bids,
+		filler,
+		tally: () => tally,
+		spend: (raw: bigint) => {
+			tally += raw
+		},
+		size: BigInt(order.size),
+	}
 }
 
 /**
@@ -174,7 +198,7 @@ async function balanceLimitedBid(ctx: Awaited<ReturnType<typeof build>>, decimal
 	await strategy.calculateProfitability(order)
 
 	const [plan] = cache.getBidPlans(order.id!)
-	return { offered: plan.fillerOutputs[0].amount, quoted: plan.fillerInputs[0].amount, held: plan.payout }
+	return { offered: plan.fillerOutputs[0].amount, quoted: plan.fillerInputs[0].amount, payout: plan.payout }
 }
 
 /**
@@ -186,7 +210,7 @@ async function balanceLimitedBid(ctx: Awaited<ReturnType<typeof build>>, decimal
 async function clampedFills(
 	ctx: Awaited<ReturnType<typeof build>>,
 	decimals: number,
-	bid?: { offered: bigint; quoted: bigint; held: bigint },
+	bid?: { offered: bigint; quoted: bigint; payout: bigint },
 ) {
 	const unit = 10n ** BigInt(decimals)
 	const quoted = bid?.quoted ?? 250n * 10n ** BigInt(INPUT_DECIMALS)
@@ -200,22 +224,25 @@ async function clampedFills(
 			{ escrow: quoted, required, previousCredit: required - left },
 			quoted,
 			offered,
-			bid?.held,
+			bid?.payout,
 		)
 		expect(charge.released).toBeLessThan(quoted)
 		expect(charge.paid).toBeGreaterThan(charge.credited)
 		// What the store would bid next never exceeds the room the budget has left.
 		expect(toRaw(await ctx.remaining(), decimals)).toBeLessThanOrEqual(ctx.cap - ctx.tally())
+		// Nor falls short of it by a whole unit of the token.
+		expect(ctx.cap - ctx.tally() - toRaw(await ctx.remaining(), decimals)).toBeLessThan(1n)
 	}
 }
 
-describe("a limit order's draw-down against its on-chain budget", () => {
+describe("a limit order's remaining and fills against its on-chain budget", () => {
 	for (const decimals of [6, 18]) {
-		it(`draws down exactly what the gateway charged a clamped fill (${decimals} decimals)`, async () => {
+		it(`follows the budget and records what the gateway charged a clamped fill (${decimals} decimals)`, async () => {
 			const ctx = await build(decimals, "1000")
 			await clampedFills(ctx, decimals)
 
 			expect(ctx.size - (await ctx.remaining())).toBe(toScaled(ctx.tally(), decimals))
+			expect(await ctx.recorded()).toBe(toScaled(ctx.tally(), decimals))
 
 			// A bid that takes everything the store has left, as the strategy sizes it, fits.
 			const offered = toRaw(await ctx.remaining(), decimals)
@@ -231,29 +258,33 @@ describe("a limit order's draw-down against its on-chain budget", () => {
 		})
 	}
 
-	it("keeps a size finer than the token as dust beneath the budget", async () => {
+	it("sheds a size finer than the token once it follows the budget", async () => {
+		// The cap truncates the sub-unit half; following the chain's room drops it too.
 		const ctx = await build(6, "1000.0000005")
 		await clampedFills(ctx, 6)
 
 		const offered = toRaw(await ctx.remaining(), 6)
 		expect(ctx.tally() + offered).toBe(ctx.cap)
-		expect((await ctx.remaining()) - toScaled(offered, 6)).toBe(5n * 10n ** 11n)
+		expect(await ctx.remaining()).toBe(toScaled(offered, 6))
 	})
 
-	it("never draws down less than the gateway charged a bid signed in whole 1e18 units of a finer token", async () => {
+	it("never records less than the gateway charged a bid signed in whole 1e18 units of a finer token", async () => {
 		// The store is the coarser side here, so it cannot match the charge to the unit.
-		// Rounded up, it can only ever think it has less left than the budget does.
+		// Rounded up, it never records less than the chain counted, and its remaining,
+		// rounded down from the chain's room, never claims more.
 		const ctx = await build(20, "1000")
 		await clampedFills(ctx, 20)
 
 		const drawn = ctx.size - (await ctx.remaining())
 		expect(toRaw(drawn, 20)).toBeGreaterThanOrEqual(ctx.tally())
-		expect(toRaw(drawn, 20) - ctx.tally()).toBeLessThan(4n * 100n)
+		expect(toRaw(drawn, 20) - ctx.tally()).toBeLessThan(100n)
+		expect(toRaw(await ctx.recorded(), 20)).toBeGreaterThanOrEqual(ctx.tally())
+		expect(toRaw(await ctx.recorded(), 20) - ctx.tally()).toBeLessThan(4n * 100n)
 	})
 
 	it("keeps pace with the budget when the wallet's balance sizes a bid on a finer token", async () => {
-		// A balance is any raw figure, and the hold beside it is kept at 1e18. A bid that
-		// signed the balance as it stood would be charged at a rate its hold cannot express.
+		// A balance is any raw figure, and the payout beside it is kept at 1e18. A bid that
+		// signed the balance as it stood would be charged at a rate its payout cannot express.
 		const ctx = await build(20, "1000")
 		const bid = await balanceLimitedBid(ctx, 20, 2499n * 10n ** 19n + 99n)
 		expect(bid.offered).toBeLessThan((2500750n * 10n ** 20n) / 10000n)
@@ -265,31 +296,27 @@ describe("a limit order's draw-down against its on-chain budget", () => {
 		expect(ctx.tally() + offered).toBeLessThanOrEqual(ctx.cap)
 	})
 
-	it("floors at nothing left when a fill is charged more than the store still had", async () => {
-		// A bid sized before another fill landed can be charged past what is left by the
-		// time it settles. The budget is what refuses that on chain; the store must not
-		// answer it with a negative remainder, which would read as room.
+	it("comes down to nothing left once the chain has spent the whole budget", async () => {
+		// Other fills the store never heard of spent all but one unit; this fill takes the rest.
 		const ctx = await build(6, "1000")
 		const quoted = 10n ** 6n
-		const amount = toScaled(1n, 6).toString()
-		expect(await ctx.limitOrders.reserve(LIMIT_ORDER, amount)).toBe(true)
+		ctx.spend(ctx.cap - 1n)
 		await ctx.bids.store({
-			commitment: "0xstale" as HexString,
-			bid: "0xstalebid",
+			commitment: "0xlast" as HexString,
+			bid: "0xlastbid",
 			success: true,
-			reservations: [{ limitOrderId: LIMIT_ORDER, amount, take: quoted.toString() }],
+			pricedBy: { limitOrderId: LIMIT_ORDER, payout: toScaled(1n, 6).toString(), take: quoted.toString() },
 		})
-		// Other fills leave half a unit of the token; this one is charged a whole unit.
-		await ctx.limitOrders.drawDown(LIMIT_ORDER, (ctx.size - 5n * 10n ** 11n).toString())
+		ctx.spend(1n)
 
 		await ctx.filler.settleFilledLimitOrder(
-			"0xstale",
+			"0xlast",
 			8453,
 			[{ token: CNGN, amount: 1n }],
 			[{ token: USDC, amount: quoted }],
-			true,
 		)
 
 		expect(await ctx.remaining()).toBe(0n)
+		expect(await ctx.recorded()).toBe(toScaled(1n, 6))
 	})
 })

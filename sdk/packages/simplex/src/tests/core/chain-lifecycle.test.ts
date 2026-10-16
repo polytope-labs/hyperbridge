@@ -195,6 +195,27 @@ describe("EventMonitor chain lifecycle", () => {
 		expect(seen).toEqual(["0xmine"])
 	})
 
+	it("carries the scanned block hash on newOrder", async () => {
+		// The block the placement was scanned from is what binds the confirmation
+		// wait to the commitment; the filler cannot recompute it from the order.
+		const { monitor, handlers } = monitorFor([1])
+		await monitor.startListening()
+
+		let emitted: { blockHash?: string } | undefined
+		monitor.on("newOrder", (event) => {
+			emitted = event
+		})
+
+		handlers()!.onOrder({
+			order: singleLegOrder("0xplaced"),
+			transactionHash: "0xtx",
+			blockHash: "0xblock",
+			chainId: 1,
+		} as never)
+
+		expect(emitted?.blockHash).toBe("0xblock")
+	})
+
 	it("drops a replayed order", async () => {
 		const { monitor, handlers } = monitorFor([1])
 		await monitor.startListening()

@@ -19,7 +19,7 @@ Every route here needs the filler to be running. The [rules for every call](/dev
 
 Requests take amounts in whole tokens, as decimal strings such as `"7750000"` or `"1500.25"`, with at most 18 decimal places.
 
-Responses carry amounts and rates as integers scaled by 10¹⁸, whatever the token's own decimals. So `"5000000000000000000000"` is 5,000 tokens. Divide by 10¹⁸ to read them. This applies to an order's `price`, `size`, `remaining` and `reserved`, to a fill's `amount`, and to the orderbook's minimum sizes.
+Responses carry amounts and rates as integers scaled by 10¹⁸, whatever the token's own decimals. So `"5000000000000000000000"` is 5,000 tokens. Divide by 10¹⁸ to read them. This applies to an order's `price`, `size` and `remaining`, to a fill's `amount`, and to the orderbook's minimum sizes.
 
 ## GET /api/orderbook/books
 
@@ -110,7 +110,6 @@ A successful response holds the stored order and what the orderbook did with it:
     "price":     "1550000000000000000000",
     "size":      "5000000000000000000000",
     "remaining": "5000000000000000000000",
-    "reserved":  "0",
     "acceptedSources": ["EVM-1", "EVM-56", "EVM-137", "EVM-8453"],
     "ttlSecs": 31536000,
     "expiresAt": "2027-09-30T11:52:03.412Z",
@@ -158,7 +157,7 @@ Each entry in `orders` is a [limit order object](#the-limit-order-object).
 
 ## GET /api/limit-orders/:id
 
-Returns one order, with the fills that drew it down and the bids still holding part of it. It answers `404` when no order has that ID.
+Returns one order, with the fills that drew it down and the bids it priced. It answers `404` when no order has that ID.
 
 ```bash lineNumbers
 curl -s $SIMPLEX/api/limit-orders/9f1c2e6a-3b4d-4c1e-9a55-0d7f2b8e41aa
@@ -170,7 +169,7 @@ curl -s $SIMPLEX/api/limit-orders/9f1c2e6a-3b4d-4c1e-9a55-0d7f2b8e41aa
   "fills": [
     { "id": 12, "limitOrderId": "9f1c2e6a-…", "commitment": "0x…", "bid": "0x…",
       "amount": "1480000000000000000000", "amountIn": "1000000000000000000",
-      "transactionHash": "0x…", "filledAt": "2026-09-30 12:20:41" }
+      "transactionHash": "0x…", "logIndex": 3, "filledAt": "2026-09-30 12:20:41" }
   ],
   "bids": []
 }
@@ -185,9 +184,10 @@ curl -s $SIMPLEX/api/limit-orders/9f1c2e6a-3b4d-4c1e-9a55-0d7f2b8e41aa
 | `amount` | How much the fill drew the order down by, 1e18-scaled in the token paid out. |
 | `amountIn` | What the fill took in, 1e18-scaled in the token the order takes in. `null` for a fill recorded before Simplex kept it. |
 | `transactionHash` | The fill's transaction on the fill chain, when known. |
+| `logIndex` | Which log of that transaction the fill is, or `null` when unknown. One transaction can carry several fills. |
 | `filledAt` | When the fill settled, in UTC, as `YYYY-MM-DD HH:MM:SS`. |
 
-`bids` lists bids that have neither filled nor been retracted, newest first, in the [bid shape](/developers/evm/simplex/api/activity#the-bid-object). Each bid's `reservations` say how much of this order it holds.
+`bids` lists up to 100 bids this order priced, newest first, in the [bid shape](/developers/evm/simplex/api/activity#the-bid-object). Each bid's `pricedBy` names this order and what the bid offered from it.
 
 An order with no `commitment` and a `lastError` has not reached the book. Read `lastError` to see why. The dashboard's [status badges](/developers/evm/simplex/limit-orders#reading-the-list) map directly onto `status`, `commitment` and `lastError`.
 
@@ -318,8 +318,7 @@ Every route on this page returns orders in this shape.
 | `fillChain` | The state machine ID of the chain Simplex pays out on. |
 | `price` | The rate in quote per base, 1e18-scaled. |
 | `size` | What the order offered to pay out when it was created, 1e18-scaled in the token paid out. |
-| `remaining` | What it has left to pay out. |
-| `reserved` | What is promised to bids that have neither filled nor been retracted. |
+| `remaining` | What it has left to pay out. After each fill it is lowered to what the order's budget on chain has left. |
 | `acceptedSources` | The source chains it accepts swaps from. |
 | `ttlSecs` | Its lifetime in seconds. |
 | `expiresAt` | When it expires, as an ISO 8601 timestamp. Nothing renews it. |

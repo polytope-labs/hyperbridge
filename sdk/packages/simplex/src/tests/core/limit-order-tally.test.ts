@@ -7,10 +7,10 @@ import { stubOrderScanner } from "../helpers/stub-scanner"
 import { fakeClient, limitOrderService, limitOrderStore, ORDERBOOK_FIXTURES } from "../helpers/limit-orders"
 
 /**
- * The solver's account tallies what each limit order has paid out, and the store keeps
- * its own `remaining`. The tally pass lowers `remaining` to the room the tally leaves.
- * It runs beside fills that are settling, and a fill the chain has already counted but
- * the store has not drawn down yet must not be taken off the order twice.
+ * The solver's account tallies what each limit order has paid out, and that tally is
+ * the order's budget: `remaining` follows it. A fill's settlement lowers the order to
+ * the room the tally leaves, and the periodic tally pass does the same for anything
+ * settlement missed. Bids still waiting count for nothing until the chain counts them.
  */
 
 const { CHAIN, USDC, CNGN, ONE } = ORDERBOOK_FIXTURES
@@ -88,24 +88,23 @@ async function build(options: { slow?: boolean } = {}) {
 	const { cap } = budgetFor((await limitOrders.get(LIMIT_ORDER))!, USDC, DECIMALS)
 	let bids = 0
 
-	/** A bid of ours holding `whole` USDC against the order, not yet executed. */
+	/** A bid of ours offering `whole` USDC from the order, not yet executed. */
 	const placeBid = async (whole: bigint) => {
 		const commitment = `0x${(++bids).toString(16).padStart(64, "0")}` as HexString
-		const amount = (whole * ONE).toString()
+		const payout = (whole * ONE).toString()
 		const take = whole * RATE
-		expect(await limitOrders.reserve(LIMIT_ORDER, amount)).toBe(true)
 		await data.bids.store({
 			commitment,
 			bid: `0x${"b".repeat(63)}${bids}`,
 			success: true,
-			reservations: [{ limitOrderId: LIMIT_ORDER, amount, take: take.toString() }],
+			pricedBy: { limitOrderId: LIMIT_ORDER, payout, take: take.toString() },
 		})
 		return { commitment, whole, take }
 	}
 
 	/**
 	 * The chain executing that bid and counting it, not yet settled here. `charged` is less
-	 * than the hold when the swap had less of its ask open than the bid offered.
+	 * than the payout when the swap had less of its ask open than the bid offered.
 	 */
 	const land = (bid: Awaited<ReturnType<typeof placeBid>>, charged: bigint = bid.whole) => {
 		tally += charged * UNIT
@@ -135,8 +134,6 @@ async function build(options: { slow?: boolean } = {}) {
 		land,
 		executeBid,
 		scanFill,
-		/** A bid that never executed giving its hold back, as its retraction does. */
-		release: (bid: { commitment: HexString }) => filler.releaseReservation(bid.commitment) as Promise<void>,
 		/** A payout the account counted that never reached the store. */
 		miss: (whole: bigint) => {
 			tally += whole * UNIT
@@ -147,97 +144,62 @@ async function build(options: { slow?: boolean } = {}) {
 	}
 }
 
-describe("a limit order's tally against a fill that has not settled yet", () => {
-	it("leaves the order alone while the fill is held, and agrees with the chain once it settles", async () => {
+describe("a limit order's remaining against its on-chain tally", () => {
+	it("follows the chain as soon as it counts a fill, and settlement leaves it there", async () => {
 		const ctx = await build()
 		const bid = await ctx.executeBid(250n)
 
-		// The tally leaves room for 750, and the 250 the bid holds accounts for the rest.
+		// The chain has counted the fill: the tally pass lowers the order before the fill
+		// event even reaches the filler.
 		await ctx.filler.reconcileLimitOrderTallies()
-		expect(await ctx.order()).toMatchObject({
-			remaining: (1000n * ONE).toString(),
-			reserved: (250n * ONE).toString(),
-			status: "open",
-		})
-		expect(ctx.client.submitted).toEqual([])
+		const lowered = await ctx.order()
+		expect(toRaw(BigInt(lowered.remaining), DECIMALS)).toBe(ctx.cap - ctx.tally())
+		expect(lowered.status).toBe("open")
+		expect(ctx.client.submitted).toHaveLength(1)
 
 		ctx.scanFill(bid)
 		await ctx.idle()
-		const settled = await ctx.order()
-		expect(toRaw(BigInt(settled.remaining), DECIMALS)).toBe(ctx.cap - ctx.tally())
-		expect(settled.reserved).toBe("0")
-		expect(ctx.client.submitted).toHaveLength(1)
-
-		await ctx.filler.reconcileLimitOrderTallies()
-		expect(await ctx.order()).toEqual(settled)
+		expect(await ctx.order()).toEqual(lowered)
 		expect(ctx.client.submitted).toHaveLength(1)
 	})
 
-	it("takes off only what the store missed when a fill is held beside it", async () => {
+	it("lowers the order to the tally when the fill settles, taking off what the store missed too", async () => {
 		const ctx = await build()
 		ctx.miss(100n)
 		const bid = await ctx.executeBid(250n)
 
-		await ctx.filler.reconcileLimitOrderTallies()
-		expect((await ctx.order()).remaining).toBe((900n * ONE).toString())
-
 		ctx.scanFill(bid)
 		await ctx.idle()
 		const settled = await ctx.order()
+		expect(settled.remaining).toBe((650n * ONE).toString())
 		expect(toRaw(BigInt(settled.remaining), DECIMALS)).toBe(ctx.cap - ctx.tally())
 
 		await ctx.filler.reconcileLimitOrderTallies()
 		expect(await ctx.order()).toEqual(settled)
 	})
 
-	it("finishes the correction once a fill that charged less than it held has settled", async () => {
-		// The bid holds 250 and the gateway charges it 200. Until it settles the pass
-		// can only see the hold, so it leaves the 50 the fill will give back.
+	it("takes off what the gateway charged, not what the bid offered", async () => {
+		// The bid offers 250 and the gateway charges it 200: the chain counted 200.
 		const ctx = await build()
-		ctx.miss(100n)
 		const fill = ctx.land(await ctx.placeBid(250n), 200n)
 
-		await ctx.filler.reconcileLimitOrderTallies()
-		expect((await ctx.order()).remaining).toBe((950n * ONE).toString())
-
 		ctx.scanFill(fill)
 		await ctx.idle()
-		expect(await ctx.order()).toMatchObject({ remaining: (750n * ONE).toString(), reserved: "0" })
-
-		await ctx.filler.reconcileLimitOrderTallies()
-		const corrected = await ctx.order()
-		expect(toRaw(BigInt(corrected.remaining), DECIMALS)).toBe(ctx.cap - ctx.tally())
-		expect(corrected.remaining).toBe((700n * ONE).toString())
-
-		await ctx.filler.reconcileLimitOrderTallies()
-		expect(await ctx.order()).toEqual(corrected)
+		expect((await ctx.order()).remaining).toBe((800n * ONE).toString())
 	})
 
-	it("never goes under the true room while other bids hold the order, and reaches it once they let go", async () => {
+	it("ignores bids still waiting: only what the chain counted comes off", async () => {
 		const ctx = await build()
-		ctx.miss(100n)
-		const pending = [await ctx.placeBid(250n), await ctx.placeBid(250n)]
+		await ctx.placeBid(250n)
+		await ctx.placeBid(250n)
 		const fill = await ctx.executeBid(250n)
-		const room = () => toScaled(ctx.cap - ctx.tally(), DECIMALS)
-
-		// Any of the three holds could be the fill the tally counted, so none of them
-		// is taken off.
-		await ctx.filler.reconcileLimitOrderTallies()
-		expect((await ctx.order()).remaining).toBe((1000n * ONE).toString())
 
 		ctx.scanFill(fill)
 		await ctx.idle()
 		await ctx.filler.reconcileLimitOrderTallies()
-		const held = await ctx.order()
-		expect(held.reserved).toBe((500n * ONE).toString())
-		expect(BigInt(held.remaining)).toBeGreaterThanOrEqual(room())
-
-		for (const bid of pending) await ctx.release(bid)
-		await ctx.filler.reconcileLimitOrderTallies()
-		const corrected = await ctx.order()
-		expect(corrected.reserved).toBe("0")
-		expect(toRaw(BigInt(corrected.remaining), DECIMALS)).toBe(ctx.cap - ctx.tally())
-		expect(corrected.remaining).toBe((650n * ONE).toString())
+		const after = await ctx.order()
+		expect(after.remaining).toBe((750n * ONE).toString())
+		expect(toRaw(BigInt(after.remaining), DECIMALS)).toBe(ctx.cap - ctx.tally())
 	})
 })
 
@@ -261,10 +223,10 @@ describe("the tally pass and a fill's settlement", () => {
 		expect(ctx.trace).toContain("tallies:end")
 		await ctx.idle()
 
-		const { remaining, reserved, status } = await ctx.order()
+		const { remaining, status } = await ctx.order()
 		return {
 			trace: ctx.trace,
-			state: { remaining, reserved, status },
+			state: { remaining, status },
 			room: toScaled(ctx.cap - ctx.tally(), DECIMALS),
 		}
 	}
@@ -278,7 +240,6 @@ describe("the tally pass and a fill's settlement", () => {
 
 		expect(talliesFirst.state).toEqual({
 			remaining: talliesFirst.room.toString(),
-			reserved: "0",
 			status: "open",
 		})
 		expect(fillFirst.state).toEqual(talliesFirst.state)

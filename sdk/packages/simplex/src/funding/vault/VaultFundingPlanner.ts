@@ -203,9 +203,9 @@ export class VaultFundingPlanner implements FundingVenue {
 	}
 
 	/**
-	 * Returns a coherent read-only view of every configured vault. Refreshing
-	 * under the same per-chain mutex used by withdrawal planning ensures the
-	 * displayed availability includes all live pending-fill reservations.
+	 * Returns a coherent read-only view of every configured vault, refreshed
+	 * under the same per-chain mutex withdrawal planning uses. Availability is
+	 * the vault's own `maxWithdraw(solver)`.
 	 */
 	async getBalanceSnapshot(requestedChain?: string): Promise<VaultBalancePosition[]> {
 		const snapshots = await Promise.all(
@@ -224,7 +224,7 @@ export class VaultFundingPlanner implements FundingVenue {
 						symbol: vault.symbol,
 						decimals: vault.decimals,
 						positionAssets: vault.positionAssets,
-						availableAssets: vault.remaining,
+						availableAssets: vault.maxWithdrawable,
 						walletReserve: vault.minBalanceScaled,
 						acceptsDeposits: vault.maxDeposit > 0n,
 					}))
@@ -258,6 +258,11 @@ export class VaultFundingPlanner implements FundingVenue {
 	 * Produces a single `vault.withdraw` ERC-7821 call that sends up to
 	 * `amountNeeded` of `tokenOutLower` to the solver, capped by the vault's
 	 * `maxWithdraw`. Returns a no-op when no configured vault holds the token.
+	 *
+	 * `maxWithdraw` is read afresh for every plan, less `alreadyPlanned`: what
+	 * the caller's own evaluation has planned from this vault so far. Nothing is
+	 * held back across evaluations: a plan whose withdrawal another evaluation's
+	 * fill has already spent reverts its batch on chain, which is the accepted cost.
 	 */
 	async planWithdrawalForToken(
 		destChain: string,
@@ -265,6 +270,7 @@ export class VaultFundingPlanner implements FundingVenue {
 		tokenOutLower: string,
 		amountNeeded: bigint,
 		_deadlineTimestamp?: bigint,
+		alreadyPlanned = 0n,
 	): Promise<FundingPlanResult> {
 		const noopResult: FundingPlanResult = { calls: [], credited: 0n }
 
@@ -281,7 +287,8 @@ export class VaultFundingPlanner implements FundingVenue {
 			const vault = state.vaultForToken(tokenNeed)
 			if (!vault) return noopResult
 
-			const available = state.remaining(vault.asset)
+			const withdrawable = state.withdrawable(vault.asset)
+			const available = withdrawable > alreadyPlanned ? withdrawable - alreadyPlanned : 0n
 			if (available <= 0n) return noopResult
 
 			const amount = amountNeeded < available ? amountNeeded : available
@@ -296,7 +303,6 @@ export class VaultFundingPlanner implements FundingVenue {
 				}) as HexString,
 			}
 
-			state.consume(vault.asset, amount)
 
 			this.logger.debug(
 				{
@@ -304,6 +310,8 @@ export class VaultFundingPlanner implements FundingVenue {
 					vault: vault.vault,
 					asset: vault.asset,
 					amountNeeded: amountNeeded.toString(),
+					withdrawable: withdrawable.toString(),
+					alreadyPlanned: alreadyPlanned.toString(),
 					available: available.toString(),
 					credited: amount.toString(),
 				},

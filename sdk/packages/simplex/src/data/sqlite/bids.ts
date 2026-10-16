@@ -1,7 +1,7 @@
 import type { DatabaseSync } from "node:sqlite"
 import { defaultLoggerContext, type Logger, type LoggerContext } from "@/services/Logger"
 import { sqliteDatetime } from "@/data/memory"
-import type { BidInsert, BidStats, BidStore, LimitOrderHold, StoredBid } from "@/data/types"
+import type { BidInsert, BidPricing, BidStats, BidStore, StoredBid } from "@/data/types"
 import { columnNames } from "./schema"
 
 /** Column list shared by every SELECT that returns a StoredBid. */
@@ -19,7 +19,7 @@ const BID_COLUMNS = `
 	retracted_at as retractedAt,
 	retract_extrinsic_hash as retractExtrinsicHash,
 	dead,
-	bid,
+	priced_by as pricedBy,
 	reservations
 `
 
@@ -31,14 +31,33 @@ const BID_COLUMNS = `
  * That also means `store` is durable the moment it resolves, which is what the
  * retraction sweep relies on.
  */
-/** The holds on a bid row, tolerating a row written before they were a list. */
-function parseHolds(raw: string | null): LimitOrderHold[] {
-	if (!raw) return []
+function parseJson(raw: string | null): unknown {
+	if (!raw) return null
 	try {
-		const parsed = JSON.parse(raw)
-		return Array.isArray(parsed) ? parsed : []
+		return JSON.parse(raw)
 	} catch {
-		return []
+		return null
+	}
+}
+
+/**
+ * The limit order that priced a bid row.
+ *
+ * Read from `priced_by`, or, for a row written before that column existed, from the
+ * first entry of the `reservations` list that build kept, whose `amount` is the payout.
+ * A row whose reservation was already settled has none left to read, and needs none.
+ */
+function pricedBy(row: { pricedBy: string | null; reservations: string | null }): BidPricing | null {
+	const current = parseJson(row.pricedBy) as BidPricing | null
+	if (current && typeof current === "object") return current
+	const legacy = parseJson(row.reservations)
+	const first = Array.isArray(legacy) ? legacy[0] : null
+	if (!first || typeof first !== "object" || typeof first.limitOrderId !== "string") return null
+	return {
+		limitOrderId: first.limitOrderId,
+		payout: String(first.payout ?? first.amount),
+		...(first.take !== undefined ? { take: String(first.take) } : {}),
+		...(first.takeDecimals !== undefined ? { takeDecimals: Number(first.takeDecimals) } : {}),
 	}
 }
 
@@ -69,7 +88,10 @@ export class SqliteBidStore implements BidStore {
 				retracted_at TEXT,
 				retract_extrinsic_hash TEXT,
 				dead INTEGER NOT NULL DEFAULT 0,
-				reservations TEXT
+				-- Only read, as the provenance of a bid written before priced_by. Kept, and
+				-- never written, so a rollback to a build that still reads it finds the column.
+				reservations TEXT,
+				priced_by TEXT
 			);
 
 			CREATE INDEX IF NOT EXISTS idx_bids_commitment ON bids(commitment);
@@ -86,8 +108,9 @@ export class SqliteBidStore implements BidStore {
 			this.logger.info({ column }, "Migrated bid storage schema")
 		}
 		// A row written before bids carried an identifier has none, and nothing to retract through
-		// the current calls.
-		for (const column of ["bid", "reservations"] as const) {
+		// the current calls. A row written before `priced_by` reads its provenance from
+		// `reservations` instead.
+		for (const column of ["bid", "reservations", "priced_by"] as const) {
 			if (columns.has(column)) continue
 			this.db.exec(`ALTER TABLE bids ADD COLUMN ${column} TEXT`)
 			this.logger.info({ column }, "Migrated bid storage schema")
@@ -100,20 +123,21 @@ export class SqliteBidStore implements BidStore {
 
 	// biome-ignore lint/suspicious/noExplicitAny: raw sqlite row
 	private toStoredBid(row: any): StoredBid {
+		const { reservations: _legacy, ...rest } = row
 		return {
-			...row,
+			...rest,
 			success: Boolean(row.success),
 			pending: Boolean(row.pending),
 			retracted: Boolean(row.retracted),
 			dead: Boolean(row.dead),
-			reservations: parseHolds(row.reservations),
+			pricedBy: pricedBy(row),
 		}
 	}
 
 	async store(bid: BidInsert): Promise<void> {
 		const result = this.db
 			.prepare(`
-				INSERT INTO bids (commitment, bid, extrinsic_hash, block_hash, success, pending, error, reservations)
+				INSERT INTO bids (commitment, bid, extrinsic_hash, block_hash, success, pending, error, priced_by)
 				VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 			`)
 			.run(
@@ -124,7 +148,7 @@ export class SqliteBidStore implements BidStore {
 				bid.success ? 1 : 0,
 				bid.pending ? 1 : 0,
 				bid.error || null,
-				bid.reservations?.length ? JSON.stringify(bid.reservations) : null,
+				bid.pricedBy ? JSON.stringify(bid.pricedBy) : null,
 			)
 
 		this.logger.debug({ id: result.lastInsertRowid, commitment: bid.commitment, success: bid.success }, "Bid stored")
@@ -184,44 +208,20 @@ export class SqliteBidStore implements BidStore {
 		return false
 	}
 
-	async claimReservation(commitment: string, bid?: string): Promise<LimitOrderHold[]> {
-		// Several bids can share a commitment: simplex bids each limit order that can
-		// serve one incoming order, and they differ by their bid identifier. Claiming
-		// by row id is what keeps one bid's settlement from taking another's holds,
-		// and what stops two rows carrying identical reservation JSON being cleared
-		// together by a guard that cannot tell them apart.
-		const rows = (
-			bid === undefined
-				? this.db
-						.prepare("SELECT id, reservations FROM bids WHERE commitment = ? AND reservations IS NOT NULL ORDER BY id")
-						.all(commitment)
-				: this.db
-						.prepare(
-							"SELECT id, reservations FROM bids WHERE commitment = ? AND bid = ? AND reservations IS NOT NULL ORDER BY id",
-						)
-						.all(commitment, bid)
-		) as { id: number; reservations: string }[]
-
-		const claimed: LimitOrderHold[] = []
-		for (const row of rows) {
-			// Guarded on the row, so two settlers racing the same bid cannot both come
-			// away holding it.
-			const result = this.db.prepare("UPDATE bids SET reservations = NULL WHERE id = ? AND reservations = ?").run(row.id, row.reservations)
-			if (result.changes === 1) claimed.push(...parseHolds(row.reservations))
-		}
-		return claimed
-	}
-
 	async byLimitOrder(limitOrderId: string, limit = 100): Promise<StoredBid[]> {
 		// Matched in SQL on the id inside the JSON, then filtered exactly here: the
-		// LIKE narrows the scan, and the parse is what decides.
+		// LIKE narrows the scan, and the parse is what decides. `reservations` is
+		// searched too, for bids written before `priced_by`.
+		const pattern = `%${limitOrderId}%`
 		const rows = this.db
-			.prepare(`SELECT ${BID_COLUMNS} FROM bids WHERE reservations LIKE ? ORDER BY id DESC LIMIT ?`)
-			.all(`%${limitOrderId}%`, Math.min(Math.max(limit, 1), 500))
+			.prepare(
+				`SELECT ${BID_COLUMNS} FROM bids WHERE priced_by LIKE ? OR (priced_by IS NULL AND reservations LIKE ?) ORDER BY id DESC LIMIT ?`,
+			)
+			.all(pattern, pattern, Math.min(Math.max(limit, 1), 500))
 		// biome-ignore lint/suspicious/noExplicitAny: raw sqlite row
 		return (rows as any[])
 			.map((row) => this.toStoredBid(row))
-			.filter((bid) => bid.reservations.some((hold) => hold.limitOrderId === limitOrderId))
+			.filter((bid) => bid.pricedBy?.limitOrderId === limitOrderId)
 	}
 
 	async markDead(commitment: string): Promise<boolean> {

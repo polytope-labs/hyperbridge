@@ -17,7 +17,6 @@ function limitOrder(base: string, quote: string, price: string): LimitOrder {
 		price,
 		size: "0",
 		remaining: "0",
-		reserved: "0",
 		acceptedSources: ["EVM-1"],
 		ttlSecs: 900,
 		expiresAt: null,

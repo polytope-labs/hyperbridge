@@ -2425,10 +2425,8 @@ button.operator-runtime-stop:hover:not(:disabled) {
 /* Pair icons, the rate, how far it has filled, the cap. */
 button.limit-order-item {
 	--consumed: 0%;
-	--held: 0%;
 	--bar-fill: color-mix(in srgb, var(--ok) 12%, transparent);
 	--bar-edge: color-mix(in srgb, var(--ok) 70%, transparent);
-	--bar-held: color-mix(in srgb, var(--ok) 30%, transparent);
 	position: relative;
 	display: grid;
 	grid-template-columns: 3.25rem 11rem minmax(0, 1fr) auto;
@@ -2446,13 +2444,11 @@ button.limit-order-item {
 button.limit-order-item[data-side="ASK"] {
 	--bar-fill: color-mix(in srgb, var(--err) 12%, transparent);
 	--bar-edge: color-mix(in srgb, var(--err) 70%, transparent);
-	--bar-held: color-mix(in srgb, var(--err) 30%, transparent);
 }
 
 button.limit-order-item[data-tab="cancelled"] {
 	--bar-fill: rgba(255, 255, 255, 0.055);
 	--bar-edge: rgba(255, 255, 255, 0.28);
-	--bar-held: transparent;
 }
 
 button.limit-order-item:hover:not(:disabled) {
@@ -2464,15 +2460,12 @@ button.limit-order-item:active:not(:disabled) {
 	transform: scale(0.995);
 }
 
-button.limit-order-item::before,
-button.limit-order-item::after {
+button.limit-order-item::before {
 	content: "";
 	position: absolute;
 	bottom: 0;
 	pointer-events: none;
-	transition:
-		left 400ms var(--ease-out),
-		width 400ms var(--ease-out);
+	transition: width 400ms var(--ease-out);
 }
 
 /*
@@ -2486,14 +2479,6 @@ button.limit-order-item::before {
 	width: var(--consumed);
 	background: var(--bar-fill);
 	box-shadow: inset 0 -3px 0 var(--bar-edge);
-}
-
-/* What live bids are holding of the rest, promised and not yet paid: the rule carried on, fainter. */
-button.limit-order-item::after {
-	left: var(--consumed);
-	width: var(--held);
-	height: 3px;
-	background: var(--bar-held);
 }
 
 /* Above the bar, which is positioned and would otherwise paint over the copy. */

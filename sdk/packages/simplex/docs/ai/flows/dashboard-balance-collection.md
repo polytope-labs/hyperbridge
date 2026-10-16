@@ -7,8 +7,8 @@ performs the first refresh before boot returns; later refreshes run on the confi
 For each chain, `BalanceProvider` resolves configured USDC/USDT and unique exotic assets, reads the
 solver's native and token wallet balances, then merges the planner's vault rows by underlying asset.
 `VaultFundingPlanner.getBalanceSnapshot()` takes the same per-chain mutex as fill planning, refreshes
-`VaultLiquidityState`, and returns base-unit position, remaining withdrawable assets, and wallet
-reserve. The API boundary formats those once and derives:
+`VaultLiquidityState`, and returns base-unit position, withdrawable assets (the vault's
+`maxWithdraw(solver)`, with nothing held back for planned fills), and wallet reserve. The API boundary formats those once and derives:
 
 - `total = wallet + vaultPosition`
 - `available = max(wallet - walletReserve, 0) + vaultAvailable`

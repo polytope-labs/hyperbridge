@@ -63,33 +63,22 @@ export function tabOf(order: Pick<LimitOrder, "status">): OrderTab {
 }
 
 /**
- * How far an order has been worked down, as percentages of its cap: what has been consumed, and
- * what live bids hold of the rest. Cut to hundredths rather than rounded, so a bar never shows
- * more consumed than was.
- *
- * Bids each hold against what is left without counting one another, so `reserved` can pass
- * `remaining`. It is capped there, which keeps the two parts inside the cap.
+ * How far an order has been worked down, as a percentage of its cap. Cut to hundredths rather
+ * than rounded, so a bar never shows more consumed than was.
  */
-export function progressOf(order: Pick<LimitOrder, "size" | "remaining" | "reserved">): {
-	consumed: number
-	held: number
-} {
+export function progressOf(order: Pick<LimitOrder, "size" | "remaining">): { consumed: number } {
 	let size: bigint
 	let remaining: bigint
-	let reserved: bigint
 	try {
 		size = BigInt(order.size)
 		remaining = BigInt(order.remaining)
-		reserved = BigInt(order.reserved)
 	} catch {
-		return { consumed: 0, held: 0 }
+		return { consumed: 0 }
 	}
-	if (size <= 0n) return { consumed: 0, held: 0 }
+	if (size <= 0n) return { consumed: 0 }
 
 	const left = remaining < 0n ? 0n : remaining > size ? size : remaining
-	const held = reserved < 0n ? 0n : reserved > left ? left : reserved
-	const percent = (part: bigint) => Number((part * 10_000n) / size) / 100
-	return { consumed: percent(size - left), held: percent(held) }
+	return { consumed: Number(((size - left) * 10_000n) / size) / 100 }
 }
 
 /**
@@ -97,7 +86,7 @@ export function progressOf(order: Pick<LimitOrder, "size" | "remaining" | "reser
  * touched, and one that has paid out its whole cap. Whole percents in between, with decimals only
  * where a whole one would read as 0 or 100.
  */
-export function describeProgress(order: Pick<LimitOrder, "size" | "remaining" | "reserved" | "status">): string {
+export function describeProgress(order: Pick<LimitOrder, "size" | "remaining" | "status">): string {
 	const { consumed } = progressOf(order)
 	if (consumed >= 100) return "Filled in full"
 	if (consumed >= 1 && consumed < 99) return `${Math.floor(consumed)}% filled`

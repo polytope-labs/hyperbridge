@@ -1,6 +1,6 @@
 CREATE SCHEMA IF NOT EXISTS forum;
 
--- Milliseconds since the epoch, which is how SubSquare reports block times. The indexer stores
+-- Milliseconds since the epoch, which is how the frontend reads block times. The indexer stores
 -- timestamps without a zone, in UTC.
 CREATE OR REPLACE FUNCTION forum.ms(t TIMESTAMPTZ) RETURNS BIGINT IMMUTABLE LANGUAGE SQL
 	AS $$ SELECT (extract(epoch FROM t) * 1000)::bigint $$;
@@ -35,7 +35,7 @@ CREATE TABLE IF NOT EXISTS forum.comments (
 	content TEXT NOT NULL,
 	content_type TEXT NOT NULL DEFAULT 'markdown',
 	deleted BOOLEAN NOT NULL DEFAULT FALSE,
-	-- The SubSquare comment id for comments brought over by the import
+	-- The comment's id on the forum it was imported from
 	imported_from TEXT UNIQUE,
 	created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 	updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()

@@ -5,7 +5,7 @@ use axum::{
 };
 use serde_json::json;
 
-/// An error in the shape the SubSquare frontend reads, `{ message }` with the HTTP status.
+/// An error in the shape the forum frontend reads, `{ message }` with the HTTP status.
 pub struct ApiError {
 	status: StatusCode,
 	message: String,

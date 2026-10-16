@@ -19,7 +19,7 @@ impl PostKind {
 			.find(|kind| *kind as u8 == code)
 	}
 
-	/// The post type name the SubSquare frontend uses in `refToPost` and reports.
+	/// The post type name the forum frontend uses in `refToPost` and reports.
 	pub fn post_type(self) -> &'static str {
 		match self {
 			Self::Discussion => "post",
@@ -30,8 +30,8 @@ impl PostKind {
 	}
 }
 
-/// SubSquare addresses posts by a 24 character hex id. Ours is the kind followed by the post
-/// number, so an id can always be resolved back to its post without a lookup table.
+/// The forum frontend addresses posts by a 24 character hex id. Ours is the kind followed by the
+/// post number, so an id can always be resolved back to its post without a lookup table.
 pub fn post_id(kind: PostKind, number: i64) -> String {
 	format!("{:02x}{number:022x}", kind as u8)
 }
@@ -54,7 +54,7 @@ pub fn parse_comment_id(id: &str) -> Option<i64> {
 	i64::from_str_radix(id.strip_prefix("ff").filter(|rest| rest.len() == 22)?, 16).ok()
 }
 
-/// Milliseconds since the epoch as the ISO string SubSquare returns, such as
+/// Milliseconds since the epoch as the ISO string the forum frontend reads, such as
 /// `2025-12-05T08:44:18.000Z`.
 pub fn iso(millis: i64) -> String {
 	DateTime::from_timestamp_millis(millis)
@@ -74,7 +74,7 @@ pub struct Indexer {
 	pub event_index: i32,
 }
 
-/// The account behind a post. Wallet users have no username, so SubSquare derives one from the key.
+/// The account behind a post. Wallet users have no username, so one is derived from the key.
 pub fn author(address: &str) -> Value {
 	let public_key = AccountId32::from_ss58check(address)
 		.map(|account| hex::encode(<[u8; 32]>::from(account)))

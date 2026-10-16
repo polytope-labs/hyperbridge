@@ -7,7 +7,7 @@ use crate::{
 };
 
 /// The forum post, first event, last event and comment columns every on-chain item query selects,
-/// so their rows can be turned into SubSquare posts the same way. `{events}` is the item's event
+/// so their rows can be turned into forum posts the same way. `{events}` is the item's event
 /// table and `{filter}` matches its rows to the item.
 pub const POST_COLUMNS: &str = "
 	s.block_number AS s_block, s.block_hash AS s_hash, s.extrinsic_index AS s_extrinsic,
@@ -47,7 +47,7 @@ pub fn indexer(row: &Row, prefix: &str) -> Indexer {
 	}
 }
 
-/// The fields SubSquare shows for any post, filled from the forum when someone has written one.
+/// The fields the forum shows for any post, filled from the forum when someone has written one.
 pub fn post_fields(row: &Row, kind: PostKind, number: i64, proposer: &str) -> Map<String, Value> {
 	let created = row.get::<_, i64>("s_ms");
 	let last_event = row.get::<_, i64>("l_ms");
@@ -111,7 +111,7 @@ pub fn item_index(id: &str, kind: PostKind, what: &str) -> ApiResult<i32> {
 	}
 }
 
-/// The item's last event, which SubSquare shows as its state.
+/// The item's last event, which the forum shows as its state.
 pub fn last_event(row: &Row) -> Value {
 	json!({
 		"name": row.get::<_, String>("l_name"),
@@ -125,7 +125,7 @@ pub fn parse(text: Option<String>) -> Value {
 	text.and_then(|text| serde_json::from_str(&text).ok()).unwrap_or(Value::Null)
 }
 
-/// polkadot.js encodes large integers as hex strings; SubSquare sends them as decimal strings.
+/// polkadot.js encodes large integers as hex strings; the forum frontend expects decimal strings.
 pub fn decimal(value: &Value) -> Value {
 	match value {
 		Value::String(hex) if hex.starts_with("0x") => u128::from_str_radix(&hex[2..], 16)

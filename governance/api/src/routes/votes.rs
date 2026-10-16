@@ -35,7 +35,7 @@ pub fn with_conviction(balance: u128, conviction: i32) -> u128 {
 	}
 }
 
-/// A vote as the chain encodes it, in the shape SubSquare gives the frontend. A standard vote packs
+/// A vote as the chain encodes it, in the shape the forum frontend reads. A standard vote packs
 /// its direction into the top bit of a byte and its conviction into the rest.
 fn account_vote(vote: &Value) -> Value {
 	let flags = |kind: &str| json!({ "isStandard": kind == "standard", "isSplit": kind == "split", "isSplitAbstain": kind == "splitAbstain" });

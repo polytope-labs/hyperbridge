@@ -28,8 +28,8 @@ const SHOWN_ROOTS: &str = "reply_to IS NULL AND (NOT deleted OR EXISTS
 const DELETED: &str = "_This comment was deleted._";
 const MAX_PAGE_SIZE: i64 = 200;
 
-/// A comment as SubSquare returns it. `height` is its position among the post's comments, which the
-/// frontend shows and links to.
+/// A comment as the forum frontend reads it. `height` is its position among the post's comments,
+/// which the frontend shows and links to.
 fn comment(row: &Row, height: i64, reactions: Value, replies: Vec<Value>) -> Value {
 	let kind =
 		PostKind::from_code(row.get::<_, i16>("post_kind") as u8).unwrap_or(PostKind::Discussion);

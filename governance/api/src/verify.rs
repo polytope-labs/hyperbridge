@@ -1,6 +1,6 @@
 use serde_json::Value;
 
-use crate::subsquare::SubSquareApi;
+use crate::forum_client::ForumClient;
 
 /// Fields of a referendum that come from the chain. Off-chain fields such as titles are left to the
 /// import, and the timeline is compared event by event.
@@ -95,10 +95,10 @@ fn normalized(value: &Value) -> Value {
 	}
 }
 
-/// Compares what this API serves with a SubSquare site for every referendum and motion the site
+/// Compares what this API serves with the current forum for every referendum and motion it
 /// knows, and fails if any on-chain field differs.
 pub async fn run(api: &str, site: &str) -> anyhow::Result<()> {
-	let (ours, theirs) = (SubSquareApi::new(api), SubSquareApi::site(site));
+	let (ours, theirs) = (ForumClient::new(api), ForumClient::site(site));
 	let mut report = Report::default();
 
 	for item in theirs.all("gov2/referendums").await? {

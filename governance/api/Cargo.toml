@@ -2,7 +2,7 @@
 name = "governance-api"
 version = "0.1.0"
 edition = "2021"
-description = "SubSquare compatible API for Hyperbridge governance"
+description = "Governance forum API for Hyperbridge"
 authors = ["Polytope Labs <hello@polytope.technology>"]
 publish = false
 

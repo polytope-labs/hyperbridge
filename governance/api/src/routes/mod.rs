@@ -157,7 +157,8 @@ async fn unknown_route(method: Method, uri: Uri) -> ApiError {
 	ApiError::not_found("Route")
 }
 
-/// Query string pairs in order. SubSquare repeats keys such as `referendum_index` to send a list.
+/// Query string pairs in order. The frontend repeats keys such as `referendum_index` to send a
+/// list.
 pub struct Params(Vec<(String, String)>);
 
 /// A query string with one more `key=value` pair, for routes that narrow another route's list.

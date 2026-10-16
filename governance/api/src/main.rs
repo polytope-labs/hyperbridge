@@ -1,11 +1,11 @@
 mod crypto;
 mod db;
 mod error;
+mod forum_client;
 mod import;
 mod limits;
 mod primitives;
 mod routes;
-mod subsquare;
 mod verify;
 
 use std::{env, net::SocketAddr, sync::Arc, time::Duration};
@@ -24,20 +24,25 @@ async fn main() -> anyhow::Result<()> {
 	tracing_subscriber::fmt::init();
 
 	let args = env::args().collect::<Vec<_>>();
-	let site = args.get(2).map(String::as_str).unwrap_or("https://hyperbridge.subsquare.io");
+	let command = args.get(1).map(String::as_str);
+	let site = || {
+		args.get(2)
+			.map(String::as_str)
+			.context("give the current forum's address, such as https://forum.example")
+	};
 
-	// `verify [site] [api]` compares a running API with a SubSquare site and exits
-	if args.get(1).map(String::as_str) == Some("verify") {
+	// `verify <site> [api]` compares a running API with the current forum and exits
+	if command == Some("verify") {
 		let api = args.get(3).map(String::as_str).unwrap_or("http://localhost:7071");
-		return verify::run(api, site).await;
+		return verify::run(api, site()?).await;
 	}
 
 	let database_url = env::var("DATABASE_URL").context("DATABASE_URL is not set")?;
 	let db = db::connect(&database_url).await?;
 
-	// `import [site]` copies a SubSquare site's off-chain content into the forum and exits
-	if args.get(1).map(String::as_str) == Some("import") {
-		return import::run(&db, site).await;
+	// `import <site>` copies the current forum's off-chain content into this one and exits
+	if command == Some("import") {
+		return import::run(&db, site()?).await;
 	}
 
 	let admins = env::var("ADMINS")

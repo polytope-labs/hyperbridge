@@ -5,19 +5,20 @@ use reqwest::{
 };
 use serde_json::Value;
 
-/// A client for a SubSquare style API, SubSquare's own or this one.
-pub struct SubSquareApi {
+/// A client for a forum API, the current forum's or this one.
+pub struct ForumClient {
 	client: Client,
 	base: String,
 	referer: Option<String>,
 }
 
-impl SubSquareApi {
+impl ForumClient {
 	pub fn new(base: &str) -> Self {
 		Self { client: Client::new(), base: base.trim_end_matches('/').to_owned(), referer: None }
 	}
 
-	/// SubSquare serves its API under the site and only answers some routes for its own pages.
+	/// The current forum serves its API under the site and only answers some routes for its own
+	/// pages.
 	pub fn site(site: &str) -> Self {
 		let site = site.trim_end_matches('/');
 		Self { referer: Some(format!("{site}/")), ..Self::new(&format!("{site}/api")) }

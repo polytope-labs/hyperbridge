@@ -14,8 +14,8 @@ use crate::error::{ApiError, ApiResult};
 pub const MAX_FILE_SIZE: usize = 5 * 1024 * 1024;
 const IMAGE_TYPES: [&str; 4] = ["image/png", "image/jpeg", "image/gif", "image/webp"];
 
-/// Stores an image under `id`. Uploads use a hash of the content, imports keep SubSquare's id so
-/// the links in imported posts keep working.
+/// Stores an image under `id`. Uploads use a hash of the content, imports keep the current forum's
+/// id so the links in imported posts keep working.
 pub async fn store(db: &Client, id: &str, content_type: &str, data: &[u8]) -> anyhow::Result<()> {
 	db.execute(
 		"INSERT INTO files (id, content_type, data) VALUES ($1, $2, $3) ON CONFLICT (id) DO NOTHING",

@@ -3,11 +3,11 @@ use serde_json::Value;
 use tokio_postgres::Client as Db;
 
 use crate::{
+	forum_client::ForumClient,
 	primitives::{comment_id, post_id, PostKind},
-	subsquare::SubSquareApi,
 };
 
-/// Where each kind of post lives in SubSquare's API, and the field holding its number.
+/// Where each kind of post lives in the current forum's API, and the field holding its number.
 const SECTIONS: [(PostKind, &str, &str); 4] = [
 	(PostKind::Referendum, "gov2/referendums", "referendumIndex"),
 	(PostKind::Motion, "tech-comm/motions", "motionIndex"),
@@ -15,11 +15,11 @@ const SECTIONS: [(PostKind, &str, &str); 4] = [
 	(PostKind::TreasurySpend, "treasury/spends", "index"),
 ];
 
-/// Copies the off-chain content of a SubSquare site into the forum: post titles and descriptions,
+/// Copies the off-chain content of the current forum into this one: post titles and descriptions,
 /// discussions, comments and reactions. Running it again updates what it brought over before, so it
 /// can be repeated right before switching over.
 pub async fn run(db: &Db, site: &str) -> anyhow::Result<()> {
-	let source = SubSquareApi::site(site);
+	let source = ForumClient::site(site);
 
 	for (kind, route, number_field) in SECTIONS {
 		let (mut posts, mut comments) = (0, 0);
@@ -29,7 +29,7 @@ pub async fn run(db: &Db, site: &str) -> anyhow::Result<()> {
 				number => number.as_i64(),
 			}
 			.context("post without a number")?;
-			// Motions are only found by SubSquare's own id, everything else by its number
+			// Motions are only found by the current forum's own id, everything else by its number
 			let key = match kind {
 				PostKind::Motion => item["_id"].as_str().unwrap_or_default().to_owned(),
 				_ => number.to_string(),
@@ -70,9 +70,9 @@ pub async fn run(db: &Db, site: &str) -> anyhow::Result<()> {
 	Ok(())
 }
 
-/// Copies the images a post shows, its banner and any SubSquare hosted image in its text, under
-/// their SubSquare ids so the post's links keep working.
-async fn import_images(db: &Db, source: &SubSquareApi, post: &Value) -> anyhow::Result<()> {
+/// Copies the images a post shows, its banner and any image the current forum hosts in its text,
+/// under their existing ids so the post's links keep working.
+async fn import_images(db: &Db, source: &ForumClient, post: &Value) -> anyhow::Result<()> {
 	let in_text = post["content"]
 		.as_str()
 		.unwrap_or_default()
@@ -111,7 +111,7 @@ async fn import_post(db: &Db, kind: PostKind, number: i64, post: &Value) -> anyh
 }
 
 /// Imports a comment and its reactions, returning its new id. Comments from accounts without an
-/// address, which SubSquare allows for email sign ups, are left out.
+/// address, which the current forum allows for email sign ups, are left out.
 async fn import_comment(
 	db: &Db,
 	kind: PostKind,

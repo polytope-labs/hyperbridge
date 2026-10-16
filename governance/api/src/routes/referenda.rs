@@ -43,7 +43,7 @@ fn name_words(name: &str) -> impl Iterator<Item = &str> {
 	name.trim_end_matches('\0').split('_').filter(|word| !word.is_empty())
 }
 
-/// A track as SubSquare describes it, with its padded on-chain name kept as `originalName`.
+/// A track as the forum describes it, with its padded on-chain name kept as `originalName`.
 fn track(id: i32, info: Option<String>) -> Value {
 	let mut track = parse(info);
 	if let Value::Object(fields) = &mut track {
@@ -63,7 +63,7 @@ fn track(id: i32, info: Option<String>) -> Value {
 	track
 }
 
-/// Event args under the names SubSquare's timeline uses. The referendum index is implied, deposits
+/// Event args under the names the forum's timeline uses. The referendum index is implied, deposits
 /// are decimal strings and the submission also names the proposer and proposal hash.
 fn timeline_args(name: &str, args: Value, proposer: &str, proposal_hash: &Value) -> Value {
 	let Value::Object(mut fields) = args else { return args };

@@ -26,7 +26,7 @@ fn query(filter: &str) -> String {
 	)
 }
 
-/// Event args under the names SubSquare's timeline uses.
+/// Event args under the names the forum's timeline uses.
 fn timeline_args(method: &str, args: Value) -> Value {
 	let Value::Object(fields) = args else { return args };
 	let rename = |key: String| match key.as_str() {
@@ -51,7 +51,7 @@ fn motion(row: &Row) -> Value {
 	let ayes = row.get::<_, Value>("ayes");
 	let nays = row.get::<_, Value>("nays");
 	let count = |votes: &Value| votes.as_array().map(Vec::len).unwrap_or_default();
-	// SubSquare passes the final event's fields as they are, the motion hash and its dispatch
+	// The frontend reads the final event's fields as they are, the motion hash and its dispatch
 	// result
 	let state_data = match parse(row.get("result")) {
 		Value::Null => Value::Null,

@@ -361,6 +361,8 @@ describe("FXFiller profit gates (fees cover execution; spread independently posi
 			minOrderSizeUsd?: number
 			/** `simplex.minPartialFillUsd`. The default when omitted. */
 			minPartialFillUsd?: number
+			/** `simplex.overfillProtection.maxOverfillBps`. Defaults to 500 (5%). */
+			maxOverfillBps?: bigint
 		},
 	) {
 		const cache = new Map<string, unknown>()
@@ -406,6 +408,7 @@ describe("FXFiller profit gates (fees cover execution; spread independently posi
 			...cfg,
 			getMinOrderSizeUsd: () => options?.minOrderSizeUsd ?? 20,
 			getMinPartialFillUsd: () => options?.minPartialFillUsd ?? 20,
+			getMaxOverfillBps: () => options?.maxOverfillBps ?? 500n,
 		}
 		return new FXFiller(signer, config, clientManager, contractService, registry, {
 			fundingVenues: (options?.fundingVenues ?? []) as any,
@@ -796,6 +799,30 @@ describe("FXFiller profit gates (fees cover execution; spread independently posi
 				await filler.calculateProfitability(o)
 				expect(bidPlans(filler, o.id!)).toHaveLength(1)
 				expect(partialFill(filler, o.id!)).toBe(true)
+			})
+
+			it("judges the capped payout against the floor, not the uncapped offer", async () => {
+				// The book offers 1,450,000 cNGN for the leg (about $1000), but maxOverfillBps = 0
+				// caps the bid at the 1,400,000 the swap asked for (about $965). With the floor at
+				// $980 the capped bid is below it, so the cheap pass skips before any planning —
+				// even though the uncapped offer would clear it and the venue could fund the bid.
+				const planWithdrawalForToken = vi.fn(async () => ({
+					calls: [{ target: CNGN, value: 0n, data: "0x" as HexString }],
+					credited: parseUnits("1400000", 18),
+				}))
+				const venue = { planWithdrawalForToken, walletReserveForToken: () => 0n }
+				const filler = gateFiller(usdcOnBoth(), { fillGas: parseUnits("2", 6), relayer: parseUnits("3", 6) }, {
+					limitOrders: await book("2000000"),
+					fundingVenues: [venue],
+					balancesByToken: { [CNGN.toLowerCase()]: 0n },
+					minPartialFillUsd: 980,
+					maxOverfillBps: 0n,
+				})
+				const o = multiLegOrder("multi-capped", "1000", "1400000")
+
+				expect(await filler.calculateProfitability(o)).toBe(0)
+				expect(bidPlans(filler, o.id!)).toHaveLength(0)
+				expect(planWithdrawalForToken).not.toHaveBeenCalled()
 			})
 		})
 	})

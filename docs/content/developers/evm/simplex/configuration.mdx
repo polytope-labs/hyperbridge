@@ -56,6 +56,11 @@ minOrderSizeUsd     = 20
 # Optional — defaults to 20. 0 bids whatever can be filled.
 minPartialFillUsd   = 20
 
+# Caps a bid above the swapper's requested output.
+# Optional — defaults to 500 (5%). 0 bids exactly the ask.
+[simplex.overfillProtection]
+maxOverfillBps      = 500
+
 ```
 
 `minOrderSizeUsd` decides which orders must pay for their own execution. An order worth less than this is skipped unless its `order.fees` cover the fill gas plus, for a cross-chain order, the relayer fee. An order worth at least this much is filled whatever fees it carries, and the margin in your limit order's rate pays for the gas. Raise it if gas on your chains costs more than that margin earns on a $20 fill. An order Simplex cannot value in dollars is treated as below it.
@@ -63,6 +68,8 @@ minPartialFillUsd   = 20
 `minPartialFillUsd` is the same kind of floor for a partial fill, one that pays out less than the order asks, or that fills one leg of a multi-leg order. A partial collects none of the order's fees, so without a floor a nearly used-up limit order, or a wallet just above its gas reserve, would bid dust on every matching order and pay fill gas and the relayer fee each time. A partial worth less than this is skipped. The bid is valued by its payout at your limit orders' rates, or by the input it releases when nothing prices the payout. Full fills are not affected.
 
 A partial that your own limit orders cannot value in dollars is skipped too, under the default. This happens when your book has no path to a dollar stable: a same-asset book such as CNGN/CNGN or EURC/EURC, whose orders are not used for pricing, or a book such as ZARP/CNGN that touches no dollar stable. Set `minPartialFillUsd = 0` to bid those partials anyway.
+
+`maxOverfillBps` caps a bid at the swapper's requested output × (1 + `maxOverfillBps` / 10000). By default a limit order priced well above the ask is bid at 5% over the ask rather than its whole offer, so one order cannot draw on more of the wallet than the swap needs; without the cap the surplus above the ask goes to the swapper and the protocol. Set it to `0` to bid exactly what the swapper asked for. `maxConsecutiveClamps` is still accepted under `[simplex.overfillProtection]` but is dormant: nothing halts.
 
 ## `[orderbook]`
 

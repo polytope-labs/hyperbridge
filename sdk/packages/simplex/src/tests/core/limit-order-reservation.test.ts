@@ -196,6 +196,45 @@ describe("a fill's draw-down", () => {
 		await (ctx.filler as any).settleFilledLimitOrder(COMMITMENT, 8453, [{ token: CNGN, amount: 1n }])
 		expect(resize).not.toHaveBeenCalled()
 	})
+
+	it("gives the hold back when the settlement throws after claiming it", async () => {
+		// The claim hands the holds out exactly once. A throw after it — the decimals
+		// cross-check, an RPC error, or the draw-down's `LimitOrderWriteError` — must
+		// return them before the error, or the order's `reserved` stays inflated for
+		// good and no later settlement or sweep can bring it back.
+		const ctx = await build()
+		await placeBid(ctx)
+		expect(await ctx.reserved()).toBe(PAYOUT)
+
+		const resize = vi.fn(async () => null)
+		const getTokenDecimals = vi.fn(async (): Promise<number> => {
+			throw new Error("Token reports 18 decimals but the asset registry says 6; refusing to price it")
+		})
+		// biome-ignore lint/suspicious/noExplicitAny: narrow stubs for this path
+		;(ctx.filler as any).assetRegistry = { getAddress: () => CNGN }
+		// biome-ignore lint/suspicious/noExplicitAny: narrow stubs for this path
+		;(ctx.filler as any).contractService = { getTokenDecimals }
+		// biome-ignore lint/suspicious/noExplicitAny: narrow stubs for this path
+		;(ctx.filler as any).limitOrderService = { resize }
+
+		await expect(
+			// biome-ignore lint/suspicious/noExplicitAny: the settlement path is private
+			(ctx.filler as any).settleFilledLimitOrder(COMMITMENT, 8453, [{ token: CNGN, amount: 400n * 10n ** 18n }]),
+		).rejects.toThrow(/refusing to price it/)
+
+		// Back to exactly what the order carried before the bid, and nothing drawn down.
+		expect(await ctx.reserved()).toBe("0")
+		expect(resize).not.toHaveBeenCalled()
+
+		// A later pass, once the read works, settles the same commitment cleanly: the
+		// hold was already given back and is not released a second time.
+		getTokenDecimals.mockResolvedValue(18)
+		await expect(
+			// biome-ignore lint/suspicious/noExplicitAny: the settlement path is private
+			(ctx.filler as any).settleFilledLimitOrder(COMMITMENT, 8453, [{ token: CNGN, amount: 400n * 10n ** 18n }]),
+		).resolves.toBeUndefined()
+		expect(await ctx.reserved()).toBe("0")
+	})
 })
 
 describe("a bid drawing on several limit orders", () => {

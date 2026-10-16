@@ -120,14 +120,20 @@ async function makeFiller(options: {
 	limitOrders?: LimitOrderStore
 	/** Collects the strategy's log lines, for the cases that assert why it passed. */
 	logged?: { message: string; fields: Record<string, unknown> }[]
+	/** `simplex.overfillProtection.maxOverfillBps`. Defaults to 500 (5%). */
+	maxOverfillBps?: bigint
 }): Promise<FXFiller> {
 	const record = (fields: Record<string, unknown>, message: string) => options.logged?.push({ message, fields })
 	const logger = { trace: record, debug: record, info: record, warn: record, error: record, fatal: record }
-	const registry = new AssetRegistry(configService, { EXOTIC: { [CHAIN]: EXOTIC } })
+	const config =
+		options.maxOverfillBps === undefined
+			? configService
+			: { ...configService, getMaxOverfillBps: () => options.maxOverfillBps }
+	const registry = new AssetRegistry(config, { EXOTIC: { [CHAIN]: EXOTIC } })
 	const signer = { address: SOLVER } as any
 	return new FXFiller(
 		signer,
-		options.logged ? { ...configService, loggers: { get: () => logger } } : configService,
+		options.logged ? { ...config, loggers: { get: () => logger } } : config,
 		makeClientManager(options.balances),
 		options.contractService,
 		registry,
@@ -199,7 +205,8 @@ describe("FXFiller limit order payout", () => {
 		// Two orders that both clear the ask. Each is its own fill: the gateway clamps
 		// whichever lands against what is still outstanding, so neither bid is sized
 		// against the other and nothing here adds them up. Summing them would bill one
-		// input to both orders at once.
+		// input to both orders at once. `wide` prices 7% above the ask, so the cap holds
+		// it at 5%; `tight` is inside the cap and bids its own offer untouched.
 		const contractService = makeEvalContractService()
 		const filler = await makeFiller({
 			contractService,
@@ -219,9 +226,9 @@ describe("FXFiller limit order payout", () => {
 		expect(plans).toHaveLength(2)
 		// Best offer first: that is the order the bids go out in.
 		expect(plans.map((plan) => plan.limitOrderId)).toEqual(["wide", "tight"])
-		// Each bids its own offer for the whole input, so the two rank by price.
+		// Each is sized from its own offer for the whole input, capped above the ask.
 		expect(plans.map((plan) => plan.fillerOutputs[0].amount)).toEqual([
-			parseUnits("160000", 18),
+			parseUnits("156450", 18),
 			parseUnits("150000", 18),
 		])
 	})
@@ -249,6 +256,78 @@ describe("FXFiller limit order payout", () => {
 		// Meeting the ask in full is a full fill, and the order's fees make it score.
 		expect(contractService.partials.get("payout-full")).toBe(false)
 		expect(profit).toBeGreaterThan(0)
+	})
+
+	describe("maxOverfillBps caps the bid", () => {
+		it("caps a bid whose offer is above the ask plus maxOverfillBps", async () => {
+			const contractService = makeEvalContractService()
+			const filler = await makeFiller({
+				contractService,
+				balances: { [EXOTIC.toLowerCase()]: parseUnits("1000000", 18) },
+				book: [{ price: "1700", size: "1000000" }],
+			})
+
+			await filler.calculateProfitability(makeOrder("payout-over-ceiling"))
+
+			const cached = contractService.outputs.get("payout-over-ceiling")
+			// 100 in at 1,700 offers 170,000 for a 149,000 ask, so the bid is capped at
+			// 149,000 × 1.05. The ceiling comes from the order's own output, not our read.
+			expect(cached![0].amount).toBe(parseUnits("156450", 18))
+			// At or above the ask, so a full fill takes the whole input.
+			expect(contractService.partials.get("payout-over-ceiling")).toBe(false)
+			expect(contractService.inputs.get("payout-over-ceiling")).toEqual([
+				{ token: bytes20ToBytes32(STABLE), amount: INPUT_AMOUNT },
+			])
+		})
+
+		it("bids exactly the ask when maxOverfillBps is 0", async () => {
+			const contractService = makeEvalContractService()
+			const filler = await makeFiller({
+				contractService,
+				balances: { [EXOTIC.toLowerCase()]: parseUnits("1000000", 18) },
+				maxOverfillBps: 0n,
+			})
+
+			await filler.calculateProfitability(makeOrder("payout-par"))
+
+			// 150,000 was offered for a 149,000 ask; at 0 bps the bid is the ask itself.
+			expect(contractService.outputs.get("payout-par")![0].amount).toBe(REQUESTED_OUTPUT)
+			expect(contractService.partials.get("payout-par")).toBe(false)
+		})
+
+		it("caps the bid at ask × 1.05 when the decimals read is inflated (c18)", async () => {
+			// A 6-decimal output token the stub reports as 18 (so `toRaw` is the identity),
+			// with a wallet far larger than the order. The uncapped bid would be the offer
+			// as read: 150,000 at 1e18, i.e. 1.5e23 — small next to the 1e30 wallet, so
+			// the cap, not the wallet, is what bounds it. The ceiling is the order's own
+			// 6-decimal output × 1.05 = 156,450e6 = 1.5645e11, twelve orders of magnitude
+			// below the inflated offer.
+			const logged: { message: string; fields: Record<string, unknown> }[] = []
+			const contractService = makeEvalContractService()
+			const wallet = parseUnits("1000000", 18) * 10n ** 6n
+			const filler = await makeFiller({
+				contractService,
+				balances: { [EXOTIC.toLowerCase()]: wallet },
+				logged,
+			})
+			const order = makeOrder("payout-inflated-decimals")
+			// The token's real units: the swapper asks 149,000 of a 6-decimal asset.
+			order.output.assets[0] = { token: bytes20ToBytes32(EXOTIC), amount: parseUnits("149000", 6) }
+
+			await filler.calculateProfitability(order)
+
+			const cached = contractService.outputs.get("payout-inflated-decimals")
+			// The bid is the ceiling, in the order's own units.
+			expect(cached![0].amount).toBe(parseUnits("156450", 6))
+			expect(cached![0].amount).toBeLessThan(parseUnits("150000", 18))
+			// The clamp reported the inflated offer and the ceiling it was held to.
+			expect(logged.find((line) => line.message.startsWith("Capping the bid"))?.fields).toMatchObject({
+				offered: parseUnits("150000", 18).toString(),
+				ceiling: parseUnits("156450", 6).toString(),
+				capped: parseUnits("156450", 6).toString(),
+			})
+			expect(contractService.partials.get("payout-inflated-decimals")).toBe(false)
+		})
 	})
 
 	it("pays no more than the limit order has left", async () => {
@@ -711,9 +790,10 @@ describe("FXFiller limit order budget", () => {
 			await filler.calculateProfitability(sixDecimalOrder("room-two"))
 
 			const plans = contractService.plans.get("room-two") as Plan[]
-			// The better offer is untouched; the other is cut to the 100,000 its tally leaves.
+			// The better offer is held at the 5% ceiling; the other is cut to the 100,000
+			// its tally leaves.
 			expect(plans.map((plan) => [plan.limitOrderId, plan.fillerOutputs[0].amount])).toEqual([
-				[SECOND, parseUnits("160000", 6)],
+				[SECOND, parseUnits("156450", 6)],
 				[FIRST, parseUnits("100000", 6)],
 			])
 			expect(contractService.spentReads).toEqual([budgetIdFor(SECOND), budgetIdFor(FIRST)])

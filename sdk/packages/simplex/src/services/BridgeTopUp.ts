@@ -21,6 +21,7 @@ import { setTimeout as sleep } from "node:timers/promises"
 import {
 	type AbiEvent,
 	createPublicClient,
+	decodeFunctionData,
 	encodeAbiParameters,
 	encodeFunctionData,
 	fallback,
@@ -88,6 +89,10 @@ const BSC_CONSENSUS_STATE = "BSC0"
 const MAX_EVENTS = 50
 const DELIVERY_POLL_MS = 15_000
 const DELIVERY_RETRY_MS = 60_000
+/** Consecutive failed recovery attempts before a reclaim stops and waits for the operator. */
+const MAX_RECLAIM_ATTEMPTS = 5
+/** A recovery attempt that ran this long before failing was waiting on finality, not failing fast, so its failure starts a fresh count. */
+const RECLAIM_LONG_ATTEMPT_MS = 10 * 60_000
 /**
  * Paid relayers deliver the zero-fee request to Hyperbridge when they get to it, which has
  * taken a minute and has also not happened at all. Once BSC is final on Hyperbridge the
@@ -321,6 +326,8 @@ export class BridgeTopUp {
 	 * reading its last statuses when the operator starts the next one, which must not wait.
 	 */
 	private driving: string | undefined
+	/** Consecutive failed recovery attempts; reset by recorded progress, an operator restart, a long attempt, and a fresh process. */
+	private reclaimFailures = 0
 
 	constructor(private readonly deps: BridgeTopUpDeps) {
 		this.logger = moduleLogger(deps.loggers, "bridge-top-up")
@@ -488,6 +495,8 @@ export class BridgeTopUp {
 		await this.restore()
 		const record = this.record
 		if (!record || record.stage !== "unfilled") throw new Error("There is no unfilled top-up to reclaim")
+		// An operator-started recovery gets a fresh budget.
+		this.reclaimFailures = 0
 		await this.update({ stage: "reclaiming", error: undefined })
 		void this.driveReclaim()
 		return publicState(this.record!)
@@ -898,8 +907,9 @@ export class BridgeTopUp {
 	 * cancel flow from the paying chain (BSC's expiry height finalized, the cancel sent, the
 	 * cancellation finalized on the source, verified and finalized on Hyperbridge), then the
 	 * refund. A relayer normally delivers that refund; if none has within a few minutes of
-	 * Hyperbridge finalizing, the filler submits Hyperbridge's response itself. Each step is
-	 * recorded as it lands, and a restart resumes from the SDK's persisted progress.
+	 * Hyperbridge finalizing, the filler submits Hyperbridge's response itself. The cancel pays
+	 * the relayer fee in the source host's fee token, and repeated failures stop the recovery and
+	 * return the top-up to `unfilled`, where the operator restarts it from the SDK's saved progress.
 	 */
 	private async driveReclaim(): Promise<void> {
 		await this.drive(async (gateway) => {
@@ -908,66 +918,55 @@ export class BridgeTopUp {
 			if (await this.refunded(gateway, order)) return
 
 			const sameChain = record.chain === BRIDGE_TOP_UP_CHAIN
-			const ismp = await this.cancelClient(record.chain)
-			const gen = gateway.cancelOrder(order, ismp)
-			let input: HexString | undefined
-			while (true) {
-				const { value, done } = await gen.next(input as HexString)
-				input = undefined
-				if (done) break
-				switch (value.status) {
-					case "DESTINATION_FINALIZED":
-						await this.recordRecoveryStep("DESTINATION_FINALIZED")
-						break
-					case "AWAITING_CANCEL_TRANSACTION": {
-						// A cancel already sent (before a restart) is handed back rather than sent twice.
-						if (this.record!.reclaimTxHash && !this.hasRecoveryStep("ORDER_CANCELED")) {
-							input = this.record!.reclaimTxHash
+			// Once Hyperbridge has finalized, the SDK has dropped its persisted progress, so running
+			// the cancel again would send a second one; at that point only the refund is left.
+			if (!this.hasRecoveryStep("HYPERBRIDGE_FINALIZED")) {
+				const ismp = await this.cancelClient(record.chain)
+				const gen = gateway.cancelOrder(order, ismp)
+				let input: HexString | undefined
+				while (true) {
+					const { value, done } = await gen.next(input as HexString)
+					input = undefined
+					if (done) break
+					switch (value.status) {
+						case "DESTINATION_FINALIZED":
+							await this.recordRecoveryStep("DESTINATION_FINALIZED")
+							break
+						case "AWAITING_CANCEL_TRANSACTION": {
+							// A cancel already sent (before a restart) is handed back rather than sent twice.
+							if (this.record!.reclaimTxHash && !this.hasRecoveryStep("ORDER_CANCELED")) {
+								input = this.record!.reclaimTxHash
+								break
+							}
+							const calls = await this.cancelCalls(record.chain, value)
+							const { txHash } = await this.deps.tokenSender.submitCalls(record.chain, calls)
+							await this.update({ reclaimTxHash: txHash })
+							input = txHash
 							break
 						}
-						const calls: ERC7821Call[] = []
-						const quote = await gateway.quoteCancelOrder(order)
-						// Chains whose host cannot swap native for the relayer fee take it in the fee token.
-						if (value.value === 0n && quote.relayerFee > 0n) {
-							const feeToken = await this.feeToken(record.chain)
-							calls.push({
-								target: feeToken,
-								value: 0n,
-								data: encodeFunctionData({
-									abi: ERC20_ABI,
-									functionName: "approve",
-									args: [value.to, quote.relayerFee],
-								}),
-							})
+						case "CANCEL_STARTED":
+							await this.recordRecoveryStep("ORDER_CANCELED", value.receipt.transactionHash as HexString)
+							break
+						case "SOURCE_FINALIZED":
+						case "HYPERBRIDGE_DELIVERED":
+						case "HYPERBRIDGE_FINALIZED": {
+							const metadata = value.metadata as { transactionHash?: string; timestamp?: number; calldata?: HexString }
+							await this.recordRecoveryStep(
+								value.status,
+								metadata.transactionHash as HexString | undefined,
+								metadata.timestamp ? toMs(metadata.timestamp) : undefined,
+							)
+							if (value.status === "HYPERBRIDGE_FINALIZED" && metadata.calldata) {
+								await this.update({ claimCalldata: metadata.calldata })
+							}
+							break
 						}
-						calls.push({ target: value.to, value: value.value, data: value.data })
-						const { txHash } = await this.deps.tokenSender.submitCalls(record.chain, calls)
-						await this.update({ reclaimTxHash: txHash })
-						input = txHash
-						break
+						case "CANCELLATION_COMPLETE":
+							// The same-chain route: the cancel itself refunds the escrow.
+							await this.recordRecoveryStep("ORDER_CANCELED", value.transactionHash as HexString)
+							await this.recordRecoveryStep("FUNDS_CLAIMED", value.transactionHash as HexString)
+							break
 					}
-					case "CANCEL_STARTED":
-						await this.recordRecoveryStep("ORDER_CANCELED", value.receipt.transactionHash as HexString)
-						break
-					case "SOURCE_FINALIZED":
-					case "HYPERBRIDGE_DELIVERED":
-					case "HYPERBRIDGE_FINALIZED": {
-						const metadata = value.metadata as { transactionHash?: string; timestamp?: number; calldata?: HexString }
-						await this.recordRecoveryStep(
-							value.status,
-							metadata.transactionHash as HexString | undefined,
-							metadata.timestamp ? toMs(metadata.timestamp) : undefined,
-						)
-						if (value.status === "HYPERBRIDGE_FINALIZED" && metadata.calldata) {
-							await this.update({ claimCalldata: metadata.calldata })
-						}
-						break
-					}
-					case "CANCELLATION_COMPLETE":
-						// The same-chain route: the cancel itself refunds the escrow.
-						await this.recordRecoveryStep("ORDER_CANCELED", value.transactionHash as HexString)
-						await this.recordRecoveryStep("FUNDS_CLAIMED", value.transactionHash as HexString)
-						break
 				}
 			}
 			if (sameChain && this.hasRecoveryStep("FUNDS_CLAIMED")) {
@@ -986,6 +985,51 @@ export class BridgeTopUp {
 				await sleep(REFUND_POLL_MS)
 			}
 		})
+	}
+
+	/**
+	 * The calls that cancel an unfilled order's escrow from its source chain. The cancel carries
+	 * no value: the source host pulls the relayer fee from the filler in its fee token, and the
+	 * filler wallet holds stablecoins, not the native token the SDK's quote would spend. The fee
+	 * is decoded from the SDK's own calldata so the approval matches what the gateway pulls.
+	 */
+	private async cancelCalls(chain: string, tx: { to: HexString; data: HexString }): Promise<ERC7821Call[]> {
+		const { functionName, args } = decodeFunctionData({ abi: IntentGatewayABI, data: tx.data })
+		if (functionName !== "cancelOrder") throw new Error(`Expected cancelOrder calldata, got ${functionName}`)
+		const { relayerFee } = (args as readonly [unknown, { relayerFee: bigint }])[1]
+		const cancel: ERC7821Call = { target: tx.to, value: 0n, data: tx.data }
+		// A same-chain cancel carries no relayer fee, so it needs no approval.
+		if (relayerFee === 0n) return [cancel]
+
+		const feeToken = await this.feeToken(chain)
+		const balance = await this.walletBalance(chain, feeToken)
+		if (balance < relayerFee) {
+			const { symbol, decimals } = this.feeTokenLabel(chain, feeToken)
+			throw new Error(
+				`Not enough ${symbol} on ${chain} to pay the cancel's relayer fee: have ${formatUnits(balance, decimals)}, need ${formatUnits(relayerFee, decimals)}`,
+			)
+		}
+		return [
+			{
+				target: feeToken,
+				value: 0n,
+				data: encodeFunctionData({ abi: ERC20_ABI, functionName: "approve", args: [tx.to, relayerFee] }),
+			},
+			cancel,
+		]
+	}
+
+	/** How the fee token reads in an error: USDC/USDT when configured, else its raw address in raw units. */
+	private feeTokenLabel(chain: string, token: HexString): { symbol: string; decimals: number } {
+		const { configService } = this.deps
+		const address = token.toLowerCase()
+		if (address === configService.getUsdcAsset(chain).toLowerCase()) {
+			return { symbol: "USDC", decimals: configService.getUsdcDecimals(chain) }
+		}
+		if (address === configService.getUsdtAsset(chain).toLowerCase()) {
+			return { symbol: "USDT", decimals: configService.getUsdtDecimals(chain) }
+		}
+		return { symbol: token, decimals: 0 }
 	}
 
 	/**
@@ -1033,6 +1077,8 @@ export class BridgeTopUp {
 	/** Records a recovery step once, at the time it landed (or now). */
 	private async recordRecoveryStep(step: RecoveryStepRecord["step"], txHash?: HexString, timestamp?: number) {
 		if (this.hasRecoveryStep(step)) return
+		// Progress was made: the budget for consecutive failures is fresh again.
+		this.reclaimFailures = 0
 		const steps = [...(this.record!.recoverySteps ?? []), { step, txHash, timestamp: timestamp ?? Date.now() }]
 		await this.update({ recoverySteps: steps })
 	}
@@ -1042,6 +1088,7 @@ export class BridgeTopUp {
 		const record = this.record
 		if (!record || this.driving === record.id) return
 		this.driving = record.id
+		const startedAt = Date.now()
 		try {
 			await flow(await this.gateway(record.chain))
 		} catch (err) {
@@ -1054,9 +1101,21 @@ export class BridgeTopUp {
 				await this.update({ error: `Delivery to Hyperbridge is retrying: ${error}` })
 				setTimeout(() => void this.resumeDelivery(), DELIVERY_RETRY_MS)
 			} else if (record.stage === "reclaiming") {
-				// The SDK keeps the cancellation's progress; the recovery resumes where it stopped.
-				await this.update({ error: `Recovery is retrying: ${error}` })
-				setTimeout(() => void this.driveReclaim(), DELIVERY_RETRY_MS)
+				// A failure after a long finality wait is not a fast failure, so it starts a fresh count.
+				if (Date.now() - startedAt >= RECLAIM_LONG_ATTEMPT_MS) this.reclaimFailures = 0
+				this.reclaimFailures += 1
+				if (this.reclaimFailures >= MAX_RECLAIM_ATTEMPTS) {
+					// Stopped, not abandoned: the operator restarts from the SDK's saved progress.
+					this.reclaimFailures = 0
+					await this.update({
+						stage: "unfilled",
+						error: `Recovery stopped after ${MAX_RECLAIM_ATTEMPTS} failed attempts: ${error}`,
+					})
+				} else {
+					// The SDK keeps the cancellation's progress; the recovery resumes where it stopped.
+					await this.update({ error: `Recovery is retrying: ${error}` })
+					setTimeout(() => void this.driveReclaim(), DELIVERY_RETRY_MS)
+				}
 			} else if (record.stage === "placing") {
 				// The batch went out; whether it placed an order is settled by reading its
 				// receipt again, at the next start.

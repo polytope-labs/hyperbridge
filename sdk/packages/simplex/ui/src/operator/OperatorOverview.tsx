@@ -13,14 +13,13 @@ import { availableStablecoinLiquidity, OperatorBalances } from "./OperatorBalanc
 export function OperatorOverview(props: {
 	status: StatusOperator
 	balances: BalanceSnapshot | undefined
-	onResetHalt: () => void
 	/** Pause/resume and stop, rendered inline so the page that shows health also controls it. */
 	runtime: { pending: boolean; onTogglePause: () => void; onStop: () => void }
 	onOpenAnalytics: () => void
 	/** Reloads the balance snapshot after a BRIDGE top-up fills. */
 	onBalancesChanged: () => void
 }) {
-	const { status, balances, onResetHalt, runtime, onOpenAnalytics, onBalancesChanged } = props
+	const { status, balances, runtime, onOpenAnalytics, onBalancesChanged } = props
 	const [topUpOpen, setTopUpOpen] = useState(false)
 	const [progressOpen, setProgressOpen] = useState(false)
 	const [topUp, setTopUp] = useState<BridgeTopUpState>()
@@ -60,21 +59,6 @@ export function OperatorOverview(props: {
 
 	return (
 		<div className="operator-overview">
-			{status.halted.length > 0 ? (
-				<div className="operator-alert" data-tone="error">
-					<div>
-						<strong>Overfill protection needs attention</strong>
-						<p>
-							Strategy {status.halted.map((index) => `#${index}`).join(", ")} is halted. Inspect its venue
-							before resuming.
-						</p>
-					</div>
-					<button type="button" onClick={onResetHalt}>
-						Reset halt
-					</button>
-				</div>
-			) : null}
-
 			{nativeSetups.map((setup) => {
 				const label = status.chainLabels?.[String(setup.chainId)] ?? `Chain ${setup.chainId}`
 				const amount = setup.required.toLocaleString(undefined, { maximumSignificantDigits: 2 })

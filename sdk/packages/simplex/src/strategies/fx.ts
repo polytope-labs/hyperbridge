@@ -48,8 +48,7 @@ function adjustDecimalsFloor(amount: bigint, fromDecimals: number, toDecimals: n
  * order serves a leg when it fills on the destination chain, takes the leg's
  * input, pays out its output, accepts its source chain and, at its own rate,
  * pays at least what the swapper asked for. Each matching order gets its own
- * bid, best offer first, sized `min(offer, remaining)` and then capped at
- * `ask × (1 + maxOverfillBps / 10000)`; there is no fallback
+ * bid, best offer first, sized `min(offer, remaining)`; there is no fallback
  * price, so a leg nothing matches is not bid on. No external price feed is
  * consulted. Confirmation sizing is the only place a dollar value is needed,
  * and it is derived from the limit orders' own rates (see `usdFactorsFrom`).
@@ -67,20 +66,6 @@ export class FXFiller implements FillerStrategy {
 	private registry: AssetRegistry
 	private signer: Signer
 	private logger: Logger
-	/**
-	 * Consecutive orders where the venue-priced overfill clamp activated. Dormant: that
-	 * clamp existed for venue-priced legs, which went with Uniswap V4 pricing. The
-	 * `maxOverfillBps` cap on a limit order's bid does not feed this — a cap is expected
-	 * for a limit order priced above the ask, not a sign the pricing source has gone bad.
-	 * See `recordOrderOutcome`.
-	 */
-	private consecutiveClamps = 0
-	/** Once set, the filler refuses all orders until reset. Unreachable while the clamp is dormant. */
-	private halted = false
-	/** Bps above the swapper's ask past which a limit order's offer is capped on the bid. */
-	private readonly maxOverfillBps: bigint
-	/** Consecutive clamped evaluations before halting. Dormant, as `consecutiveClamps` is. */
-	private readonly maxConsecutiveClamps: number
 	confirmationPolicy?: { getConfirmationBlocks: (chainId: number, amountUsd: number) => number }
 	private fundingVenues: FundingVenue[]
 	/** The operator's resting orders: the only thing that prices a fill. */
@@ -119,8 +104,6 @@ export class FXFiller implements FillerStrategy {
 		this.fundingVenues = fundingVenues
 
 		this.signer = signer
-		this.maxOverfillBps = configService.getMaxOverfillBps()
-		this.maxConsecutiveClamps = configService.getMaxConsecutiveClamps()
 		if (confirmationPolicy) {
 			this.confirmationPolicy = {
 				getConfirmationBlocks: (chainId: number, amountUsd: number) =>
@@ -143,10 +126,6 @@ export class FXFiller implements FillerStrategy {
 	}
 
 	async canFill(order: Order): Promise<boolean> {
-		if (this.halted) {
-			this.logger.warn({ orderId: order.id }, "FXFiller halted — rejecting order")
-			return false
-		}
 		try {
 			if (order.inputs.length !== order.output.assets.length) {
 				this.logger.info(
@@ -184,9 +163,8 @@ export class FXFiller implements FillerStrategy {
 	 * - Match each (input, output) leg against the open limit orders.
 	 * - Build one bid per matching order, best offer first, each paying the
 	 *   order's whole offer for the input at its own rate, capped by what the
-	 *   order has left and by `maxOverfillBps` above the ask, which does not
-	 *   depend on our decimals read. The gateway credits the swapper the ask and
-	 *   splits anything above it between the swapper and the protocol.
+	 *   order has left. The gateway credits the swapper the ask and splits
+	 *   anything above it between the swapper and the protocol.
 	 * - Treat a payout below the ask as a partial fill, which only orders
 	 *   without output calldata and without an earlier partial fill allow.
 	 * - Cap each payout by the filler's balance plus funding-venue withdrawals,
@@ -201,10 +179,6 @@ export class FXFiller implements FillerStrategy {
 		// so a stale `true` from an earlier evaluation would let a refusal through.
 		if (order.id) this.contractService.cacheService.clearPartialFill(order.id)
 		if (order.id) this.contractService.cacheService.clearFeeCheckWaived(order.id)
-		if (this.halted) {
-			this.logger.warn({ orderId: order.id }, "FXFiller halted — rejecting order")
-			return 0
-		}
 		try {
 			const sourceChain = order.source
 			const destChain = order.destination
@@ -329,30 +303,7 @@ export class FXFiller implements FillerStrategy {
 					// pays the swapper and the protocol whatever is above it, so a better price
 					// reaches the swapper, and bids from several operators rank by price rather
 					// than all tying at the ask.
-					//
-					// That bid is then held to a fixed margin above the ask. The ceiling is
-					// computed from the order's own requested output — never from our decimals
-					// read — so a wrong read cannot inflate the bid: without it, one endpoint
-					// answering 18 for a 6-decimal token scales the offer by 10^12 and the whole
-					// wallet is bid for one order, which the gateway hands to the swapper and the
-					// protocol. `maxOverfillBps = 0` bids exactly the ask.
-					const overfillCeiling = (output.amount * (10000n + this.maxOverfillBps)) / 10000n
-					const targetOutput = offered > overfillCeiling ? overfillCeiling : offered
-					if (offered > overfillCeiling) {
-						this.logger.warn(
-							{
-								orderId: order.id,
-								limitOrder: candidate.order.id,
-								token: output.token,
-								userRequested: output.amount.toString(),
-								offered: offered.toString(),
-								capped: targetOutput.toString(),
-								ceiling: overfillCeiling.toString(),
-								maxOverfillBps: this.maxOverfillBps.toString(),
-							},
-							"Capping the bid at the swapper's ask plus maxOverfillBps: the limit order offers more",
-						)
-					}
+					const targetOutput = offered
 
 					// Whether this order may be filled below what the user asked for. Both
 					// chains allow it: `ExtrinsicIntents._fillCrossChain` keeps cumulative
@@ -682,14 +633,6 @@ export class FXFiller implements FillerStrategy {
 					const walletRemaining = balance - walletContribution
 					balanceCache.set(tokenAddress, walletRemaining > 0n ? walletRemaining : 0n)
 
-					// The venue clamp went with Uniswap V4 pricing, so a fill can never be clamped —
-					// the halt subsystem is left in place but dormant (always recorded as a
-					// clean, unclamped outcome). The `maxOverfillBps` cap above is deliberately
-					// not fed to it: capping a bid to a margin over the ask is ordinary for a
-					// limit order priced above the ask, and halting on it would take a healthy
-					// filler offline.
-					this.recordOrderOutcome(false, order.id)
-
 					// One entry per leg, zero on every leg but this one: the gateway skips those.
 					const fillerOutputs: TokenInfo[] = order.output.assets.map((asset, i) => ({
 						token: asset.token,
@@ -1007,44 +950,6 @@ export class FXFiller implements FillerStrategy {
 	// =========================================================================
 	// Private — Helpers
 	// =========================================================================
-
-	/**
-	 * Update consecutive-clamp counter after a successful order evaluation.
-	 *
-	 * Dormant. Only venue-priced legs ever fed a clamped outcome here: a streak
-	 * of those meant a live market source had gone off (stale pool, manipulated
-	 * venue). Venue pricing went with Uniswap V4, and limit orders are prices the
-	 * operator set, so the only caller records `false` and the filler never
-	 * halts. `isHalted`, `resetHalt` and `[simplex.overfillProtection]
-	 * maxConsecutiveClamps` are kept so existing configs and the halt API still
-	 * load; they can go once nothing reads them.
-	 */
-	private recordOrderOutcome(clamped: boolean, orderId: string | undefined) {
-		if (clamped) {
-			this.consecutiveClamps += 1
-			if (this.consecutiveClamps >= this.maxConsecutiveClamps) {
-				this.halted = true
-				this.logger.error(
-					{ orderId, consecutiveClamps: this.consecutiveClamps, maxConsecutiveClamps: this.maxConsecutiveClamps },
-					"FXFiller HALTED — venue-priced overfill clamp triggered consecutively; restart required after investigation",
-				)
-			}
-		} else {
-			this.consecutiveClamps = 0
-		}
-	}
-
-	public isHalted(): boolean {
-		return this.halted
-	}
-
-	/** Operator acknowledgement after investigating a self-halt; resumes filling. */
-	public resetHalt(): void {
-		if (!this.halted) return
-		this.halted = false
-		this.consecutiveClamps = 0
-		this.logger.warn("FXFiller halt reset by operator — resuming order evaluation")
-	}
 
 	/**
 	 * Whether any solver has already delivered output against this order.

@@ -72,7 +72,6 @@ const kitchenSink: FillerConfigFile = {
 		minOrderSizeUsd: 50,
 		minPartialFillUsd: 35,
 		gasFeeBump: { maxPriorityFeePerGasBumpPercent: 12, maxFeePerGasBumpPercent: 15 },
-		overfillProtection: { maxOverfillBps: 300, maxConsecutiveClamps: 2 },
 	},
 	assets: {
 		BRZ: { "EVM-8453": "0x5555555555555555555555555555555555555555" },

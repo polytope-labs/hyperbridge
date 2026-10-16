@@ -206,7 +206,7 @@ When a swap arrives, Simplex checks it against every open limit order. An order 
 
 **No match, no fill.** When no order serves a swap, the log explains why at `info` level: `No limit order matches this order`, with a `reason` naming the check that the closest order failed. That might be no open orders, the wrong destination chain, the wrong tokens, a source chain not accepted, the rate (`it asks for X; the best limit order offers Y`), or depth.
 
-**Simplex bids at your rate.** Each bid offers everything the order would pay for the swapper's input at its rate, capped at what the order has left and at the requested output × (1 + `maxOverfillBps` / 10000) — 5% by default. The gateway credits the swapper what they asked for, and splits anything above that between the swapper and the protocol. A better rate therefore reaches the swapper, and bids from competing solvers are ranked by price. Your margin is the rate you set.
+**Simplex bids at your rate.** Each bid offers everything the order would pay for the swapper's input at its rate, capped at what the order has left. The gateway credits the swapper what they asked for, and splits anything above that between the swapper and the protocol. A better rate therefore reaches the swapper, and bids from competing solvers are ranked by price. Your margin is the rate you set.
 
 **Several orders can fill one swap.** If more than one order can serve a swap, Simplex sends one bid per order, best rate first. The IntentGateway clamps each fill to what the swap still needs, so the swap is never paid out twice. If the best order cannot cover the whole swap, the others can supply the rest.
 

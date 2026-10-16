@@ -123,8 +123,6 @@ async function balanceLimitedBid(ctx: Awaited<ReturnType<typeof build>>, decimal
 		getUsdtAsset: () => "0x0000000000000000000000000000000000000000",
 		getDaiAsset: () => "0x0000000000000000000000000000000000000000",
 		getCNgnAsset: () => undefined,
-		getMaxOverfillBps: () => 500n,
-		getMaxConsecutiveClamps: () => 3,
 		getSimplexPaymasterAddress: () => undefined,
 		// Draw-down mechanics predate the partial-fill floor; disable it here.
 		getMinPartialFillUsd: () => 0,

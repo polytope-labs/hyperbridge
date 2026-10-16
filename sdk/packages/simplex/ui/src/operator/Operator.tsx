@@ -119,8 +119,8 @@ export function Operator(props: { status: StatusOperator; refresh: () => void })
 
 	const load = useCallback(async () => {
 		try {
-			// Status is polled too so runtime changes (overfill self-halt, an
-			// external pause) surface without a manual action.
+			// Status is polled too so runtime changes (an external pause)
+			// surface without a manual action.
 			const [balanceSnapshot] = await Promise.all([api.get<BalanceSnapshot>("/api/balances"), refresh()])
 			setBalances(balanceSnapshot)
 			setLoadError(undefined)
@@ -133,12 +133,6 @@ export function Operator(props: { status: StatusOperator; refresh: () => void })
 	const togglePause = () =>
 		run(async () => {
 			await api.post(status.paused ? "/api/resume" : "/api/pause")
-			refresh()
-		})
-
-	const resetHalt = () =>
-		run(async () => {
-			await api.post("/api/reset-halt")
 			refresh()
 		})
 
@@ -224,7 +218,6 @@ export function Operator(props: { status: StatusOperator; refresh: () => void })
 						<OperatorOverview
 							status={status}
 							balances={balances}
-							onResetHalt={resetHalt}
 							runtime={{ pending, onTogglePause: togglePause, onStop: stopFiller }}
 							onOpenAnalytics={() => setTab("analytics")}
 							onBalancesChanged={load}

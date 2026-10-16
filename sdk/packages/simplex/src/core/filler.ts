@@ -129,6 +129,15 @@ export class IntentFiller {
 	private rebalancingInterval?: NodeJS.Timeout
 	private initialRebalanceTimer?: NodeJS.Timeout
 	private activeRebalances = new Set<Promise<void>>()
+	/**
+	 * Chains whose EIP-7702 delegation to the SolverAccount failed at boot.
+	 *
+	 * The bundler's estimate injects the SolverAccount code by state override, so an
+	 * undelegated EOA's bid passes estimation and pays the Hyperbridge bid fees and
+	 * deposit for a fill that can never execute. Orders for these chains are skipped
+	 * at intake, and a later successful delegation (`enableFills`) clears the entry.
+	 */
+	private undelegatedChains = new Set<number>()
 	private retractionSweepInterval?: NodeJS.Timeout
 	private hyperbridge: Promise<IntentsCoprocessor> | undefined = undefined
 	private hyperbridgeEndpoint?: { wsUrl: string; substrateKey: string }
@@ -344,6 +353,16 @@ export class IntentFiller {
 		this.logger.info({ chains }, "Setting up EIP-7702 delegation on chains with solver selection")
 
 		const result = await this.delegationService.setupDelegationOnChains(chains)
+		// Recorded before the failure branches below, so a chain that failed under
+		// `requireAll` is still marked — the caller rolls the chain back and rethrows,
+		// but the delegation state is what the skip on intake reads. The keys are the
+		// ids intake parses, so `parseChainKey` is used rather than the chain registry.
+		for (const [chain, ok] of Object.entries(result.results)) {
+			const chainId = parseChainKey(chain)
+			if (chainId === null) continue
+			if (ok) this.undelegatedChains.delete(chainId)
+			else this.undelegatedChains.add(chainId)
+		}
 		if (!result.success) {
 			const failedChains = Object.entries(result.results)
 				.filter(([, ok]) => !ok)
@@ -403,7 +422,12 @@ export class IntentFiller {
 			await this.setupSolverSelection(await this.solverSelectionChains([chainId]), { requireAll: true })
 			await this.monitor.addChain(chainId)
 		} catch (error) {
+			// Undo the queue and any undelegated mark the failed setup left behind:
+			// the chain is rolled back, and a later re-add that does not re-run
+			// delegation (solver selection inactive, or watch-only) must not keep
+			// skipping its orders.
 			this.chainQueues.delete(chainId)
+			this.undelegatedChains.delete(chainId)
 			throw error
 		}
 		this.logger.info({ chainId }, "Chain added to the running filler")
@@ -415,7 +439,12 @@ export class IntentFiller {
 	 */
 	public async enableFills(chainId: number): Promise<void> {
 		const chain = `EVM-${chainId}`
-		if (!(await this.contractService.isSolverSelectionActive(chain))) return
+		if (!(await this.contractService.isSolverSelectionActive(chain))) {
+			// No delegation to do, so nothing must keep the chain skipped: a stale
+			// undelegated mark from an earlier failure is cleared.
+			this.undelegatedChains.delete(chainId)
+			return
+		}
 		await this.setupSolverSelection([chain], { requireAll: true })
 	}
 
@@ -432,6 +461,7 @@ export class IntentFiller {
 			this.chainQueues.delete(chainId)
 		}
 		if (this.config.watchOnly) delete this.config.watchOnly[chainId]
+		this.undelegatedChains.delete(chainId)
 		this.logger.info({ chainId }, "Chain removed from the running filler")
 	}
 
@@ -546,6 +576,13 @@ export class IntentFiller {
 
 	private runTrackedRebalance(): Promise<void> {
 		if (this.stopping) return Promise.resolve()
+		// One plan at a time. A CEX leg can take half an hour and a USDT0 leg fifteen
+		// minutes, so the 5-minute tick fires while the last pass is still running.
+		// Two passes plan the same deficit twice, moving the money twice.
+		if (this.activeRebalances.size > 0) {
+			this.logger.info("Previous rebalance still running; skipping this tick")
+			return Promise.resolve()
+		}
 		const task = this.checkAndRebalance().catch((error) => {
 			this.logger.error({ error }, "Error in periodic rebalancing check")
 		})
@@ -765,6 +802,19 @@ export class IntentFiller {
 					// intake check runs first, so without it the feed showed watch-only
 					// orders as merely "detected" with no reason.
 					this.monitor.emit("orderSkipped", { orderId: order.id, reason: "watch-only" })
+					return
+				}
+				// An undelegated EOA's bid passes the bundler's estimate (the SolverAccount
+				// code is injected by state override) and pays the Hyperbridge bid fees and
+				// deposit for a fill that can never execute, so the chain is not bid on
+				// until delegation succeeds. Not watch-only: that flag is persisted to the
+				// config by the watch-only sync.
+				if (this.undelegatedChains.has(destinationChainId)) {
+					this.logger.info(
+						{ orderId: order.id, destination: order.destination },
+						"Order destination is not delegated to the SolverAccount, skipping",
+					)
+					this.monitor.emit("orderSkipped", { orderId: order.id, reason: "undelegated" })
 					return
 				}
 

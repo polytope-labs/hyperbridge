@@ -274,6 +274,38 @@ describe("reconciliation", () => {
 		expect(await service.reconcile()).toEqual({ cancelled: 0, reposted: 0, underFunded: 0 })
 		expect(client.submitted).toEqual(["0x00"])
 	})
+
+	it("does not put back a posting the operator cancelled while it paged the orderbook", async () => {
+		// The pass snapshots the row as open, then awaits the orderbook's entries. A
+		// cancel that lands inside that window owns the row; writing the snapshot back
+		// would undo it and re-post the entry.
+		const client = countingClient([])
+		const { service, store } = makeService(client)
+		const { order } = await service.create(REQUEST)
+		client.entries = [postedOrder({ resized: true, advertisedSize: "1" })]
+
+		const paged = client.myOrders.bind(client)
+		let cancelled = false
+		client.myOrders = async () => {
+			if (!cancelled) {
+				cancelled = true
+				// Let `live()` take its snapshot first, then cancel: the cancel must
+				// land inside the paging window, on a row reconciliation listed as open.
+				await new Promise((resolve) => setTimeout(resolve, 0))
+				await service.cancel(order.id)
+			}
+			return paged()
+		}
+
+		expect(await service.reconcile()).toMatchObject({ cancelled: 0, reposted: 0, underFunded: 0 })
+		expect((await store.get(order.id))?.status).toBe("cancelled")
+
+		// A later pass finds the entry nothing here owns and withdraws it, but the
+		// cancelled order is never posted again.
+		const before = client.submitted.length
+		await service.reconcile(later())
+		expect(client.submitted).toHaveLength(before)
+	})
 })
 
 /**

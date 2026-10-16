@@ -252,6 +252,35 @@ describe("IntentFiller bid retraction", () => {
 		}
 	})
 
+	it("does not start a second rebalance while one is still running", async () => {
+		vi.useFakeTimers()
+		let finishRebalance!: (value: { success: boolean; transfers: never[]; executedTransfers: never[] }) => void
+		const rebalancePortfolio = vi.fn(
+			() =>
+				new Promise<{ success: boolean; transfers: never[]; executedTransfers: never[] }>((resolve) => {
+					finishRebalance = resolve
+				}),
+		)
+		const { filler } = build([], { rebalancePortfolio })
+		try {
+			filler.start()
+			await vi.advanceTimersByTimeAsync(30_000)
+			expect(rebalancePortfolio).toHaveBeenCalledTimes(1)
+
+			// A CEX leg can run for half an hour; the 5-minute ticks must not stack
+			// behind it and plan the same deficit twice.
+			await vi.advanceTimersByTimeAsync(5 * 60 * 1000)
+			await vi.advanceTimersByTimeAsync(5 * 60 * 1000)
+			expect(rebalancePortfolio).toHaveBeenCalledTimes(1)
+
+			finishRebalance({ success: true, transfers: [], executedTransfers: [] })
+			await vi.advanceTimersByTimeAsync(5 * 60 * 1000)
+			expect(rebalancePortfolio).toHaveBeenCalledTimes(2)
+		} finally {
+			vi.useRealTimers()
+		}
+	})
+
 	describe("a rival's fill", () => {
 		async function observe(filler: IntentFiller, complete: boolean): Promise<void> {
 			;(filler as any).monitor.emit("orderFillObserved", {

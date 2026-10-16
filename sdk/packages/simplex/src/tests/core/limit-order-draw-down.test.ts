@@ -126,6 +126,8 @@ async function balanceLimitedBid(ctx: Awaited<ReturnType<typeof build>>, decimal
 		getMaxOverfillBps: () => 500n,
 		getMaxConsecutiveClamps: () => 3,
 		getSimplexPaymasterAddress: () => undefined,
+		// Draw-down mechanics predate the partial-fill floor; disable it here.
+		getMinPartialFillUsd: () => 0,
 	} as any
 	const client = {
 		chain: { blockTime: 2000 },

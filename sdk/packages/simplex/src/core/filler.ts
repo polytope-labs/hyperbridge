@@ -23,6 +23,7 @@ import type { LimitOrderService } from "@/orderbook/limit-orders"
 import { toRaw, toScaled, toScaledUp } from "@/orderbook/amounts"
 import type { OrderScanner } from "@/scanner/types"
 import type { FillerConfigService } from "@/services/FillerConfigService"
+import type { QuorumPublicClient, TransactionInclusion } from "@/services/QuorumPublicClient"
 import type { SolverWork } from "@/services/server/dto"
 import { type Logger , moduleLogger} from "@/services/Logger"
 import type { Signer } from "@/services/wallet"
@@ -203,8 +204,8 @@ export class IntentFiller {
 		}
 
 		// Set up event handlers
-		this.monitor.on("newOrder", ({ order, transactionHash }) => {
-			this.handleNewOrder(order, transactionHash)
+		this.monitor.on("newOrder", ({ order, transactionHash, blockHash }) => {
+			this.handleNewOrder(order, transactionHash, blockHash)
 		})
 
 		this.monitor.on("orderFilledOnChain", ({ commitment, filler, chainId, outputs, inputs, complete, transactionHash }) => {
@@ -672,7 +673,17 @@ export class IntentFiller {
 
 	// Operations
 
-	private async verifyOrderOnSource(order: Order): Promise<boolean> {
+	/**
+	 * Whether the source gateway still holds escrow for every leg of the order.
+	 *
+	 * With `quorum`, every leg is read in one `readWithQuorum` call so each
+	 * endpoint's vote is the whole escrow vector — an endpoint that disagrees on any
+	 * leg fails to join the agreeing group. That is the read used right before
+	 * bidding, where a single endpoint is not enough to vouch for a commitment a
+	 * source reorg may have rewritten. Without it, the legs are read on the single
+	 * source client, as the pre-bid check has always done.
+	 */
+	private async verifyOrderOnSource(order: Order, quorum?: QuorumPublicClient): Promise<boolean> {
 		if (order.inputs.length === 0) {
 			this.logger.warn({ orderId: order.id }, "Order has no inputs, rejecting")
 			return false
@@ -683,27 +694,52 @@ export class IntentFiller {
 		const commitment = order.id as HexString
 
 		try {
-			const escrows = await Promise.all(
-				// Escrow is held per leg, keyed by the input's index; a gateway not yet upgraded to per-leg
-				// escrow is read by token.
-				order.inputs.map((input: TokenInfo, index: number) =>
-					retryPromise(
+			const escrows = quorum
+				? await retryPromise(
+						// The quorum's per-endpoint clients are stable for the cached
+						// QuorumPublicClient, so readLegEscrow's per-client keying cache
+						// keeps working across calls.
 						() =>
-							readLegEscrow(
-								sourceClient,
-								intentGatewayAddress as HexString,
-								commitment,
-								index,
-								input.token as HexString,
+							quorum.readWithQuorum(`_orders(${commitment})`, (client) =>
+								Promise.all(
+									order.inputs.map((input: TokenInfo, index: number) =>
+										readLegEscrow(
+											client,
+											intentGatewayAddress as HexString,
+											commitment,
+											index,
+											input.token as HexString,
+										),
+									),
+								),
 							),
 						{
 							maxRetries: 3,
 							backoffMs: 250,
-							logMessage: "Failed to read _orders on source chain",
+							logMessage: "Failed to read _orders on source chain under quorum",
 						},
-					),
-				),
-			)
+					)
+				: await Promise.all(
+						// Escrow is held per leg, keyed by the input's index; a gateway not yet upgraded to per-leg
+						// escrow is read by token.
+						order.inputs.map((input: TokenInfo, index: number) =>
+							retryPromise(
+								() =>
+									readLegEscrow(
+										sourceClient,
+										intentGatewayAddress as HexString,
+										commitment,
+										index,
+										input.token as HexString,
+									),
+								{
+									maxRetries: 3,
+									backoffMs: 250,
+									logMessage: "Failed to read _orders on source chain",
+								},
+							),
+						),
+					)
 
 			for (let i = 0; i < escrows.length; i++) {
 				if (escrows[i] === 0n) {
@@ -714,7 +750,9 @@ export class IntentFiller {
 							inputIndex: i,
 							token: order.inputs[i].token,
 						},
-						"Phantom commitment: source escrow missing for input, skipping order",
+						quorum
+							? "Source escrow missing for input after the confirmation wait, skipping order"
+							: "Phantom commitment: source escrow missing for input, skipping order",
 					)
 					return false
 				}
@@ -724,13 +762,13 @@ export class IntentFiller {
 		} catch (err) {
 			this.logger.error(
 				{ orderId: order.id, source: order.source, err },
-				"Failed to verify source escrow, skipping order",
+				quorum ? "Failed to verify source escrow under quorum, skipping order" : "Failed to verify source escrow, skipping order",
 			)
 			return false
 		}
 	}
 
-	private handleNewOrder(order: Order, transactionHash: string): void {
+	private handleNewOrder(order: Order, transactionHash: string, blockHash?: string): void {
 		if (this.paused) {
 			this.logger.debug({ orderId: order.id }, "Filler is paused — dropping new order")
 			return
@@ -878,6 +916,20 @@ export class IntentFiller {
 					}
 				}
 
+				// Fail closed without the block the placement was scanned from: the
+				// depth below is counted against that block, and a placement re-mined
+				// elsewhere keeps its transaction hash under a new nonce — and so a new
+				// commitment — so a fill could otherwise be bid on a dead order. The
+				// built-in ChainScanner always reports it from the mined log.
+				if (requiredConfirmations > 0 && !blockHash) {
+					this.logger.warn(
+						{ orderId: order.id, source: order.source, transactionHash },
+						"Skipping cross-chain order: the scanner did not report the block its placement was mined in",
+					)
+					this.monitor.emit("orderSkipped", { orderId: order.id, reason: "Placement block unknown" })
+					return
+				}
+
 				// Run confirmation waiting and evaluation in parallel.
 				// The AbortController lets evaluateOrder cancel the confirmation
 				// loop early when the order turns out to be unprofitable.
@@ -888,17 +940,42 @@ export class IntentFiller {
 				// fan every poll out to all providers, so poll less aggressively
 				// to stay within their rate limits.
 				const confirmationPollMs = sourceQuorumClient.size > 1 ? 1000 : 300
-				const waitForConfirmations = async (): Promise<void> => {
+				const waitForConfirmations = async (): Promise<"confirmed" | "aborted" | "reorged"> => {
 					// Nothing to wait for: same-chain orders (and zero-valued curve
 					// points) require no confirmations, and the quorum read they'd
 					// otherwise run gains nothing — it would only gate the fill on
 					// third-party RPC availability, where a transient QuorumError
 					// rejects the surrounding Promise.all and drops the order.
-					if (requiredConfirmations <= 0) return
+					if (requiredConfirmations <= 0) return "confirmed"
 
-					let currentConfirmations = await retryPromise(
+					// handleNewOrder dropped every cross-chain order without a placement
+					// block, and the same-chain orders returned just above, so a read
+					// past here always has a block to compare against.
+					const placementBlock = blockHash as string
+
+					// The count is only meaningful while the quorum still places the
+					// transaction in the block the placement was scanned from: a reorg
+					// that re-mines it elsewhere keeps the transaction hash but gives it
+					// a new nonce, and so a new commitment. A mismatch is reported once,
+					// here, for both the initial read and every poll.
+					const movedBlock = (inclusion: TransactionInclusion): boolean => {
+						if (inclusion.blockHash.toLowerCase() === placementBlock.toLowerCase()) return false
+						this.logger.warn(
+							{
+								orderId: order.id,
+								transactionHash,
+								scannedBlockHash: placementBlock,
+								quorumBlockHash: inclusion.blockHash,
+								quorumBlockNumber: inclusion.blockNumber.toString(),
+							},
+							"Order placement moved to another block during the confirmation wait; its commitment may have changed, skipping order",
+						)
+						return true
+					}
+
+					let inclusion = await retryPromise(
 						() =>
-							sourceQuorumClient.getTransactionConfirmations({
+							sourceQuorumClient.getTransactionInclusion({
 								hash: transactionHash as HexString,
 							}),
 						{
@@ -907,19 +984,21 @@ export class IntentFiller {
 							logMessage: "Failed to get initial transaction confirmations",
 						},
 					)
+					if (movedBlock(inclusion)) return "reorged"
 
+					let currentConfirmations = inclusion.confirmations
 					this.logger.info(
 						{ orderId: order.id, requiredConfirmations, currentConfirmations },
 						"Order confirmation requirements",
 					)
 
 					while (currentConfirmations < requiredConfirmations) {
-						if (abortController.signal.aborted) return
+						if (abortController.signal.aborted) return "aborted"
 						await new Promise((resolve) => setTimeout(resolve, confirmationPollMs))
-						if (abortController.signal.aborted) return
-						currentConfirmations = await retryPromise(
+						if (abortController.signal.aborted) return "aborted"
+						inclusion = await retryPromise(
 							() =>
-								sourceQuorumClient.getTransactionConfirmations({
+								sourceQuorumClient.getTransactionInclusion({
 									hash: transactionHash as HexString,
 								}),
 							{
@@ -928,14 +1007,17 @@ export class IntentFiller {
 								logMessage: "Failed to get transaction confirmations",
 							},
 						)
+						if (movedBlock(inclusion)) return "reorged"
+						currentConfirmations = inclusion.confirmations
 						this.logger.debug({ orderId: order.id, currentConfirmations }, "Order confirmation progress")
 					}
 
 					this.logger.info({ orderId: order.id, currentConfirmations }, "Order confirmed on source chain")
+					return "confirmed"
 				}
 
 				// Run confirmation and evaluation in parallel
-				const [, evaluationResult] = await Promise.all([
+				const [confirmation, evaluationResult] = await Promise.all([
 					waitForConfirmations(),
 					this.evaluateOrder(order, canFillCache).then((result) => {
 						if (!result) abortController.abort()
@@ -949,16 +1031,32 @@ export class IntentFiller {
 					durationSec: confirmDurationSec,
 				})
 
-				// Execute immediately
-				if (evaluationResult) {
-					this.executeOrder(
-						order,
-						evaluationResult.strategy,
-						solverSelectionActive,
-						inputUsdValue,
-						evaluationResult.profitability,
-					)
+				// Evaluation already reported why it passed on the order.
+				if (!evaluationResult) return
+				if (confirmation !== "confirmed") {
+					if (confirmation === "reorged") {
+						this.monitor.emit("orderSkipped", { orderId: order.id, reason: "Source placement reorged" })
+					}
+					return
 				}
+				// The pre-wait read was one endpoint at the scan head. A reorg during the
+				// wait can re-mine the placement under a new nonce and commitment — the
+				// same transaction hash, a different commitment — so the source escrow is
+				// re-read on a quorum right before bidding: the bid is only safe while a
+				// quorum still agrees the commitment holds escrow.
+				if (requiredConfirmations > 0 && !(await this.verifyOrderOnSource(order, sourceQuorumClient))) {
+					this.monitor.emit("orderSkipped", { orderId: order.id, reason: "Source escrow missing after confirmations" })
+					return
+				}
+
+				// Execute immediately
+				this.executeOrder(
+					order,
+					evaluationResult.strategy,
+					solverSelectionActive,
+					inputUsdValue,
+					evaluationResult.profitability,
+				)
 			} catch (error) {
 				this.logger.error({ orderId: order.id, err: error }, "Error processing order")
 			}

@@ -54,6 +54,42 @@ const FUNDING_GAS_PER_CALL = 400_000n
  */
 const DEBIT_ORDER_GAS = 60_000n
 
+/**
+ * Call gas allowed per ERC20 the batch approves to the gateway. The bundler's estimate is of
+ * the prepends and a lone `fillOrder`, so the approvals are not in it. Each token costs three
+ * `approve` calls: the reset ahead of the set (about 5-10k, a write of zero over zero or over a
+ * leftover), the set from zero (about 22k for the write and 2k for the cold slot), and the reset
+ * after the fill (about 5k). A call into the token, through a proxy for the stablecoins, adds a
+ * few thousand to each. Together about 40k, rounded up.
+ */
+const APPROVAL_GAS_PER_TOKEN = 45_000n
+
+/**
+ * What the batch approves to the gateway, per ERC20 (lowercased address): each output's amount,
+ * summed over the legs paying the same token, plus the dispatch fee in the fee token. Native
+ * outputs need no approval, and a token owed nothing is left out. `feeToken` is undefined for a
+ * same-chain fill, which dispatches nothing.
+ *
+ * The batch's approvals and the call gas allowed for them both come from this, so they agree.
+ */
+function approvalAmounts(outputs: TokenInfo[], feeToken: string | undefined, dispatchFee: bigint): Map<string, bigint> {
+	const amounts = new Map<string, bigint>()
+	for (const output of outputs) {
+		const addr = bytes32ToBytes20(output.token)
+		if (addr === ADDRESS_ZERO) continue
+		const key = addr.toLowerCase()
+		amounts.set(key, (amounts.get(key) ?? 0n) + output.amount)
+	}
+	if (feeToken) {
+		const key = feeToken.toLowerCase()
+		amounts.set(key, (amounts.get(key) ?? 0n) + dispatchFee)
+	}
+	for (const [key, amount] of amounts) {
+		if (amount === 0n) amounts.delete(key)
+	}
+	return amounts
+}
+
 /** What a bid's batch needs to settle its limit order's budget. */
 export interface BudgetSettlement {
 	budget: LimitOrderBudget
@@ -390,12 +426,33 @@ export class ContractInteractionService {
 	 * allowance for its modifyLiquidities + take. They differ between the bids on one
 	 * order, since each draws on its own limit order and so on its own funding, which
 	 * is why this is worked out per bid rather than baked into the cached estimate.
-	 * The estimate is of a lone fillOrder, so the budget call is not in it either.
+	 * The estimate is of a lone fillOrder, so the budget call is not in it either, nor are
+	 * the approvals: each token the batch approves adds `APPROVAL_GAS_PER_TOKEN`.
 	 */
-	private callGasLimitFor(order: Order, baseCallGasLimit: bigint, budget?: LimitOrderBudget | null): bigint {
+	private callGasLimitFor(
+		order: Order,
+		baseCallGasLimit: bigint,
+		approvedTokens: number,
+		budget?: LimitOrderBudget | null,
+	): bigint {
 		const funding = order.id ? this.cacheService.getFundingPrepends(order.id) : null
 		const fundingGas = FUNDING_GAS_PER_CALL * BigInt(funding?.calls?.length ?? 0)
-		return baseCallGasLimit + fundingGas + (settles(budget) ? DEBIT_ORDER_GAS : 0n)
+		const approvalGas = APPROVAL_GAS_PER_TOKEN * BigInt(approvedTokens)
+		return baseCallGasLimit + fundingGas + approvalGas + (settles(budget) ? DEBIT_ORDER_GAS : 0n)
+	}
+
+	/**
+	 * What the batch approves to the gateway for `order`, per token, and the fee token's key
+	 * when the fill dispatches. The fee token is read from the destination host.
+	 */
+	private async approvalsFor(
+		order: Order,
+		outputs: TokenInfo[],
+		dispatchFee: bigint,
+	): Promise<{ amounts: Map<string, bigint>; feeKey?: string }> {
+		if (order.source === order.destination) return { amounts: approvalAmounts(outputs, undefined, dispatchFee) }
+		const feeKey = (await this.getFeeTokenWithDecimals(order.destination)).address.toLowerCase()
+		return { amounts: approvalAmounts(outputs, feeKey, dispatchFee), feeKey }
 	}
 
 	/**
@@ -798,9 +855,6 @@ export class ContractInteractionService {
 		// outputs are the read that fails, and the bid is dropped rather than sent unbudgeted.
 		const budget = this.cacheService.getBidBudget(order.id!)
 
-		// The funding calls are this bid's own, set by the caller for each bid on the order.
-		const callGasLimit = this.callGasLimitFor(order, cachedEstimate.callGasLimit, budget)
-
 		// Use cached filler outputs (calculated based on bps) for competitive bidding
 		const cachedFillerOutputs = this.cacheService.getFillerOutputs(order.id!)
 		const cachedFillerInputs = this.cacheService.getFillerInputs(order.id!)
@@ -827,13 +881,18 @@ export class ContractInteractionService {
 			inputs: cachedFillerInputs,
 		}
 
-		// dispatchWithFeeToken pulls relayerFee in fee token from the solver.
-		const dispatchFeeTokenAmount = fillOptions.relayerFee
+		// The funding calls are this bid's own, set by the caller for each bid on the order. The
+		// approvals are counted from the same amounts the batch below is built from.
+		const { amounts: approvals } = await this.approvalsFor(order, cachedFillerOutputs, fillOptions.relayerFee)
+		const callGasLimit = this.callGasLimitFor(order, cachedEstimate.callGasLimit, approvals.size, budget)
+
+		// dispatchWithFeeToken pulls relayerFee in the fee token from the solver. That is all the
+		// gateway takes in it: the fill's gas is paid through the paymaster's Permit2 pull, and
+		// the cached gas estimate is in the source chain's fee-token decimals besides.
 		const callData = await this.buildApprovalAndFillCalldata(
 			order,
 			cachedFillerOutputs,
 			fillOptions,
-			cachedEstimate.totalCostInSourceFeeToken + dispatchFeeTokenAmount,
 			budget ? { budget, solverAccount: solverAccountAddress } : undefined,
 		)
 
@@ -1110,6 +1169,13 @@ export class ContractInteractionService {
 	 * Builds ERC-7821 batch calldata that approves exactly what this bid can pay
 	 * before the fillOrder call, all within a single UserOp payload.
 	 *
+	 * The gateway is approved for exactly what this fill pays: the outputs in each
+	 * ERC20, plus the dispatch fee (`dispatchFee`) in the fee token on a cross-chain
+	 * fill. Nothing else goes in an approval: the fill's gas is paid through the
+	 * paymaster's Permit2 pull. The batch ends by setting every allowance it set back
+	 * to zero, so none stands once it completes. The gateway is an upgradeable proxy
+	 * and a standing allowance is exposure to a future implementation.
+	 *
 	 * The approvals are unconditional. One solver can hold several bids on one
 	 * order, at different levels of its book, and they execute one after another:
 	 * an approval skipped because the allowance covered this bid when it was signed
@@ -1125,40 +1191,31 @@ export class ContractInteractionService {
 	 * A bid priced by a limit order ends with `debitOrder`, which takes the budget's id
 	 * as its `orderId`, works out what the fill paid from what is left of the allowance
 	 * and reverts the whole batch if the order's payouts would pass its size. It has to
-	 * come last, after the gateway has drawn on the allowance.
+	 * come after the gateway has drawn on the allowance, and the zero-resets after it,
+	 * since it reads the allowance that is left. It clears the budget token's allowance
+	 * itself, so the resets skip that token.
 	 */
 	public async buildApprovalAndFillCalldata(
 		order: Order,
 		fillerOutputs: TokenInfo[],
 		fillOptions: FillOptions,
-		requiredFeeTokenAmount: bigint,
 		settlement?: BudgetSettlement,
 	): Promise<HexString> {
 		const chain = order.destination
 		const intentGatewayV2Address = this.configService.getIntentGatewayAddress(chain)
 
-		// Aggregate required amounts per ERC20 token
-		const perTokenRequired = new Map<string, bigint>()
-		for (const output of fillerOutputs) {
-			const addr = bytes32ToBytes20(output.token)
-			if (addr === ADDRESS_ZERO) continue
-			const key = addr.toLowerCase()
-			perTokenRequired.set(key, (perTokenRequired.get(key) ?? 0n) + output.amount)
-		}
-
-		let feeKey: string | undefined
-		if (order.source !== order.destination) {
-			const feeToken = await this.getFeeTokenWithDecimals(chain)
-			feeKey = feeToken.address.toLowerCase()
-			perTokenRequired.set(feeKey, (perTokenRequired.get(feeKey) ?? 0n) + requiredFeeTokenAmount)
-		}
+		// The outputs per ERC20 token, plus the fill's own dispatch fee in the fee token
+		const { amounts: perTokenRequired, feeKey } = await this.approvalsFor(
+			order,
+			fillerOutputs,
+			fillOptions.relayerFee,
+		)
 
 		const fundingPrepends = order.id ? this.cacheService.getFundingPrepends(order.id) : null
 		const prependCalls = fundingPrepends?.calls ?? []
 
 		const calls: ERC7821Call[] = [...prependCalls]
 		for (const [tokenAddress, required] of perTokenRequired) {
-			if (required === 0n) continue
 			for (const amount of [0n, required]) {
 				calls.push({
 					target: tokenAddress as HexString,
@@ -1192,10 +1249,9 @@ export class ContractInteractionService {
 					`Bid on order ${order.id} approves nothing in ${budget.token}, the token budget ${budget.budgetId} is measured in`,
 				)
 			}
-			// Of what was folded into the approval for the fee token, the gateway draws only
-			// the dispatch fee; the rest stays in the allowance. It draws it whatever
-			// `nativeDispatchFee` says: the batch sends no native value for the dispatch,
-			// so the gateway takes the fee in the fee token.
+			// Of the fee token's approval, the gateway draws the dispatch fee on top of the
+			// outputs. It draws it whatever `nativeDispatchFee` says: the batch sends no
+			// native value for the dispatch, so the gateway takes the fee in the fee token.
 			const fee = feeKey === budgetToken ? fillOptions.relayerFee : 0n
 			calls.push({
 				target: solverAccount,
@@ -1204,6 +1260,23 @@ export class ContractInteractionService {
 					abi: SOLVER_ACCOUNT_ABI,
 					functionName: "debitOrder",
 					args: [budget.budgetId, budget.cap, budgetToken, approved, fee],
+				}) as HexString,
+			})
+		}
+
+		// Last of all, after `fillOrder` and after `debitOrder` (which reads the allowance
+		// that is left): nothing stands once the batch completes. `debitOrder` clears the
+		// budget token's allowance itself, so that token is left out when the batch settles.
+		const clearedByBudget = settlement && settles(settlement.budget) ? settlement.budget.token.toLowerCase() : undefined
+		for (const tokenAddress of perTokenRequired.keys()) {
+			if (tokenAddress === clearedByBudget) continue
+			calls.push({
+				target: tokenAddress as HexString,
+				value: 0n,
+				data: encodeFunctionData({
+					abi: ERC20_ABI,
+					functionName: "approve",
+					args: [intentGatewayV2Address, 0n],
 				}) as HexString,
 			})
 		}

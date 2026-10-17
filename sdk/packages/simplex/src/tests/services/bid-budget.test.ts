@@ -18,7 +18,8 @@ import { ContractInteractionService } from "@/services/ContractInteractionServic
 import { privateKeySigner } from "@/services/wallet"
 
 /**
- * The `debitOrder` call a bid priced by a limit order ends with.
+ * The `debitOrder` call a bid priced by a limit order carries, after its fill and ahead
+ * of the zero-resets that end every batch.
  *
  * The account works out what a fill paid from what the gateway left of the
  * allowance: `used = approved - allowance - fee`. So `approved` has to be exactly
@@ -44,6 +45,8 @@ const RELAYER_FEE = 120n
 const BASE_CALL_GAS = 1_000_000n
 const FUNDING_GAS_PER_CALL = 400_000n
 const DEBIT_ORDER_GAS = 60_000n
+const APPROVAL_GAS_PER_TOKEN = 45_000n
+const OTHER_TOKEN = "0xfedcbafedcbafedcbafedcbafedcbafedcbafedc" as HexString
 
 const budget: LimitOrderBudget = { budgetId: budgetIdFor("limit-order-1"), cap: 78_000n, token: CNGN }
 
@@ -103,32 +106,43 @@ function batchOf(callData: HexString): ERC7821Call[] {
 	return batch
 }
 
-/** The arguments of the batch's last call, which has to be the account settling the budget. */
+/** The index of the call to the account settling the budget, which is the one call that account receives. */
+function debitIndex(batch: ERC7821Call[]): number {
+	return batch.findIndex((call) => call.target.toLowerCase() === SOLVER.toLowerCase())
+}
+
+/** The arguments of the batch's call to the account settling the budget, which follows the fill. */
 function settled(batch: ERC7821Call[]) {
-	const last = batch[batch.length - 1]
-	expect(last.target.toLowerCase()).toBe(SOLVER.toLowerCase())
-	expect(last.value).toBe(0n)
-	expect(last.data.slice(0, 10)).toBe(DEBIT_ORDER)
-	const { functionName, args } = decodeFunctionData({ abi: SOLVER_ACCOUNT_ABI, data: last.data })
-	if (functionName !== "debitOrder") throw new Error(`the batch ends with ${functionName}`)
+	const index = debitIndex(batch)
+	expect(index).toBeGreaterThan(-1)
+	const call = batch[index]
+	expect(call.value).toBe(0n)
+	expect(call.data.slice(0, 10)).toBe(DEBIT_ORDER)
+	const { functionName, args } = decodeFunctionData({ abi: SOLVER_ACCOUNT_ABI, data: call.data })
+	if (functionName !== "debitOrder") throw new Error(`the batch settles with ${functionName}`)
 	const [budgetId, cap, token, approved, fee] = args
 	return { budgetId, cap, token: token.toLowerCase(), approved, fee }
 }
 
-/** What the batch approves to the gateway in `token`, from its last approval of it. */
+/** What the batch approves to the gateway in `token`, from its last non-zero approval of it. */
 function approvedIn(batch: ERC7821Call[], token: HexString): bigint | undefined {
-	const approvals = batch
+	const amounts = batch
 		.filter((call) => call.target.toLowerCase() === token.toLowerCase())
 		.map((call) => decodeFunctionData({ abi: erc20Abi, data: call.data }))
-	const last = approvals[approvals.length - 1]
-	return last?.functionName === "approve" ? last.args[1] : undefined
+		.flatMap((call) => (call.functionName === "approve" && call.args[1] > 0n ? [call.args[1]] : []))
+	return amounts[amounts.length - 1]
 }
 
 /**
  * Drives `prepareBidUserOp` over a gateway helper that signs nothing and hands back
  * what it was asked to sign.
  */
-async function prepareBid(contract: ContractInteractionService, order: Order, cached?: LimitOrderBudget) {
+async function prepareBid(
+	contract: ContractInteractionService,
+	order: Order,
+	cached?: LimitOrderBudget,
+	paid?: { token: HexString; amount: bigint }[],
+) {
 	let signed: any
 	const helper = {
 		estimateBidPreVerificationGas: async () => 50_000n,
@@ -149,16 +163,30 @@ async function prepareBid(contract: ContractInteractionService, order: Order, ca
 	}
 	;(contract as any).getIntentGateway = async () => helper
 
+	// With `paid`, the order asks for those legs and the bid quotes them, one input leg for each.
+	const legs = paid?.map(({ token, amount }) => ({ token: bytes20ToBytes32(token), amount }))
+	const bidOrder: Order = legs
+		? {
+				...order,
+				inputs: legs.map(() => ({ token: bytes20ToBytes32(USDC), amount: 50n })),
+				output: { ...order.output, assets: legs },
+			}
+		: order
 	const id = order.id as string
 	contract.cacheService.setGasEstimate(id, FILL_GAS, 0n, RELAYER_FEE, BASE_CALL_GAS, 100_000n, 50_000n, 1n, 1n, 1n)
-	contract.cacheService.setFillerOutputs(id, outputs, inputs, cached)
-	await contract.prepareBidUserOp(order, ENTRY_POINT, SOLVER)
+	contract.cacheService.setFillerOutputs(
+		id,
+		legs ?? outputs,
+		legs ? legs.map(() => ({ token: bytes20ToBytes32(USDC), amount: 25n })) : inputs,
+		cached,
+	)
+	await contract.prepareBidUserOp(bidOrder, ENTRY_POINT, SOLVER)
 	return signed as { callData: HexString; callGasLimit: bigint; fillOptions: FillOptions }
 }
 
 describe("the budget call a bid ends with", () => {
 	it("settles a same-chain bid for what it approved, with no fee", async () => {
-		const callData = await service().buildApprovalAndFillCalldata(sameChain, outputs, optionsWith(0n), 0n, {
+		const callData = await service().buildApprovalAndFillCalldata(sameChain, outputs, optionsWith(0n), {
 			budget,
 			solverAccount: SOLVER,
 		})
@@ -177,13 +205,12 @@ describe("the budget call a bid ends with", () => {
 			crossChain,
 			outputs,
 			optionsWith(RELAYER_FEE),
-			FILL_GAS + RELAYER_FEE,
 			{ budget, solverAccount: SOLVER },
 		)
 		const batch = batchOf(callData)
 		const { approved, fee } = settled(batch)
 
-		expect(approved).toBe(PAYOUT + FILL_GAS + RELAYER_FEE)
+		expect(approved).toBe(PAYOUT + RELAYER_FEE)
 		expect(approved).toBe(approvedIn(batch, CNGN))
 		expect(fee).toBe(RELAYER_FEE)
 
@@ -200,12 +227,11 @@ describe("the budget call a bid ends with", () => {
 			crossChain,
 			outputs,
 			{ ...optionsWith(RELAYER_FEE), nativeDispatchFee: 1n },
-			FILL_GAS + RELAYER_FEE,
 			{ budget, solverAccount: SOLVER },
 		)
 		const { approved, fee } = settled(batchOf(callData))
 
-		expect(approved).toBe(PAYOUT + FILL_GAS + RELAYER_FEE)
+		expect(approved).toBe(PAYOUT + RELAYER_FEE)
 		expect(fee).toBe(RELAYER_FEE)
 
 		// The batch carries no native value to pay the dispatch with, so the gateway
@@ -219,19 +245,18 @@ describe("the budget call a bid ends with", () => {
 			crossChain,
 			outputs,
 			optionsWith(RELAYER_FEE),
-			FILL_GAS + RELAYER_FEE,
 			{ budget, solverAccount: SOLVER },
 		)
 		const batch = batchOf(callData)
 
 		expect(settled(batch)).toMatchObject({ approved: PAYOUT, fee: 0n })
 		expect(approvedIn(batch, CNGN)).toBe(PAYOUT)
-		expect(approvedIn(batch, USDC)).toBe(FILL_GAS + RELAYER_FEE)
+		expect(approvedIn(batch, USDC)).toBe(RELAYER_FEE)
 	})
 
 	it("matches the budget's token whatever case it is written in", async () => {
 		const shouted = `0x${CNGN.slice(2).toUpperCase()}` as HexString
-		const callData = await service().buildApprovalAndFillCalldata(sameChain, outputs, optionsWith(0n), 0n, {
+		const callData = await service().buildApprovalAndFillCalldata(sameChain, outputs, optionsWith(0n), {
 			budget: { ...budget, token: shouted },
 			solverAccount: SOLVER,
 		})
@@ -244,15 +269,17 @@ describe("the budget call a bid ends with", () => {
 		const funding: ERC7821Call = { target: "0x0000000000000000000000000000000000000001", value: 0n, data: "0x01" }
 		contract.cacheService.setFundingPrepends(sameChain.id as string, [funding])
 
-		const callData = await contract.buildApprovalAndFillCalldata(sameChain, outputs, optionsWith(0n), 0n, {
+		const callData = await contract.buildApprovalAndFillCalldata(sameChain, outputs, optionsWith(0n), {
 			budget,
 			solverAccount: SOLVER,
 		})
 		const batch = batchOf(callData)
 
+		// The budget token's allowance is cleared by `debitOrder`, so no reset follows it.
 		expect(batch).toHaveLength(5)
 		expect(batch[0]).toEqual(funding)
 		expect(batch[3].target.toLowerCase()).toBe(GATEWAY.toLowerCase())
+		expect(debitIndex(batch)).toBe(4)
 		expect(settled(batch).approved).toBe(PAYOUT)
 	})
 })
@@ -271,23 +298,27 @@ describe("a bid no budget applies to", () => {
 			value: 0n,
 			data: encodeFillOrder(transformOrderForContract(sameChain) as any, optionsWith(0n)),
 		},
+		approve(0n),
 	])
 
-	it("signs the approvals and the fill, and nothing else", async () => {
-		expect(await service().buildApprovalAndFillCalldata(sameChain, outputs, optionsWith(0n), 0n)).toBe(unbudgeted)
+	it("signs the approvals, the fill and the zero-resets, and nothing else", async () => {
+		expect(await service().buildApprovalAndFillCalldata(sameChain, outputs, optionsWith(0n))).toBe(unbudgeted)
 	})
 
-	it("is what a budgeted bid signs ahead of its budget call", async () => {
-		const callData = await service().buildApprovalAndFillCalldata(sameChain, outputs, optionsWith(0n), 0n, {
+	it("is what a budgeted bid signs ahead of its budget call, which clears the budget token itself", async () => {
+		const callData = await service().buildApprovalAndFillCalldata(sameChain, outputs, optionsWith(0n), {
 			budget,
 			solverAccount: SOLVER,
 		})
 
-		expect(batchOf(callData).slice(0, -1)).toEqual(batchOf(unbudgeted))
+		const batch = batchOf(callData)
+
+		expect(debitIndex(batch)).toBe(batch.length - 1)
+		expect(batch.slice(0, -1)).toEqual(batchOf(unbudgeted).slice(0, -1))
 	})
 
 	it("includes one whose budget is in the native token", async () => {
-		const callData = await service().buildApprovalAndFillCalldata(sameChain, outputs, optionsWith(0n), 0n, {
+		const callData = await service().buildApprovalAndFillCalldata(sameChain, outputs, optionsWith(0n), {
 			budget: { ...budget, token: ZERO },
 			solverAccount: SOLVER,
 		})
@@ -315,7 +346,7 @@ describe("preparing a bid", () => {
 
 		expect(bid.fillOptions.relayerFee).toBe(RELAYER_FEE)
 		expect(fee).toBe(RELAYER_FEE)
-		expect(approved).toBe(PAYOUT + FILL_GAS + RELAYER_FEE)
+		expect(approved).toBe(PAYOUT + RELAYER_FEE)
 	})
 
 	it("signs no budget call when no limit order priced the bid", async () => {
@@ -323,7 +354,7 @@ describe("preparing a bid", () => {
 		const bid = await prepareBid(contract, sameChain)
 
 		expect(bid.callData).toBe(
-			await contract.buildApprovalAndFillCalldata(sameChain, outputs, bid.fillOptions, FILL_GAS + RELAYER_FEE),
+			await contract.buildApprovalAndFillCalldata(sameChain, outputs, bid.fillOptions),
 		)
 		expect(batchOf(bid.callData).map((call) => call.target.toLowerCase())).not.toContain(SOLVER.toLowerCase())
 	})
@@ -335,16 +366,55 @@ describe("preparing a bid", () => {
 	})
 
 	it("allows call gas for the budget call only when the bid carries it", async () => {
+		// One approved token in every case: the output, CNGN.
 		const contract = service()
 		const funding: ERC7821Call = { target: "0x0000000000000000000000000000000000000001", value: 0n, data: "0x01" }
 
-		expect((await prepareBid(contract, sameChain)).callGasLimit).toBe(BASE_CALL_GAS)
-		expect((await prepareBid(contract, sameChain, budget)).callGasLimit).toBe(BASE_CALL_GAS + DEBIT_ORDER_GAS)
-		expect((await prepareBid(contract, sameChain, { ...budget, token: ZERO })).callGasLimit).toBe(BASE_CALL_GAS)
+		const base = BASE_CALL_GAS + APPROVAL_GAS_PER_TOKEN
+
+		expect((await prepareBid(contract, sameChain)).callGasLimit).toBe(base)
+		expect((await prepareBid(contract, sameChain, budget)).callGasLimit).toBe(base + DEBIT_ORDER_GAS)
+		expect((await prepareBid(contract, sameChain, { ...budget, token: ZERO })).callGasLimit).toBe(base)
 
 		contract.cacheService.setFundingPrepends(sameChain.id as string, [funding])
 		expect((await prepareBid(contract, sameChain, budget)).callGasLimit).toBe(
-			BASE_CALL_GAS + FUNDING_GAS_PER_CALL + DEBIT_ORDER_GAS,
+			base + FUNDING_GAS_PER_CALL + DEBIT_ORDER_GAS,
 		)
+	})
+
+	describe("allows call gas for each token it approves", () => {
+		const leg = (token: HexString, amount: bigint) => ({ token, amount })
+
+		it("for one token, however many legs pay it", async () => {
+			const one = await prepareBid(service(), sameChain, undefined, [leg(CNGN, PAYOUT)])
+			const two = await prepareBid(service(), sameChain, undefined, [leg(CNGN, 1_000n), leg(CNGN, 2_000n)])
+
+			expect(one.callGasLimit).toBe(BASE_CALL_GAS + APPROVAL_GAS_PER_TOKEN)
+			expect(two.callGasLimit).toBe(BASE_CALL_GAS + APPROVAL_GAS_PER_TOKEN)
+		})
+
+		it("for two tokens", async () => {
+			const bid = await prepareBid(service(), sameChain, undefined, [leg(CNGN, PAYOUT), leg(OTHER_TOKEN, 5n)])
+
+			expect(bid.callGasLimit).toBe(BASE_CALL_GAS + 2n * APPROVAL_GAS_PER_TOKEN)
+		})
+
+		it("for none when the only output is native", async () => {
+			const bid = await prepareBid(service(), sameChain, undefined, [leg(ZERO, 5n)])
+
+			expect(bid.callGasLimit).toBe(BASE_CALL_GAS)
+		})
+
+		it("for a cross-chain fill's fee token that no output pays", async () => {
+			const bid = await prepareBid(service(USDC), crossChain, undefined, [leg(CNGN, PAYOUT)])
+
+			expect(bid.callGasLimit).toBe(BASE_CALL_GAS + 2n * APPROVAL_GAS_PER_TOKEN)
+		})
+
+		it("once for a cross-chain fill's fee token that an output pays", async () => {
+			const bid = await prepareBid(service(CNGN), crossChain, undefined, [leg(CNGN, PAYOUT)])
+
+			expect(bid.callGasLimit).toBe(BASE_CALL_GAS + APPROVAL_GAS_PER_TOKEN)
+		})
 	})
 })

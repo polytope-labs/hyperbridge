@@ -64,3 +64,12 @@ export { handleBandwidthConsumedEvent } from "@/handlers/events/bandwidth/bandwi
 export { handleSubscriptionEvictedEvent } from "@/handlers/events/bandwidth/subscriptionEvicted.event.handler"
 export { handleForceCreditedEvent } from "@/handlers/events/bandwidth/forceCredited.event.handler"
 export { handleTierSetEvent } from "@/handlers/events/bandwidth/tierSet.event.handler"
+
+// Governance Handlers
+export { handleReferendaEvent } from "@/handlers/events/governance/referenda.event.handler"
+export { handleConvictionVotingEvent } from "@/handlers/events/governance/convictionVoting.event.handler"
+export { handleSchedulerDispatchedEvent } from "@/handlers/events/governance/scheduler.event.handler"
+export { handleTechnicalCollectiveEvent } from "@/handlers/events/governance/technicalCollective.event.handler"
+export { handleWhitelistEvent } from "@/handlers/events/governance/whitelist.event.handler"
+export { handlePreimageEvent } from "@/handlers/events/governance/preimage.event.handler"
+export { handleTreasurySpendEvent } from "@/handlers/events/governance/treasury.event.handler"

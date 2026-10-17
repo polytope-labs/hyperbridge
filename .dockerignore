@@ -4,6 +4,7 @@ target
 !target/release/tesseract-admin-relayer
 !target/release/tesseract
 !target/release/telemetry-server
+!target/release/governance-api
 !target/release/hyperbridge
 
 .github

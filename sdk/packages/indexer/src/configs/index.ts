@@ -45,7 +45,11 @@ const baseChainConfigSchema = z.object({
 export const schemaConfiguration = z.record(
 	z.string(),
 	z.discriminatedUnion("type", [
-		baseChainConfigSchema.extend({ type: z.literal("substrate") }),
+		baseChainConfigSchema.extend({
+			type: z.literal("substrate"),
+			// Indexes the chain's governance from this block in a separate deployment
+			governanceStartBlock: z.number().int().min(0).optional(),
+		}),
 		baseChainConfigSchema.extend({
 			type: z.literal("evm"),
 			unfinalizedBlocks: z.boolean().optional(),

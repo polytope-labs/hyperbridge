@@ -1,0 +1,28 @@
+# The governance API. The governance indexer it reads is deployed with the rest of the indexer
+# (sdk/packages/indexer, its generated hyperbridge-nexus-governance service), and DATABASE_URL points at
+# the same Postgres. The forum frontend is deployed from its own repository.
+#
+# Build the API binary on Linux first, as the other images in scripts/docker expect:
+#   cargo build --release -p governance-api
+# Copy the current forum's off-chain content into this one, safe to repeat:
+#   docker compose run --rm governance-api import <current forum address>
+#
+# Settings, from the environment or a .env file next to this one:
+#   DATABASE_URL   the indexer's Postgres; the API reads its governance schema and adds a forum schema
+#   ADMINS         comma separated addresses allowed to moderate the forum
+#   CORS_ORIGINS   comma separated origins browsers may call the API from, such as the forum's address
+#   API_PORT       optional, 7071 by default
+services:
+  governance-api:
+    build:
+      context: ..
+      dockerfile: scripts/docker/governance-api.Dockerfile
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      ADMINS: ${ADMINS:-}
+      CORS_ORIGINS: ${CORS_ORIGINS:-}
+      PORT: 7071
+      RUST_LOG: ${RUST_LOG:-info}
+    ports:
+      - ${API_PORT:-7071}:7071

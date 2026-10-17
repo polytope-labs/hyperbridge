@@ -86,7 +86,8 @@ CREATE TABLE governance.governance_referendums (
     enactment_result text,
     submitted_block integer NOT NULL,
     submitted_at timestamp without time zone NOT NULL,
-    updated_block integer NOT NULL
+    updated_block integer NOT NULL,
+    track_info text
 );
 CREATE TABLE governance.governance_tally_snapshots (
     id text NOT NULL,

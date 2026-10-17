@@ -25,7 +25,7 @@ fn query(filter: &str) -> String {
 	format!(
 		"SELECT r.index, r.track, r.proposer, r.proposal, r.proposal_hash, r.call, r.is_final, r.info,
 			r.ayes::text AS ayes, r.nays::text AS nays, r.support::text AS support,
-			t.name AS track_name, t.info AS track_info, {POST_COLUMNS}
+			t.name AS track_name, COALESCE(r.track_info, t.info) AS track_info, {POST_COLUMNS}
 		FROM governance_referendums r
 		LEFT JOIN governance_tracks t ON t.id = r.track::text
 		{}
@@ -92,6 +92,11 @@ fn referendum(row: &Row) -> Value {
 	let track_info = track(row.get("track"), row.get("track_info"));
 	let proposal_hash = Value::from(row.get::<_, Option<String>>("proposal_hash"));
 	let mut state = last_event(row);
+	// A confirmed referendum is `Approved` on chain until its enactment runs, and stays so if it
+	// fails
+	if state["name"] == "Confirmed" {
+		state["name"] = "Approved".into();
+	}
 	state["args"] = timeline_args(
 		&row.get::<_, String>("l_name"),
 		state["args"].take(),

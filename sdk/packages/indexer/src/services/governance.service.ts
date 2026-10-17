@@ -1,4 +1,5 @@
 import { SubstrateEvent } from "@subql/types"
+import type { ApiPromise } from "@polkadot/api"
 import { Option } from "@polkadot/types"
 import { Call } from "@polkadot/types/interfaces"
 import type { Codec } from "@polkadot/types/types"
@@ -95,6 +96,22 @@ export class GovernanceService {
 		return JSON.stringify(info.unwrap().asOngoing.toJSON())
 	}
 
+	/**
+	 * The referendum's details in the block before `event`. The scheduler moves a referendum's alarm
+	 * without an event, so when it ends this is the only place its final live details are kept.
+	 */
+	static async ongoingInfoBefore(event: SubstrateEvent, index: number): Promise<string | undefined> {
+		const parent = event.block.block.header.parentHash
+		const query = (unsafeApi as unknown as ApiPromise).query.referenda.referendumInfoFor
+		return this.ongoingInfo(await query.at<ReferendumInfo>(parent, index))
+	}
+
+	/** The definition of a track in the runtime of the current block, since upgrades can change it. */
+	static trackInfo(track: number): string | undefined {
+		const details = (api.consts.referenda.tracks as unknown as Tracks).find(([id]) => id.toNumber() === track)
+		return details && JSON.stringify(details[1].toJSON())
+	}
+
 	static async handleReferendaEvent(event: SubstrateEvent): Promise<void> {
 		const position = await this.position(event)
 		const args = this.args(event)
@@ -115,6 +132,7 @@ export class GovernanceService {
 				proposal: JSON.stringify(args.proposal),
 				proposalHash: this.proposalHash(args.proposal),
 				call: await this.proposalCall(args.proposal),
+				trackInfo: this.trackInfo(Number(args.track)),
 				state: "Submitted",
 				isFinal: false,
 				ayes: 0n,
@@ -129,7 +147,9 @@ export class GovernanceService {
 
 		const tally = this.tally(info) ?? this.eventTally(args.tally)
 		if (tally) Object.assign(referendum, tally)
-		referendum.info = this.ongoingInfo(info) ?? referendum.info
+		const ongoing =
+			this.ongoingInfo(info) ?? (referendum.isFinal ? undefined : await this.ongoingInfoBefore(event, index))
+		referendum.info = ongoing ?? referendum.info
 		referendum.electorate = await this.electorate()
 		if (event.event.method === "Confirmed") referendum.enactmentTask = this.enactmentTask(index)
 		if (!DEPOSIT_REFUNDS.includes(event.event.method)) referendum.state = event.event.method
@@ -573,7 +593,7 @@ export class GovernanceService {
 		return { ayes: BigInt(ayes), nays: BigInt(nays), support: BigInt(support) }
 	}
 
-	static callJson(call: Call) {
+	static callJson(call: Call): Record<string, unknown> {
 		return {
 			callIndex: u8aToHex(call.callIndex),
 			section: call.section,
@@ -581,9 +601,16 @@ export class GovernanceService {
 			args: call.args.map((value, i) => ({
 				name: call.meta.args[i].name.toString(),
 				type: call.meta.args[i].type.toString(),
-				value: value.toJSON(),
+				value: this.argJson(value),
 			})),
 		}
+	}
+
+	/** A call argument as JSON, with nested calls such as those in a batch or sudo spelled out like the outer one. */
+	static argJson(value: Codec): unknown {
+		if (value.toRawType() === "Call") return this.callJson(value as Call)
+		if (Array.isArray(value)) return value.map((item: Codec) => this.argJson(item))
+		return value.toJSON()
 	}
 
 	static async saveReferendumEvent(

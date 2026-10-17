@@ -3252,6 +3252,11 @@ type GovernanceReferendum @entity {
 	call: String
 
 	"""
+	The track's definition when the referendum was submitted, JSON encoded, since runtime upgrades can change it
+	"""
+	trackInfo: String
+
+	"""
 	Name of the last referenda event seen, such as Submitted, DecisionStarted or Confirmed
 	"""
 	state: String! @index

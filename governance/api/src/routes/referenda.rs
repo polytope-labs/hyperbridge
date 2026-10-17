@@ -25,7 +25,8 @@ fn query(filter: &str) -> String {
 	format!(
 		"SELECT r.index, r.track, r.proposer, r.proposal, r.proposal_hash, r.call, r.is_final, r.info,
 			r.ayes::text AS ayes, r.nays::text AS nays, r.support::text AS support,
-			t.name AS track_name, COALESCE(r.track_info, t.info) AS track_info, {POST_COLUMNS}
+			t.name AS track_name, {POST_COLUMNS},
+			CASE WHEN r.is_final THEN COALESCE(r.track_info, t.info) ELSE t.info END AS track_info
 		FROM governance_referendums r
 		LEFT JOIN governance_tracks t ON t.id = r.track::text
 		{}

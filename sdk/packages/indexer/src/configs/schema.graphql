@@ -3252,7 +3252,7 @@ type GovernanceReferendum @entity {
 	call: String
 
 	"""
-	The track's definition when the referendum was submitted, JSON encoded, since runtime upgrades can change it
+	The track's definition at the referendum's last state change, JSON encoded, since runtime upgrades can change it
 	"""
 	trackInfo: String
 

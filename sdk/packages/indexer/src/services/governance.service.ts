@@ -132,7 +132,6 @@ export class GovernanceService {
 				proposal: JSON.stringify(args.proposal),
 				proposalHash: this.proposalHash(args.proposal),
 				call: await this.proposalCall(args.proposal),
-				trackInfo: this.trackInfo(Number(args.track)),
 				state: "Submitted",
 				isFinal: false,
 				ayes: 0n,
@@ -152,7 +151,10 @@ export class GovernanceService {
 		referendum.info = ongoing ?? referendum.info
 		referendum.electorate = await this.electorate()
 		if (event.event.method === "Confirmed") referendum.enactmentTask = this.enactmentTask(index)
-		if (!DEPOSIT_REFUNDS.includes(event.event.method)) referendum.state = event.event.method
+		if (!DEPOSIT_REFUNDS.includes(event.event.method)) {
+			referendum.state = event.event.method
+			referendum.trackInfo = this.trackInfo(referendum.track)
+		}
 		referendum.isFinal = info.isNone || !info.unwrap().isOngoing
 		referendum.updatedBlock = position.blockNumber
 

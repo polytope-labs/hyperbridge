@@ -68,23 +68,30 @@ interface InFlightDelegation {
  *
  * Two services delegate the same wallet — the filler's and the limit-order service's —
  * and nothing serialises them against each other: an "Enable fills" click racing a
- * limit-order post would send two ops on the same EntryPoint nonce. The second is
- * rejected, which reads as "never submitted", so it would fall back to a native tx.
+ * limit-order post would send two ops on the same EntryPoint nonce. The bundler would
+ * refuse the second as pending on the nonce, so it would add nothing but a failed attempt.
  * The map is module-level rather than per instance because the two are separate
  * instances and must still see each other's attempt.
  */
 const inFlightDelegationByWallet = new Map<string, InFlightDelegation>()
 
 /** The identity of a sponsored delegation op that was submitted but never confirmed. */
-type UnconfirmedDelegationOp = Pick<SubmittedUserOp, "userOpHash" | "nonce" | "nonceKey">
+type UnconfirmedDelegationOp = Pick<SubmittedUserOp, "userOpHash" | "nonce" | "nonceKey" | "submittedAt">
+
+/**
+ * How long a submitted delegation op must have gone unconfirmed before a definite "the bundler
+ * does not know it" counts as a drop. Covers the bundler's own latency in pooling and indexing
+ * an op it just accepted.
+ */
+const UNCONFIRMED_OP_GRACE_MS = 2 * 60_000
 
 /**
  * The sponsored delegation op each wallet and chain is still waiting on, by the same key as
  * {@link inFlightDelegationByWallet}. The in-flight map only covers an attempt while it runs;
- * an op that outlived its receipt wait is still in the bundler's pool afterwards. A retry
- * (a fills enable, a limit-order create, a restart of the caller) builds a new op on the same
- * nonce, the bundler refuses it as a replacement, and that refusal reads as "unavailable" —
- * so without this record the retry would send a native delegation alongside the pending op.
+ * an op that outlived its receipt wait may still be in the bundler's pool afterwards. A retry
+ * (a fills enable, a limit-order create, a restart of the caller) resolves the earlier op by
+ * its receipt, the EntryPoint nonce or a bundler lookup, instead of building a new op on its
+ * nonce, which the bundler would refuse as still pending.
  * Module-level for the same reason as the map above.
  */
 const unconfirmedDelegationOps = new Map<string, UnconfirmedDelegationOp>()
@@ -447,8 +454,8 @@ export class DelegationService {
 				this.logger.warn({ chain, error, delegated }, "Sponsored delegation unconfirmed; not falling back")
 				// Remembered so the retry resolves this op before building another on its nonce.
 				if (!delegated && error instanceof SubmittedUnconfirmedError && error.submission.kind === "userOp") {
-					const { userOpHash, nonce, nonceKey } = error.submission
-					unconfirmedDelegationOps.set(this.walletKey(chain), { userOpHash, nonce, nonceKey })
+					const { userOpHash, nonce, nonceKey, submittedAt } = error.submission
+					unconfirmedDelegationOps.set(this.walletKey(chain), { userOpHash, nonce, nonceKey, submittedAt })
 				}
 				return delegated ? "delegated" : "pending"
 			}
@@ -464,6 +471,8 @@ export class DelegationService {
 	 * - Its receipt is found: the delegation is confirmed on chain.
 	 * - The EntryPoint nonce at `latest` has moved past the op's and the wallet is not delegated:
 	 *   the nonce was consumed without delegating, so the op is gone.
+	 * - The nonce has not moved, but the bundler definitely no longer holds the op and it is past
+	 *   the grace period (see {@link DelegationService.bundlerDroppedOp}): it was dropped, so "gone".
 	 * - Anything else, including a lookup or read that failed: still unresolved, so "pending".
 	 *   The op may land, and a replacement or a native delegation alongside it would double up.
 	 */
@@ -472,12 +481,14 @@ export class DelegationService {
 		const op = unconfirmedDelegationOps.get(key)
 		if (!op) return "none"
 
+		let receiptLookupAnswered = false
 		try {
 			const receipt = await this.userOpSender.lookupUserOpReceipt(chain, op.userOpHash)
 			if (receipt) {
 				unconfirmedDelegationOps.delete(key)
 				return (await this.confirmBundlerDelegation(chain, receipt.txHash)) ? "delegated" : "failed"
 			}
+			receiptLookupAnswered = true
 		} catch (error) {
 			// The bundler could not be asked; the nonce below is the other evidence.
 			this.logger.warn({ chain, userOpHash: op.userOpHash, error }, "Could not look up the unconfirmed delegation op")
@@ -500,10 +511,39 @@ export class DelegationService {
 				unconfirmedDelegationOps.delete(key)
 				return delegated ? "delegated" : "gone"
 			}
+			// The nonce has not moved, so the op is either still pooled or dropped without a
+			// trace: a bundler that evicts it never consumes the nonce, and without this check
+			// the record would stay "pending" until a restart, refusing every retry.
+			if (receiptLookupAnswered && (await this.bundlerDroppedOp(chain, op))) {
+				unconfirmedDelegationOps.delete(key)
+				return "gone"
+			}
 		} catch (error) {
 			this.logger.warn({ chain, userOpHash: op.userOpHash, error }, "Could not read the unconfirmed delegation op's nonce")
 		}
 		return "pending"
+	}
+
+	/**
+	 * Whether the bundler has definitely dropped an unconfirmed delegation op. Rundler's
+	 * `eth_getUserOperationByHash` checks its mempool and then the chain, so a definite `null`
+	 * means the op is neither pooled nor landed. That only counts once the op is older than
+	 * {@link UNCONFIRMED_OP_GRACE_MS}, so a lookup racing the bundler's own indexing is not read
+	 * as a drop, and a failed or ambiguous lookup is not an answer at all.
+	 *
+	 * A wrong "gone" costs at most one set-code transaction's gas: once a native set-code tx
+	 * lands it consumes the EOA nonce the old op's 7702 authorization was signed for, so the
+	 * old op can no longer delegate. And "gone" only falls through to the normal setup, which
+	 * tries a sponsored op first.
+	 */
+	private async bundlerDroppedOp(chain: string, op: UnconfirmedDelegationOp): Promise<boolean> {
+		if (Date.now() - op.submittedAt < UNCONFIRMED_OP_GRACE_MS) return false
+		try {
+			return !(await this.userOpSender.isUserOpKnown(chain, op.userOpHash))
+		} catch (error) {
+			this.logger.warn({ chain, userOpHash: op.userOpHash, error }, "Could not ask the bundler whether it still holds the delegation op")
+			return false
+		}
 	}
 
 	/**
@@ -678,8 +718,8 @@ export class DelegationService {
 		}
 
 		// An earlier sponsored op that never confirmed is settled before anything new goes out:
-		// it may still be in the bundler's pool, and a second op on its nonce is refused in a way
-		// that reads as "unavailable", which would send a native delegation next to it.
+		// it may still be in the bundler's pool, so it is resolved by receipt, EntryPoint nonce or
+		// bundler lookup rather than by building a second op on its nonce.
 		const earlier = await this.resolveUnconfirmedOp(chain)
 		if (earlier === "delegated") return true
 		if (earlier === "failed" || earlier === "pending") {
@@ -867,6 +907,10 @@ export class DelegationService {
 					return false
 				}
 				this.logger.info({ chain, txHash: hash }, "Delegation revoked successfully")
+				// The revoke consumed the EOA nonce the pending op's authorization was signed
+				// for, so that op can no longer delegate. Keeping its record would leave a later
+				// setup "pending" on an op that cannot land.
+				unconfirmedDelegationOps.delete(this.walletKey(chain))
 				return true
 			}
 

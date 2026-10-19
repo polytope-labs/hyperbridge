@@ -24,9 +24,10 @@ import type { Signer } from "@/services/wallet"
  * a send (or an explicitly landed sponsored op) flips it.
  */
 
-const { trySendSponsored, lookupUserOpReceipt } = vi.hoisted(() => ({
+const { trySendSponsored, lookupUserOpReceipt, isUserOpKnown } = vi.hoisted(() => ({
 	trySendSponsored: vi.fn(),
 	lookupUserOpReceipt: vi.fn(),
+	isUserOpKnown: vi.fn(),
 }))
 
 vi.mock("@/services/paymaster", () => ({ hasPaymaster: () => true }))
@@ -38,6 +39,7 @@ vi.mock("@/services/UserOpSender", () => ({
 		}
 		trySendSponsored = trySendSponsored
 		lookupUserOpReceipt = lookupUserOpReceipt
+		isUserOpKnown = isUserOpKnown
 	},
 }))
 
@@ -54,6 +56,8 @@ const GAS_PRICE = 1_000_000_000n
 const DIRECT_TX_COST = 650_000n * GAS_PRICE
 const DIRECT_TX_HASH = ("0x" + "ab".repeat(32)) as HexString
 const SPONSORED_TX_HASH = ("0x" + "cd".repeat(32)) as HexString
+/** The grace period a submitted op gets before the bundler not knowing it counts as a drop. */
+const UNCONFIRMED_OP_GRACE_MS = 2 * 60_000
 
 const configService = {
 	getSolverAccountContractAddress: () => SOLVER_ACCOUNT,
@@ -190,14 +194,14 @@ function sponsoredOpResolves(land: (tuple?: { nonce: number }) => void) {
 	})
 }
 
-function unconfirmed(): SubmittedUnconfirmedError {
+function unconfirmed(submittedAt = Date.now()): SubmittedUnconfirmedError {
 	return new SubmittedUnconfirmedError("Sponsored UserOp submitted but no receipt within timeout", CHAIN, {
 		kind: "userOp",
 		userOpHash: SPONSORED_TX_HASH,
 		nonce: 0n,
 		nonceKey: 0n,
 		expires: false,
-		submittedAt: Date.now(),
+		submittedAt,
 	})
 }
 
@@ -207,6 +211,9 @@ beforeEach(() => {
 	lookupUserOpReceipt.mockReset()
 	// The bundler does not know the op, unless a test says it does.
 	lookupUserOpReceipt.mockResolvedValue(null)
+	// ...but it still holds the op, unless a test says it was dropped.
+	isUserOpKnown.mockReset()
+	isUserOpKnown.mockResolvedValue(true)
 	vi.mocked(resolvePendingPermit2Approval).mockReset()
 })
 
@@ -654,9 +661,9 @@ describe("no native fallback after a sponsored op that may still land or did lan
 		expect(await service.setupDelegation(CHAIN)).toBe(false)
 		expect(trySendSponsored).toHaveBeenCalledOnce()
 
-		// The retry would build a new op on the same nonce; the bundler answers it "already
-		// known", which reads as unavailable. The pending op is settled first, so no op is
-		// built and nothing goes native.
+		// The retry would build a new op on the same nonce, which the bundler refuses as
+		// pending. The earlier op is resolved first, by receipt, EntryPoint nonce or bundler
+		// lookup, so no op is built and nothing goes native.
 		trySendSponsored.mockResolvedValue(null)
 		expect(await service.setupDelegation(CHAIN)).toBe(false)
 		expect(await service.setupDelegation(CHAIN)).toBe(false)
@@ -723,6 +730,102 @@ describe("no native fallback after a sponsored op that may still land or did lan
 
 		expect(trySendSponsored).toHaveBeenCalledTimes(2)
 		expect(sendTransaction).toHaveBeenCalledOnce()
+	})
+
+	it("goes on once the bundler dropped an op past the grace period, with the nonce unmoved", async () => {
+		vi.mocked(resolvePendingPermit2Approval).mockResolvedValue(null)
+		const { service, sendTransaction } = build({ native: DIRECT_TX_COST })
+		trySendSponsored.mockRejectedValueOnce(unconfirmed(Date.now() - UNCONFIRMED_OP_GRACE_MS - 1_000))
+		expect(await service.setupDelegation(CHAIN)).toBe(false)
+
+		// Neither pooled nor landed, and the EntryPoint nonce never moved: no retry would
+		// otherwise ever clear the record.
+		isUserOpKnown.mockResolvedValue(false)
+		trySendSponsored.mockResolvedValue(null)
+		expect(await service.setupDelegation(CHAIN)).toBe(true)
+
+		expect(isUserOpKnown).toHaveBeenCalledWith(CHAIN, SPONSORED_TX_HASH)
+		expect(trySendSponsored).toHaveBeenCalledTimes(2)
+		expect(sendTransaction).toHaveBeenCalledOnce()
+	})
+
+	it("stays pending when the bundler lookup for the op throws", async () => {
+		vi.mocked(resolvePendingPermit2Approval).mockResolvedValue(null)
+		const { service, sendTransaction } = build({ native: DIRECT_TX_COST })
+		trySendSponsored.mockRejectedValueOnce(unconfirmed(Date.now() - UNCONFIRMED_OP_GRACE_MS - 1_000))
+		expect(await service.setupDelegation(CHAIN)).toBe(false)
+
+		isUserOpKnown.mockRejectedValue(new Error("ambiguous bundler answer"))
+		trySendSponsored.mockResolvedValue(null)
+		expect(await service.setupDelegation(CHAIN)).toBe(false)
+
+		expect(trySendSponsored).toHaveBeenCalledOnce()
+		expect(sendTransaction).not.toHaveBeenCalled()
+	})
+
+	it("stays pending while the op is younger than the grace period", async () => {
+		vi.mocked(resolvePendingPermit2Approval).mockResolvedValue(null)
+		const { service, sendTransaction } = build({ native: DIRECT_TX_COST })
+		trySendSponsored.mockRejectedValueOnce(unconfirmed(Date.now() - UNCONFIRMED_OP_GRACE_MS + 30_000))
+		expect(await service.setupDelegation(CHAIN)).toBe(false)
+
+		isUserOpKnown.mockResolvedValue(false)
+		trySendSponsored.mockResolvedValue(null)
+		expect(await service.setupDelegation(CHAIN)).toBe(false)
+
+		// A bundler still indexing a fresh op answers null too, so it is not even asked.
+		expect(isUserOpKnown).not.toHaveBeenCalled()
+		expect(trySendSponsored).toHaveBeenCalledOnce()
+		expect(sendTransaction).not.toHaveBeenCalled()
+	})
+
+	it("stays pending while the bundler still knows the op", async () => {
+		vi.mocked(resolvePendingPermit2Approval).mockResolvedValue(null)
+		const { service, sendTransaction } = build({ native: DIRECT_TX_COST })
+		trySendSponsored.mockRejectedValueOnce(unconfirmed(Date.now() - UNCONFIRMED_OP_GRACE_MS - 1_000))
+		expect(await service.setupDelegation(CHAIN)).toBe(false)
+
+		trySendSponsored.mockResolvedValue(null)
+		expect(await service.setupDelegation(CHAIN)).toBe(false)
+
+		expect(isUserOpKnown).toHaveBeenCalledWith(CHAIN, SPONSORED_TX_HASH)
+		expect(trySendSponsored).toHaveBeenCalledOnce()
+		expect(sendTransaction).not.toHaveBeenCalled()
+	})
+
+	it("does not ask the bundler about the op when its receipt lookup could not be answered", async () => {
+		vi.mocked(resolvePendingPermit2Approval).mockResolvedValue(null)
+		const { service } = build({ native: DIRECT_TX_COST })
+		trySendSponsored.mockRejectedValueOnce(unconfirmed(Date.now() - UNCONFIRMED_OP_GRACE_MS - 1_000))
+		expect(await service.setupDelegation(CHAIN)).toBe(false)
+
+		lookupUserOpReceipt.mockRejectedValue(new Error("bundler down"))
+		isUserOpKnown.mockResolvedValue(false)
+		trySendSponsored.mockResolvedValue(null)
+		expect(await service.setupDelegation(CHAIN)).toBe(false)
+
+		expect(isUserOpKnown).not.toHaveBeenCalled()
+		expect(trySendSponsored).toHaveBeenCalledOnce()
+	})
+
+	it("forgets an unconfirmed op once a revoke is confirmed", async () => {
+		vi.mocked(resolvePendingPermit2Approval).mockResolvedValue(null)
+		const { service, setDelegated } = build({ native: 0n, delegateAfterSend: null })
+		trySendSponsored.mockRejectedValueOnce(unconfirmed())
+		expect(await service.setupDelegation(CHAIN)).toBe(false)
+
+		// The revoke bumps the EOA nonce the pending op's authorization was signed for.
+		expect(await service.revokeDelegation(CHAIN)).toBe(true)
+
+		trySendSponsored.mockImplementation(async () => {
+			setDelegated(SOLVER_ACCOUNT)
+			return { txHash: SPONSORED_TX_HASH }
+		})
+		expect(await service.setupDelegation(CHAIN)).toBe(true)
+
+		// Only the first setup looked the op up; the record was gone before the second.
+		expect(lookupUserOpReceipt).not.toHaveBeenCalled()
+		expect(trySendSponsored).toHaveBeenCalledTimes(2)
 	})
 
 	it("stays pending when neither the bundler nor the EntryPoint can be asked", async () => {

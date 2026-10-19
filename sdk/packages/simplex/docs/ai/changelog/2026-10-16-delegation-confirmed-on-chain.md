@@ -33,10 +33,22 @@ delegation that landed is not reported as failed. The final native fallback retu
 - A `SubmittedUnconfirmedError` or a `PendingOpOnNonceError` is `pending`, and a reverted op or any
   other throw is `failed`; either is `delegated` if the chain already shows the delegation. Setup
   stops and returns false.
-- An unconfirmed UserOp is remembered per wallet and chain. The next attempt resolves it before
-  anything is sent: a receipt confirms it on chain, a moved EntryPoint nonce without a delegation
-  drops it, and anything unresolved stays `pending`, so a retry whose bundler call is refused as
-  already known cannot go native.
+- An unconfirmed UserOp is remembered per wallet and chain, with the time it was submitted. The
+  next attempt resolves it before anything is sent, so a retry never builds a new op on its nonce:
+  - a receipt confirms it on chain;
+  - a moved EntryPoint nonce without a delegation drops it;
+  - an op the bundler dropped from its pool without the nonce moving is dropped too, once the
+    receipt lookup is null, the nonce is unchanged, the op is at least 2 minutes old and
+    `UserOpSender.isUserOpKnown` (`eth_getUserOperationByHash`, which rundler answers from its pool
+    and then the chain) gets a definite `null`. A failed or ambiguous lookup stays `pending`.
+    Without this the record kept every retry refused until a restart, so fills stayed off. A wrong
+    drop costs at most one set-code tx's gas: once a native set-code tx lands it consumes the EOA
+    nonce the old op's authorization was signed for, and the drop only falls through to the normal
+    setup, which tries a sponsored op first;
+  - anything else stays `pending`.
+- A confirmed `revokeDelegation` clears the record: the revoke bumps the EOA nonce, which
+  invalidates the pending op's authorization, so a later setup is not held `pending` by an op that
+  cannot land.
 
 `setupDelegation` still answers a boolean. It can also reject, when the read that sizes the
 sponsored op fails before anything is submitted, so the caller retries.

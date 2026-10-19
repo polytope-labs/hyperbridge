@@ -395,6 +395,35 @@ describe("UserOpSender submitted but unconfirmed", () => {
 			`No bundler is configured for ${CHAIN}`,
 		)
 	})
+
+	describe("isUserOpKnown", () => {
+		const known = (service = configService) =>
+			new UserOpSender(clientManager, service, signer).isUserOpKnown(CHAIN, USER_OP_HASH)
+
+		it("is true when the bundler returns the op", async () => {
+			bundlerReplies.eth_getUserOperationByHash = { result: { userOpHash: USER_OP_HASH } }
+
+			await expect(known()).resolves.toBe(true)
+		})
+
+		it("is false on a definite null answer", async () => {
+			bundlerReplies.eth_getUserOperationByHash = { result: null }
+
+			await expect(known()).resolves.toBe(false)
+		})
+
+		it("throws instead of answering false when the bundler cannot be asked", async () => {
+			bundlerReplies.eth_getUserOperationByHash = { error: { message: "boom" } }
+
+			await expect(known()).rejects.toThrow("Bundler RPC error (eth_getUserOperationByHash): boom")
+		})
+
+		it("throws when no bundler is configured for the chain", async () => {
+			await expect(known(configServiceFor(undefined as unknown as string))).rejects.toThrow(
+				`No bundler is configured for ${CHAIN}`,
+			)
+		})
+	})
 })
 
 /**

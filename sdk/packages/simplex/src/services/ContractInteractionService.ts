@@ -146,15 +146,13 @@ const BLOCK_TIME_SAMPLE_BLOCKS = 1_000n
 const FALLBACK_BLOCK_TIME_SECONDS = 2
 
 /**
- * A measurement faster than a quarter of the declared block time is taken for a bad sample, not a
- * faster chain. Real speed-ups are well inside that (BSC runs at 0.6× its declared figure), and the
- * measurement is pinned for the life of the process, so one RPC serving bad timestamps would
- * otherwise stretch every bid on that chain for as long as simplex runs.
+ * A measurement faster than half the reference block time is taken for a bad sample, not a faster
+ * chain. The reference is the declared block time, or {@link FALLBACK_BLOCK_TIME_SECONDS} on a chain
+ * that declares none. Real speed-ups are inside that (BSC runs at 0.6× its declared figure), and the
+ * measurement is pinned for the life of the process, so this bounds how far one RPC serving bad
+ * timestamps can stretch every bid on that chain to twice the window.
  */
-const MEASURED_BLOCK_TIME_FLOOR_DIVISOR = 4
-
-/** The floor for a measurement on a chain that declares no block time. */
-const MIN_MEASURED_BLOCK_TIME_SECONDS = 0.1
+const MEASURED_BLOCK_TIME_TOLERANCE_DIVISOR = 2
 
 export class ContractInteractionService {
 	private configService: FillerConfigService
@@ -1145,8 +1143,9 @@ export class ContractInteractionService {
 	 * speeds up (BSC makes a block every 0.45s against a declared 0.75s) and some chains
 	 * declare none. Converting at a slower block time than the chain's ends a bid early, so
 	 * the faster of the measured and the declared figure is used, and a stalled or idle
-	 * stretch in the sample never shortens a bid. A measurement below a quarter of the declared
-	 * figure (or below 0.1s with none declared) is discarded, so a bad sample cannot lengthen one.
+	 * stretch in the sample never shortens a bid. A measurement below half the declared figure
+	 * (or half {@link FALLBACK_BLOCK_TIME_SECONDS} with none declared) is discarded, which limits
+	 * how far one RPC can stretch a bid to twice its window.
 	 *
 	 * Blocks that cannot be read fall back to the declared figure, then to
 	 * {@link FALLBACK_BLOCK_TIME_SECONDS}. That answer is not kept.
@@ -1161,9 +1160,9 @@ export class ContractInteractionService {
 		const declared = declaredMs ? declaredMs / 1000 : undefined
 		const seconds = this.measureBlockTimeSeconds(client)
 			.then((measured) => {
-				const floor = declared ? declared / MEASURED_BLOCK_TIME_FLOOR_DIVISOR : MIN_MEASURED_BLOCK_TIME_SECONDS
-				if (measured < floor) {
-					const used = declared ?? MIN_MEASURED_BLOCK_TIME_SECONDS
+				const reference = declared ?? FALLBACK_BLOCK_TIME_SECONDS
+				if (measured < reference / MEASURED_BLOCK_TIME_TOLERANCE_DIVISOR) {
+					const used = reference
 					this.logger.warn(
 						{ chain, measured, declared, seconds: used },
 						"Discarding an implausibly fast block-time measurement",

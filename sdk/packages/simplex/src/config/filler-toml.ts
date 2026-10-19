@@ -278,20 +278,19 @@ export function validateVaultToml(
 }
 
 /**
- * Checked at the gate rather than at first use: a misconfigured orderbook means
- * every limit order the operator creates is refused, and a
- * TTL under the orderbook's own floor is refused one order at a time with a
- * `TTL_TOO_SHORT` nobody sees until they try.
- */
-/**
  * The one check every way of setting rebalancing goes through: the TOML at boot, the library's
- * `RebalanceController.set`, and the UI's PUT. A trigger of 0 never fires, 1 or more fires on
- * every check (the threshold is `base × (1 − p)`), and a non-positive or unparseable base turns
- * the threshold negative or NaN, so each would quietly disable or run away with rebalancing.
- * Base balances are parsed with `parseFloat`, as `FillerConfigService.getBaseBalance` reads them.
+ * `RebalanceController.set`, and the UI's PUT. With no `triggerPercentage` rebalancing is switched
+ * off (boot starts the service only when one is set), so base balances alone are inert and are not
+ * checked. Otherwise the threshold is `base × (1 − p)`: a trigger of 0 fires whenever a balance is
+ * at or below its base, 1 fires only at a zero balance, above 1 never fires, and NaN fails every
+ * comparison, so each would run away with rebalancing or quietly disable it. A negative or
+ * unparseable base would turn the threshold negative or NaN the same way. A base of `0` or `"0"` is
+ * finite and not negative, so it passes (`FillerConfigService.getBaseBalance` skips a bare 0 as not
+ * configured). Base balances are parsed with `parseFloat`, as `getBaseBalance` reads them.
  */
 export function validateRebalancingConfig(rebalancing: RebalancingConfig): void {
 	const trigger: unknown = rebalancing.triggerPercentage
+	if (trigger === undefined) return
 	if (typeof trigger !== "number" || !Number.isFinite(trigger) || trigger <= 0 || trigger >= 1) {
 		throw new Error(
 			`rebalancing.triggerPercentage must be a number between 0 and 1 (exclusive); got ${describeValue(trigger)}`,
@@ -302,9 +301,9 @@ export function validateRebalancingConfig(rebalancing: RebalancingConfig): void 
 			// A base balance is written as a string; parseFloat also takes a bare TOML number.
 			const parsed =
 				typeof amount === "string" || typeof amount === "number" ? Number.parseFloat(String(amount)) : Number.NaN
-			if (!Number.isFinite(parsed) || parsed <= 0) {
+			if (!Number.isFinite(parsed) || parsed < 0) {
 				throw new Error(
-					`rebalancing.baseBalances.${asset} for chain ${chainId} must be a number > 0; got ${describeValue(amount)}`,
+					`rebalancing.baseBalances.${asset} for chain ${chainId} must be a number >= 0; got ${describeValue(amount)}`,
 				)
 			}
 		}
@@ -318,6 +317,12 @@ function describeValue(value: unknown): string {
 	return value === null ? "null" : typeof value
 }
 
+/**
+ * Checked at the gate rather than at first use: a misconfigured orderbook means
+ * every limit order the operator creates is refused, and a
+ * TTL under the orderbook's own floor is refused one order at a time with a
+ * `TTL_TOO_SHORT` nobody sees until they try.
+ */
 function validateOrderbookConfig(orderbook: OrderbookConfig): void {
 	if (!orderbook.url) {
 		throw new Error("orderbook.url is required")

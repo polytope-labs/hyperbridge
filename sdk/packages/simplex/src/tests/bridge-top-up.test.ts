@@ -467,6 +467,7 @@ describe("BRIDGE top-up persistence", () => {
 		internals.gateways.set(
 			"EVM-8453",
 			Promise.resolve({
+				isOrderFilled: async () => false,
 				isOrderRefunded: async () => refunded,
 				async *cancelOrder() {
 					yield { status: "DESTINATION_FINALIZED", proof: {} }
@@ -771,6 +772,7 @@ describe("BRIDGE top-up persistence", () => {
 		internals.gateways.set(
 			"EVM-8453",
 			Promise.resolve({
+				isOrderFilled: async () => false,
 				isOrderRefunded: async () => refunded,
 				async *cancelOrder() {
 					cancelOrderCalls += 1
@@ -833,6 +835,7 @@ describe("BRIDGE top-up persistence", () => {
 		internals.gateways.set(
 			"EVM-8453",
 			Promise.resolve({
+				isOrderFilled: async () => false,
 				isOrderRefunded: async () => state.refunded,
 				async *cancelOrder() {
 					throw new Error("the cancel must not run again")
@@ -2812,7 +2815,7 @@ describe("BRIDGE top-up outcomes need the chain", () => {
 		const { topUp, data } = topUpWith(stored("awaiting_bids", { commitment: `0x${"77".repeat(32)}` }))
 		const internals = topUp as unknown as TopUpInternals & { resumeOrder: () => Promise<void> }
 		internals.resumeOrder = async () => {}
-		internals.gateways.set("EVM-8453", Promise.resolve({ isOrderRefunded: async () => true }))
+		internals.gateways.set("EVM-8453", Promise.resolve({ isOrderFilled: async () => false, isOrderRefunded: async () => true }))
 		const fetchSpy = vi
 			.spyOn(globalThis, "fetch")
 			.mockImplementation(async () => new Response(JSON.stringify(REFUNDED_INDEX)))
@@ -2822,6 +2825,75 @@ describe("BRIDGE top-up outcomes need the chain", () => {
 		const saved = (await data.state.get()).bridgeTopUp!
 		expect(saved.stage).toBe("reclaimed")
 		expect(saved.recoverySteps?.map((step) => [step.step, step.txHash])).toEqual([["FUNDS_CLAIMED", "0x0f"]])
+		fetchSpy.mockRestore()
+	})
+
+	it("resumes delivery, not a reclaim, when the empty escrow is a fill's release", async () => {
+		// `_withdraw` empties the escrow for a redeem as well, so `isOrderRefunded` is true here
+		// for an order that was filled, and the indexer's REFUNDED status is no better evidence.
+		const { topUp, data } = topUpWith(stored("awaiting_bids", { commitment: `0x${"77".repeat(32)}` }))
+		const internals = topUp as unknown as TopUpInternals & { resumeOrder: () => Promise<void> }
+		internals.resumeOrder = async () => {}
+		const resumeDelivery = vi.fn(async () => {})
+		internals.resumeDelivery = resumeDelivery
+		internals.gateways.set("EVM-8453", Promise.resolve({ isOrderFilled: async () => true, isOrderRefunded: async () => true }))
+		const fetchSpy = vi
+			.spyOn(globalThis, "fetch")
+			.mockImplementation(async () => new Response(JSON.stringify(REFUNDED_INDEX)))
+
+		await topUp.sync()
+
+		const saved = (await data.state.get()).bridgeTopUp!
+		expect(saved.stage).toBe("delivering")
+		expect(saved.recoverySteps).toBeUndefined()
+		await vi.waitFor(() => expect(resumeDelivery).toHaveBeenCalledTimes(1))
+		fetchSpy.mockRestore()
+	})
+
+	it("stops a reclaim and resumes delivery when the order turns out to have filled", async () => {
+		const { topUp, data } = topUpWith(stored("unfilled", { commitment: `0x${"77".repeat(32)}` }))
+		const internals = topUp as unknown as TopUpInternals
+		const resumeDelivery = vi.fn(async () => {})
+		internals.resumeDelivery = resumeDelivery
+		const cancelOrder = vi.fn()
+		internals.gateways.set(
+			"EVM-8453",
+			Promise.resolve({ isOrderFilled: async () => true, isOrderRefunded: async () => true, cancelOrder }),
+		)
+		const fetchSpy = vi
+			.spyOn(globalThis, "fetch")
+			.mockImplementation(async () => new Response(JSON.stringify({ data: { iOrderV3s: { nodes: [] } } })))
+
+		await topUp.reclaim()
+		await vi.waitFor(() => expect(resumeDelivery).toHaveBeenCalledTimes(1))
+
+		expect((await data.state.get()).bridgeTopUp?.stage).toBe("delivering")
+		expect(cancelOrder).not.toHaveBeenCalled()
+		fetchSpy.mockRestore()
+	})
+
+	it("does not record a refund when the fill cannot be read", async () => {
+		const { topUp, data } = topUpWith(stored("awaiting_bids", { commitment: `0x${"77".repeat(32)}` }))
+		const internals = topUp as unknown as TopUpInternals & { resumeOrder: () => Promise<void> }
+		internals.resumeOrder = async () => {}
+		internals.gateways.set(
+			"EVM-8453",
+			Promise.resolve({
+				isOrderFilled: async () => {
+					throw new Error("BSC rpc down")
+				},
+				isOrderRefunded: async () => true,
+			}),
+		)
+		const fetchSpy = vi
+			.spyOn(globalThis, "fetch")
+			.mockImplementation(async () => new Response(JSON.stringify(REFUNDED_INDEX)))
+
+		await topUp.sync()
+
+		const saved = (await data.state.get()).bridgeTopUp!
+		expect(saved.stage).toBe("awaiting_bids")
+		expect(saved.recoverySteps).toBeUndefined()
 		fetchSpy.mockRestore()
 	})
 

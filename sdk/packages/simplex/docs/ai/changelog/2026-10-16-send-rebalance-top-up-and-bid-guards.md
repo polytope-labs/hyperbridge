@@ -12,10 +12,12 @@ is withdrawn from a vault.
 ## Rebalancing
 
 `validateRebalancingConfig` (`src/config/filler-toml.ts`) requires `triggerPercentage` to be finite
-and strictly between 0 and 1, and every `baseBalances` entry to parse (with `parseFloat`, as
-`FillerConfigService.getBaseBalance` reads it) to a finite number above 0. It runs in
-`validateConfig` at boot, in `RebalanceController.set`, and on `PUT /api/rebalancing`, which keeps
-its own checks for at least one entry and numeric chain-id keys.
+and strictly between 0 and 1 (the threshold is `base × (1 − p)`: 0 fires whenever a balance is at or
+below its base, 1 only at a zero balance, above 1 never), and every `baseBalances` entry to parse
+(with `parseFloat`, as `FillerConfigService.getBaseBalance` reads it) to a finite number that is not
+negative, so `0` and `"0"` pass. With no `triggerPercentage`, rebalancing is off, as at boot, and
+nothing is checked. It runs in `validateConfig` at boot, in `RebalanceController.set`, and on
+`PUT /api/rebalancing`, which keeps its own checks for at least one entry and numeric chain-id keys.
 
 `executePortfolioRebalancing` keeps one lane per chain, since every transfer sends from one EOA with
 no nonce manager. A transfer waits for the previous transfer on every chain it sends on: its source
@@ -26,11 +28,21 @@ filling one deficit chain by CCTP run one after another, while a USDT0 leg into 
 wait for them. `executedTransfers` keeps plan order, and a failed leg does not hold up the next one
 in its lane.
 
+A lane is held for the whole leg: for CCTP the burn, the attestation wait and the mint, for Binance
+the deposit's credit and the withdrawal, and for USDT0 the wait for delivery. A slow leg delays
+every later leg that shares one of its chains. Lanes serialise rebalance legs only; fills, vault
+sweeps, top-ups and operator sends from the same EOA do not take them and share its nonce. A viem
+`nonceManager` on the wallet client would cover those too, and is a possible follow-up.
+
 ## Bid validity
 
-A measured block time below a quarter of the chain's declared one, or below 0.1s on a chain that
-declares none, is discarded with a warning and the declared figure (or 0.1s) is used, so a bad
-sample cannot stretch every bid on that chain for the life of the process.
+A measured block time below half the chain's declared one is discarded with a warning and the
+declared figure is used. A chain that declares none is held to half of `FALLBACK_BLOCK_TIME_SECONDS`
+(2s, so a 1s floor) and uses the fallback below it. The measurement is kept for the life of the
+process, so this limits how far one RPC can stretch every bid on that chain to twice its window (on
+Ethereum a 3.01s sample would otherwise stretch a 330s window to about 22 minutes). A chain without
+a declared figure that runs faster than 1s, such as BSC Chapel at 0.45s, is converted at 2s and its
+bids end early.
 
 ## Setup wizard funding reads
 
@@ -50,6 +62,9 @@ clients are already verified at boot and on runtime RPC edits.
   `REFUNDED` supplies the `FUNDS_CLAIMED` step's tx hash and time only. The same rule now applies
   when a sync finds `REFUNDED` on an `awaiting_bids`/`filling` record. If the indexer reports a
   refund and the chain read fails, the check throws, so the reclaim retries instead of cancelling.
+  A fill's escrow release (`IntentsBase._withdraw`) empties the escrow too, so before recording
+  `reclaimed` the check reads `gateway.isOrderFilled(order)` on BSC: a filled order moves to
+  `delivering` and resumes delivery, and a failed read throws.
 - **Delivered** needs Hyperbridge's `queryRequestReceipt`. The indexer's `DESTINATION` status is
   still stored in `deliveryStatuses` for the timeline.
 - **Start** quotes the solver fee with the gateway's `quoteOrderFees` before persisting. The wallet

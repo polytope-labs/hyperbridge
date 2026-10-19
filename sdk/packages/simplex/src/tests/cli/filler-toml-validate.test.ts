@@ -188,8 +188,19 @@ describe("validateConfig [rebalancing]", () => {
 		expect(() => validateConfig(withRebalancing(0.5))).not.toThrow()
 	})
 
-	it.each(["0", "-5", "abc", "Infinity"])("rejects a base balance of %s", (base) => {
+	it.each(["-5", "abc", "Infinity"])("rejects a base balance of %s", (base) => {
 		expect(() => validateConfig(withRebalancing(0.5, base))).toThrow(/baseBalances\.USDC for chain 8453/)
+	})
+
+	it.each(["0", 0 as unknown as string])("accepts a base balance of %s: finite and not negative", (base) => {
+		expect(() => validateConfig(withRebalancing(0.5, base))).not.toThrow()
+	})
+
+	it("accepts base balances with no triggerPercentage, because rebalancing is then switched off", () => {
+		// Boot starts the rebalancer only when a trigger is set, so these configs run today.
+		const config = withRebalancing(0.5, "0")
+		config.rebalancing = { baseBalances: { USDC: { "8453": "-5", "1": "abc" } } } as unknown as FillerTomlConfig["rebalancing"]
+		expect(() => validateConfig(config)).not.toThrow()
 	})
 })
 

@@ -1825,11 +1825,15 @@ export class BridgeTopUp {
 	}
 
 	/**
-	 * Whether the escrow is back with the filler, as the source gateway reports it; records the
-	 * refund as the recovery's last step when it is. The indexer's REFUNDED status only supplies
-	 * that step's tx hash and time: it is not evidence on its own. `isOrderRefunded` reads the
-	 * escrow and is true for an empty one, including an order that was never placed, so it only
-	 * counts for a record whose placement was seen (`commitment`).
+	 * Whether there is nothing left to reclaim: the escrow is back with the filler, as the source
+	 * gateway reports it, which is recorded as the recovery's last step. The indexer's REFUNDED
+	 * status only supplies that step's tx hash and time: it is not evidence on its own.
+	 * `isOrderRefunded` reads the escrow and is true for an empty one, including an order that was
+	 * never placed, so it only counts for a record whose placement was seen (`commitment`).
+	 *
+	 * An empty escrow is also what a fill leaves: `IntentsBase._withdraw` releases it for a redeem
+	 * too. So before calling it a refund the order's fill is checked on BSC, and an order that
+	 * filled moves to `delivering` instead (also true, since the reclaim has nothing to do).
 	 */
 	private async refunded(gateway: IntentGateway, order: Order): Promise<boolean> {
 		if (!this.record?.commitment) return false
@@ -1844,6 +1848,15 @@ export class BridgeTopUp {
 			return false
 		}
 		if (!onChain) return false
+		// A read that fails throws, so the escrow is never called refunded from an unverified read.
+		if (await withTimeout(gateway.isOrderFilled(order), "the fill")) {
+			const id = this.record.id
+			await this.update({ stage: "delivering", error: undefined })
+			// Not run here: this can be inside the reclaim's own flow, where a second drive of the
+			// record is a no-op. The timer fires once that flow has returned.
+			this.scheduleRetry(id, () => void this.resumeDelivery(), 0)
+			return true
+		}
 		if (!this.hasRecoveryStep("FUNDS_CLAIMED")) {
 			await this.recordRecoveryStep(
 				"FUNDS_CLAIMED",

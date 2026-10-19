@@ -1096,10 +1096,10 @@ describe("UiServer (operator mode)", () => {
 		const badBase = await fetch(`${base}/api/rebalancing`, {
 			method: "PUT",
 			headers: CSRF,
-			body: JSON.stringify({ triggerPercentage: 0.4, baseBalances: { USDC: { "1": "0" } } }),
+			body: JSON.stringify({ triggerPercentage: 0.4, baseBalances: { USDC: { "1": "-1" } } }),
 		})
 		expect(badBase.status).toBe(400)
-		expect((await badBase.json()).error).toMatch(/must be a number > 0/)
+		expect((await badBase.json()).error).toMatch(/must be a number >= 0/)
 		expect(operator.applyRebalancing).toHaveBeenCalledTimes(1)
 	})
 

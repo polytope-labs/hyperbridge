@@ -618,32 +618,35 @@ export class LimitOrderService {
 		const order = await this.store.setStatus(id, "resizing", null, POSTABLE)
 		if (!order) return null
 
-		if (BigInt(order.remaining) < floor) {
-			this.logger.info(
-				{ id, remaining: order.remaining, floor: floor.toString() },
-				"Limit order worked down past the dust floor; closing it",
-			)
-			if (order.commitment) await this.withdraw(order.commitment as HexString)
-			const closed = await this.store.setPosting(
-				id,
-				{
-					commitment: null,
-					bookExpiresAt: null,
-					bookPrice: null,
-					orderNonce: order.orderNonce,
-					entryPoint: null,
-					status: "filled",
-					lastError: null,
-				},
-				POSTABLE,
-			)
-			if (closed) this.report({ kind: "filled", order: closed })
-			return closed
-		}
+		if (BigInt(order.remaining) < floor) return this.closeFilled(order, floor)
 
 		const resized = await this.repost(order)
 		if (resized) this.report({ kind: "resized", order: resized, delivered })
 		return resized
+	}
+
+	/** Takes an order that has been worked down past the dust floor off the book and closes the row. */
+	private async closeFilled(order: LimitOrder, floor: bigint): Promise<LimitOrder | null> {
+		this.logger.info(
+			{ id: order.id, remaining: order.remaining, floor: floor.toString() },
+			"Limit order worked down past the dust floor; closing it",
+		)
+		if (order.commitment) await this.withdraw(order.commitment as HexString)
+		const closed = await this.store.setPosting(
+			order.id,
+			{
+				commitment: null,
+				bookExpiresAt: null,
+				bookPrice: null,
+				orderNonce: order.orderNonce,
+				entryPoint: null,
+				status: "filled",
+				lastError: null,
+			},
+			POSTABLE,
+		)
+		if (closed) this.report({ kind: "filled", order: closed })
+		return closed
 	}
 
 	/**
@@ -693,10 +696,40 @@ export class LimitOrderService {
 			return null
 		}
 
+		// A fill that lands while the row is `resizing` is not applied: `syncToChain` only
+		// acts on an `open` order, and this repost holds the row from a read taken before
+		// the fill. Posting that read would advertise output the account has already paid
+		// until the next tally pass, so the size is brought down to the chain's tally first.
+		const sized = await this.lowerBeforePosting(order)
+		if (!sized) return null
+
 		// A fresh nonce, because the orderbook remembers every op hash it has taken
 		// and a signed op cannot be posted twice.
-		const nonce = (BigInt(order.orderNonce) + 1n).toString()
-		return (await this.post({ ...order, commitment: null, orderNonce: nonce })).order
+		const nonce = (BigInt(sized.orderNonce) + 1n).toString()
+		return (await this.post({ ...sized, commitment: null, orderNonce: nonce })).order
+	}
+
+	/**
+	 * The order at the size the chain's tally allows, ready to post: lowered in the store
+	 * when the tally leaves it less than it holds, and closed when what is left is under
+	 * the dust floor (answering null). A tally that cannot be read leaves the size alone,
+	 * and the periodic tally pass follows up.
+	 */
+	private async lowerBeforePosting(order: LimitOrder): Promise<LimitOrder | null> {
+		let lowered: LimitOrder | null
+		try {
+			lowered = await this.clampToTally(order, "info")
+		} catch (err) {
+			this.logger.warn({ id: order.id, err }, "Could not read the limit order's tally before posting it; posting its present size")
+			return order
+		}
+		if (!lowered) return order
+
+		const floor = await this.dustFloor(lowered)
+		if (BigInt(lowered.remaining) >= floor) return { ...order, remaining: lowered.remaining }
+		// The old entry is already down, so there is nothing left to withdraw.
+		await this.closeFilled({ ...lowered, commitment: null }, floor)
+		return null
 	}
 
 	/** A listener that throws is the listener's problem, not the fill's. */
@@ -819,9 +852,10 @@ export class LimitOrderService {
 	 *
 	 * The row is read again and claimed out of `open` first: a fill can have worked
 	 * it down or started its own repost since reconciliation listed it, and that
-	 * write is the one to follow. A fill that lands once the claim is taken waits
-	 * in `resize` for this to finish. The EntryPoint is only written with a posting
-	 * that landed, so a pass cut short anywhere leaves a row the next pass still
+	 * write is the one to follow. A fill that lands once the claim is taken cannot
+	 * sync the row, which is `resizing`; the repost lowers the order to the chain's
+	 * tally before it posts, and `resize` waits for this to finish. The EntryPoint
+	 * is only written with a posting that landed, so a pass cut short anywhere leaves a row the next pass still
 	 * reads as stale, or as having no entry, and finishes the job.
 	 */
 	private async resign(listed: LimitOrder): Promise<boolean> {
@@ -889,25 +923,35 @@ export class LimitOrderService {
 	 * the book at that size, or closes it under the dust floor: what
 	 * {@link reconcileTallies} does for every open order.
 	 *
+	 * The tally is read at `blockNumber` when given: a fill passes the block it landed
+	 * in, so an endpoint lagging behind it cannot answer with the tally from before the
+	 * fill. The periodic pass reads the latest block.
+	 *
 	 * Answers whether the order was lowered. False when it is not `open`, or when
 	 * the tally leaves it where it is, including a chain that has not yet counted a
-	 * fill. Throws when the chain cannot be read.
+	 * fill and a tally that cannot be read (logged by the read). Throws when the chain
+	 * cannot be read for the token's decimals, or the store or orderbook fail;
+	 * settlement catches that and the periodic pass follows up.
 	 */
-	async syncToChain(id: string): Promise<boolean> {
+	async syncToChain(id: string, blockNumber?: bigint): Promise<boolean> {
 		const order = await this.store.get(id)
 		if (!order || order.status !== "open") return false
-		return this.lowerToTally(order, "info")
+		return this.lowerToTally(order, "info", blockNumber)
 	}
 
-	private async lowerToTally(order: LimitOrder, level: "info" | "warn"): Promise<boolean> {
-		const clamped = await this.clampToTally(order, level)
+	private async lowerToTally(order: LimitOrder, level: "info" | "warn", blockNumber?: bigint): Promise<boolean> {
+		const clamped = await this.clampToTally(order, level, blockNumber)
 		if (!clamped) return false
 		await this.resize(clamped, BigInt(order.remaining) - BigInt(clamped.remaining))
 		return true
 	}
 
 	/** The order as the store now holds it when its tally lowered it, null when it was left alone. */
-	private async clampToTally(order: LimitOrder, level: "info" | "warn"): Promise<LimitOrder | null> {
+	private async clampToTally(
+		order: LimitOrder,
+		level: "info" | "warn",
+		blockNumber?: bigint,
+	): Promise<LimitOrder | null> {
 		const token = this.assetRegistry.getAddress(limitOrderLegs(order).output, order.fillChain)
 		if (!token) return null
 
@@ -915,7 +959,7 @@ export class LimitOrderService {
 		// kept in the token's units, and the cap each bid carries comes from this read.
 		const decimals = await this.contractService.getTokenDecimals(token, order.fillChain)
 		const budget = budgetFor(order, token, decimals)
-		const spent = await this.contractService.limitOrderSpent(order.fillChain, budget.budgetId)
+		const spent = await this.contractService.limitOrderSpent(order.fillChain, budget.budgetId, blockNumber)
 		if (spent === null) return null
 
 		// A size finer than the token truncates into the cap, which leaves `remaining`

@@ -156,6 +156,9 @@ export class EventMonitor extends EventEmitter {
 			// Which log of its transaction this fill is: one bundle can carry several of our
 			// fills, and the transaction hash alone does not tell them apart.
 			logIndex: event.logIndex,
+			// The block the fill landed in, which the limit order's on-chain tally is read at
+			// so that a lagging endpoint cannot answer with the tally from before the fill.
+			blockNumber: event.blockNumber,
 			// A scanner that cannot tell leaves this unset; treated as closing the order,
 			// as every fill of ours was before partial fills were told apart.
 			complete: event.complete !== false,

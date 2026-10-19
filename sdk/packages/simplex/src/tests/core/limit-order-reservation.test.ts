@@ -35,6 +35,8 @@ const SECOND_ORDER = "b7a1d2c4-0e5f-4a3b-9c8d-1f2e3d4c5b6a"
 const USDC_ORDER = "c9d8e7f6-1a2b-4c3d-8e4f-5a6b7c8d9e0f"
 const OTHER = "0xDDDD00000000000000000000000000000000DDDD" as HexString
 const ONE = 10n ** 18n
+/** The block the scanner reports for a fill: the sync must read the tally there. */
+const FILL_BLOCK = 4_242n
 
 const dirs: string[] = []
 afterEach(() => {
@@ -113,6 +115,7 @@ async function build(options: { bids?: BidStore; retract?: BidSubmissionResult }
 			complete,
 			transactionHash,
 			logIndex,
+			FILL_BLOCK,
 		)
 		await filler.retractionQueue.onIdle()
 	}
@@ -142,7 +145,7 @@ describe("settling a fill of ours", () => {
 		await ctx.fill(1000n * ONE, 100n, true, "0xfill")
 
 		expect(await ctx.recorded(LIMIT_ORDER)).toEqual([[COMMITMENT, FIRST_BID, (1000n * ONE).toString(), "0xfill"]])
-		expect(ctx.syncToChain).toHaveBeenCalledWith(LIMIT_ORDER)
+		expect(ctx.syncToChain).toHaveBeenCalledWith(LIMIT_ORDER, FILL_BLOCK)
 		expect(await ctx.remaining(LIMIT_ORDER)).toBe(2000n * ONE)
 		// Back on the book at its new size.
 		expect(ctx.client.submitted).toHaveLength(1)
@@ -160,7 +163,7 @@ describe("settling a fill of ours", () => {
 		expect(await ctx.recorded(SECOND_ORDER)).toEqual([])
 		expect(await ctx.remaining(LIMIT_ORDER)).toBe(2000n * ONE)
 		// Synced too, as an order that priced a bid on this swap; its tally has not moved.
-		expect(ctx.syncToChain).toHaveBeenCalledWith(SECOND_ORDER)
+		expect(ctx.syncToChain).toHaveBeenCalledWith(SECOND_ORDER, FILL_BLOCK)
 		expect(await ctx.remaining(SECOND_ORDER)).toBe(3000n * ONE)
 		expect(ctx.retractBid).not.toHaveBeenCalled()
 
@@ -268,11 +271,19 @@ describe("settling a fill of ours", () => {
 		const ctx = await build()
 		await ctx.bid({ limitOrderId: LIMIT_ORDER, payout: (1000n * ONE).toString() })
 
-		await ctx.filler.settleFilledLimitOrder(COMMITMENT, 8453, [{ token: OTHER, amount: 999n * ONE }])
+		await ctx.filler.settleFilledLimitOrder(
+			COMMITMENT,
+			8453,
+			[{ token: OTHER, amount: 999n * ONE }],
+			[],
+			undefined,
+			undefined,
+			FILL_BLOCK,
+		)
 
 		expect(await ctx.recorded(LIMIT_ORDER)).toEqual([])
 		// Still synced: the chain, not the event, says what the order has left.
-		expect(ctx.syncToChain).toHaveBeenCalledWith(LIMIT_ORDER)
+		expect(ctx.syncToChain).toHaveBeenCalledWith(LIMIT_ORDER, FILL_BLOCK)
 		expect(await ctx.remaining(LIMIT_ORDER)).toBe(3000n * ONE)
 	})
 })
@@ -378,8 +389,8 @@ describe("a multi-leg swap priced by limit orders that pay different tokens", ()
 		expect(await ctx.recorded(USDC_ORDER)).toEqual([])
 		expect(await ctx.remaining(SECOND_ORDER)).toBe(2100n * ONE)
 		// Both orders priced a bid on the swap, so both are brought to their tally.
-		expect(ctx.syncToChain).toHaveBeenCalledWith(USDC_ORDER)
-		expect(ctx.syncToChain).toHaveBeenCalledWith(SECOND_ORDER)
+		expect(ctx.syncToChain).toHaveBeenCalledWith(USDC_ORDER, FILL_BLOCK)
+		expect(ctx.syncToChain).toHaveBeenCalledWith(SECOND_ORDER, FILL_BLOCK)
 	})
 })
 

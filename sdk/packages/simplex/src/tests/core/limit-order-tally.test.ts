@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 import { bytes20ToBytes32, type HexString } from "@hyperbridge/sdk"
 import { IntentFiller } from "@/core/filler"
 import { MemoryDataStore } from "@/data/memory"
@@ -41,9 +41,19 @@ async function build(options: { slow?: boolean } = {}) {
 	}
 	const { service } = limitOrderService(client, limitOrders)
 	let tally = 0n
-	;(service as any).contractService.limitOrderSpent = async () => {
+	// The block each tally read was pinned to, undefined for a read of the latest block.
+	const reads: Array<bigint | undefined> = []
+	;(service as any).contractService.limitOrderSpent = async (_chain: string, _budgetId: HexString, blockNumber?: bigint) => {
+		reads.push(blockNumber)
 		await pause()
 		return tally
+	}
+	// What each posting offered to pay out, in the paid token's own units.
+	const posted: bigint[] = []
+	const prepare = (service as any).contractService.prepareLimitOrderUserOp
+	;(service as any).contractService.prepareLimitOrderUserOp = async (params: { outputAmount: bigint }) => {
+		posted.push(params.outputAmount)
+		return prepare(params)
 	}
 
 	const filler = new IntentFiller(
@@ -114,7 +124,7 @@ async function build(options: { slow?: boolean } = {}) {
 	const executeBid = async (whole: bigint) => land(await placeBid(whole))
 
 	/** The fill event for that bid reaching the filler, which queues its settlement. */
-	const scanFill = (fill: ReturnType<typeof land>) => {
+	const scanFill = (fill: ReturnType<typeof land>, blockNumber?: bigint) => {
 		filler.monitor.emit("orderFilledOnChain", {
 			commitment: fill.commitment,
 			filler: OUR_ADDRESS,
@@ -122,12 +132,16 @@ async function build(options: { slow?: boolean } = {}) {
 			outputs: [{ token: bytes20ToBytes32(USDC), amount: fill.charged * UNIT }],
 			inputs: [{ token: bytes20ToBytes32(CNGN), amount: (fill.take * fill.charged) / fill.whole }],
 			complete: true,
+			blockNumber,
 		})
 	}
 
 	return {
 		cap,
 		client,
+		service,
+		reads,
+		posted,
 		filler,
 		trace,
 		placeBid,
@@ -200,6 +214,92 @@ describe("a limit order's remaining against its on-chain tally", () => {
 		const after = await ctx.order()
 		expect(after.remaining).toBe((750n * ONE).toString())
 		expect(toRaw(BigInt(after.remaining), DECIMALS)).toBe(ctx.cap - ctx.tally())
+	})
+})
+
+describe("the tally a fill is settled against", () => {
+	it("is read at the block the fill landed in, and the periodic pass at the latest", async () => {
+		// A load-balanced endpoint can lag the one that saw the fill, and a read at the
+		// latest block would then return the tally from before it.
+		const ctx = await build()
+		const fill = await ctx.executeBid(250n)
+
+		ctx.scanFill(fill, 12_345n)
+		await ctx.idle()
+		// The sync is the first read. The repost it triggers checks the tally again before
+		// it posts, with nothing to pin it to.
+		expect(ctx.reads).toEqual([12_345n, undefined])
+		expect((await ctx.order()).remaining).toBe((750n * ONE).toString())
+
+		ctx.reads.length = 0
+		await ctx.filler.reconcileLimitOrderTallies()
+		expect(ctx.reads).toEqual([undefined])
+	})
+
+	it("is read at the latest block when the scanner reported no block", async () => {
+		const ctx = await build()
+		ctx.scanFill(await ctx.executeBid(250n))
+		await ctx.idle()
+		expect(ctx.reads[0]).toBeUndefined()
+		expect(ctx.reads.length).toBeGreaterThan(0)
+	})
+})
+
+describe("a fill on a bid row that records no provenance", () => {
+	it("settles nothing and fails nothing, for a row whose pricedBy is left out", async () => {
+		// A custom `BidStore` holding rows from before bids carried `pricedBy` can return it
+		// undefined rather than null; both mean the same thing.
+		const ctx = await build()
+		const fill = await ctx.executeBid(250n)
+		const bids = (ctx.filler as any).bidStorage
+		const byCommitments = bids.byCommitments.bind(bids)
+		bids.byCommitments = async (commitments: HexString[]) =>
+			(await byCommitments(commitments)).map((row: object) => ({ ...row, pricedBy: undefined }))
+		const error = vi.spyOn((ctx.filler as any).logger, "error")
+
+		ctx.scanFill(fill)
+		await ctx.idle()
+
+		expect(error).not.toHaveBeenCalled()
+		expect(ctx.reads).toEqual([])
+	})
+})
+
+describe("a fill that lands while the order is being reposted", () => {
+	it("is applied by the repost, which goes out at the chain's room", async () => {
+		const ctx = await build()
+		const resizing = await ctx.order()
+		// A renewal, a resize or a re-sign holds the row in `resizing` while it works.
+		await (ctx.service as any).store.setStatus(resizing.id, "resizing")
+		const fill = await ctx.executeBid(250n)
+
+		// The fill settles while the repost is under way: the order is not `open`, so
+		// the sync leaves it, and the row still advertises the pre-fill size.
+		ctx.scanFill(fill)
+		await ctx.idle()
+		expect((await ctx.order()).remaining).toBe((1000n * ONE).toString())
+
+		const reposted = await ctx.service.repost(await ctx.order())
+
+		expect(reposted?.remaining).toBe((750n * ONE).toString())
+		expect(reposted?.status).toBe("open")
+		expect((await ctx.order()).remaining).toBe((750n * ONE).toString())
+		expect(ctx.posted.at(-1)).toBe(750n * UNIT)
+	})
+
+	it("closes the order instead when the room left is under the dust floor", async () => {
+		const ctx = await build()
+		const resizing = await ctx.order()
+		await (ctx.service as any).store.setStatus(resizing.id, "resizing")
+		// The chain has counted nearly all of it, below what the orderbook takes.
+		;(ctx.service as any).dustFloor = async () => 100n * ONE
+		ctx.miss(950n)
+		const submitted = ctx.client.submitted.length
+
+		expect(await ctx.service.repost(await ctx.order())).toBeNull()
+
+		expect((await ctx.order()).status).toBe("filled")
+		expect(ctx.client.submitted).toHaveLength(submitted)
 	})
 })
 

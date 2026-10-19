@@ -161,6 +161,8 @@ export function limitOrderService(
 ) {
 	const contractService = {
 		getTokenDecimals: async (token: string) => (token === USDC ? 6 : 18),
+		// No tally to read: a repost posts the size the store holds. A test that has one overrides it.
+		limitOrderSpent: async (): Promise<bigint | null> => null,
 		// Creation checks the wallet can pay out what an order promises.
 		getTokenBalance: async (_chain: string, token: HexString) => {
 			const decimals = token === USDC ? 6n : 18n
@@ -213,8 +215,8 @@ export const CREATE_REQUEST: CreateLimitOrderRequest = {
 /**
  * Works an order down by `amount` of output, floored at zero, whatever its status: the way a
  * settled fill used to. The stores no longer have a draw-down (an order follows its on-chain
- * tally through `clampRemaining`, which only lowers an `open` order), so this reaches into the
- * in-memory store the tests use.
+ * tally through `clampRemaining`, which only lowers an `open` or `resizing` order), so this
+ * reaches into the in-memory store the tests use.
  */
 export async function drawDown(store: LimitOrderStore, id: string, amount: bigint | string): Promise<LimitOrder | null> {
 	const order = await store.get(id)

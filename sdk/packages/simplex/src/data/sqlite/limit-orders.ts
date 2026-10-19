@@ -292,7 +292,7 @@ export class SqliteLimitOrderStore implements LimitOrderStore {
 
 	async clampRemaining(id: string, room: string): Promise<LimitOrder | null> {
 		const order = this.read(id)
-		if (!order || order.status !== "open") return null
+		if (!order || (order.status !== "open" && order.status !== "resizing")) return null
 		const target = BigInt(room) > 0n ? BigInt(room) : 0n
 		if (target >= BigInt(order.remaining)) return null
 
@@ -302,7 +302,7 @@ export class SqliteLimitOrderStore implements LimitOrderStore {
 		const result = this.db
 			.prepare(`
 				UPDATE limit_orders SET remaining = ?, updated_at = datetime('now')
-				WHERE id = ? AND remaining = ? AND status = 'open'
+				WHERE id = ? AND remaining = ? AND status IN ('open', 'resizing')
 			`)
 			.run(target.toString(), id, order.remaining)
 		return result.changes === 1 ? this.read(id) : null

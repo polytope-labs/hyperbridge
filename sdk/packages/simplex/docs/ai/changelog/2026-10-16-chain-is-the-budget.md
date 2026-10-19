@@ -6,21 +6,19 @@ liquidity. A limit order's budget is enforced on chain by `debitOrder`, and a va
 figures, and `remaining` is brought down to the order's tally after every fill. See
 [the decision](../decisions/2026-10-16-limit-order-budgets-and-vault-liquidity-come-from-the-chain.md).
 
-## Removed
+## Interfaces
 
-- `LimitOrderHold`, `BidInsert.reservations`, `StoredBid.reservations` and
-  `BidStore.claimReservation`.
-- `LimitOrder.reserved` and `LimitOrderStore.reserve`, `release`, `transaction` and `drawDown`.
-  `clampRemaining` is the one write to `remaining`: it lowers an `open` order to the on-chain room
-  alone. `LimitOrderService.settleFill` is gone with `drawDown`; its tests drive a fill through
-  helpers in `src/tests/helpers/limit-orders.ts`.
-- In `IntentFiller`: `holdAll`, `releaseAll`, `releaseReservation`, `claimExecutedBid`, the
-  "no longer has room" skip before a bid, and the hold releases after a failed bid and after a
-  retraction.
-- `VaultLiquidityState`'s reservation list, its 60 s TTL, `consume` and the position-decrease
-  release in `refresh`, and `HydratedVault.remaining`.
-- In the operator UI, "Held by live bids" in a limit order's detail and the fainter "held" segment
-  of its progress bar. `progressOf` returns `{ consumed }` only.
+- `LimitOrder.reserved`, `LimitOrderStore.reserve`, `release`, `transaction` and `drawDown`,
+  `BidInsert.reservations`, `StoredBid.reservations` and `BidStore.claimReservation` are gone, so a
+  custom store no longer implements them. `LimitOrderStore.clampRemaining` is the one write to
+  `remaining`: it lowers an `open` or `resizing` order to the on-chain room, and never raises it.
+- `StoredBid.pricedBy` is new (below). A custom `BidStore` that returns `undefined` for it on old
+  rows is read as `null`.
+- `LimitOrderService.syncToChain(id, blockNumber?)` and
+  `ContractInteractionService.limitOrderSpent(chain, budgetId, blockNumber?)` take the block to
+  read at. `orderFilledOnChain` carries the fill's `blockNumber`.
+- The operator UI no longer shows "Held by live bids" in a limit order's detail or the fainter
+  "held" segment of its progress bar. `progressOf` returns `{ consumed }` only.
 
 ## Bid provenance
 
@@ -40,7 +38,8 @@ retraction or a fill. `BidStore.byLimitOrder` reads from it.
 
 `IntentFiller.settleFilledLimitOrder` takes the same path for a partial and a completing fill:
 
-1. Takes our bid rows on the commitment that carry `pricedBy`.
+1. Takes our bid rows on the commitment that carry `pricedBy` (`pricedBy != null`; a row without
+   it is not settled).
 2. Attributes the fill to one of them, among the bids that went out (`success` or `pending`), are
    not retracted, and have no fill already recorded on this commitment (by `bid`). What the fill
    delivered is read per limit order, and only bids whose order pays a token the fill delivered are
@@ -55,12 +54,28 @@ retraction or a fill. `BidStore.byLimitOrder` reads from it.
 3. Records it with `LimitOrderStore.recordFill`, at what the gateway charged
    (`payout × released / take`, rounded up in the token's units, never below the delivery, capped at
    the payout) and with `amountIn` from `takeDecimals`.
-4. Calls `LimitOrderService.syncToChain(id)` for every limit order that priced one of our bids on the
-   commitment. It reads the order's tally, lowers `remaining` to `budgetRoom`, and resizes or closes
-   the order, which is what `reconcileTallies` does for each open order. Not lowered (the chain
-   does not show the fill yet, or the order is not `open`) logs at debug. A failed read logs a warning.
-   Neither throws. The periodic `reconcileTallies` follows up and now logs a lowering at `warn`,
-   since settlement should already have made it.
+4. Calls `LimitOrderService.syncToChain(id, blockNumber)` for every limit order that priced one of our
+   bids on the commitment. It reads the order's tally at the block the fill landed in, lowers
+   `remaining` to `budgetRoom`, and resizes or closes the order, which is what `reconcileTallies`
+   does for each open order. Reading at the fill's block keeps a lagging load-balanced endpoint from
+   answering with the tally from before the fill; the tally only grows, so that block already
+   includes it. An endpoint that has not reached the block gives no figure, and the periodic pass
+   follows up. That pass reads the latest block, and now logs a lowering at `warn`, since
+   settlement should already have made it.
+
+   `syncToChain` answers `false` when the order is not `open`, when the tally leaves it where it
+   is, when the chain does not show the fill yet, or when the tally cannot be read (the read
+   logs a warning). It throws when the chain cannot be read for the token's decimals, or the store
+   or orderbook fail. Settlement catches that and logs a warning.
+
+## A fill while the order is `resizing`
+
+`syncToChain` leaves an order that is not `open`, so a fill that lands while a repost, a resize or
+a re-sign holds the row in `resizing` is not applied by settlement. `LimitOrderService.repost`
+therefore lowers the order to the chain's tally before it posts: it reads the tally, lowers
+`remaining` with `clampRemaining`, and posts that size. If the room left is under the orderbook's
+dust floor it closes the order as `filled` instead of posting. A tally that cannot be read posts the
+size the store holds, and the periodic pass follows up.
 
 ## SQLite migration and rollback
 

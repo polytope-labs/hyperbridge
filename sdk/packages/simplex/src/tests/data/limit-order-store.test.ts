@@ -158,7 +158,20 @@ describe.each(backends)("%s", (_name, open) => {
 			await close()
 		})
 
-		it.each(["resizing", "filled", "cancelled", "expired", "rejected"] as const)(
+		it("lowers a resizing order, which is how a repost applies a fill that landed meanwhile", async () => {
+			const { store, close } = open()
+			await store.create({ ...ORDER, size: "100" })
+			await store.setStatus(ORDER.id, "resizing")
+
+			const clamped = await store.clampRemaining(ORDER.id, "60")
+
+			expect(clamped?.remaining).toBe("60")
+			expect(clamped?.status).toBe("resizing")
+			expect((await store.get(ORDER.id))?.remaining).toBe("60")
+			await close()
+		})
+
+		it.each(["filled", "cancelled", "expired", "rejected"] as const)(
 			"leaves a %s order alone",
 			async (status) => {
 				const { store, close } = open()

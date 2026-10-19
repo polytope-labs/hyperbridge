@@ -38,9 +38,7 @@ defaults to 20, must be a number `>= 0`, and is read through
   partial and even its maximum possible value is below the floor (`targetOutput`, or the
   whole input when no limit order prices the output), or nothing prices it at all, a
   cheap pass skips it before any balance or funding-venue planning, so a dust or
-  unpriceable bid holds no wallet room and reserves no vault liquidity either. A bid the
-  final check refuses, after the wallet cut its payout, has already planned its vault
-  withdrawal, and that reservation lapses on its own.
+  unpriceable bid holds no wallet room and costs no vault read or withdrawal plan either.
 - Full fills, GATE 1, the profit-floor exemption and `feeCheckWaived` are unchanged.
 
 ## Reconciliation cannot undo a cancel

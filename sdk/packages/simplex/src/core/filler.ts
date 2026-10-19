@@ -39,6 +39,12 @@ const HYPERBRIDGE_CONNECT_TIMEOUT_MS = 30_000
  */
 const DELEGATION_RECHECK_MS = 60_000
 
+/**
+ * A stored bid that records which limit order priced it. A row written before bids carried
+ * `pricedBy`, or by a custom `BidStore` that leaves it out, holds `null` or `undefined`.
+ */
+type PricedBid = StoredBid & { pricedBy: BidPricing }
+
 /** Smallest payout first, for picking the tightest one that covers a delivery. */
 function byPayout(a: BidPricing, b: BidPricing): number {
 	return BigInt(a.payout) < BigInt(b.payout) ? -1 : BigInt(a.payout) > BigInt(b.payout) ? 1 : 0
@@ -235,7 +241,7 @@ export class IntentFiller {
 			this.handleNewOrder(order, transactionHash, blockHash)
 		})
 
-		this.monitor.on("orderFilledOnChain", ({ commitment, filler, chainId, outputs, inputs, complete, transactionHash, logIndex }) => {
+		this.monitor.on("orderFilledOnChain", ({ commitment, filler, chainId, outputs, inputs, complete, transactionHash, logIndex, blockNumber }) => {
 			this.settlementQueue
 				.add(() =>
 					this.handleOrderFilledOnChain(
@@ -247,6 +253,7 @@ export class IntentFiller {
 						complete,
 						transactionHash,
 						logIndex,
+						blockNumber,
 					),
 				)
 				.catch((err) => {
@@ -1516,12 +1523,13 @@ export class IntentFiller {
 		complete = true,
 		transactionHash?: string,
 		logIndex?: number,
+		blockNumber?: bigint,
 	): Promise<void> {
 		const ours = filler.toLowerCase() === this.fillerAddress.toLowerCase()
 		// Top up EntryPoint deposit if we were the filler, but only on chains
 		// without any paymaster (paymaster chains pay gas in ERC-20 tokens).
 		if (ours) {
-			await this.settleFilledLimitOrder(commitment, chainId, outputs, inputs, transactionHash, logIndex)
+			await this.settleFilledLimitOrder(commitment, chainId, outputs, inputs, transactionHash, logIndex, blockNumber)
 			const chain = `EVM-${chainId}`
 			if (!hasPaymaster(chain, this.configService)) {
 				const targetGasUnits = this.configService.getTargetGasUnits()
@@ -1612,16 +1620,17 @@ export class IntentFiller {
 		inputs: TokenInfo[] = [],
 		transactionHash?: string,
 		logIndex?: number,
+		blockNumber?: bigint,
 	): Promise<void> {
 		if (!this.bidStorage || !this.limitOrders) return
-		const rows = (await this.bidStorage.byCommitments([commitment])).filter((row) => row.pricedBy !== null)
+		const rows = (await this.bidStorage.byCommitments([commitment])).filter((row): row is PricedBid => row.pricedBy != null)
 		if (rows.length === 0) return
 
 		try {
 			await this.recordExecutedFill(commitment, chainId, rows, outputs, inputs, transactionHash, logIndex)
 		} finally {
-			for (const limitOrderId of new Set(rows.map((row) => row.pricedBy!.limitOrderId))) {
-				await this.syncLimitOrder(commitment, limitOrderId)
+			for (const limitOrderId of new Set(rows.map((row) => row.pricedBy.limitOrderId))) {
+				await this.syncLimitOrder(commitment, limitOrderId, blockNumber)
 			}
 		}
 	}
@@ -1647,7 +1656,7 @@ export class IntentFiller {
 	private async recordExecutedFill(
 		commitment: HexString,
 		chainId: number,
-		rows: StoredBid[],
+		rows: PricedBid[],
 		outputs: TokenInfo[],
 		inputs: TokenInfo[],
 		transactionHash?: string,
@@ -1655,7 +1664,7 @@ export class IntentFiller {
 	): Promise<void> {
 		const recorded = (
 			await Promise.all(
-				[...new Set(rows.map((row) => row.pricedBy!.limitOrderId))].map((id) => this.limitOrders!.fills(id, 500)),
+				[...new Set(rows.map((row) => row.pricedBy.limitOrderId))].map((id) => this.limitOrders!.fills(id, 500)),
 			)
 		)
 			.flat()
@@ -1679,21 +1688,21 @@ export class IntentFiller {
 
 		const released = inputs.reduce((sum, input) => sum + input.amount, 0n)
 		const deliveries = new Map<string, Delivery>()
-		for (const id of new Set(candidates.map((row) => row.pricedBy!.limitOrderId))) {
+		for (const id of new Set(candidates.map((row) => row.pricedBy.limitOrderId))) {
 			const delivery = await this.deliveredAgainst(id, chainId, outputs)
 			if (delivery !== null) deliveries.set(id, delivery)
 		}
-		const paying = candidates.filter((row) => deliveries.has(row.pricedBy!.limitOrderId))
+		const paying = candidates.filter((row) => deliveries.has(row.pricedBy.limitOrderId))
 		if (paying.length === 0) {
 			this.logger.warn(
-				{ commitment, limitOrders: candidates.map((row) => row.pricedBy!.limitOrderId) },
+				{ commitment, limitOrders: candidates.map((row) => row.pricedBy.limitOrderId) },
 				"Fill carried no output these limit orders pay; not recording it",
 			)
 			return
 		}
 
 		const settled = executedPricing(
-			paying.map((row) => row.pricedBy!),
+			paying.map((row) => row.pricedBy),
 			(bid) => deliveries.get(bid.limitOrderId)!.scaled,
 			released,
 		)
@@ -1722,11 +1731,14 @@ export class IntentFiller {
 		)
 	}
 
-	/** Brings one limit order down to its on-chain tally after a fill, logging rather than throwing. */
-	private async syncLimitOrder(commitment: HexString, limitOrderId: string): Promise<void> {
+	/**
+	 * Brings one limit order down to its on-chain tally after a fill, logging rather than throwing.
+	 * The tally is read at the fill's block, so a lagging endpoint cannot return the tally from before it.
+	 */
+	private async syncLimitOrder(commitment: HexString, limitOrderId: string, blockNumber?: bigint): Promise<void> {
 		if (!this.limitOrderService) return
 		try {
-			if (!(await this.limitOrderService.syncToChain(limitOrderId))) {
+			if (!(await this.limitOrderService.syncToChain(limitOrderId, blockNumber))) {
 				this.logger.debug(
 					{ commitment, limitOrder: limitOrderId },
 					"Limit order already matches its on-chain tally, or the chain does not show the fill yet; the tally reconciliation follows up",

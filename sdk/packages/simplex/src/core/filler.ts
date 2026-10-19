@@ -62,8 +62,13 @@ const RETRACTION_DRAIN_TIMEOUT_MS = 30_000
  * How many completed orders the filler remembers. An entry only matters while a bid loop on
  * that order is still placing bids, which is seconds to minutes, so the oldest is dropped
  * once the cap is reached rather than kept for the life of the process.
+ *
+ * Every complete fill on a configured chain enters it, a rival's included, not only orders
+ * we bid on. A busy chain can add that many in the time a bid loop runs, and an eviction
+ * lets the loop's remaining bids go out and revert `Filled()`. An entry is one string, so
+ * the cap is set well above that rate: the memory cost is small.
  */
-const MAX_COMPLETED_ORDERS = 1_000
+const MAX_COMPLETED_ORDERS = 20_000
 
 /**
  * Added to a bid's validity window before a retracted bid stops being a candidate for a fill.
@@ -299,7 +304,8 @@ export class IntentFiller {
 			// orderbook requests, and a bid loop on this order that has not seen the fill places
 			// bids that can only revert `Filled()`. Only a complete fill closes the order.
 			if (complete) this.markCompleted(commitment)
-			// When the fill was seen, for the window a retracted bid can still have executed in.
+			// When the fill was seen: the stand-in for when it landed, for the window a retracted
+			// bid can still have executed in, if the fill's block time cannot be read.
 			const seenAtMs = Date.now()
 			this.settlementQueue
 				.add(() =>
@@ -1660,7 +1666,7 @@ export class IntentFiller {
 		transactionHash?: string,
 		logIndex?: number,
 		blockNumber?: bigint,
-		filledAtMs?: number,
+		seenAtMs?: number,
 	): Promise<void> {
 		const ours = filler.toLowerCase() === this.fillerAddress.toLowerCase()
 		// Top up EntryPoint deposit if we were the filler, but only on chains
@@ -1674,7 +1680,7 @@ export class IntentFiller {
 				transactionHash,
 				logIndex,
 				blockNumber,
-				filledAtMs,
+				seenAtMs,
 			)
 			const chain = `EVM-${chainId}`
 			if (!hasPaymaster(chain, this.configService)) {
@@ -1769,14 +1775,24 @@ export class IntentFiller {
 		transactionHash?: string,
 		logIndex?: number,
 		blockNumber?: bigint,
-		filledAtMs?: number,
+		seenAtMs?: number,
 	): Promise<void> {
 		if (!this.bidStorage || !this.limitOrders) return
 		const rows = (await this.bidStorage.byCommitments([commitment])).filter((row): row is PricedBid => row.pricedBy != null)
 		if (rows.length === 0) return
 
 		try {
-			await this.recordExecutedFill(commitment, chainId, rows, outputs, inputs, transactionHash, logIndex, filledAtMs)
+			await this.recordExecutedFill(
+				commitment,
+				chainId,
+				rows,
+				outputs,
+				inputs,
+				transactionHash,
+				logIndex,
+				blockNumber,
+				seenAtMs,
+			)
 		} finally {
 			for (const limitOrderId of new Set(rows.map((row) => row.pricedBy.limitOrderId))) {
 				await this.syncLimitOrder(commitment, limitOrderId, blockNumber)
@@ -1793,8 +1809,8 @@ export class IntentFiller {
 	 * retraction takes it out of discovery but does not stop a placer that already fetched
 	 * it, which can execute it until its `validUntil`. A retracted bid placed longer before
 	 * the fill than its validity window cannot have executed and is passed over; the window is
-	 * counted back from when the fill happened (`filledAtMs`, when the scanner reported it),
-	 * not from when it is settled, which can be long after behind the settlement queue. The
+	 * counted back from when the fill happened, not from when it is settled, which can be long
+	 * after behind the settlement queue (see `fillTimeMs`). The
 	 * same fill delivered twice, which a scanner replaying from a cursor can do, is recorded
 	 * once: a fill is named by its transaction hash and log index, since one transaction can
 	 * carry several of our fills.
@@ -1820,7 +1836,8 @@ export class IntentFiller {
 		inputs: TokenInfo[],
 		transactionHash?: string,
 		logIndex?: number,
-		filledAtMs: number = Date.now(),
+		blockNumber?: bigint,
+		seenAtMs: number = Date.now(),
 	): Promise<void> {
 		const recorded = (
 			await Promise.all(
@@ -1841,16 +1858,16 @@ export class IntentFiller {
 		}
 		const filledBids = new Set(recorded.map((fill) => fill.bid).filter((bid) => bid !== null))
 
+		const unfilled = rows.filter((row) => (row.success || row.pending) && !(row.bid && filledBids.has(row.bid)))
 		// Counted back from when the fill happened. Settlement waits behind the queue, so
 		// counting from now would stretch the window by however long it waited and
-		// attribute the fill to a bid that could no longer have executed.
+		// attribute the fill to a bid that could no longer have executed. The time only
+		// matters to a retracted bid, which is rare, so the block is not read otherwise.
+		const filledAtMs = unfilled.some((row) => row.retracted)
+			? await this.fillTimeMs(chainId, blockNumber, seenAtMs)
+			: seenAtMs
 		const executableSince = sqliteDatetime(new Date(filledAtMs - this.retractedBidWindowMs()))
-		const candidates = rows.filter(
-			(row) =>
-				(row.success || row.pending) &&
-				!(row.bid && filledBids.has(row.bid)) &&
-				(!row.retracted || row.createdAt >= executableSince),
-		)
+		const candidates = unfilled.filter((row) => !row.retracted || row.createdAt >= executableSince)
 		if (candidates.length === 0) return
 
 		const released = inputs.reduce((sum, input) => sum + input.amount, 0n)
@@ -1926,6 +1943,28 @@ export class IntentFiller {
 		const seconds =
 			this.configService.getBidValiditySeconds() + BID_DISCOVERY_PAD_SECONDS + RETRACTED_BID_EXECUTION_MARGIN_SECONDS
 		return seconds * 1000
+	}
+
+	/**
+	 * When a fill happened, in milliseconds: the timestamp of the block it landed in.
+	 *
+	 * The event's arrival time is only a stand-in. After downtime or a scanner catch-up a
+	 * fill arrives long after it landed, and measuring a retracted bid's window from the
+	 * arrival would put every such bid outside it. The arrival time is used when the block
+	 * is unknown (`undefined`, or the `0n` a scanner substitutes) or cannot be read.
+	 */
+	private async fillTimeMs(chainId: number, blockNumber: bigint | undefined, seenAtMs: number): Promise<number> {
+		if (blockNumber === undefined || blockNumber <= 0n) return seenAtMs
+		try {
+			const block = await this.chainClientManager.getPublicClient(`EVM-${chainId}`).getBlock({ blockNumber })
+			return Number(block.timestamp) * 1000
+		} catch (err) {
+			this.logger.warn(
+				{ chainId, blockNumber, err },
+				"Could not read the fill's block time; measuring the retracted bids' window from when the fill arrived",
+			)
+			return seenAtMs
+		}
 	}
 
 	/**

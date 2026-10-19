@@ -729,8 +729,9 @@ expiredUnretracted(maxAgeMs: number): Promise<StoredBid[]>
 markRetracted(
     commitment: string,
     retractExtrinsicHash: string | null,
+    rows?: readonly number[],
 ): Promise<boolean>
-markDead(commitment: string): Promise<boolean>
+markDead(commitment: string, rows?: readonly number[]): Promise<boolean>
 byLimitOrder(limitOrderId: string, limit?: number): Promise<StoredBid[]>
 recent(limit?: number): Promise<StoredBid[]>
 failed(limit?: number): Promise<StoredBid[]>
@@ -751,6 +752,11 @@ failed attempt retries on the next sweep rather than waiting out the TTL.
 `markRetracted` is also called when the chain reports `BidNotFound`: bids only leave the pallet by
 retraction, so "no bid" means there is nothing left to reclaim and no hash is available. Both mark
 methods resolve `false` when nothing matched, which callers treat as success rather than an error.
+
+`rows` is a list of `StoredBid.id`s. With it, `markRetracted` and `markDead` act on those bids only;
+without it, on every unretracted bid on the commitment; an empty list matches nothing. A store must
+honour `rows`. A store that ignores it closes or flags every bid on the commitment, so retracting
+one limit order's bid retracts another's.
 
 `StoredBid`: `id`, `commitment`, `bid`, `extrinsicHash`, `blockHash`, `success`, `pending`, `error`,
 `createdAt`, `retracted`, `retractedAt`, `retractExtrinsicHash`, `dead`, `pricedBy`.

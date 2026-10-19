@@ -437,10 +437,12 @@ describe("every bid on one order", () => {
 
 	it("remembers only the most recent completed orders", async () => {
 		const { filler } = await twoBids([])
-		for (let i = 0; i < 1_001; i++) (filler as any).markCompleted(`0x${i.toString(16).padStart(64, "0")}`)
+		// Every complete fill on a configured chain is marked, a rival's included, so the cap
+		// is well above what a bid loop's lifetime can add.
+		for (let i = 0; i < 20_001; i++) (filler as any).markCompleted(`0x${i.toString(16).padStart(64, "0")}`)
 
-		expect((filler as any).completedOrders.size).toBe(1_000)
+		expect((filler as any).completedOrders.size).toBe(20_000)
 		expect((filler as any).hasCompleted(`0x${"0".repeat(64)}`)).toBe(false)
-		expect((filler as any).hasCompleted(`0x${(1_000).toString(16).padStart(64, "0")}`)).toBe(true)
+		expect((filler as any).hasCompleted(`0x${(20_000).toString(16).padStart(64, "0")}`)).toBe(true)
 	})
 })

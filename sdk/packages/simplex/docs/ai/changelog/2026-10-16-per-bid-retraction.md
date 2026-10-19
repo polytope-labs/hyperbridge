@@ -20,7 +20,8 @@ list matches nothing.
 **Breaking change for custom `BidStore` implementations.** `BidStore` is public, and the `rows`
 filter is new on both methods. An implementation that ignores it still type-checks, but it closes
 or flags every bid on the commitment instead of the rows named, so retracting one limit order's bid
-would retract another's. A custom store must honour `rows` before upgrading.
+would retract another's. A custom store must honour `rows` before upgrading. The public
+`BidStore` reference lists both signatures with `rows` and says the same.
 
 `LimitOrderEvent` gains `{ kind: "expired" }` and `{ kind: "rejected" }`. Neither is added to the
 public `SimplexEvents`.
@@ -51,7 +52,9 @@ not only the newest.
 ## No bids on an order that has completed
 
 Our complete fill and a rival's completion record the commitment in `completedOrders` (the last
-1,000, oldest dropped). The two `EventMonitor` listeners record it when the event arrives, before
+20,000, oldest dropped). Every complete fill on a configured chain enters it, not only orders we
+bid on, so a smaller cap could evict an order whose bid loop is still running, and its remaining
+bids would go out and revert `Filled()`. An entry is one string, so the memory cost is small. The `EventMonitor` listeners record it when the event arrives, before
 the work is queued on `settlementQueue`, which waits behind reconcile passes and orderbook requests;
 a partial fill records nothing. `executeOrder`'s multi-bid loop stops before placing on a completed
 order. A bid stored after completion is retracted at once with
@@ -109,9 +112,18 @@ A retracted bid is in the window when it was stored no more than `bidValiditySec
 discovery pad + `RETRACTED_BID_EXECUTION_MARGIN_SECONDS` (120) before the fill. The margin covers
 the tail between `validUntil` and the transaction landing (the window is converted to blocks at the
 fastest block time seen, so a slower chain keeps a bid executable longer in wall-clock time) and
-matches the permit skew allowed for the same execution tail. The fill's time is when the
-scanner's event reached the filler. It is not the time settlement runs, which can be long after,
-behind the settlement queue, and would stretch the window.
+matches the permit skew allowed for the same execution tail.
+
+The window is counted back from when the fill landed, not from when settlement runs, which can be
+long after, behind the settlement queue, and would stretch it. The event's arrival time is a
+poor stand-in too: after downtime or a scanner catch-up a fill arrives long after it landed, so
+every retracted bid would fall outside the window and the fill would be misattributed. So when
+attribution has a retracted candidate (a successful or pending retracted bid with no fill
+recorded against it yet), which is rare, `IntentFiller.fillTimeMs` reads the fill's block with
+`getBlock({ blockNumber })` on its chain and measures from that block's timestamp. Without a
+retracted candidate no block is read. The arrival time (`seenAtMs`, taken in the
+`orderFilledOnChain` listener) is the fallback when the fill carries no block (`EventMonitor`
+leaves it unset when the scanner substituted `0n`) or the read fails, which is logged at `warn`.
 
 ## Shutdown drains before it disconnects
 

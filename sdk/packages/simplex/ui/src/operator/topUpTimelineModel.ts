@@ -390,7 +390,9 @@ function recoverySteps(
 	}
 
 	// A recovery that stopped keeps the steps it reached; only an order whose recovery never began is just expired.
-	const stopped = topUp.stage === "unfilled" && !!topUp.recoverySteps?.length
+	// One that failed before recording any step (every first read timing out) is told apart by its error.
+	const stopped =
+		topUp.stage === "unfilled" && (!!topUp.recoverySteps?.length || !!topUp.error?.startsWith("Recovery stopped"))
 	if (topUp.stage === "unfilled" && !stopped) {
 		return [
 			placedStep,

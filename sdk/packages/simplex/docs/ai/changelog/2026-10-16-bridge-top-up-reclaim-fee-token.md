@@ -17,6 +17,9 @@ recovery can resume it. The count restarts on a newly recorded step, on an opera
 after an attempt that ran 10 min or more before failing (a finality wait, not a fast failure). The
 in-memory count also restarts with the process. The timeline of a stopped recovery keeps the steps
 it reached and marks the one it stopped at: `Recovery stopped: <reason> — Start recovery to resume`.
+A recovery that failed before recording any step (for example every destination read timing out)
+is recognized by its `Recovery stopped` error and marks its first row instead of showing only
+`Order Expired`.
 
 Once Hyperbridge has finalized the cancellation, a retry or restart goes straight to the refund
 claim and does not run the SDK cancel again, which would send a second cancel. The SDK reports the
@@ -24,4 +27,7 @@ claim calldata once, so the finalized step and `claimCalldata` are saved in one 
 cancel's GET request is kept as `getCommitment`. The calldata is proven at a fixed Hyperbridge
 height, so a claim that reverts clears it, and a missing or cleared `claimCalldata` is rebuilt with
 `queryGetRequestWithStatus(getCommitment)` instead of replaying the old bytes. `getCommitment` is
-read back from the cancel's receipt when a record lacks it.
+read back from the cancel's receipt when a record lacks it. A sponsored cancel's receipt is its
+whole bundle, so only a `GetRequestEvent` emitted by the source chain's host for a request sent by
+the IntentGateway counts; another op's GET request in the same bundle is skipped, and a receipt
+with none fails as before.

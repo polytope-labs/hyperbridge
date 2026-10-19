@@ -188,6 +188,30 @@ describe("top-up timeline", () => {
 		expect(steps[1].link).toEqual({ chain: "source", hash: "0xcancel" })
 	})
 
+	it("marks the first recovery row as stopped when the recovery failed before recording any step", () => {
+		const stopped = topUp({
+			stage: "unfilled",
+			stageTimes: { awaiting_bids: 1, reclaiming: 1_000, unfilled: 9_000 },
+			error: "Recovery stopped after 6 failed attempts: Timed out reading the destination proof",
+		})
+		const steps = timelineSteps(stopped, "Base", 10_000)
+		expect(steps.map((step) => [step.key, step.status])).toEqual([
+			["DESTINATION_FINALIZED", "error"],
+			["ORDER_CANCELED", "upcoming"],
+			["SOURCE_FINALIZED", "upcoming"],
+			["HYPERBRIDGE_DELIVERED", "upcoming"],
+			["HYPERBRIDGE_FINALIZED", "upcoming"],
+			["FUNDS_CLAIMED", "upcoming"],
+		])
+		expect(steps[0].secondary).toBe(
+			"Recovery stopped: Timed out reading the destination proof — Start recovery to resume",
+		)
+		// Without a recovery error, an unfilled order with no steps is still just expired.
+		expect(timelineSteps(topUp({ stage: "unfilled", stageTimes: { awaiting_bids: 1 } }), "Base", 10_000).at(-1)?.caption).toBe(
+			"Order Expired",
+		)
+	})
+
 	it("waits for a relayer to deliver the refund, then claims it", () => {
 		const finalizedAt = 5_000_000
 		const recovering = (now: number) =>

@@ -960,7 +960,7 @@ export class BridgeTopUp {
 							// Kept with the step: the SDK drops its own copy once Hyperbridge finalizes, and the
 							// claim is rebuilt from this request.
 							await this.recordRecoveryStep("ORDER_CANCELED", value.receipt.transactionHash as HexString, undefined, {
-								getCommitment: cancelRequestCommitment(value.receipt.logs),
+								getCommitment: this.cancelRequestCommitment(record.chain, value.receipt.logs),
 							})
 							break
 						case "SOURCE_FINALIZED":
@@ -1110,10 +1110,16 @@ export class BridgeTopUp {
 			this.deps.clientManager.getPublicClient(chain).getTransactionReceipt({ hash: cancelTx }),
 			"the cancel receipt",
 		)
-		const getCommitment = cancelRequestCommitment(receipt.logs)
+		const getCommitment = this.cancelRequestCommitment(chain, receipt.logs)
 		if (!getCommitment) throw new Error(`The cancel ${cancelTx} dispatched no GET request`)
 		await this.update({ getCommitment })
 		return getCommitment
+	}
+
+	/** The GET request the IntentGateway on `chain` dispatched through its host, among a cancel receipt's logs. */
+	private cancelRequestCommitment(chain: string, logs: Log[]): HexString | undefined {
+		const { configService } = this.deps
+		return cancelRequestCommitment(logs, configService.getHostAddress(chain), configService.getIntentGatewayAddress(chain))
 	}
 
 	/**
@@ -1412,9 +1418,17 @@ function publicState(record: StoredBridgeTopUp): BridgeTopUpState {
 
 const DELIVERY_STATUSES = new Set(["SOURCE", "SOURCE_FINALIZED", "DESTINATION"])
 
-/** The commitment of the GET request a cross-chain cancel dispatched, from the cancel's receipt logs. */
-function cancelRequestCommitment(logs: Log[]): HexString | undefined {
-	const [event] = parseEventLogs({ abi: EVM_HOST, logs, eventName: "GetRequestEvent" })
+/**
+ * The commitment of the GET request a cross-chain cancel dispatched, from the cancel's receipt logs.
+ * A sponsored cancel's receipt is its whole bundle, so another op's GET request can come first; only
+ * this chain's host, for a request the IntentGateway sent, is this order's cancel. The host records
+ * the sender as its packed address.
+ */
+function cancelRequestCommitment(logs: Log[], host: HexString, gateway: HexString): HexString | undefined {
+	const own = logs.filter((log) => log.address.toLowerCase() === host.toLowerCase())
+	const event = parseEventLogs({ abi: EVM_HOST, logs: own, eventName: "GetRequestEvent" }).find(
+		(item) => item.args.from.toLowerCase() === gateway.toLowerCase(),
+	)
 	if (!event) return undefined
 	return getRequestCommitment({ ...event.args, keys: [...event.args.keys] })
 }

@@ -283,7 +283,8 @@ export function validateVaultToml(
  * off (boot starts the service only when one is set), so base balances alone are inert and are not
  * checked. Otherwise the threshold is `base × (1 − p)`: a trigger of 0 fires whenever a balance is
  * at or below its base, 1 fires only at a zero balance, above 1 never fires, and NaN fails every
- * comparison, so each would run away with rebalancing or quietly disable it. A negative or
+ * comparison, so each would run away with rebalancing or quietly disable it. A string that parses
+ * to a finite number (`"0.5"`) is judged by the same rule, since the service coerces it. A negative or
  * unparseable base would turn the threshold negative or NaN the same way. A base of `0` or `"0"` is
  * finite and not negative, so it passes (`FillerConfigService.getBaseBalance` skips a bare 0 as not
  * configured). Base balances are parsed with `parseFloat`, as `getBaseBalance` reads them.
@@ -291,7 +292,10 @@ export function validateVaultToml(
 export function validateRebalancingConfig(rebalancing: RebalancingConfig): void {
 	const trigger: unknown = rebalancing.triggerPercentage
 	if (trigger === undefined) return
-	if (typeof trigger !== "number" || !Number.isFinite(trigger) || trigger <= 0 || trigger >= 1) {
+	// A quoted number boots: the threshold is `base * (1 - p)`, which coerces a string, so it is
+	// judged by what it parses to.
+	const parsed = typeof trigger === "string" ? Number(trigger) : trigger
+	if (typeof parsed !== "number" || !Number.isFinite(parsed) || parsed <= 0 || parsed >= 1) {
 		throw new Error(
 			`rebalancing.triggerPercentage must be a number between 0 and 1 (exclusive); got ${describeValue(trigger)}`,
 		)

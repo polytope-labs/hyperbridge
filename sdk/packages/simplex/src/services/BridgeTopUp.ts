@@ -11,6 +11,7 @@ import {
 	HyperFungibleTokenABI,
 	IntentGateway,
 	IsmpClient,
+	orderCommitment,
 	SubstrateChain,
 	type ERC7821Call,
 	type HexString,
@@ -1085,7 +1086,11 @@ export class BridgeTopUp {
 		if (this.superseded()) return
 		const record = this.record!
 		const order = deserializeOrder(record.order)
-		if (await gateway.isOrderFilled(order)) {
+		// Not `gateway.isOrderFilled`: `_filled` is also set by a destination-side cancel, which anyone
+		// may send once the deadline has passed, e.g. while simplex was down. Read as a fill, it would
+		// leave the record in `delivering` for a fill that never comes. A failed read throws and
+		// `drive` retries it.
+		if (await this.filledByOther(order)) {
 			await this.update({ stage: "delivering" })
 			await this.deliver()
 			return
@@ -1387,7 +1392,7 @@ export class BridgeTopUp {
 			// an order that already paid out.
 			if (record.stage === "unfilled") {
 				const fill = (await this.indexedOrder())?.find((status) => status.status === "FILLED")
-				if (fill || (await gateway.isOrderFilled(order).catch(() => false))) {
+				if (fill || (await this.filledByOther(order).catch(() => false))) {
 					await this.update({
 						stage: "delivering",
 						fillTxHash: fill?.transactionHash ?? record.fillTxHash,
@@ -1832,8 +1837,9 @@ export class BridgeTopUp {
 	 * never placed, so it only counts for a record whose placement was seen (`commitment`).
 	 *
 	 * An empty escrow is also what a fill leaves: `IntentsBase._withdraw` releases it for a redeem
-	 * too. So before calling it a refund the order's fill is checked on BSC, and an order that
-	 * filled moves to `delivering` instead (also true, since the reclaim has nothing to do).
+	 * too. So before calling it a refund the order's fill is checked on BSC ({@link filledByOther}),
+	 * and an order that filled moves to `delivering` instead (also true, since the reclaim has
+	 * nothing to do).
 	 */
 	private async refunded(gateway: IntentGateway, order: Order): Promise<boolean> {
 		if (!this.record?.commitment) return false
@@ -1849,7 +1855,7 @@ export class BridgeTopUp {
 		}
 		if (!onChain) return false
 		// A read that fails throws, so the escrow is never called refunded from an unverified read.
-		if (await withTimeout(gateway.isOrderFilled(order), "the fill")) {
+		if (await this.filledByOther(order)) {
 			const id = this.record.id
 			await this.update({ stage: "delivering", error: undefined })
 			// Not run here: this can be inside the reclaim's own flow, where a second drive of the
@@ -1866,6 +1872,31 @@ export class BridgeTopUp {
 		}
 		await this.update({ stage: "reclaimed", error: undefined })
 		return true
+	}
+
+	/**
+	 * Whether someone other than the order's creator took the order on BSC. The gateway's
+	 * `_filled[commitment]` cannot tell a fill from a refund by itself: a fill sets it to the
+	 * filler, but `IntentsBase._withdraw` sets it to the beneficiary on every finalising
+	 * withdrawal, and a destination-side cancel sets it to `order.user`. A same-chain top-up's own
+	 * cancel, or a third party's, therefore leaves it non-zero, so only an address that is not the
+	 * creator counts as a fill (`isOrderFilled` in the SDK would count both). A read that fails
+	 * throws: neither `reclaimed` nor `delivering` is recorded from a value that was not read.
+	 */
+	private async filledByOther(order: Order): Promise<boolean> {
+		const commitment = (order.id ?? orderCommitment(order)) as HexString
+		const filler = (await withTimeout(
+			this.bsc().readContract({
+				abi: INTENT_GATEWAY_V2_ABI,
+				address: this.deps.configService.getIntentGatewayAddress(BRIDGE_TOP_UP_CHAIN),
+				functionName: "_filled",
+				args: [commitment],
+			}),
+			"the fill",
+		)) as HexString
+		if (/^0x0{40}$/i.test(filler)) return false
+		// `order.user` is a bytes32; the address is its low 20 bytes.
+		return filler.toLowerCase() !== `0x${order.user.slice(-40)}`.toLowerCase()
 	}
 
 	private hasRecoveryStep(step: RecoveryStepRecord["step"]): boolean {

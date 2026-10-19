@@ -177,10 +177,14 @@ describe("validateConfig [rebalancing]", () => {
 		expect(() => validateConfig(withRebalancing(trigger))).toThrow(/triggerPercentage must be a number between 0 and 1/)
 	})
 
-	it("says so when triggerPercentage is not a number at all", () => {
-		// A TOML `triggerPercentage = "0.5"` parses as a string.
-		expect(() => validateConfig(withRebalancing("0.5" as unknown as number))).toThrow(
-			'rebalancing.triggerPercentage must be a number between 0 and 1 (exclusive); got the string "0.5"',
+	it("accepts a quoted triggerPercentage that parses to a number in range", () => {
+		// A TOML `triggerPercentage = "0.5"` parses as a string, which the rebalancer coerces.
+		expect(() => validateConfig(withRebalancing("0.5" as unknown as number))).not.toThrow()
+	})
+
+	it.each(["abc", "0", "1", "", "-0.5", "Infinity"])("rejects a quoted triggerPercentage of %j", (trigger) => {
+		expect(() => validateConfig(withRebalancing(trigger as unknown as number))).toThrow(
+			`rebalancing.triggerPercentage must be a number between 0 and 1 (exclusive); got the string ${JSON.stringify(trigger)}`,
 		)
 	})
 

@@ -149,13 +149,18 @@ describe("bidValidUntilBlock", () => {
 		await expect(service(12000, 300, 6)).resolves.toBe(HEAD + 55n)
 	})
 
-	it("holds a chain that declares no block time to half the 2-second fallback", async () => {
-		// 0.45s and 0.01s blocks fall under the 1s floor and are replaced by the 2s fallback, not
-		// taken at face value: 0.01s would turn 330s into 33,000 blocks.
-		await expect(service(undefined, 300, 0.45)).resolves.toBe(HEAD + 165n)
-		await expect(service(undefined, 300, 0.01)).resolves.toBe(HEAD + 165n)
+	it("takes a fast chain that declares no block time as measured", async () => {
+		// BSC Chapel declares nothing and makes a block every 0.45s: 330s is 733.33 blocks, not 165.
+		await expect(service(undefined, 300, 0.45)).resolves.toBe(HEAD + 734n)
 		// At the floor it is taken as measured.
-		await expect(service(undefined, 300, 1)).resolves.toBe(HEAD + 330n)
+		await expect(service(undefined, 300, 0.1)).resolves.toBe(HEAD + 3300n)
+	})
+
+	it("discards an implausibly fast measurement on a chain that declares no block time", async () => {
+		// 0.05s and 0.01s blocks fall under the flat 0.1s floor and are replaced by the 2s
+		// fallback: 0.01s would turn 330s into 33,000 blocks.
+		await expect(service(undefined, 300, 0.05)).resolves.toBe(HEAD + 165n)
+		await expect(service(undefined, 300, 0.01)).resolves.toBe(HEAD + 165n)
 	})
 
 	it("samples the last 1,000 blocks", async () => {

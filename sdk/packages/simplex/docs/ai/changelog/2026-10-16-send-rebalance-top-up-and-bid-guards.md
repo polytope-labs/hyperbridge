@@ -13,9 +13,10 @@ is withdrawn from a vault.
 
 `validateRebalancingConfig` (`src/config/filler-toml.ts`) requires `triggerPercentage` to be finite
 and strictly between 0 and 1 (the threshold is `base × (1 − p)`: 0 fires whenever a balance is at or
-below its base, 1 only at a zero balance, above 1 never), and every `baseBalances` entry to parse
-(with `parseFloat`, as `FillerConfigService.getBaseBalance` reads it) to a finite number that is not
-negative, so `0` and `"0"` pass. With no `triggerPercentage`, rebalancing is off, as at boot, and
+below its base, 1 only at a zero balance, above 1 never). A string that `Number` parses to such a
+value passes, since the rebalancer coerces it (`"0.5"`); `"abc"` does not. Every `baseBalances`
+entry must parse (with `parseFloat`, as `FillerConfigService.getBaseBalance` reads it) to a finite
+number that is not negative, so `0` and `"0"` pass. With no `triggerPercentage`, rebalancing is off, as at boot, and
 nothing is checked. It runs in `validateConfig` at boot, in `RebalanceController.set`, and on
 `PUT /api/rebalancing`, which keeps its own checks for at least one entry and numeric chain-id keys.
 
@@ -37,12 +38,12 @@ sweeps, top-ups and operator sends from the same EOA do not take them and share 
 ## Bid validity
 
 A measured block time below half the chain's declared one is discarded with a warning and the
-declared figure is used. A chain that declares none is held to half of `FALLBACK_BLOCK_TIME_SECONDS`
-(2s, so a 1s floor) and uses the fallback below it. The measurement is kept for the life of the
-process, so this limits how far one RPC can stretch every bid on that chain to twice its window (on
-Ethereum a 3.01s sample would otherwise stretch a 330s window to about 22 minutes). A chain without
-a declared figure that runs faster than 1s, such as BSC Chapel at 0.45s, is converted at 2s and its
-bids end early.
+declared figure is used. The measurement is kept for the life of the process, so this limits how far
+one RPC can stretch every bid on that chain to twice its window (on Ethereum a 3.01s sample would
+otherwise stretch a 330s window to about 22 minutes). A chain that declares none, such as BSC
+Chapel, Pharos or Polkadot Hub, has no reference to judge a sample against, so it only gets a flat
+0.1s floor (`MIN_PLAUSIBLE_BLOCK_TIME_SECONDS`): a measurement below it is replaced by the 2s
+fallback, and anything above it is used as measured (Chapel's 0.45s included).
 
 ## Setup wizard funding reads
 
@@ -62,9 +63,18 @@ clients are already verified at boot and on runtime RPC edits.
   `REFUNDED` supplies the `FUNDS_CLAIMED` step's tx hash and time only. The same rule now applies
   when a sync finds `REFUNDED` on an `awaiting_bids`/`filling` record. If the indexer reports a
   refund and the chain read fails, the check throws, so the reclaim retries instead of cancelling.
-  A fill's escrow release (`IntentsBase._withdraw`) empties the escrow too, so before recording
-  `reclaimed` the check reads `gateway.isOrderFilled(order)` on BSC: a filled order moves to
-  `delivering` and resumes delivery, and a failed read throws.
+  An empty escrow is also what a fill leaves, so before recording `reclaimed` the check
+  reads the raw `_filled[commitment]` on BSC. That value cannot tell a fill from a refund by
+  itself: a fill sets it to the filler, but every finalising withdrawal (`IntentsBase._withdraw`)
+  and a destination-side cancel set it to the beneficiary or `order.user`, so a same-chain
+  top-up's own cancel, or a third party's, leaves it non-zero. The order counts as filled only
+  when the value is non-zero and is not the low 20 bytes of `order.user` (compared
+  case-insensitively); then it moves to `delivering` and resumes delivery. A zero value, or
+  `order.user`, is not a fill. A failed read throws, so neither `reclaimed` nor `delivering` is
+  recorded from an unread value. A reconcile of an `unfilled` record applies the same rule before
+  it looks for a refund, and so does tracking a live order (`trackOrder`): anyone may cancel on
+  the destination once the deadline has passed, for instance while simplex was down, and that
+  cancel sets `_filled` too. A failed read in tracking throws and is retried.
 - **Delivered** needs Hyperbridge's `queryRequestReceipt`. The indexer's `DESTINATION` status is
   still stored in `deliveryStatuses` for the timeline.
 - **Start** quotes the solver fee with the gateway's `quoteOrderFees` before persisting. The wallet

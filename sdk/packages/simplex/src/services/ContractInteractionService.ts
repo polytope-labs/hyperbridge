@@ -146,13 +146,22 @@ const BLOCK_TIME_SAMPLE_BLOCKS = 1_000n
 const FALLBACK_BLOCK_TIME_SECONDS = 2
 
 /**
- * A measurement faster than half the reference block time is taken for a bad sample, not a faster
- * chain. The reference is the declared block time, or {@link FALLBACK_BLOCK_TIME_SECONDS} on a chain
- * that declares none. Real speed-ups are inside that (BSC runs at 0.6× its declared figure), and the
- * measurement is pinned for the life of the process, so this bounds how far one RPC serving bad
- * timestamps can stretch every bid on that chain to twice the window.
+ * On a chain that declares a block time, a measurement faster than half of it is taken for a bad
+ * sample, not a faster chain. Real speed-ups are inside that (BSC runs at 0.6× its declared figure),
+ * and the measurement is pinned for the life of the process, so this bounds how far one RPC serving
+ * bad timestamps can stretch every bid on that chain to twice the window.
  */
 const MEASURED_BLOCK_TIME_TOLERANCE_DIVISOR = 2
+
+/**
+ * The floor for a measurement on a chain that declares no block time. With no declared figure there
+ * is no reference to judge a sample against, and holding it to a fraction of
+ * {@link FALLBACK_BLOCK_TIME_SECONDS} would throw away the real measurement of a fast chain (BSC
+ * Chapel makes a block every 0.45s) and end its bids early. So such a chain only gets this flat
+ * floor, which catches an impossible sample and nothing else; a measurement below it is replaced by
+ * the fallback.
+ */
+const MIN_PLAUSIBLE_BLOCK_TIME_SECONDS = 0.1
 
 export class ContractInteractionService {
 	private configService: FillerConfigService
@@ -1143,9 +1152,11 @@ export class ContractInteractionService {
 	 * speeds up (BSC makes a block every 0.45s against a declared 0.75s) and some chains
 	 * declare none. Converting at a slower block time than the chain's ends a bid early, so
 	 * the faster of the measured and the declared figure is used, and a stalled or idle
-	 * stretch in the sample never shortens a bid. A measurement below half the declared figure
-	 * (or half {@link FALLBACK_BLOCK_TIME_SECONDS} with none declared) is discarded, which limits
-	 * how far one RPC can stretch a bid to twice its window.
+	 * stretch in the sample never shortens a bid. A measurement below half the declared figure is
+	 * discarded, which limits how far one RPC can stretch a bid to twice its window. A chain that
+	 * declares none has no reference to judge a sample against, so it only gets the flat floor
+	 * {@link MIN_PLAUSIBLE_BLOCK_TIME_SECONDS}; below that the measurement is discarded for
+	 * {@link FALLBACK_BLOCK_TIME_SECONDS}.
 	 *
 	 * Blocks that cannot be read fall back to the declared figure, then to
 	 * {@link FALLBACK_BLOCK_TIME_SECONDS}. That answer is not kept.
@@ -1160,9 +1171,9 @@ export class ContractInteractionService {
 		const declared = declaredMs ? declaredMs / 1000 : undefined
 		const seconds = this.measureBlockTimeSeconds(client)
 			.then((measured) => {
-				const reference = declared ?? FALLBACK_BLOCK_TIME_SECONDS
-				if (measured < reference / MEASURED_BLOCK_TIME_TOLERANCE_DIVISOR) {
-					const used = reference
+				const floor = declared ? declared / MEASURED_BLOCK_TIME_TOLERANCE_DIVISOR : MIN_PLAUSIBLE_BLOCK_TIME_SECONDS
+				if (measured < floor) {
+					const used = declared ?? FALLBACK_BLOCK_TIME_SECONDS
 					this.logger.warn(
 						{ chain, measured, declared, seconds: used },
 						"Discarding an implausibly fast block-time measurement",

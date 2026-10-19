@@ -10,7 +10,7 @@ text is unchanged, because callers that catch a generic error rely on it.
 
 `TokenSender.submitCalls` reads the wallet's `pending` nonce, sends the native tx with it
 explicitly, and returns the same `submission` on success (the sponsored op's, from
-`UserOpSender.trySendSponsored`). `TokenSender.send` still reports only `txHash` and `sponsored`.
+`UserOpSender.trySendSponsored`). `TokenSender.send` still reports only `txHash`, `sponsored` and `redeemed`; it carries no submission.
 
 ## The placement record keeps the evidence
 
@@ -37,18 +37,30 @@ A legacy `failed` record with a hash is recovered the same way and never falls t
 3. **The scan** of the paying chain's `OrderPlaced` logs, from `max(placeScannedTo,
    placeFromBlock − 64)` to latest, in halving chunks. `placeScannedTo` is saved after every chunk,
    trailing the tip by the 64-block reorg margin. A failed read throws; it never counts as "not found".
-4. **Nothing on chain** settles `failed` only on proof the batch can no longer land. All reads are
-   at `scannedTo − 64`, except the permit clock:
-   - a native tx: the wallet's nonce at that height is past `placeTxNonce` (or the nonce of the tx
-     the node still lists). A tx a node no longer lists proves nothing, since one backend or
-     mempool can lack a valid tx, so a record without a nonce keeps waiting;
-   - a UserOp: its EntryPoint nonce at that height is past the stored one, or it is Permit2-mode
-     and the block timestamp at `scannedTo` is past `placeSubmittedAt` plus the permit window
-     (deadline plus a ten-minute margin). The host clock is not used.
+4. **Nothing on chain** settles `failed` only on proof the batch can no longer land. Every read,
+   the permit clock included, is at one block, `scannedTo − 64`:
+   - a native tx: the wallet's nonce at that block is past `placeTxNonce`. A tx a node no longer
+     lists proves nothing, since one backend or mempool can lack a valid tx, so a record with a
+     nonce keeps waiting;
+   - a UserOp: its EntryPoint nonce at that block is past the stored one, or it is Permit2-mode
+     and that block's timestamp is past `placeSubmittedAt` plus the permit window (deadline plus
+     a ten-minute margin). The host clock is not used. An op that landed before its deadline is in
+     that block's nonce or in the scan, even when a lagging backend served logs short of the tip.
+     A record with no stored nonce is no evidence: it waits with an error and is never judged
+     against nonce 0.
 
    A bundler-sourced tx hash that the node does not list is not settled as dropped: the bundle may
    be re-bundled under another hash, which the scan would find. A bootstrap op has no expiry and
    stays pending until its nonce moves or its log appears.
+
+   **A legacy native record** (written before nonces were kept: no `placeTxNonce`, `placeSession`
+   or `placeFromBlock`) cannot wait forever, because a `placing` record blocks `start()` and has
+   no operator exit. If the node still lists the tx, its nonce is stored as `placeTxNonce` and the
+   nonce rule applies, read 64 blocks below the latest block since such a record was never scanned. If
+   the node does not know the tx, the record settles `failed` with the tx hash, a note that it
+   predates nonce tracking so the placement could not be verified, and the advice to check the tx
+   on an explorer before starting another top-up. A warning is logged. Records written by this
+   change always have a nonce, so the strict rule applies to them.
 
 ## A flow writes only to its own record
 
@@ -84,3 +96,16 @@ it is checked: a successful receipt hands the hash back (a UserOp's receipt come
 bundler); a reverted receipt, or no receipt with the wallet's or EntryPoint's nonce past it (read
 below the tip), clears it and sends a new cancel; otherwise the attempt waits and retries. A
 UserOp-kind cancel that timed out is therefore never resent while it can still land.
+
+A Permit2-mode cancel UserOp also clears when its permit has expired: on a quiet chain the
+EntryPoint nonce never moves, so without this a bundler that never included the op would hold the
+escrow for good. Like the placement rule, it applies when the stored `expires` is true and the
+timestamp of the block the nonce is read at is at least `submittedAt` plus the permit window. A
+PERMIT bootstrap op has no deadline and keeps waiting.
+
+A `reclaimTxHash` that older code stored from an unconfirmed send (with no `reclaimSubmission` and
+no `ORDER_CANCELED` step) is checked before it is handed back. A successful receipt hands it back; a
+reverted receipt clears it and a new cancel goes out; a tx the node still lists is converted to a
+`reclaimSubmission` with that tx's nonce and follows the nonce rule; a tx the node does not know at
+all is cleared and the cancel is resent. A duplicate cancel can only revert (gas, never funds),
+unlike a duplicate placement.

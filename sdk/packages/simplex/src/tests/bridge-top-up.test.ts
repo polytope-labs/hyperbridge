@@ -1381,20 +1381,98 @@ describe("BRIDGE top-up placement recovery", () => {
 		expect((await data.state.get()).bridgeTopUp?.error).toContain("Nothing was escrowed")
 	})
 
-	it("keeps waiting on a forgotten native placement whose nonce was never recorded", async () => {
+	it("settles a legacy native placement the node does not know as failed, unverified, so it cannot block new top-ups", async () => {
+		// A record from before nonces were kept: no nonce, session or start block to judge it by.
+		const { topUp, data } = topUpWith(stored("placing", { placeTxHash: PLACE_TX }))
+		const internals = topUp as unknown as TopUpInternals
+		installPayingClient(internals, { ...forgottenTx(), accountNonce: 99 })
+
+		await topUp.current()
+
+		await vi.waitFor(async () => expect((await data.state.get()).bridgeTopUp?.stage).toBe("failed"))
+		const { error } = (await data.state.get()).bridgeTopUp!
+		expect(error).toContain(PLACE_TX)
+		expect(error).toContain("predates nonce tracking")
+		expect(error).toContain("could not be verified")
+		expect(error).toContain("Check the tx on an explorer before starting another top-up")
+		expect(error).not.toContain("Nothing was escrowed")
+		expect((await topUp.current())?.pending).toBe(false)
+	})
+
+	it("takes a legacy native placement's nonce from the tx the node still knows, then applies the nonce rule", async () => {
+		const legacy = () => stored("placing", { placeTxHash: PLACE_TX })
+		const pending = (nonce: number) => async () => ({ hash: PLACE_TX, nonce, blockNumber: null })
+
+		// The wallet's nonce is still the tx's: it may yet be mined, and the learned nonce is kept.
 		vi.useFakeTimers()
 		try {
-			// A record from before the nonce was kept: not even a consumed nonce can be compared.
-			const { topUp, data } = topUpWith(nativePlacement({ placeSubmittedAt: Date.now() - 5 * 60 * 60_000 }))
-			const internals = topUp as unknown as TopUpInternals
-			installPayingClient(internals, { ...forgottenTx(), accountNonce: 99 })
+			const { topUp, data } = topUpWith(legacy())
+			installPayingClient(topUp as unknown as TopUpInternals, {
+				receiptError: new Error("receipt not readable"),
+				getTransaction: pending(4),
+				accountNonce: 4,
+			})
+			await topUp.current()
+			await vi.advanceTimersByTimeAsync(0)
+			const waiting = (await data.state.get()).bridgeTopUp!
+			expect(waiting.stage).toBe("placing")
+			expect(waiting.placeTxNonce).toBe(4)
+			expect(waiting.error).toContain("is not mined yet")
+		} finally {
+			vi.clearAllTimers()
+			vi.useRealTimers()
+		}
+
+		// The wallet's nonce is past it and nothing was mined: replaced or dropped.
+		const { topUp, data } = topUpWith(legacy())
+		installPayingClient(topUp as unknown as TopUpInternals, {
+			receiptError: new Error("receipt not readable"),
+			getTransaction: pending(4),
+			accountNonce: 5,
+		})
+		await topUp.current()
+		await vi.waitFor(async () => expect((await data.state.get()).bridgeTopUp?.stage).toBe("failed"))
+		const settled = (await data.state.get()).bridgeTopUp!
+		expect(settled.placeTxNonce).toBe(4)
+		expect(settled.error).toContain("nonce has moved past it")
+	})
+
+	it("keeps waiting on a forgotten native placement that has a recorded nonce, whatever its age", async () => {
+		vi.useFakeTimers()
+		try {
+			const { topUp, data } = topUpWith(
+				nativePlacement({ placeTxNonce: 4, placeSubmittedAt: Date.now() - 5 * 60 * 60_000 }),
+			)
+			installPayingClient(topUp as unknown as TopUpInternals, { ...forgottenTx(), accountNonce: 4 })
 
 			await topUp.current()
 			await vi.advanceTimersByTimeAsync(0)
 
 			const saved = (await data.state.get()).bridgeTopUp!
 			expect(saved.stage).toBe("placing")
-			expect(saved.error).toContain("nonce cannot be checked")
+			expect(saved.error).toContain("Placement is unconfirmed")
+			expect(saved.error).not.toContain("predates nonce tracking")
+		} finally {
+			vi.clearAllTimers()
+			vi.useRealTimers()
+		}
+	})
+
+	it("waits, never judging against nonce 0, for a placement UserOp that has no recorded nonce", async () => {
+		vi.useFakeTimers()
+		try {
+			const { topUp, data } = topUpWith(userOpPlacement({ placeUserOpExpires: false, placeUserOpNonce: undefined }))
+			const internals = topUp as unknown as TopUpInternals
+			internals.deps.tokenSender = { userOpReceipt: async () => null } as never
+			// Any nonce above 0 would have settled the op as consumed had it defaulted to 0.
+			installPayingClient(internals, { logs: [], nonce: 5n })
+
+			await topUp.current()
+			await vi.advanceTimersByTimeAsync(0)
+
+			const saved = (await data.state.get()).bridgeTopUp!
+			expect(saved.stage).toBe("placing")
+			expect(saved.error).toContain("no recorded nonce")
 		} finally {
 			vi.clearAllTimers()
 			vi.useRealTimers()
@@ -1487,16 +1565,22 @@ describe("BRIDGE top-up placement recovery", () => {
 	 * `client` is what the paying chain says about that cancel by then.
 	 */
 	async function retriedCancel(
-		submission: SubmittedUnconfirmedError["submission"],
+		submission: SubmittedUnconfirmedError["submission"] | undefined,
 		client: {
 			receipt?: { status: "success" | "reverted" }
 			accountNonce?: number
 			entryPointNonce?: bigint
 			userOpReceipt?: { txHash: string; success: boolean } | null
+			/** The chain's clock in seconds at the evidence block. */
+			blockTimestamp?: number
+			/** A pending tx the node still lists; any other hash is unknown to it. */
+			pendingTx?: { hash: string; nonce: number }
 		},
+		/** The record at the start; a cancel hash from older code sits here instead of being sent. */
+		patch: Partial<StoredBridgeTopUp> = {},
 	) {
 		vi.useFakeTimers()
-		const { topUp, data } = topUpWith(stored("unfilled", { commitment: `0x${"77".repeat(32)}` }))
+		const { topUp, data } = topUpWith(stored("unfilled", { commitment: `0x${"77".repeat(32)}`, ...patch }))
 		const internals = topUp as unknown as TopUpInternals
 		const handedBack: string[] = []
 		internals.gateways.set(
@@ -1514,16 +1598,21 @@ describe("BRIDGE top-up placement recovery", () => {
 		;(internals.deps as unknown as Record<string, unknown>).tokenSender = {
 			submitCalls: async () => {
 				submits += 1
-				if (submits === 1) throw new SubmittedUnconfirmedError("no receipt in time", "EVM-8453", submission)
+				if (submits === 1 && submission) throw new SubmittedUnconfirmedError("no receipt in time", "EVM-8453", submission)
 				return { txHash: "0xnewcancel", sponsored: true }
 			},
 			userOpReceipt: async () => client.userOpReceipt ?? null,
 		}
 		;(internals.deps.clientManager as unknown as Record<string, unknown>).getPublicClient = () => ({
 			getBlockNumber: async () => 1_000n,
+			getBlock: async () => ({ timestamp: BigInt(client.blockTimestamp ?? 0) }),
 			getTransactionReceipt: async () => {
 				if (!client.receipt) throw new TransactionReceiptNotFoundError({ hash: PLACE_TX })
 				return client.receipt
+			},
+			getTransaction: async ({ hash }: { hash: string }) => {
+				if (client.pendingTx?.hash !== hash) throw new TransactionNotFoundError({ hash: hash as HexString })
+				return { ...client.pendingTx, blockNumber: null }
 			},
 			getTransactionCount: async () => client.accountNonce ?? 0,
 			readContract: async ({ functionName }: { functionName: string }) => {
@@ -1638,6 +1727,80 @@ describe("BRIDGE top-up placement recovery", () => {
 			const dropped = await retriedCancel(unconfirmedOp, { entryPointNonce: 7n })
 			expect(dropped.submits()).toBe(2)
 			expect(dropped.handedBack).toEqual(["0xnewcancel"])
+		}))
+
+	it("clears a Permit2 cancel UserOp whose permit expired on a quiet chain, and sends a new cancel", () =>
+		withFetch(async () => {
+			// No receipt and the EntryPoint nonce never moved, but the chain's clock at the evidence block is
+			// past the op's deadline: it can never validate, so waiting on it would hold the escrow for good.
+			const expired = await retriedCancel(unconfirmedOp, { entryPointNonce: 6n, blockTimestamp: 10_000_000_000 })
+			expect(expired.afterFirst.reclaimSubmission).toMatchObject({ kind: "userOp", expires: true })
+			expect(expired.submits()).toBe(2)
+			expect(expired.handedBack).toEqual(["0xnewcancel"])
+			expect(expired.record.reclaimSubmission).toBeUndefined()
+			cleanup()
+
+			// A permit still inside its window can land, so the attempt waits.
+			const live = await retriedCancel(unconfirmedOp, { entryPointNonce: 6n, blockTimestamp: 2 })
+			expect(live.submits()).toBe(1)
+			expect(live.record.error).toContain("can still land")
+			cleanup()
+
+			// A PERMIT bootstrap op has no deadline, however late the chain's clock is.
+			const bootstrap = await retriedCancel(
+				{ ...unconfirmedOp, expires: false },
+				{ entryPointNonce: 6n, blockTimestamp: 10_000_000_000 },
+			)
+			expect(bootstrap.submits()).toBe(1)
+			expect(bootstrap.handedBack).toEqual([])
+			expect(bootstrap.record.error).toContain("can still land")
+		}))
+
+	it("hands back a legacy reclaimTxHash only when its receipt succeeded", () =>
+		withFetch(async () => {
+			const legacy = { reclaimTxHash: "0xlegacy" } as const
+			const landed = await retriedCancel(undefined, { receipt: { status: "success" } }, legacy)
+			expect(landed.submits()).toBe(0)
+			expect(landed.handedBack).toEqual(["0xlegacy"])
+			expect(landed.record.reclaimTxHash).toBe("0xlegacy")
+		}))
+
+	it("clears a legacy reclaimTxHash that reverted and sends a new cancel", () =>
+		withFetch(async () => {
+			const { record, submits, handedBack } = await retriedCancel(
+				undefined,
+				{ receipt: { status: "reverted" } },
+				{ reclaimTxHash: "0xlegacy" },
+			)
+			expect(submits()).toBe(1)
+			expect(handedBack).toEqual(["0xnewcancel"])
+			expect(record.reclaimTxHash).toBe("0xnewcancel")
+		}))
+
+	it("converts a legacy reclaimTxHash the node still lists to a submission, and applies the nonce rule", () =>
+		withFetch(async () => {
+			const pendingTx = { hash: "0xlegacy", nonce: 4 }
+			const waiting = await retriedCancel(undefined, { pendingTx, accountNonce: 4 }, { reclaimTxHash: "0xlegacy" })
+			expect(waiting.submits()).toBe(0)
+			expect(waiting.handedBack).toEqual([])
+			expect(waiting.record.reclaimTxHash).toBeUndefined()
+			expect(waiting.record.reclaimSubmission).toMatchObject({ kind: "tx", txHash: "0xlegacy", nonce: 4 })
+			expect(waiting.record.error).toContain("is not mined yet")
+			cleanup()
+
+			// Its nonce taken by another tx: it can never land, so a new cancel goes out.
+			const dropped = await retriedCancel(undefined, { pendingTx, accountNonce: 5 }, { reclaimTxHash: "0xlegacy" })
+			expect(dropped.submits()).toBe(1)
+			expect(dropped.handedBack).toEqual(["0xnewcancel"])
+			expect(dropped.record.reclaimSubmission).toBeUndefined()
+		}))
+
+	it("clears a legacy reclaimTxHash the node does not know and sends a new cancel", () =>
+		withFetch(async () => {
+			const { record, submits, handedBack } = await retriedCancel(undefined, {}, { reclaimTxHash: "0xlegacy" })
+			expect(submits()).toBe(1)
+			expect(handedBack).toEqual(["0xnewcancel"])
+			expect(record.reclaimTxHash).toBe("0xnewcancel")
 		}))
 
 	it("keeps a bundler-confirmed placement pending when its receipt cannot be read", async () => {
@@ -2033,7 +2196,7 @@ describe("BRIDGE top-up placement recovery", () => {
 		}
 	})
 
-	it("judges a permit's expiry by the chain's clock at the scanned block, not the host's", async () => {
+	it("judges a permit's expiry by the chain's clock at the block its nonce is read at, not the host's", async () => {
 		vi.useFakeTimers()
 		try {
 			const { topUp, data } = topUpWith(userOpPlacement())
@@ -2054,7 +2217,8 @@ describe("BRIDGE top-up placement recovery", () => {
 			await vi.advanceTimersByTimeAsync(0)
 
 			expect((await data.state.get()).bridgeTopUp?.stage).toBe("placing")
-			expect(blocks).toEqual([100n])
+			// The scan reached block 100; the clock is read where the nonce is, a reorg margin below.
+			expect(blocks).toEqual([36n])
 		} finally {
 			vi.clearAllTimers()
 			vi.useRealTimers()

@@ -812,9 +812,11 @@ export class BridgeTopUp {
 	 * - a native tx whose nonce the wallet has moved past: some other tx took that nonce, and had
 	 *   it been ours the scan would have found its `OrderPlaced`. A node that no longer lists the
 	 *   tx proves nothing, since one backend or mempool can lack a tx another still holds, so a
-	 *   tx with no recorded nonce keeps waiting;
+	 *   tx this record has a nonce for keeps waiting. A legacy record has none: it takes the
+	 *   nonce of a tx the node still lists, and is settled `failed`, unverified, when the node
+	 *   does not know the tx, because waiting would block every new top-up for good;
 	 * - a UserOp whose EntryPoint nonce was consumed, or whose Permit2 permit expired by the
-	 *   block timestamp at the height the scan reached, not by this host's clock.
+	 *   timestamp of the block that nonce is read at, not by this host's clock.
 	 *
 	 * A tx hash that came from the bundler's receipt is never settled as a native tx: a bundle
 	 * reorged out can be re-bundled under a different hash, so it falls to the UserOp rules (the
@@ -844,12 +846,27 @@ export class BridgeTopUp {
 				throw new Error(`Placement tx ${txHash} is mined; its receipt is being read`)
 			}
 			if (!record.placeUserOpHash) {
-				const txNonce = record.placeTxNonce ?? tx?.nonce
-				if (txNonce === undefined || evidenceBlock === undefined) {
-					throw new Error(`Placement tx ${txHash} is not mined and its nonce cannot be checked yet; waiting`)
+				let txNonce = record.placeTxNonce
+				if (txNonce === undefined) {
+					// Written before nonces were recorded, so the nonce rule has nothing to compare with.
+					if (!tx) {
+						// Waiting would hold a `placing` record, and so block every new top-up, for good.
+						// Settle it as before nonces were tracked, but say it was not verified.
+						this.logger.warn({ txHash }, "A legacy placement tx is unknown to the node; settling it as failed")
+						await this.update({
+							stage: "failed",
+							error: `Placement tx ${txHash} is unknown to the node, and this record predates nonce tracking, so the placement could not be verified. Check the tx on an explorer before starting another top-up.`,
+						})
+						return
+					}
+					txNonce = tx.nonce
+					await this.update({ placeTxNonce: txNonce })
 				}
+				// A legacy record was never scanned, so it has no scanned height; the tip stands in for it.
+				const nonceBlock =
+					evidenceBlock ?? belowTip(await withTimeout(client.getBlockNumber(), "the latest block"))
 				const accountNonce = await withTimeout(
-					client.getTransactionCount({ address: this.deps.solver, blockNumber: evidenceBlock }),
+					client.getTransactionCount({ address: this.deps.solver, blockNumber: nonceBlock }),
 					"the filler wallet's nonce",
 				)
 				if (accountNonce > txNonce) {
@@ -867,10 +884,12 @@ export class BridgeTopUp {
 
 		const userOpHash = record.placeUserOpHash
 		if (!userOpHash) throw new Error("No placement tx or UserOp hash is recorded; waiting")
-		if (record.placeUserOpExpires && scannedTo !== undefined) {
-			// Permit2 mode: the permit's deadline has passed, by the chain's own clock at a height
-			// the scan covered. Any later block is later still, so the op cannot validate.
-			const block = await withTimeout(client.getBlock({ blockNumber: scannedTo }), "the scanned block")
+		if (record.placeUserOpExpires && evidenceBlock !== undefined) {
+			// Permit2 mode: the permit's deadline has passed, by the chain's own clock at the block
+			// the nonce is read at. Any later block is later still, so the op cannot validate, and
+			// one that landed before its deadline is in that block's nonce or in the scan, even when
+			// a lagging backend served the logs short of the tip.
+			const block = await withTimeout(client.getBlock({ blockNumber: evidenceBlock }), "the evidence block")
 			if (Number(block.timestamp) * 1000 >= submittedAt + PLACEMENT_WINDOW_MS) {
 				await this.update({
 					stage: "failed",
@@ -878,6 +897,10 @@ export class BridgeTopUp {
 				})
 				return
 			}
+		}
+		// A missing nonce is no evidence: defaulting it to 0 would judge the op against nonce 0.
+		if (record.placeUserOpNonce === undefined) {
+			throw new Error(`Placement UserOp ${userOpHash} has no recorded nonce, so it cannot be checked yet; waiting`)
 		}
 		const nonceCall = {
 			abi: ENTRYPOINT_ABI,
@@ -891,7 +914,7 @@ export class BridgeTopUp {
 				: client.readContract(nonceCall),
 			"the EntryPoint nonce",
 		)) as bigint
-		if (nonce > BigInt(record.placeUserOpNonce ?? "0")) {
+		if (nonce > BigInt(record.placeUserOpNonce)) {
 			// The nonce was consumed as of a covered height; if it were ours, the scan would have found our log.
 			await this.update({
 				stage: "failed",
@@ -1360,10 +1383,16 @@ export class BridgeTopUp {
 							await this.recordRecoveryStep("DESTINATION_FINALIZED")
 							break
 						case "AWAITING_CANCEL_TRANSACTION": {
-							// A cancel already sent (before a restart) is handed back rather than sent twice.
-							if (this.record!.reclaimTxHash && !this.hasRecoveryStep("ORDER_CANCELED")) {
-								input = this.record!.reclaimTxHash
-								break
+							// A cancel already sent (before a restart) is handed back rather than sent twice. A hash
+							// written by older code may come from a send that was never confirmed, so it is
+							// checked first.
+							const legacy = this.record!.reclaimTxHash
+							if (legacy && !this.record!.reclaimSubmission && !this.hasRecoveryStep("ORDER_CANCELED")) {
+								const landed = await this.settleLegacyCancel(record.chain, legacy)
+								if (landed) {
+									input = landed
+									break
+								}
 							}
 							// A cancel sent without a receipt is handed back only once it is known to have
 							// landed; one that did not is cleared, and a new cancel goes out below.
@@ -1526,8 +1555,48 @@ export class BridgeTopUp {
 			}),
 			"the EntryPoint nonce",
 		)) as bigint
-		if (nonce <= BigInt(sent.nonce)) throw new Error(`The cancel UserOp ${sent.userOpHash} can still land; waiting`)
 		// The op's nonce was taken and the bundler has no receipt for it: it is not ours.
+		if (nonce > BigInt(sent.nonce)) return undefined
+		if (sent.expires) {
+			// Permit2 mode: on a quiet chain the nonce never moves, so the op's own deadline clears it,
+			// read at the block the nonce was read at. An op that landed before its deadline is in that
+			// block's nonce. A bootstrap op has no deadline and keeps waiting.
+			const block = await withTimeout(client.getBlock({ blockNumber: evidenceBlock }), "the evidence block")
+			if (Number(block.timestamp) * 1000 >= sent.submittedAt + PLACEMENT_WINDOW_MS) return undefined
+		}
+		throw new Error(`The cancel UserOp ${sent.userOpHash} can still land; waiting`)
+	}
+
+	/**
+	 * Settles a cancel hash that older code stored as `reclaimTxHash` from a send it never
+	 * confirmed. Returns the hash when its receipt succeeded. A reverted receipt, or a tx the
+	 * node does not know at all, clears it so a new cancel goes out: a duplicate cancel can only
+	 * revert (gas, never funds), unlike a duplicate placement. A tx the node still lists is
+	 * converted to a `reclaimSubmission` with its nonce, so {@link settleCancel}'s nonce rule decides.
+	 */
+	private async settleLegacyCancel(chain: string, txHash: HexString): Promise<HexString | undefined> {
+		const client = this.deps.clientManager.getPublicClient(chain)
+		const receipt = await withTimeout(client.getTransactionReceipt({ hash: txHash }), "the cancel receipt").catch(
+			(err) => {
+				if (err instanceof TransactionReceiptNotFoundError) return undefined
+				throw err
+			},
+		)
+		if (receipt?.status === "success") return txHash
+		if (!receipt) {
+			const tx = await withTimeout(client.getTransaction({ hash: txHash }), "the cancel tx").catch((err) => {
+				if (err instanceof TransactionNotFoundError) return undefined
+				throw err
+			})
+			if (tx) {
+				await this.update({
+					reclaimTxHash: undefined,
+					reclaimSubmission: { kind: "tx", txHash, nonce: tx.nonce, submittedAt: Date.now() },
+				})
+				return undefined
+			}
+		}
+		await this.update({ reclaimTxHash: undefined })
 		return undefined
 	}
 

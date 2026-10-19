@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest"
-import { decodeFunctionData } from "viem"
+import { decodeFunctionData, keccak256, toHex } from "viem"
 import type { ERC7821Call, HexString } from "@hyperbridge/sdk"
 import { ERC20_ABI } from "@/config/abis/ERC20"
 import { revokeStaleGatewayAllowances, type StaleGatewayAllowanceDeps } from "@/services/gateway-allowance"
@@ -17,6 +17,8 @@ const FEE_TOKEN = "0x2222222222222222222222222222222222222222" as HexString
 const USDC = "0x3333333333333333333333333333333333333333" as HexString
 const USDT = "0x4444444444444444444444444444444444444444" as HexString
 const STALE = 10_900_000_000_000_000n
+/** The revoke's own EntryPoint nonce lane: a uint192 key, so it never shares key 0 with boot-time senders. */
+const REVOKE_NONCE_KEY = BigInt(keccak256(toHex("simplex.gateway-allowance-revoke"))) >> 64n
 
 function build(
 	opts: {
@@ -26,7 +28,7 @@ function build(
 		watchOnly?: Record<number, boolean>
 		usdt?: HexString
 		feeToken?: () => Promise<{ address: HexString; decimals: number }>
-		submitCalls?: (chain: string, calls: ERC7821Call[]) => Promise<{ txHash: HexString; sponsored: boolean }>
+		submitCalls?: (chain: string, calls: ERC7821Call[], opts?: { nonceKey?: bigint }) => Promise<{ txHash: HexString; sponsored: boolean }>
 		readContract?: (call: { address: HexString }) => Promise<bigint>
 	} = {},
 ) {
@@ -62,10 +64,12 @@ describe("revokeStaleGatewayAllowances", () => {
 		await revokeStaleGatewayAllowances(deps)
 
 		expect(submitCalls).toHaveBeenCalledOnce()
-		const [chain, calls] = submitCalls.mock.calls[0]
+		const [chain, calls, opts] = submitCalls.mock.calls[0]
 		expect(chain).toBe("EVM-8453")
-		// One call per submission, so an undelegated wallet sends it as a plain transaction.
+		// One call per submission, so the native fallback goes straight to the token and works
+		// from a wallet that is not delegated yet.
 		expect(calls).toHaveLength(1)
+		expect(opts).toEqual({ nonceKey: REVOKE_NONCE_KEY })
 		expect(calls[0].target).toBe(FEE_TOKEN)
 		expect(calls[0].value).toBe(0n)
 		expect(decodeFunctionData({ abi: ERC20_ABI, data: calls[0].data })).toEqual({
@@ -76,6 +80,18 @@ describe("revokeStaleGatewayAllowances", () => {
 			expect.objectContaining({ chain: "EVM-8453", token: FEE_TOKEN, allowance: STALE.toString() }),
 			"Revoked a stale IntentGateway allowance",
 		)
+	})
+
+	it("sends every revoke on the one nonce key, which fits the EntryPoint's uint192", async () => {
+		const { deps, submitCalls } = build({
+			allowances: { [FEE_TOKEN.toLowerCase()]: STALE, [USDT.toLowerCase()]: 1n },
+		})
+
+		await revokeStaleGatewayAllowances(deps)
+
+		expect(submitCalls.mock.calls.map(([, , opts]) => opts?.nonceKey)).toEqual([REVOKE_NONCE_KEY, REVOKE_NONCE_KEY])
+		expect(REVOKE_NONCE_KEY).toBeGreaterThan(0n)
+		expect(REVOKE_NONCE_KEY).toBeLessThan(1n << 192n)
 	})
 
 	it("reads the allowance the solver granted the gateway on the fee token, USDC and USDT", async () => {

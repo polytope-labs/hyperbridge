@@ -329,6 +329,22 @@ describe("TokenSender sponsored batches", () => {
 		expect(sponsoredBatch(trySendSponsored).map((call) => call.target)).toEqual([TOKEN])
 	})
 
+	it("sends the sponsored op on the nonce key the caller names", async () => {
+		const { sender, trySendSponsored } = makeSponsoredSender()
+
+		await sender.submitCalls("EVM-137", [transfer], { nonceKey: 7n })
+
+		expect(trySendSponsored.mock.calls[0][0].nonceKey).toBe(7n)
+	})
+
+	it("leaves the nonce key unset for a caller that names none, so the op uses key 0", async () => {
+		const { sender, trySendSponsored } = makeSponsoredSender()
+
+		await sender.submitCalls("EVM-137", [transfer])
+
+		expect(trySendSponsored.mock.calls[0][0].nonceKey).toBeUndefined()
+	})
+
 	it("sends the batch unchanged when the approval check fails", async () => {
 		vi.mocked(resolvePendingPermit2Approval).mockRejectedValueOnce(new Error("429 Too Many Requests"))
 		const { sender, trySendSponsored } = makeSponsoredSender()

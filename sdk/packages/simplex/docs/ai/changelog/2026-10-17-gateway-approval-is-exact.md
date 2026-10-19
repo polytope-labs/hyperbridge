@@ -35,9 +35,22 @@ After delegation is set up, and only when the filler has a signer, `revokeStaleG
 (`src/services/gateway-allowance.ts`, called from `bootFiller` once the `TokenSender` exists) reads
 `allowance(solver, gateway)` for the gateway's fee token and the configured USDC and USDT on every
 configured chain that is not watch-only. Each non-zero allowance gets one `approve(gateway, 0)` through
-`TokenSender.submitCalls`, one call per token: an undelegated wallet sends it as a plain transaction,
-a delegated one gets it sponsored.
+`TokenSender.submitCalls`, one call per token. `submitCalls` tries a sponsored op whenever a paymaster
+and bundler are configured, and sends natively only when the bundler refuses it; a single call goes
+straight to the token, so that fallback works from a wallet that is not delegated yet.
+
+The revoke covers the gateway fee token and the configured USDC and USDT, where the large leftover
+allowance was. Other output tokens a pre-fix clamped fill paid may hold a small leftover allowance,
+and they are not swept.
+
+The sponsored revoke runs on its own EntryPoint nonce key (`submitCalls`' optional
+`{ nonceKey }`; every other caller keeps key 0). Boot also starts `bridgeTopUp.restore()` and, about
+30s later, the first vault sweep on key 0, and two ops on one key read the same `getNonce`, so the
+bundler would reject or replace one of them. The key is a fixed hash of
+`simplex.gateway-allowance-revoke`, shifted to fit the key's 192 bits. A bid's key is a hash of its
+commitment, session key and calldata, so the two do not meet. One chain's tokens are revoked one
+after another, so they share the key without competing.
 
 It is best-effort and runs in the background: each revocation is logged, a failure is a warning, and
-neither delays or fails boot. It is idempotent, since a revoked allowance reads zero on the next boot.
+neither delays nor fails boot. It is idempotent, since a revoked allowance reads zero on the next boot.
 It costs one small transaction per affected token and chain, once.

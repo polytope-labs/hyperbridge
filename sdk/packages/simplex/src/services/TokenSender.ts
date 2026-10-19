@@ -196,14 +196,23 @@ export class TokenSender {
 	/**
 	 * Executes a batch from the filler wallet: sponsored UserOp first, native tx
 	 * when no sponsor is available. Shared by every operator-initiated outbound flow.
+	 *
+	 * `nonceKey` puts the sponsored op on its own EntryPoint nonce lane (default 0). Two ops on one
+	 * key read the same `getNonce`, so a caller that can run alongside another key-0 sender passes
+	 * its own. It has no effect on the native fallback.
 	 */
-	async submitCalls(chain: string, calls: ERC7821Call[]): Promise<{ txHash: HexString; sponsored: boolean }> {
+	async submitCalls(
+		chain: string,
+		calls: ERC7821Call[],
+		opts?: { nonceKey?: bigint },
+	): Promise<{ txHash: HexString; sponsored: boolean }> {
 		if (this.userOpSender?.canSponsor(chain)) {
 			const bootstrap = await this.permit2Bootstrap(chain)
 			const batch = bootstrap ? [bootstrap, ...calls] : calls
 			const result = await this.userOpSender.trySendSponsored({
 				chain,
 				callData: encodeERC7821ExecuteBatch(batch),
+				nonceKey: opts?.nonceKey,
 				gas: {
 					verificationGasLimit: 60_000n,
 					callGasLimit: 450_000n * BigInt(batch.length),

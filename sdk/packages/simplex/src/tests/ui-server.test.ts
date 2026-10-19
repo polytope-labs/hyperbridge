@@ -976,7 +976,7 @@ describe("UiServer (operator mode)", () => {
 		expect(payload).toEqual({
 			pending: true,
 			sponsored: true,
-			message: "An earlier send from this wallet is still pending; wait for it before sending again.",
+			message: "An earlier sponsored operation from this wallet is still pending; wait for it to land before sending again.",
 		})
 		const history = await (await fetch(`${base}/api/wallet/history`)).json()
 		expect(history.txs).toHaveLength(0)

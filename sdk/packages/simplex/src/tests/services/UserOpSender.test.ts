@@ -222,6 +222,10 @@ describe("UserOpSender gas price", () => {
 	const rundlerCalls = () => bundlerCalls.filter((c) => c.method.startsWith("rundler_")).map((c) => c.method)
 	const METHOD_NOT_FOUND = { error: { code: -32601, message: "Method not found" } }
 
+	afterEach(() => {
+		vi.useRealTimers()
+	})
+
 	it("prices a rundler bundler from the fees it suggests, raised by the bumps", async () => {
 		bundlerReplies.rundler_getUserOperationGasPrice = {
 			result: { suggested: { maxPriorityFeePerGas: toHex(2_000_000_000n), maxFeePerGas: toHex(5_000_000_000n) } },
@@ -261,7 +265,6 @@ describe("UserOpSender gas price", () => {
 		// Never submitted, so the caller may fall back.
 		await expect(promise).resolves.toBeNull()
 		expect(bundlerCalls.map((c) => c.method)).toEqual(["rundler_getUserOperationGasPrice"])
-		vi.useRealTimers()
 	})
 
 	it("keeps the chain estimate and stops asking when the bundler does not serve rundler fees", async () => {

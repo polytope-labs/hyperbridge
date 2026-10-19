@@ -173,7 +173,7 @@ A `202` takes one of three forms:
 
 - **Submitted, no receipt yet.** The bundler accepted the UserOperation, or the node accepted the transaction, but no receipt came within the wait. It may land at any time. A wallet balance cannot show a UserOperation that is still in the bundler's pool, so wait a few minutes before sending again.
 - **Possibly submitted.** The bundler did not answer the send or any of the lookups after it, so the send *may have been submitted*. The message says so. This is what an outage of the bundler looks like.
-- **Earlier send still pending.** The bundler refused the send because an earlier UserOperation from this wallet is still waiting on the same nonce (it answers "replacement underpriced" or "already known"). Nothing new was submitted, so the response has no hash, and its message is "An earlier send from this wallet is still pending; wait for it before sending again." The send is never repeated as a plain transaction, because the earlier one could still land and the same tokens would leave twice.
+- **Earlier operation still pending.** The bundler refused the send because an earlier sponsored operation from this wallet (a send, a vault sweep or redeem, or a delegation setup) is still waiting on the same nonce (it answers "replacement underpriced" or "already known"). Nothing new was submitted, so the response has no hash, and its message is "An earlier sponsored operation from this wallet is still pending; wait for it to land before sending again." The send is never repeated as a plain transaction, because the earlier one could still land and the same tokens would leave twice.
 
 ## PUT /api/vault
 

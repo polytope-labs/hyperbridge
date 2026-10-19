@@ -2067,7 +2067,7 @@ export class UiServer {
 				return sendJson(res, 202, {
 					pending: true,
 					sponsored: true,
-					message: "An earlier send from this wallet is still pending; wait for it before sending again.",
+					message: "An earlier sponsored operation from this wallet is still pending; wait for it to land before sending again.",
 				})
 			}
 			if (err instanceof SubmittedUnconfirmedError) {

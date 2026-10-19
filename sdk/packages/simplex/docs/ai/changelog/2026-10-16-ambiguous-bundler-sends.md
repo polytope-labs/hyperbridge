@@ -87,8 +87,10 @@ stays a 400.
 - A sponsored UserOp's message says it may still land and to wait before resending: the wallet
   balance cannot show an op still in the bundler's pool. When the outcome is `unknown` it says the
   send *may have been submitted*. A native tx keeps the explorer wording and link.
-- A `PendingOpOnNonceError` answers "an earlier send from this wallet is still pending; wait for it
-  before sending again" with no hash, since nothing new was submitted.
+- A `PendingOpOnNonceError` answers "an earlier sponsored operation from this wallet is still pending;
+  wait for it to land before sending again" with no hash, since nothing new was submitted. The
+  message does not say "send": key-0 nonces are shared by sends, vault sweeps and redeems, and
+  delegation ops, so the op in the way need not be a send.
 
 The operator UI renders the pending response in a warning tone, clears the amount so the next click
 cannot resend, and shows no "Sent" success line. A UserOp hash is shown as plain text, a native tx

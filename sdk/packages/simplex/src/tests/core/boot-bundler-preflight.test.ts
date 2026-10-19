@@ -58,6 +58,45 @@ describe("boot bundler EntryPoint check", () => {
 		)
 	})
 
+	it("warns about a leftover [simplex.overfillProtection] instead of refusing the config", async () => {
+		// The section is ignored, not rejected: an older `simplex init` wrote it
+		// uncommented, and refusing it would crash-loop those deployments. The boot
+		// still goes on to fail on the bundler here, past the config checks.
+		bundler.url = ""
+		const lines: string[] = []
+		const cfg = config()
+		cfg.simplex.overfillProtection = { maxOverfillBps: 500, maxConsecutiveClamps: 3 }
+
+		await expect(
+			bootFiller(cfg, {
+				loggers: new LoggerContext({ sink: { write: (line) => lines.push(line) } }),
+				scanners: { orders: stubOrderScanner([CHAIN_ID]) },
+				data: new MemoryDataStore(),
+				ownsData: true,
+				signer: privateKeySigner(`0x${"22".repeat(32)}`),
+			}),
+		).rejects.toThrow(/Hyperbridge runs no bundler/)
+		expect(lines.some((line) => line.includes("[simplex.overfillProtection] is ignored"))).toBe(true)
+	})
+
+	it("does not warn when the field is present but undefined", async () => {
+		bundler.url = ""
+		const lines: string[] = []
+		const cfg = config()
+		cfg.simplex.overfillProtection = undefined
+
+		await expect(
+			bootFiller(cfg, {
+				loggers: new LoggerContext({ sink: { write: (line) => lines.push(line) } }),
+				scanners: { orders: stubOrderScanner([CHAIN_ID]) },
+				data: new MemoryDataStore(),
+				ownsData: true,
+				signer: privateKeySigner(`0x${"22".repeat(32)}`),
+			}),
+		).rejects.toThrow(/Hyperbridge runs no bundler/)
+		expect(lines.some((line) => line.includes("overfillProtection"))).toBe(false)
+	})
+
 	it("refuses to start when Hyperbridge runs no bundler for a filling chain", async () => {
 		bundler.url = ""
 		await expect(boot()).rejects.toThrow(/Hyperbridge runs no bundler for Base \(EVM-8453\).*set it watch-only/)

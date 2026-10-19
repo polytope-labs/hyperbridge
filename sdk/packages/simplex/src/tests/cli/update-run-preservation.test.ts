@@ -103,6 +103,18 @@ describe("CLI wizard update run", () => {
 		expect(assembled.simplex.gasFeeBump).toEqual(existing.simplex.gasFeeBump)
 	})
 
+	it("drops a leftover [simplex.overfillProtection]", () => {
+		// Ignored at boot, and not emitted: carried through, it would trip the
+		// round-trip gate, so the update run removes it from the file.
+		const assembled = simulateUpdateRun({
+			...existing,
+			simplex: { ...existing.simplex, overfillProtection: { maxOverfillBps: 500, maxConsecutiveClamps: 3 } },
+		})
+
+		expect(assembled.simplex.overfillProtection).toBeUndefined()
+		expect(emitFillerToml(assembled)).not.toContain("overfillProtection")
+	})
+
 	it("drops a leftover [[pairs]] and writes the wizard-managed assets and policies", () => {
 		const assembled = simulateUpdateRun()
 

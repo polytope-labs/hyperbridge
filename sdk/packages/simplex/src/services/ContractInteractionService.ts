@@ -348,8 +348,10 @@ export class ContractInteractionService {
 		// one endpoint reporting 18 for a 6-decimal token inflates every amount scaled by it by
 		// 10^12. The registry was verified on-chain when the token was curated, so where it knows
 		// the token its disagreement is a hard error rather than something to price — callers on
-		// the fill path treat a throw as "skip this order". A token the registry does not know
-		// keeps today's behaviour; `FXFiller` bounds its bid against the order's own output.
+		// the fill path treat a throw as "skip this order". A token the registry does not know,
+		// such as a custom `[assets]` entry (which names addresses, not decimals), is not
+		// cross-checked: it takes the chain's answer, and nothing bounds a bid scaled by a wrong
+		// one except the wallet balance and the funding venues.
 		//
 		// Deliberately not cached on a mismatch: the next call re-reads and re-checks. A value
 		// that reaches the cache was checked here, and `setTokenDecimals` has no other caller.

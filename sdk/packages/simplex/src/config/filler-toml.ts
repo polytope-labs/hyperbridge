@@ -118,9 +118,11 @@ export interface FillerTomlConfig {
 		}
 		/**
 		 * Removed. `[simplex.overfillProtection]` was dropped when the overfill clamp
-		 * and the self-halt were taken out; `validateConfig` rejects any config that
-		 * still carries it. Typed `unknown` so a removed-but-present value is caught
-		 * rather than silently dropped, and so an empty table still trips the check.
+		 * and the self-halt were taken out. It is no longer read: boot warns when a
+		 * config still carries it, and `simplex init` drops it. Not rejected, because
+		 * `simplex init` wrote the section uncommented for existing operators, and
+		 * refusing it would crash-loop their Docker deployments. Typed `unknown` so
+		 * whatever an old file holds still parses.
 		 */
 		overfillProtection?: unknown
 		/**
@@ -299,15 +301,6 @@ export function validateConfig(config: FillerTomlConfig, cliWatchOnly = false): 
 	if ("strategies" in config) {
 		throw new Error(
 			"[[strategies]] was removed — simplex prices every fill from the limit orders you post. Run `simplex init` to migrate this config; per-strategy confirmation policies move to [confirmationPolicies]",
-		)
-	}
-
-	// `[simplex.overfillProtection]` went with the overfill clamp and the self-halt.
-	// A config that still carries it — even an empty table — is rejected rather than
-	// silently ignored, so the operator deletes it and knows why nothing clamps.
-	if (config.simplex && "overfillProtection" in config.simplex) {
-		throw new Error(
-			"[simplex.overfillProtection] has been removed: Simplex no longer clamps bids or halts on overfill. Delete the section from the config and restart.",
 		)
 	}
 

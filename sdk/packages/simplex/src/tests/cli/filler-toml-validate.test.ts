@@ -137,29 +137,31 @@ describe("validateConfig", () => {
 })
 
 describe("validateConfig [simplex.overfillProtection]", () => {
-	const REMOVED =
-		/\[simplex\.overfillProtection\] has been removed: Simplex no longer clamps bids or halts on overfill\. Delete the section from the config and restart\./
-
-	it("rejects the removed section in any form, including an empty table", () => {
+	// Removed, but ignored rather than refused: `simplex init` wrote the section
+	// uncommented, and rejecting it would crash-loop those deployments. Boot warns.
+	it("accepts the removed section in any form, including an empty table", () => {
 		for (const overfillProtection of [{}, { maxOverfillBps: 500 }, { maxConsecutiveClamps: 3 }]) {
 			const config = minimalConfig()
 			config.simplex.overfillProtection = overfillProtection
-			expect(() => validateConfig(config)).toThrow(REMOVED)
+			expect(() => validateConfig(config)).not.toThrow()
 		}
 	})
 
-	it("accepts a config without it", () => {
+	it("accepts a config without it, or with it undefined", () => {
 		expect(() => validateConfig(minimalConfig())).not.toThrow()
+		const config = minimalConfig()
+		config.simplex.overfillProtection = undefined
+		expect(() => validateConfig(config)).not.toThrow()
 	})
 
-	it("rejects a TOML file that still carries the section", () => {
+	it("accepts a TOML file that still carries the section", () => {
 		// The same parse every entry point (`simplex run`, `simplex init`, the desktop) reads the file with.
 		const example = readFileSync(resolve(__dirname, "../../../filler-config-example.toml"), "utf-8")
-		const config = parse(`${example}\n[simplex.overfillProtection]\n`) as FillerConfigFile
+		const config = parse(`${example}\n[simplex.overfillProtection]\nmaxOverfillBps = 500\n`) as FillerConfigFile
 		config.simplex.substratePrivateKey = "seed"
 		config.simplex.hyperbridgeWsUrl = "wss://example"
 		for (const chain of config.chains) chain.rpcUrls = ["https://rpc.example"]
-		expect(() => validateConfig(config)).toThrow(REMOVED)
+		expect(() => validateConfig(config)).not.toThrow()
 	})
 })
 

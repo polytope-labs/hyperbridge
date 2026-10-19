@@ -16,7 +16,10 @@ throw as "skip this order" (`calculateProfitability` runs inside the caller's tr
 which is the right outcome for a value that cannot be trusted.
 
 The cross-check covers tokens the registry knows. A token it does not know, such as a
-custom `[assets]` entry, still takes the chain's `decimals()` answer and caches it.
+custom `[assets]` entry (which maps symbols to addresses and declares no decimals), still
+takes the chain's `decimals()` answer and caches it. Nothing cross-checks it, and no bound
+on the bid against the order's output exists any more, so a wrong answer is limited only
+by the wallet balance and the funding venues.
 
 The read-failure fallback to the registry is unchanged and still not cached: it covers a
 transient RPC failure without pinning a registry value for the process. The native token
@@ -28,13 +31,13 @@ cached, and `setTokenDecimals` has no other caller.
 The overfill clamp was disabled for limit-order pricing and the self-halt it fed could
 never trip, so both are gone along with everything that configured or reported them:
 
-- **Config:** `[simplex.overfillProtection]` (`maxOverfillBps`, `maxConsecutiveClamps`).
-  `validateConfig` rejects a config that still carries the section, in any form including
-  an empty table: `[simplex.overfillProtection] has been removed: Simplex no longer clamps
-  bids or halts on overfill. Delete the section from the config and restart.` That check
-  runs on `simplex run`, `Simplex.start`, the desktop, the setup API and `simplex init`,
-  which reports the same message when it loads an existing config and offers to start
-  fresh or exit so the operator can delete the section.
+- **Config:** `[simplex.overfillProtection]` (`maxOverfillBps`, `maxConsecutiveClamps`)
+  is no longer read. `validateConfig` accepts it, because `simplex init` wrote the section
+  uncommented for existing operators and refusing it would crash-loop their deployments.
+  Boot logs a warning (`[simplex.overfillProtection] is ignored: overfill protection was
+  removed …`) when `simplex.overfillProtection !== undefined`, so a library caller passing
+  `{ overfillProtection: undefined }` is not warned. `simplex init` drops the key when it
+  loads an existing config, and the update run does not write it back.
 - **Library:** `Simplex.isHalted()`, `Simplex.resetHalt()` and `SimplexStatus.halted`;
   `FillerConfigService.getMaxOverfillBps()` / `getMaxConsecutiveClamps()`;
   `FXFiller.isHalted()` / `resetHalt()`; the `HaltControl` type and

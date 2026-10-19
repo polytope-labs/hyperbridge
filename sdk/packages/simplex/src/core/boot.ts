@@ -183,6 +183,15 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 	if ("pairs" in config) {
 		logger.warn("[[pairs]] is no longer read and can be deleted from the config")
 	}
+	// Likewise [simplex.overfillProtection], which `simplex init` wrote uncommented. Not
+	// rejected: refusing it would crash-loop a deployment that has carried it for months,
+	// and nothing it configured exists any more. `!== undefined` so a library caller
+	// passing `{ overfillProtection: undefined }` is not warned.
+	if (config.simplex.overfillProtection !== undefined) {
+		logger.warn(
+			"[simplex.overfillProtection] is ignored: overfill protection was removed, so Simplex no longer clamps bids or halts on overfill. The section can be deleted from the config",
+		)
+	}
 
 	logger.info("Resolving chain IDs from RPC endpoints...")
 	// Boot tolerates an endpoint that cannot answer; runtime endpoint edits do not.

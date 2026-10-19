@@ -107,6 +107,8 @@ export function assembleConfig(state: WizardState): FillerConfigFile {
 			// Dead knobs: parsed for compatibility, never read, and not emitted — carrying
 			// them through would fail the round-trip gate below.
 			queue: undefined,
+			// Also the removed overfill-protection section, which an old file may carry.
+			overfillProtection: undefined,
 			entryPointAddress: undefined,
 			solverAccountContractAddress: undefined,
 			signer: state.signer,

@@ -1296,6 +1296,21 @@ export interface SubmitBidOptions {
 }
 
 /**
+ * A bundler gas estimate that failed transiently (a network failure, a JSON-RPC internal
+ * error, or an HTTP 408, 429 or 5xx) and is about to be sent again.
+ */
+export interface BundlerRetryEvent {
+	/** The attempt that failed, counted from 1. */
+	attempt: number
+	/** Attempts made at most, the first included. */
+	maxAttempts: number
+	/** Wait before the next attempt, in milliseconds. */
+	delayMs: number
+	/** The failed attempt's error. */
+	error: Error
+}
+
+/**
  * The fields of a bid UserOperation that decide its `preVerificationGas`: everything the
  * solver signs except the signature and the `preVerificationGas` itself.
  */
@@ -1343,6 +1358,11 @@ export interface EstimateFillOrderParams {
 	 * Default: false
 	 */
 	requireBundlerEstimate?: boolean
+	/**
+	 * Called before each retry of a transiently failed bundler estimate.
+	 * Default: a `console.warn`
+	 */
+	onBundlerRetry?: (event: BundlerRetryEvent) => void
 }
 
 export interface FillOrderEstimate {

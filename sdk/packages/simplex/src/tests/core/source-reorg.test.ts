@@ -190,14 +190,14 @@ describe("source placement reorg during the confirmation wait", () => {
 		expect(readContract.mock.calls.map(([call]) => call.args[1])).toEqual([0n, 1n])
 	})
 
-	it("fails closed when the quorum's escrow read rejects", async () => {
+	it("skips as unverifiable, not missing, when the quorum's escrow read rejects", async () => {
 		const { filler, skipped, executeOrder, readWithQuorum } = build()
 		readWithQuorum.mockRejectedValue(new Error("quorum down"))
 
 		await fill(filler, order(), SCANNED_BLOCK)
 
 		expect(executeOrder).not.toHaveBeenCalled()
-		expect(skipped).toEqual([{ orderId: order().id, reason: "Source escrow missing after confirmations" }])
+		expect(skipped).toEqual([{ orderId: order().id, reason: "Source escrow unverifiable after confirmations" }])
 	})
 
 	it("fails closed when the scanner reported no placement block", async () => {

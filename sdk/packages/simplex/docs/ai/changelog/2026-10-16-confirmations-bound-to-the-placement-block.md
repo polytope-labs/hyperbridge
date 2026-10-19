@@ -1,8 +1,8 @@
 # 2026-10-16 — Confirmations are bound to the block the order was scanned from
 
-A cross-chain order is now filled only while a quorum of source endpoints still places
-its `OrderPlaced` transaction in the block the scanner read it from, and the source
-escrow is re-read under a quorum right before bidding. A placement that moves during the
+A cross-chain order is now filled only while a quorum of the source endpoints that answer
+still places its `OrderPlaced` transaction in the block the scanner read it from, and the
+source escrow is re-read under such a quorum right before bidding. A placement that moves during the
 wait is skipped instead of bid on.
 
 ## Why
@@ -27,23 +27,30 @@ to.
 
 After the wait and before bidding, the source escrow is re-read through the quorum
 (`readWithQuorum`): each endpoint votes on the whole escrow vector, and a bid goes out
-only when a quorum agrees every leg still holds escrow. An empty or unreadable escrow
-skips the order (`Source escrow missing after confirmations`).
+only when a quorum agrees every leg still holds escrow. Endpoints that fail do not vote
+(the bar is the BFT threshold over those that answer), so this is not a floor of
+`floor(2N/3)+1` of the configured set. An empty escrow skips the order (`Source escrow
+missing after confirmations`); an escrow that could not be read at all skips it under its
+own reason (`Source escrow unverifiable after confirmations`), so an RPC fault is not
+reported as a phantom commitment.
 
 ## Interfaces
 
-- `newOrder` carries `blockHash` alongside `order`, `transactionHash` and `graffiti`.
+- `newOrder` carries `blockHash` alongside `order`, `transactionHash` and `graffiti`, and
+  so does the public `order:detected` event (`SimplexEvents` gains `blockHash`).
+- A custom `OrderScanner` must set `ScannedOrder.blockHash`: an empty value skips every
+  cross-chain order (`Placement block unknown`).
 - `QuorumPublicClient.getTransactionInclusion` returns the `(blockHash, blockNumber,
 confirmations)` a quorum agreed on; `getTransactionConfirmations` is its depth.
 - `QuorumPublicClient.readWithQuorum(label, read)` votes each endpoint's whole read value.
 - `aggregateInclusion` is the BFT aggregation both callers share.
 - `verifyOrderOnSource(order, quorum?)` reads all legs in one quorum call when a quorum is
-  given.
+  given, and returns `held`, `missing` or `unverifiable`.
 
 ## Constraints
 
 - Fail closed: a cross-chain order missing its scanned block, or whose escrow no quorum
-  agrees on after the wait, is skipped.
+  agrees on (or can read) after the wait, is skipped.
 - A placement re-mined in a different block is skipped even if its nonce — and so its
   commitment — did not change: the check is on the block, deliberately conservative.
 - Same-chain orders and zero-confirmation curve points are unchanged: they still make no

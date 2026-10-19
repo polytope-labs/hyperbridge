@@ -674,19 +674,28 @@ export class IntentFiller {
 	// Operations
 
 	/**
-	 * Whether the source gateway still holds escrow for every leg of the order.
+	 * Whether the source gateway still holds escrow for every leg of the order:
+	 * `"held"`, `"missing"` for a read that came back empty, or `"unverifiable"` when
+	 * the read itself failed. The two failures are kept apart because they mean
+	 * different things to an operator: a confirmed zero is a phantom or reorged
+	 * commitment, while an unreadable escrow is an RPC fault that says nothing about
+	 * the order.
 	 *
 	 * With `quorum`, every leg is read in one `readWithQuorum` call so each
 	 * endpoint's vote is the whole escrow vector — an endpoint that disagrees on any
 	 * leg fails to join the agreeing group. That is the read used right before
-	 * bidding, where a single endpoint is not enough to vouch for a commitment a
-	 * source reorg may have rewritten. Without it, the legs are read on the single
-	 * source client, as the pre-bid check has always done.
+	 * bidding, where one endpoint alone should not vouch for a commitment a source
+	 * reorg may have rewritten; a quorum of the endpoints that answer must. Without
+	 * it, the legs are read on the single source client, as the pre-bid check has
+	 * always done.
 	 */
-	private async verifyOrderOnSource(order: Order, quorum?: QuorumPublicClient): Promise<boolean> {
+	private async verifyOrderOnSource(
+		order: Order,
+		quorum?: QuorumPublicClient,
+	): Promise<"held" | "missing" | "unverifiable"> {
 		if (order.inputs.length === 0) {
 			this.logger.warn({ orderId: order.id }, "Order has no inputs, rejecting")
-			return false
+			return "missing"
 		}
 
 		const sourceClient = this.chainClientManager.getPublicClient(order.source)
@@ -754,17 +763,17 @@ export class IntentFiller {
 							? "Source escrow missing for input after the confirmation wait, skipping order"
 							: "Phantom commitment: source escrow missing for input, skipping order",
 					)
-					return false
+					return "missing"
 				}
 			}
 
-			return true
+			return "held"
 		} catch (err) {
 			this.logger.error(
 				{ orderId: order.id, source: order.source, err },
 				quorum ? "Failed to verify source escrow under quorum, skipping order" : "Failed to verify source escrow, skipping order",
 			)
-			return false
+			return "unverifiable"
 		}
 	}
 
@@ -833,7 +842,7 @@ export class IntentFiller {
 				// Guard against phantom commitments: a decode bug or malformed event
 				// would yield a commitment that has no matching escrow on source.
 				// Reject those before bidding/filling.
-				if (!(await this.verifyOrderOnSource(order))) {
+				if ((await this.verifyOrderOnSource(order)) !== "held") {
 					return
 				}
 
@@ -1044,9 +1053,18 @@ export class IntentFiller {
 				// same transaction hash, a different commitment — so the source escrow is
 				// re-read on a quorum right before bidding: the bid is only safe while a
 				// quorum still agrees the commitment holds escrow.
-				if (requiredConfirmations > 0 && !(await this.verifyOrderOnSource(order, sourceQuorumClient))) {
-					this.monitor.emit("orderSkipped", { orderId: order.id, reason: "Source escrow missing after confirmations" })
-					return
+				if (requiredConfirmations > 0) {
+					const escrow = await this.verifyOrderOnSource(order, sourceQuorumClient)
+					if (escrow !== "held") {
+						this.monitor.emit("orderSkipped", {
+							orderId: order.id,
+							reason:
+								escrow === "missing"
+									? "Source escrow missing after confirmations"
+									: "Source escrow unverifiable after confirmations",
+						})
+						return
+					}
 				}
 
 				// Execute immediately

@@ -88,6 +88,7 @@ function service(feeToken: HexString = USDC): ContractInteractionService {
 	const client = {
 		chain: { blockTime: 2000 },
 		getBlockNumber: async () => 100n,
+		getBlock: async () => ({ number: 100n, timestamp: BigInt(Math.floor(Date.now() / 1000)) }),
 		readContract: async () => 0n,
 	}
 	const contract = new ContractInteractionService(
@@ -123,10 +124,11 @@ const PAYMASTER = "0x0578cFB241215b77442a541325d6A4E6dFE700Ec" as HexString
  * instead of falling back to the EntryPoint deposit. The mocked reads satisfy fee-token
  * selection and the PERMIT2() probe; `getNonce` is the `0n` default.
  */
-function paymasterService(): ContractInteractionService {
+function paymasterService(headTimestamp = BigInt(Math.floor(Date.now() / 1000))): ContractInteractionService {
 	const client = {
 		chain: { blockTime: 2000 },
 		getBlockNumber: async () => 100n,
+		getBlock: async () => ({ number: 100n, timestamp: headTimestamp }),
 		readContract: async ({ functionName }: { functionName: string }) => {
 			if (functionName === "balanceOf") return 10n ** 18n
 			if (functionName === "allowance") return maxUint256
@@ -482,5 +484,16 @@ describe("preparing a bid", () => {
 		const deadline = permitDeadline(bid.paymasterAndData)
 		expect(deadline).toBeGreaterThanOrEqual(before + window)
 		expect(deadline).toBeLessThanOrEqual(before + window + 5n)
+	})
+
+	it("anchors the Permit2 deadline to the chain's head, not the host clock", async () => {
+		// The host runs 400s behind the chain, past the whole skew allowance: a deadline taken from
+		// the host clock would already be in the chain's past, and every sponsored bid would fail
+		// validation.
+		const headTimestamp = BigInt(Math.floor(Date.now() / 1000)) + 400n
+		const bid = await prepareBid(paymasterService(headTimestamp), sameChain)
+
+		const window = BigInt(60 + BID_DISCOVERY_PAD_SECONDS + BID_PERMIT_SKEW_SECONDS)
+		expect(permitDeadline(bid.paymasterAndData)).toBe(headTimestamp + window)
 	})
 })

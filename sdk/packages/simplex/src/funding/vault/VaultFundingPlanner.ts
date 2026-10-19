@@ -617,7 +617,7 @@ export class VaultFundingPlanner implements FundingVenue {
 				// A vault that cannot redeem the whole balance right now (a liquidity-capped
 				// stataToken, a partially liquid market) reverts on `redeem(shares)`, and a revert
 				// takes every other vault in this per-chain batch with it. Redeem no more than the
-				// vault's own `maxRedeem` and leave the remainder for a later pass.
+				// vault's own `maxRedeem` and leave the remainder behind for the operator.
 				const maxRedeem = (await publicClient.readContract({
 					abi: ERC4626_ABI,
 					address: vault.vault,
@@ -636,7 +636,7 @@ export class VaultFundingPlanner implements FundingVenue {
 							redeemable: redeemable.toString(),
 							maxRedeem: maxRedeem.toString(),
 						},
-						"Vault shutdown redeem capped by maxRedeem; the rest is left for a later pass",
+						"Vault redeem capped by maxRedeem; redeemAll only runs at shutdown or on POST /api/vault/redeem, so the operator has to redeem the rest",
 					)
 				}
 				if (redeemable === 0n) continue

@@ -70,7 +70,7 @@ export async function buildSimplexPaymasterData(
 	chain: string,
 	configService: FillerConfigService,
 	permitBootstrap = false,
-	permitDeadlineSeconds?: bigint,
+	permitDeadline?: bigint,
 ): Promise<(PaymasterResult & { token: HexString }) | { insufficient: FeeTokenBalance[] }> {
 	const chainId = configService.getChainId(chain)
 	const permit2 = configService.getPermit2Address(chain)
@@ -129,7 +129,9 @@ export async function buildSimplexPaymasterData(
 			token: tokenAddress,
 			amount: recommended,
 			spender: paymasterAddress,
-			deadlineSeconds: permitDeadlineSeconds ?? PERMIT2_DEADLINE_SECONDS,
+			// The host clock only for ops with no validity of their own: the hour is far
+			// longer than any clock error. A bid passes a deadline anchored to the chain.
+			deadline: permitDeadline ?? BigInt(Math.floor(Date.now() / 1000)) + PERMIT2_DEADLINE_SECONDS,
 		})),
 		token: tokenAddress,
 	}
@@ -313,11 +315,11 @@ async function buildPermit2Mode(
 		token: HexString
 		amount: bigint
 		spender: HexString
-		deadlineSeconds: bigint
+		/** Absolute, in unix seconds: the paymaster reports it as the op's `validUntil`. */
+		deadline: bigint
 	},
 ): Promise<PaymasterResult> {
 	const nonce = randomPermit2Nonce()
-	const deadline = BigInt(Math.floor(Date.now() / 1000)) + p.deadlineSeconds
 	const signature = await signPermit2Transfer(signer, {
 		permit2: p.permit2,
 		chainId: p.chainId,
@@ -325,7 +327,7 @@ async function buildPermit2Mode(
 		amount: p.amount,
 		spender: p.spender,
 		nonce,
-		deadline,
+		deadline: p.deadline,
 	})
 
 	// Split into explicit v, r, s: the packed mode 0x02 layout carries them as separate fields.
@@ -335,7 +337,7 @@ async function buildPermit2Mode(
 
 	const paymasterData = encodePacked(
 		["uint8", "address", "uint256", "uint256", "uint256", "uint8", "bytes32", "bytes32"],
-		[2, p.token, p.amount, nonce, deadline, v, r, s],
+		[2, p.token, p.amount, nonce, p.deadline, v, r, s],
 	) as HexString
 
 	return {

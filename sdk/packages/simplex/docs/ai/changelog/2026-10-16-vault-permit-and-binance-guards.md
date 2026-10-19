@@ -1,4 +1,4 @@
-# 2026-10-16 — Vault batches refuse undelegated wallets, redeems respect `maxRedeem`, bids bound their Permit2 deadline, and Binance deposits are matched against the coin's contract
+# 2026-10-16 — Vault batches refuse undelegated wallets, redeems respect `maxRedeem`, bids bound their Permit2 deadline on the chain's clock, and Binance deposits are matched against the coin's contract
 
 ## A vault batch is refused on a wallet that is not 7702-delegated
 
@@ -27,22 +27,36 @@ and warns with both numbers when shares are left behind. `maxRedeem(address)` wa
 `TokenSender.send` reads `maxRedeem(this.solver)` on the vault-share branch and throws before
 submitting anything when the requested shares exceed it, naming the amount redeemable now.
 
-## A bid's Permit2 deadline matches its own validity
+## A bid's Permit2 deadline is bounded to its own window, on the chain's clock
 
 `PERMIT2_DEADLINE_SECONDS` (1 hour) is sized for ops with no validity of their own, but a bid's
 `validUntil` is `bidValiditySeconds + BID_DISCOVERY_PAD_SECONDS` (about 330s by default). The
 paymaster reports the permit deadline as the op's `validUntil`, so a bid selected late still
-validated and then reverted `Expired` in `fillOrder`, with the solver paying the gas.
+validated and then reverted in `fillOrder`, with the solver paying the gas.
 
-`PaymasterOptions.permitDeadlineSeconds` threads an optional window through
-`buildPaymasterAndData` into `buildPermit2Mode` (absent, the hour default is unchanged).
-`prepareBidUserOp` passes `bidValiditySeconds + BID_DISCOVERY_PAD_SECONDS + BID_PERMIT_SKEW_SECONDS`
-(120; the skew covers clock skew, inclusion latency and the buffer a bundler applies when an op's
-`validUntil` is too close to now). The permit deadline is wall-clock, while the bid's on-chain
-`validUntil` is block-based and can run longer in wall-clock time when blocks are slow, so whichever
-is earlier binds. Sends, sweeps and delegation keep the hour. The one-time `buildPermitMode`
-bootstrap is untouched: its EIP-2612 deadline is `maxUint256` because a paymaster cannot read
-`block.timestamp` under 4337 validation rules, and it has no window to match.
+`PaymasterOptions.permitDeadline` threads an optional **absolute** deadline (unix seconds) through
+`buildPaymasterAndData` into `buildPermit2Mode`; absent, it stays the host clock plus the hour.
+`prepareBidUserOp` reads the destination head once with `getBlock`, reuses its number for
+`bidValidUntilBlock`, and passes `head.timestamp + bidValiditySeconds + BID_DISCOVERY_PAD_SECONDS +
+BID_PERMIT_SKEW_SECONDS` (120; it covers the head's age at signing, inclusion latency and the buffer
+a bundler applies when an op's `validUntil` is too close to now). The deadline is anchored to the
+chain because the EntryPoint judges it there: a window added to the host clock lost whatever the
+host was behind by, and with 6–7 minutes of skew every sponsored bid failed validation. Sends,
+sweeps and delegation keep the hour from the host clock. The one-time `buildPermitMode` bootstrap is
+untouched: its EIP-2612 deadline is `maxUint256` because a paymaster cannot read `block.timestamp`
+under 4337 validation rules.
+
+What this guarantees is narrower than "a stale bid is dropped for free". An op more than about 120s
+past the bid window is rejected at validation. An op landing inside that tail, after the bid's
+block-based `validUntil` but before the permit deadline, still reverts `FillExpired` at the
+solver's cost. Closing it needs `SolverAccount` to return a block-number `validUntil` (contract
+follow-up).
+
+## A capped redeem tells the operator the rest is theirs
+
+`redeemAll` runs only at shutdown or on `POST /api/vault/redeem`, so the shares a `maxRedeem` cap
+leaves behind are not picked up by a later pass. The warning now says the operator has to redeem the
+rest.
 
 ## A Binance deposit is checked against the coin's contract for that network
 
@@ -57,11 +71,3 @@ tolerating a missing `0x`. A deposit address carrying a non-empty `tag`/memo is 
 an ERC-20 transfer cannot carry one. Both fail before any on-chain transfer. The existing
 `depositEnable`/`withdrawEnable` checks stay; the wider withdrawal-precondition work (audit high
 c02) is out of scope here.
-
-Files: `src/funding/vault/VaultFundingPlanner.ts`, `src/config/abis/Erc4626.ts`,
-`src/services/TokenSender.ts`, `src/services/paymaster/{types,index}.ts`,
-`src/services/paymaster/provider/simplex.ts`, `src/services/ContractInteractionService.ts`,
-`src/services/rebalancers/binance.ts`, `src/core/boot.ts`.
-Tests: `src/tests/funding/vault.test.ts`, `src/tests/token-sender.test.ts`,
-`src/tests/services/{SimplexPaymaster,bid-budget}.test.ts`,
-`src/tests/rebalancers/binance.preflight.test.ts`.

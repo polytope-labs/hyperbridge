@@ -219,7 +219,7 @@ const build = async (
 	walletClient: WalletClient,
 	signer = mockSigner().signer,
 	permitBootstrap = false,
-	permitDeadlineSeconds?: bigint,
+	permitDeadline?: bigint,
 ) =>
 	sponsored(
 		await buildSimplexPaymasterData(
@@ -231,7 +231,7 @@ const build = async (
 			CHAIN,
 			configService,
 			permitBootstrap,
-			permitDeadlineSeconds,
+			permitDeadline,
 		),
 	)
 
@@ -275,26 +275,27 @@ describe("buildSimplexPaymasterData Permit2 authorization", () => {
 		expect(typedData.types.EIP712Domain.map((f) => f.name)).toEqual(["name", "chainId", "verifyingContract"])
 	})
 
-	it("sizes the Permit2 deadline to the caller's window, or the hour default when absent", async () => {
+	it("signs the caller's absolute Permit2 deadline, or the hour default from the host clock when absent", async () => {
 		const before = BigInt(Math.floor(Date.now() / 1000))
 		// A single client serves both builds: the deadline is the only thing that changes.
 		const client = mockClient({ permit2Allowance: maxUint256, native: 0n })
 
 		// Deadline sits at bytes [85, 117) of paymasterData, after mode(1)+token(20)+amount(32)+nonce(32).
-		const deadlineOf = async (permitDeadlineSeconds?: bigint) => {
-			const pm = await build(client, mockWalletClient().walletClient, mockSigner().signer, false, permitDeadlineSeconds)
+		const deadlineOf = async (permitDeadline?: bigint) => {
+			const pm = await build(client, mockWalletClient().walletClient, mockSigner().signer, false, permitDeadline)
 			return BigInt(slice(pm.paymasterData, 85, 117))
 		}
 
 		const byDefault = await deadlineOf()
-		const bounded = await deadlineOf(150n)
+		// A chain well ahead of this host's clock: the absolute value must not be re-based on it.
+		const chainDeadline = before + 10_000n
+		const bounded = await deadlineOf(chainDeadline)
 
 		// No override: the documented hour, outliving any bid window.
 		expect(byDefault).toBeGreaterThanOrEqual(before + PERMIT2_DEADLINE_SECONDS)
 		expect(byDefault).toBeLessThanOrEqual(before + PERMIT2_DEADLINE_SECONDS + 5n)
-		// An explicit window is honored and lands minutes sooner than the default.
-		expect(bounded).toBeGreaterThanOrEqual(before + 150n)
-		expect(bounded).toBeLessThanOrEqual(before + 150n + 5n)
+		// An explicit deadline is signed exactly as given, whatever this host's clock says.
+		expect(bounded).toBe(chainDeadline)
 	})
 
 	it("gives Polygon's Permit2 mode a 300k verification limit and every other chain 200k", async () => {

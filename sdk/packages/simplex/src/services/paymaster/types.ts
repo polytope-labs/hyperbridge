@@ -58,14 +58,19 @@ export interface PaymasterOptions {
 	 */
 	permitBootstrap?: boolean
 	/**
-	 * Lifetime of the Permit2 authorization this op signs, in seconds from now. Defaults to
-	 * {@link PERMIT2_DEADLINE_SECONDS}. The paymaster reports that deadline as the op's
-	 * `validUntil`, so a shorter one lets the EntryPoint drop a stale op at validation instead
-	 * of allowing it to execute and revert. Set only where the op's own validity is already
-	 * bounded — a bid, whose `validUntil` is minutes — never for a send, sweep or delegation,
-	 * which carry no such ceiling to match.
+	 * Absolute deadline of the Permit2 authorization this op signs, in unix seconds. Defaults to
+	 * {@link PERMIT2_DEADLINE_SECONDS} from this host's clock. The paymaster reports that
+	 * deadline as the op's `validUntil`, so an earlier one lets the EntryPoint drop a stale op at
+	 * validation instead of allowing it to execute and revert. Set only where the op's own
+	 * validity is already bounded — a bid, whose `validUntil` is minutes — never for a send,
+	 * sweep or delegation, which carry no such ceiling to match.
+	 *
+	 * Absolute rather than a window because the EntryPoint judges it against the chain's clock:
+	 * a window added to this host's clock is only as long as the host is accurate, and a host
+	 * behind the chain by the window's slack leaves every op expired on arrival. A caller that
+	 * has the chain's head block anchors it there.
 	 */
-	permitDeadlineSeconds?: bigint
+	permitDeadline?: bigint
 	/** Receives a warning for every candidate skipped or deposit read that fails. */
 	logger?: Pick<Logger, "warn">
 }

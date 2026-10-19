@@ -598,6 +598,10 @@ export class ChainController {
 				const chain = this.runtime.resolvedChains.find((resolved) => resolved.chainId === chainId)
 				if (chain) await assertBundlersServeEntryPoint([chain], this.runtime.configService)
 			}
+			// A chain that was watch-only at boot was never delegated or marked, so
+			// opening it must find out now. Marked before the flag flips, so no order
+			// slips through in between.
+			if (!watchOnly) await this.runtime.intentFiller.guardDelegation(chainId)
 			this.runtime.intentFiller.setWatchOnly(chainId, watchOnly)
 			this.syncWatchOnlyToConfig()
 			await this.persist()

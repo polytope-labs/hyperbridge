@@ -52,10 +52,17 @@ hyperbridgeWsUrl    = "wss://nexus.rpc.polytope.technology"
 # Order size in USD below which an order's fees must cover gas.
 # Optional — defaults to 20. 0 never checks fees.
 minOrderSizeUsd     = 20
+# Smallest payout, in USD, a partial fill may bid.
+# Optional — defaults to 20. 0 bids whatever can be filled.
+minPartialFillUsd   = 20
 
 ```
 
 `minOrderSizeUsd` decides which orders must pay for their own execution. An order worth less than this is skipped unless its `order.fees` cover the fill gas plus, for a cross-chain order, the relayer fee. An order worth at least this much is filled whatever fees it carries, and the margin in your limit order's rate pays for the gas. Raise it if gas on your chains costs more than that margin earns on a $20 fill. An order Simplex cannot value in dollars is treated as below it.
+
+`minPartialFillUsd` is the same kind of floor for a partial fill, one that pays out less than the order asks, or that fills one leg of a multi-leg order. A partial collects none of the order's fees, so without a floor a nearly used-up limit order, or a wallet just above its gas reserve, would bid dust on every matching order and pay fill gas and the relayer fee each time. A partial worth less than this is skipped. The bid is valued by its payout at your limit orders' rates, or by the input it releases when nothing prices the payout. Full fills are not affected.
+
+A partial that your own limit orders cannot value in dollars is skipped too, under the default. This happens when your book has no path to a dollar stable: a same-asset book such as CNGN/CNGN or EURC/EURC, whose orders are not used for pricing, or a book such as ZARP/CNGN that touches no dollar stable. Set `minPartialFillUsd = 0` to bid those partials anyway.
 
 ## `[orderbook]`
 

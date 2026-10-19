@@ -414,6 +414,7 @@ describe("ChainController bundler EntryPoint check", () => {
 			},
 			intentFiller: {
 				setWatchOnly: vi.fn(),
+				guardDelegation: vi.fn(async () => {}),
 				clearWatchOnly: vi.fn(),
 				addChain: vi.fn(),
 				getWatchOnly: () => watchOnly,

@@ -20,6 +20,7 @@ const funded: ChainFunding = {
 function controllerFor({ signerless = false, watchOnly = {} as Record<number, boolean> } = {}) {
 	const intentFiller = {
 		enableFills: vi.fn(async () => {}),
+		guardDelegation: vi.fn(async () => {}),
 		setWatchOnly: vi.fn(),
 		getWatchOnly: () => watchOnly,
 	}
@@ -84,5 +85,26 @@ describe("ChainController.enableFills", () => {
 		const { controller, intentFiller } = controllerFor({ signerless: true })
 		await expect(controller.enableFills(56)).rejects.toThrow(/started without a signer/)
 		expect(intentFiller.enableFills).not.toHaveBeenCalled()
+	})
+})
+
+describe("ChainController.setWatchOnly", () => {
+	it("checks delegation before it turns watch-only off", async () => {
+		const { controller, intentFiller, persist } = controllerFor({ watchOnly: { 56: true } })
+		const order: string[] = []
+		intentFiller.guardDelegation.mockImplementation(async () => void order.push("guard"))
+		intentFiller.setWatchOnly.mockImplementation(() => void order.push("set"))
+
+		await controller.setWatchOnly(56, false)
+		expect(intentFiller.guardDelegation).toHaveBeenCalledWith(56)
+		expect(order).toEqual(["guard", "set"])
+		expect(persist).toHaveBeenCalled()
+	})
+
+	it("does not check delegation when it turns watch-only on", async () => {
+		const { controller, intentFiller } = controllerFor()
+		await controller.setWatchOnly(56, true)
+		expect(intentFiller.guardDelegation).not.toHaveBeenCalled()
+		expect(intentFiller.setWatchOnly).toHaveBeenCalledWith(56, true)
 	})
 })

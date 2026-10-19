@@ -86,6 +86,9 @@ hyperbridgeWsUrl = ""
 # that prices it. Without a floor, a near-exhausted limit order or a wallet just above its gas
 # reserve bids dust on every matching order, each bid paying fill gas and the relayer fee.
 #
+# A partial that no limit order can value in USD is skipped too: a same-asset book (CNGN/CNGN)
+# or one with no path to a dollar stable (ZARP/CNGN) prices nothing.
+#
 # Set it to 0 to bid whatever can be filled. Full fills are unaffected.
 # minPartialFillUsd = 20
 

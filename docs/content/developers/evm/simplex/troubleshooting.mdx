@@ -28,9 +28,19 @@ The order matched, but it is worth less than [`minOrderSizeUsd`](/developers/evm
 
 ---
 
+## **A partial fill is skipped**
+
+`Skipping a partial fill: worth $X, below minPartialFillUsd $Y` means the order can only be filled in part (your limit order has less left than the order asks, or the order has several legs), and the bid is worth less than [`minPartialFillUsd`](/developers/evm/simplex/configuration#simplex) (default $20). Lower it, or set it to 0 to bid dust.
+
+`Skipping a partial fill: nothing prices its payout or the input it releases` means none of your limit orders gives the token a dollar value. A same-asset book (CNGN/CNGN, EURC/EURC) or one without a path to a dollar stable (ZARP/CNGN) cannot, so every partial on it is skipped under the default. Set `minPartialFillUsd = 0` to bid them.
+
+---
+
 ## **An order is skipped before it is priced**
 
 `Skipping order: its deadline has passed on the destination chain` means the order cannot be filled by anyone. An order's deadline is a block number on its destination chain, set when the order is built. An order that takes too long to land on its source chain arrives already expired. The log carries the `deadline` and the destination `head` it was compared with.
+
+`Order destination is not delegated to the SolverAccount, skipping` (skip reason `undelegated`) means the filler wallet is not delegated to the SolverAccount on the order's destination chain, so a bid there could never execute. Boot marks a chain this way when its EIP-7702 delegation fails, and so does turning a chain's watch-only off. Simplex re-reads the wallet's code on that chain at most once a minute and drops the mark once the delegation shows. If it does not, use **Enable fills** for the chain on the dashboard, or restart the filler.
 
 `Error estimating gas, not bidding on this order` means the bundler could not simulate the fill, so the fill would revert. Simplex sends no bid without the bundler's estimate. The log carries the bundler's error. If it appears on every order for a chain, check that chain's bundler URL.
 

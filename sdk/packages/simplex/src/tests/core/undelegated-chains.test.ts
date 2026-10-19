@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 import type { HexString } from "@hyperbridge/sdk"
 import { IntentFiller } from "@/core/filler"
 import { MemoryDataStore } from "@/data/memory"
@@ -24,6 +24,10 @@ function build(results: Record<string, boolean>, options: { chainConfigs?: numbe
 		success: chains.every((chain) => delegationResults[chain]),
 		results: Object.fromEntries(chains.map((chain) => [chain, delegationResults[chain]])),
 	}))
+	// What the chain itself says, as the dashboard's `getCode` read does. It can
+	// disagree with the boot result: a delegation that mined after its timeout.
+	const onChain: Record<string, boolean> = {}
+	const isDelegated = vi.fn(async (chain: string) => onChain[chain] ?? false)
 	const isUserAllowed = vi.fn(() => false) // ends the happy path right after the guards
 	const getSolverSelection = vi.fn(() => false)
 
@@ -54,8 +58,8 @@ function build(results: Record<string, boolean>, options: { chainConfigs?: numbe
 	// `setupSolverSelection` bails without a Hyperbridge connection, and delegates
 	// through this service. Both are stubbed to the failure under test.
 	;(filler as any).hyperbridge = Promise.resolve({})
-	;(filler as any).delegationService = { setupDelegationOnChains }
-	return { filler, isUserAllowed, delegate }
+	;(filler as any).delegationService = { setupDelegationOnChains, isDelegated }
+	return { filler, isUserAllowed, delegate, isDelegated, onChain }
 }
 
 async function detect(filler: IntentFiller, destination: string) {
@@ -64,6 +68,10 @@ async function detect(filler: IntentFiller, destination: string) {
 }
 
 describe("a chain whose delegation failed", () => {
+	afterEach(() => {
+		vi.useRealTimers()
+	})
+
 	it("skips orders to it, and bids once enableFills delegates", async () => {
 		const { filler, isUserAllowed, delegate } = build({ "EVM-1": true, "EVM-8453": false })
 		const skipped: Array<{ orderId?: string; reason?: string }> = []
@@ -125,5 +133,97 @@ describe("a chain whose delegation failed", () => {
 
 		await detect(filler, "EVM-8453")
 		expect(isUserAllowed).toHaveBeenCalled()
+	})
+
+	it("clears a mark the chain disproves, and evaluates the order that found out", async () => {
+		// Boot saw the delegation fail (a receipt timeout), but the transaction
+		// mined: the wallet is delegated and the dashboard's switch cannot be clicked.
+		const { filler, isUserAllowed, isDelegated, onChain } = build({ "EVM-1": true, "EVM-8453": false })
+		await (filler as any).setupSolverSelection(["EVM-1", "EVM-8453"], { requireAll: false })
+		expect((filler as any).undelegatedChains.has(8453)).toBe(true)
+		onChain["EVM-8453"] = true
+
+		await detect(filler, "EVM-8453")
+		expect(isDelegated).toHaveBeenCalledWith("EVM-8453")
+		expect((filler as any).undelegatedChains.has(8453)).toBe(false)
+		expect(isUserAllowed).toHaveBeenCalled()
+
+		// Cleared for good: later orders no longer read the chain.
+		isDelegated.mockClear()
+		await detect(filler, "EVM-8453")
+		expect(isDelegated).not.toHaveBeenCalled()
+	})
+
+	it("re-reads a marked chain at most once a minute", async () => {
+		vi.useFakeTimers()
+		const { filler, isUserAllowed, isDelegated, onChain } = build({ "EVM-1": true, "EVM-8453": false })
+		const skipped: Array<{ reason?: string }> = []
+		filler.monitor.on("orderSkipped", (event) => skipped.push(event))
+		await (filler as any).setupSolverSelection(["EVM-1", "EVM-8453"], { requireAll: false })
+
+		await detect(filler, "EVM-8453")
+		await detect(filler, "EVM-8453")
+		await detect(filler, "EVM-8453")
+		expect(isDelegated).toHaveBeenCalledTimes(1)
+		expect(skipped).toHaveLength(3)
+
+		// The chain becomes delegated, but the next read is not due yet.
+		onChain["EVM-8453"] = true
+		vi.advanceTimersByTime(59_000)
+		await detect(filler, "EVM-8453")
+		expect(isDelegated).toHaveBeenCalledTimes(1)
+		expect(isUserAllowed).not.toHaveBeenCalled()
+
+		vi.advanceTimersByTime(1_000)
+		await detect(filler, "EVM-8453")
+		expect(isDelegated).toHaveBeenCalledTimes(2)
+		expect(isUserAllowed).toHaveBeenCalledTimes(1)
+	})
+
+	it("keeps a chain marked when the read fails", async () => {
+		const { filler, isUserAllowed, isDelegated } = build({ "EVM-1": true, "EVM-8453": false })
+		await (filler as any).setupSolverSelection(["EVM-1", "EVM-8453"], { requireAll: false })
+		isDelegated.mockRejectedValueOnce(new Error("rpc down"))
+
+		await detect(filler, "EVM-8453")
+		expect((filler as any).undelegatedChains.has(8453)).toBe(true)
+		expect(isUserAllowed).not.toHaveBeenCalled()
+	})
+})
+
+describe("guardDelegation, for a chain turned out of watch-only", () => {
+	it("marks a chain that was never delegated, so its orders are skipped", async () => {
+		const { filler, isUserAllowed, isDelegated } = build({}, { chainConfigs: [8453] })
+		const skipped: Array<{ reason?: string }> = []
+		filler.monitor.on("orderSkipped", (event) => skipped.push(event))
+
+		await filler.guardDelegation(8453)
+		expect(isDelegated).toHaveBeenCalledWith("EVM-8453")
+		expect((filler as any).undelegatedChains.has(8453)).toBe(true)
+
+		// Just read, so intake does not read the chain again at once.
+		await detect(filler, "EVM-8453")
+		expect(skipped).toEqual([{ orderId: "0xorder", reason: "undelegated" }])
+		expect(isDelegated).toHaveBeenCalledTimes(1)
+		expect(isUserAllowed).not.toHaveBeenCalled()
+	})
+
+	it("leaves a chain that is delegated alone", async () => {
+		const { filler, isUserAllowed, onChain } = build({}, { chainConfigs: [8453] })
+		onChain["EVM-8453"] = true
+
+		await filler.guardDelegation(8453)
+		expect((filler as any).undelegatedChains.has(8453)).toBe(false)
+
+		await detect(filler, "EVM-8453")
+		expect(isUserAllowed).toHaveBeenCalled()
+	})
+
+	it("leaves a chain without solver selection alone", async () => {
+		const { filler, isDelegated } = build({}, { chainConfigs: [8453], solverSelectionActive: false })
+
+		await filler.guardDelegation(8453)
+		expect(isDelegated).not.toHaveBeenCalled()
+		expect((filler as any).undelegatedChains.has(8453)).toBe(false)
 	})
 })

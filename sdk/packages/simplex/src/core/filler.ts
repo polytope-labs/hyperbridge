@@ -33,6 +33,12 @@ import { Decimal } from "decimal.js"
 /** How long to wait for a Hyperbridge connection before giving up on it. */
 const HYPERBRIDGE_CONNECT_TIMEOUT_MS = 30_000
 
+/**
+ * The least time between two on-chain delegation reads for one marked chain. Every
+ * order to a marked chain would otherwise cost a `getCode` call.
+ */
+const DELEGATION_RECHECK_MS = 60_000
+
 /** Smallest hold first, for picking the tightest one that covers a delivery. */
 function byAmount(a: LimitOrderHold, b: LimitOrderHold): number {
 	return BigInt(a.amount) < BigInt(b.amount) ? -1 : BigInt(a.amount) > BigInt(b.amount) ? 1 : 0
@@ -137,8 +143,16 @@ export class IntentFiller {
 	 * undelegated EOA's bid passes estimation and pays the Hyperbridge bid fees and
 	 * deposit for a fill that can never execute. Orders for these chains are skipped
 	 * at intake, and a later successful delegation (`enableFills`) clears the entry.
+	 *
+	 * A mark is a belief about the chain, not proof: a delegation transaction that
+	 * mines after its receipt timeout, or a `getCode` that failed, leaves the wallet
+	 * delegated on chain while the chain stays marked. The dashboard cannot clear it
+	 * (its switch reads the chain and shows "Fills enabled"), so intake re-reads the
+	 * chain at most once per `DELEGATION_RECHECK_MS` and drops a stale mark.
 	 */
 	private undelegatedChains = new Set<number>()
+	/** When each marked chain was last compared with the chain, by `Date.now()`. */
+	private delegationCheckedAt = new Map<number, number>()
 	private retractionSweepInterval?: NodeJS.Timeout
 	private hyperbridge: Promise<IntentsCoprocessor> | undefined = undefined
 	private hyperbridgeEndpoint?: { wsUrl: string; substrateKey: string }
@@ -338,6 +352,51 @@ export class IntentFiller {
 		return active
 	}
 
+	private delegation(): DelegationService {
+		return (this.delegationService ??= new DelegationService(this.chainClientManager, this.configService, this.signer))
+	}
+
+	/**
+	 * Whether a marked chain is in fact delegated, and clears the mark when it is.
+	 *
+	 * Read at most once per `DELEGATION_RECHECK_MS` per chain: the time is taken
+	 * before the read, so orders arriving while it is in flight do not start their
+	 * own. A read that fails counts as not delegated, the same as at boot.
+	 */
+	private async recheckDelegation(chainId: number): Promise<boolean> {
+		const now = Date.now()
+		const checkedAt = this.delegationCheckedAt.get(chainId)
+		if (checkedAt !== undefined && now - checkedAt < DELEGATION_RECHECK_MS) return false
+		this.delegationCheckedAt.set(chainId, now)
+
+		const delegated = await this.delegation()
+			.isDelegated(`EVM-${chainId}`)
+			.catch(() => false)
+		if (!delegated) return false
+
+		this.logger.info({ chainId }, "Chain is delegated to the SolverAccount on chain, clearing the undelegated mark")
+		this.undelegatedChains.delete(chainId)
+		this.delegationCheckedAt.delete(chainId)
+		return true
+	}
+
+	/**
+	 * Marks a chain undelegated when the wallet is not delegated there. For a chain
+	 * that was watch-only at boot: boot skips those, so delegation was never tried or
+	 * recorded, and turning watch-only off must not open a chain nothing can fill on.
+	 * A chain without solver selection needs no delegation and is left alone. The mark
+	 * clears through intake's re-check or `enableFills`.
+	 */
+	public async guardDelegation(chainId: number): Promise<void> {
+		const chain = `EVM-${chainId}`
+		if (!(await this.contractService.isSolverSelectionActive(chain))) return
+		if (await this.delegation().isDelegated(chain).catch(() => false)) return
+		this.logger.warn({ chainId }, "Chain is not delegated to the SolverAccount, orders to it are skipped until it is")
+		this.undelegatedChains.add(chainId)
+		// Just compared with the chain, so intake need not repeat the read at once.
+		this.delegationCheckedAt.set(chainId, Date.now())
+	}
+
 	/**
 	 * Delegates the filler EOA via EIP-7702 and tops up EntryPoint deposits.
 	 *
@@ -350,10 +409,10 @@ export class IntentFiller {
 	private async setupSolverSelection(chains: string[], { requireAll }: { requireAll: boolean }): Promise<void> {
 		if (chains.length === 0 || !this.hyperbridge) return
 
-		this.delegationService ??= new DelegationService(this.chainClientManager, this.configService, this.signer)
+		const delegationService = this.delegation()
 		this.logger.info({ chains }, "Setting up EIP-7702 delegation on chains with solver selection")
 
-		const result = await this.delegationService.setupDelegationOnChains(chains)
+		const result = await delegationService.setupDelegationOnChains(chains)
 		// Recorded before the failure branches below, so a chain that failed under
 		// `requireAll` is still marked — the caller rolls the chain back and rethrows,
 		// but the delegation state is what the skip on intake reads. The keys are the
@@ -463,6 +522,7 @@ export class IntentFiller {
 		}
 		if (this.config.watchOnly) delete this.config.watchOnly[chainId]
 		this.undelegatedChains.delete(chainId)
+		this.delegationCheckedAt.delete(chainId)
 		this.logger.info({ chainId }, "Chain removed from the running filler")
 	}
 
@@ -855,8 +915,9 @@ export class IntentFiller {
 				// code is injected by state override) and pays the Hyperbridge bid fees and
 				// deposit for a fill that can never execute, so the chain is not bid on
 				// until delegation succeeds. Not watch-only: that flag is persisted to the
-				// config by the watch-only sync.
-				if (this.undelegatedChains.has(destinationChainId)) {
+				// config by the watch-only sync. The mark can be stale (a delegation that
+				// mined late), so a marked chain is re-read before the order is turned away.
+				if (this.undelegatedChains.has(destinationChainId) && !(await this.recheckDelegation(destinationChainId))) {
 					this.logger.info(
 						{ orderId: order.id, destination: order.destination },
 						"Order destination is not delegated to the SolverAccount, skipping",

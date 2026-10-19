@@ -407,47 +407,82 @@ export class FXFiller implements FillerStrategy {
 					const usdFactors = usdFactorsFrom(limitOrderUsdEdges(await this.limitOrders!.open()))
 					const outputSymbol = this.registry.symbolFor(outputToken, destChain)
 
+					// What a bid releasing `released` of this leg's input is worth when no
+					// limit order prices the output token: the input is priced instead. On a
+					// single-leg order that is the order's own dollar value scaled to the
+					// amount (`getOrderUsdValue` totals every leg, so it only scales to one
+					// leg on a single-leg order); on a multi-leg order it is the leg's own
+					// input at the limit orders' rates. Null when nothing prices it.
+					const valueByInput = async (released: bigint): Promise<Decimal | null> => {
+						if (order.inputs.length === 1) {
+							const usd = await orderUsdValue()
+							if (!usd || input.amount <= 0n) return null
+							return usd.inputUsd
+								.mul(new Decimal(formatUnits(released, inputDecimals)))
+								.div(new Decimal(formatUnits(input.amount, inputDecimals)))
+						}
+						const inputSymbol = this.registry.symbolFor(bytes32ToBytes20(input.token) as HexString, sourceChain)
+						return inputSymbol
+							? usdValueOf(usdFactors, inputSymbol, new Decimal(formatUnits(released, inputDecimals)))
+							: null
+					}
+
 					// THE PARTIAL-FILL FLOOR, cheap pass. A partial collects none of the
 					// order's fees and is exempt from the caller's profit floor — its gas is
 					// paid by the margin in the limit order that prices it. Without a floor of
 					// its own, a near-exhausted limit order, or a wallet just above its gas
 					// reserve, bids dust on every matching order and pays fill gas plus the
 					// relayer fee for it. When the leg is already known to be a partial and
-					// even the most this bid could pay (`targetOutput`) is below the floor,
+					// even the most this bid could pay (`targetOutput`, or the whole input it
+					// could release when no limit order prices the output) is below the floor,
 					// skip before any balance or venue planning: a dust bid must hold no
-					// wallet room and reserve no vault liquidity. A leg not safely partial
-					// here is left to the check after sizing, which also judges a payout the
-					// wallet cuts below the ask. A value nothing prices is left there too.
+					// wallet room and cost no vault withdrawal plan. A known partial that
+					// nothing prices at all is skipped here too, since the check after sizing
+					// would refuse it the same way. A leg not safely partial here is left to
+					// that check, which also judges a payout the wallet cuts below the ask.
 					const minPartialFillUsd = this.configService.getMinPartialFillUsd()
 					const maxPayoutUsd =
 						outputSymbol && minPartialFillUsd > 0
-							? usdValueOf(
-									usdFactors,
-									outputSymbol,
-									new Decimal(formatUnits(targetOutput, outputDecimals)),
-								)
+							? usdValueOf(usdFactors, outputSymbol, new Decimal(formatUnits(targetOutput, outputDecimals)))
 							: null
+					// The prior-partial probe is a contract read, so it runs only once the
+					// payout is already known to be below the floor, or not priced at all.
 					if (
 						minPartialFillUsd > 0 &&
-						maxPayoutUsd !== null &&
-						maxPayoutUsd.lt(minPartialFillUsd) &&
 						(partialFill || multiLeg) &&
+						(maxPayoutUsd === null || maxPayoutUsd.lt(minPartialFillUsd)) &&
 						(await partialEligible())
 					) {
-						this.logger.info(
-							{
-								orderId: order.id,
-								leg,
-								limitOrder: candidate.order.id,
-								token: output.token,
-								...(outputSymbol ? { symbol: outputSymbol } : {}),
-								payout: formatUnits(targetOutput, outputDecimals),
-								valueUsd: maxPayoutUsd.toString(),
-								minPartialFillUsd,
-							},
-							`Skipping a partial fill: worth $${maxPayoutUsd.toFixed(2)}, below minPartialFillUsd $${minPartialFillUsd}`,
-						)
-						continue
+						const maxBidUsd = maxPayoutUsd ?? (await valueByInput(input.amount))
+						if (maxBidUsd === null) {
+							this.logger.info(
+								{
+									orderId: order.id,
+									leg,
+									limitOrder: candidate.order.id,
+									token: output.token,
+									payout: formatUnits(targetOutput, outputDecimals),
+								},
+								"Skipping a partial fill: nothing prices its payout or the input it releases",
+							)
+							continue
+						}
+						if (maxBidUsd.lt(minPartialFillUsd)) {
+							this.logger.info(
+								{
+									orderId: order.id,
+									leg,
+									limitOrder: candidate.order.id,
+									token: output.token,
+									...(outputSymbol ? { symbol: outputSymbol } : {}),
+									payout: formatUnits(targetOutput, outputDecimals),
+									valueUsd: maxBidUsd.toString(),
+									minPartialFillUsd,
+								},
+								`Skipping a partial fill: worth $${maxBidUsd.toFixed(2)}, below minPartialFillUsd $${minPartialFillUsd}`,
+							)
+							continue
+						}
 					}
 
 					// Spend the free wallet balance first, down to the reserve — the paymaster's
@@ -549,8 +584,10 @@ export class FXFiller implements FillerStrategy {
 					//    at the order's rate exceeds the output), which only binds when the
 					//    limit order's price is the ask itself.
 					//
-					// Sized before the wallet pool is drawn down: a bid the floor below refuses
-					// must leave the pool and the venue reservations for later candidates.
+					// Sized before the wallet pool is drawn down, so a bid the floor below
+					// refuses leaves the pool for later candidates. A vault withdrawal planned
+					// for it above has already reserved that liquidity until the reservation
+					// expires; the cheap pass exists to refuse what it can before that.
 					const releasedInput =
 						finalOutputAmount >= output.amount
 							? input.amount
@@ -601,27 +638,7 @@ export class FXFiller implements FillerStrategy {
 										new Decimal(formatUnits(finalOutputAmount, outputDecimals)),
 									)
 								: null
-							if (bidUsd === null && order.inputs.length === 1) {
-								const usd = await orderUsdValue()
-								if (usd && input.amount > 0n) {
-									bidUsd = usd.inputUsd
-										.mul(new Decimal(formatUnits(releasedInput, inputDecimals)))
-										.div(new Decimal(formatUnits(input.amount, inputDecimals)))
-								}
-							}
-							if (bidUsd === null && order.inputs.length > 1) {
-								const inputSymbol = this.registry.symbolFor(
-									bytes32ToBytes20(input.token) as HexString,
-									sourceChain,
-								)
-								bidUsd = inputSymbol
-									? usdValueOf(
-											usdFactors,
-											inputSymbol,
-											new Decimal(formatUnits(releasedInput, inputDecimals)),
-										)
-									: null
-							}
+							bidUsd ??= await valueByInput(releasedInput)
 							if (bidUsd === null) {
 								this.logger.info(
 									{

@@ -966,15 +966,22 @@ export class LimitOrderService {
 	private async retire(order: LimitOrder): Promise<LimitOrder | null> {
 		this.logger.info({ id: order.id, expiresAt: order.expiresAt }, "Limit order has expired; withdrawing it")
 		if (order.commitment) await this.withdraw(order.commitment as HexString)
-		return this.store.setPosting(order.id, {
-			commitment: null,
-			bookExpiresAt: null,
-			bookPrice: null,
-			orderNonce: order.orderNonce,
-			entryPoint: null,
-			status: "expired",
-			lastError: null,
-		})
+		// Guarded like every other posting write: the withdrawal above awaits the
+		// orderbook, and a cancel that landed meanwhile owns the row. Reconcile reaches
+		// this through `repost` from a snapshot taken before that wait.
+		return this.store.setPosting(
+			order.id,
+			{
+				commitment: null,
+				bookExpiresAt: null,
+				bookPrice: null,
+				orderNonce: order.orderNonce,
+				entryPoint: null,
+				status: "expired",
+				lastError: null,
+			},
+			POSTABLE,
+		)
 	}
 
 	/** Every order that has a posting on the book, or should have one. */

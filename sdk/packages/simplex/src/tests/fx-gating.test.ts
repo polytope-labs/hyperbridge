@@ -659,6 +659,49 @@ describe("FXFiller profit gates (fees cover execution; spread independently posi
 			expect(bidPlans(filler, o.id!)).toHaveLength(0)
 		})
 
+		it("refuses a known partial nothing can price before any venue planning", async () => {
+			// Same ZARP/CNGN book, with a wallet that holds nothing: absent the cheap
+			// pass the shortfall would be planned from the venue, and reserve its
+			// liquidity, for a bid the final pass was always going to refuse.
+			const planWithdrawalForToken = vi.fn(async () => ({ calls: [], credited: 0n }))
+			const venue = { planWithdrawalForToken, walletReserveForToken: () => 0n }
+			const filler = gateFiller(zarpCngnRegistry(), { fillGas: parseUnits("2", 6), relayer: parseUnits("3", 6) }, {
+				limitOrders: await limitOrderStore([
+					{ base: "ZARP", quote: "CNGN", side: "BID", fillChain: DST, price: "95", size: "10", acceptedSources: [SRC] },
+				]),
+				fundingVenues: [venue],
+				balancesByToken: { [CNGN.toLowerCase()]: 0n },
+			})
+			const o = order(
+				"unpriceable-no-venue",
+				{ token: bytes20ToBytes32(ZARP), amount: parseUnits("1000", 18) },
+				{ token: bytes20ToBytes32(CNGN), amount: parseUnits("95000", 18) },
+				parseUnits("4", 6),
+			)
+
+			expect(await filler.calculateProfitability(o)).toBe(0)
+			expect(planWithdrawalForToken).not.toHaveBeenCalled()
+			expect(bidPlans(filler, o.id!)).toHaveLength(0)
+		})
+
+		it("bids the unpriceable partial at a floor of zero", async () => {
+			const filler = gateFiller(zarpCngnRegistry(), { fillGas: parseUnits("2", 6), relayer: parseUnits("3", 6) }, {
+				limitOrders: await limitOrderStore([
+					{ base: "ZARP", quote: "CNGN", side: "BID", fillChain: DST, price: "95", size: "10", acceptedSources: [SRC] },
+				]),
+				minPartialFillUsd: 0,
+			})
+			const o = order(
+				"unpriceable-no-floor",
+				{ token: bytes20ToBytes32(ZARP), amount: parseUnits("1000", 18) },
+				{ token: bytes20ToBytes32(CNGN), amount: parseUnits("95000", 18) },
+				parseUnits("4", 6),
+			)
+
+			await filler.calculateProfitability(o)
+			expect(bidPlans(filler, o.id!)).toHaveLength(1)
+		})
+
 		it("leaves a full fill below the floor alone", async () => {
 			// 1 USDC in, 1450 CNGN out (about $1) covered whole by the limit order:
 			// the floor is a partial's rule and does not touch a full fill.

@@ -133,6 +133,17 @@ describe("the operator's own expiry", () => {
 		expect(client.submitted).toEqual(["0x00"])
 	})
 
+	it("does not expire an order the operator cancelled since the pass listed it", async () => {
+		// Reconciliation reaches `retire` through `repost` from a snapshot, and a cancel
+		// can land between the two. The expiry must not overwrite it.
+		const { service, store, id } = await withExpiry()
+		const listed = (await store.get(id))!
+		await service.cancel(id)
+
+		await service.repost({ ...listed, commitment: null, expiresAt: "2020-01-01T00:00:00.000Z" })
+		expect((await store.get(id))?.status).toBe("cancelled")
+	})
+
 	it("is never put back by reconciliation, whichever clock got there first", async () => {
 		// The sweep runs on the renewal clock and reconciliation on its own, so an
 		// expired order is reachable by a repost before anything has swept it.

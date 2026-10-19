@@ -199,6 +199,11 @@ export class LimitOrderService {
 		private readonly startingNonce: () => bigint = initialOrderNonce,
 		/** The configured ERC-4626 vaults, when the operator runs any. */
 		private readonly vaultBalances?: VaultHoldings,
+		/**
+		 * Whether the filler only watches a chain (`--watch-only`, or `watchOnly` in the config,
+		 * globally or for that chain). Live: the operator can flip it while running.
+		 */
+		private readonly isWatchOnly?: (chain: string) => boolean,
 	) {
 		this.logger = loggers.get("limit-orders")
 	}
@@ -266,10 +271,20 @@ export class LimitOrderService {
 
 		// A same-asset order is never posted, but it still prices bids, and a bid from an
 		// undelegated EOA cannot execute — so it needs the delegation check too.
-		if (this.delegationService && !(await this.delegationService.setupDelegation(request.fillChain))) {
-			throw new LimitOrderValidationError(
-				`The solver is not 7702-delegated on ${request.fillChain}; it cannot fill there, and the orderbook deletes an undelegated solver's orders`,
-			)
+		if (this.delegationService) {
+			if (this.isWatchOnly?.(request.fillChain)) {
+				// A watch-only filler never sends a transaction or a sponsored op on that chain,
+				// so creating an order must not be what delegates it: it can only find out.
+				if (!(await this.delegationService.isDelegated(request.fillChain))) {
+					throw new LimitOrderValidationError(
+						`${request.fillChain} is watch-only and the solver is not 7702-delegated there. A watch-only filler does not delegate, and the orderbook deletes an undelegated solver's orders`,
+					)
+				}
+			} else if (!(await this.delegationService.setupDelegation(request.fillChain))) {
+				throw new LimitOrderValidationError(
+					`The solver is not 7702-delegated on ${request.fillChain}; it cannot fill there, and the orderbook deletes an undelegated solver's orders`,
+				)
+			}
 		}
 
 		const insert: LimitOrderInsert = {

@@ -161,6 +161,8 @@ export function limitOrderService(
 	vaultBalances?: VaultHoldings,
 	/** The delegation check `create` runs before storing an order, when the case cares. */
 	delegationService?: DelegationService,
+	/** Whether a chain is watch-only, when the case cares. */
+	isWatchOnly?: (chain: string) => boolean,
 ) {
 	const contractService = {
 		getTokenDecimals: async (token: string) => (token === USDC ? 6 : 18),
@@ -201,6 +203,7 @@ export function limitOrderService(
 		undefined,
 		startingNonce,
 		vaultBalances,
+		isWatchOnly,
 	)
 	return { service, store }
 }

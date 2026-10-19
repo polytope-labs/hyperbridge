@@ -439,6 +439,67 @@ describe("a same-asset limit order", () => {
 	})
 })
 
+describe("LimitOrderService.create under watch-only", () => {
+	const watchOnly = () => true
+	/** A same-asset order, which needs the delegation check only because it prices bids. */
+	const SAME: CreateLimitOrderRequest = { ...REQUEST, tokenOut: "USDC", amountIn: "1000", amountOut: "999" }
+
+	it("never delegates, and stores a same-asset order once the solver is already delegated", async () => {
+		const client = fakeClient([])
+		const setupDelegation = vi.fn(async () => true)
+		const { service } = makeService(
+			client,
+			undefined,
+			{},
+			undefined,
+			undefined,
+			{ isDelegated: async () => true, setupDelegation } as unknown as DelegationService,
+			watchOnly,
+		)
+
+		const { result } = await service.create(SAME)
+
+		expect(result.kind).toBe("unposted")
+		expect(setupDelegation).not.toHaveBeenCalled()
+	})
+
+	it("refuses with the watch-only wording, and never delegates, when the solver is not delegated", async () => {
+		const setupDelegation = vi.fn(async () => true)
+		const { service, store } = makeService(
+			fakeClient([]),
+			undefined,
+			{},
+			undefined,
+			undefined,
+			{ isDelegated: async () => false, setupDelegation } as unknown as DelegationService,
+			watchOnly,
+		)
+
+		await expect(service.create(SAME)).rejects.toThrow(/EVM-8453 is watch-only and the solver is not 7702-delegated/)
+		await expect(service.create(REQUEST)).rejects.toThrow(/watch-only/)
+
+		expect(setupDelegation).not.toHaveBeenCalled()
+		expect(await store.list()).toEqual([])
+	})
+
+	it("still delegates on a chain that is not watch-only", async () => {
+		const setupDelegation = vi.fn(async () => true)
+		const { service } = makeService(
+			fakeClient([]),
+			undefined,
+			{},
+			undefined,
+			undefined,
+			{ isDelegated: async () => false, setupDelegation } as unknown as DelegationService,
+			(chain) => chain !== "EVM-8453",
+		)
+
+		await service.create(SAME)
+
+		expect(setupDelegation).toHaveBeenCalledOnce()
+	})
+})
+
 describe("LimitOrderService.resize after a fill", () => {
 	/** Take in 1,000 USDC, pay out 1,500,000 cNGN, then see 500,000 cNGN go out. */
 	const fill = async (delivered: bigint, cancels: CancelOrderResult[] = []) => {

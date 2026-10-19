@@ -4,62 +4,48 @@
 native tx whenever the bundler path did not clearly succeed. EIP-7702 skips an authorization that
 does not match the authority's nonce without reverting, so a receipt could read `success` while the
 wallet stayed undelegated — and simplex would then bid from an EOA with no code, paying Hyperbridge
-fees and locking deposits for fills that cannot execute. The changes below make delegation confirm
-on chain and stop the paths that could double-delegate.
+fees and locking deposits for fills that cannot execute. Delegation now confirms on chain and stops
+the paths that could double-delegate. The mechanics (nonces, confirmation, the lock, the pending-op
+record) are in `docs/ai/flows/signing-from-construction-to-each-signature.md`.
 
 ## Nonces
 
-The tx nonce and the authorization tuple's nonce are two counters, and the tuple's is the one *after*
-the tx's: viem fills a missing tx nonce from `pending`, and EIP-7702 compares the tuple against the
-authority's nonce once the tx has bumped it. So a direct tx reads its nonce at `pending` and signs the
-tuple at `nonce + 1`, and `sendDelegationTransaction` passes that nonce to `walletClient.sendTransaction`
-explicitly in both the plain and the batched-approve branch. `revokeDelegation` does the same.
-
-On the bundler path there is no tx from this wallet to claim, so the tuple is signed at the
-authority's current nonce — but only once nothing else is in flight. `buildAuthorization` reads both
-`latest` and `pending` and throws `The wallet has a transaction in flight on <chain>; the delegation
-is signed once it has landed` while `pending > latest`; otherwise the tuple would go stale the moment
-that tx mined. That throw happens inside `trySendSponsored`'s preparation try/catch, which reports the
-op as never submitted (`null`), so the caller falls back to the native path, which handles an
-in-flight tx correctly by reading `pending`.
-
-While an EOA tx is in flight, then, the sponsored delegation waits and the native path queues behind
-it at the same nonce. Receipt waits are bounded — the bundler confirmation waits up to 30 s for the
-tx, and a native tx up to its own receipt timeout — so the per-wallet/chain lock below can hold for
-up to that wait before the next attempt runs.
-
-Every bundled signer honours the explicit nonce on a set-code tx: the viem-backed ones (private key,
-secret phrase, Turnkey) serialize the nonce viem places on the prepared transaction, `digestSigner`
-included; `mpcVaultSigner` serialises the whole transaction — nonce included — for its raw-signed
-authorization-list branch, and passes it as `nonce` on the structured `evmSendCustom` branch.
+A direct tx is sent at the `pending` nonce with its tuple signed at `nonce + 1`, passed explicitly
+by `sendDelegationTransaction` in both the plain and the batched-approve branch; `revokeDelegation`
+does the same. The bundler path signs the tuple at the authority's current nonce and refuses while
+a tx is in flight, which `trySendSponsored` reports as never submitted. The native fallback then
+queues behind that tx at the next (`pending`) nonce. Every bundled signer honours the explicit nonce
+on a set-code tx.
 
 ## Confirmation
 
-A success receipt no longer reports a delegation. `trySendDelegation` and `setupDelegationViaBundler`
-read the code at the receipt's block (`getCode({ blockNumber })`) and compare it to the configured
-SolverAccount; `revokeDelegation` confirms the code is empty there. A successful tx with no delegation
-logs that the authorization was skipped and returns false. The bundler path waits for the tx's receipt
-with `waitForTransactionReceipt` (bounded at 30 s) because the public RPC can lag the bundler's node;
-a missing or unreadable receipt is not confirmation. A pinned block read failure is "not confirmed",
-never a pass — the caller retries, and the next attempt's `isDelegated(latest)` sees a delegation that
-did land.
+A success receipt no longer reports a delegation: the code at the receipt's block must be the
+configured SolverAccount (empty, for a revoke). A failed read at that block, or a bundler-path
+receipt wait that times out (30 s), falls back to the wallet's delegation at `latest`, so a
+delegation that landed is not reported as failed. The final native fallback returns
+`trySendDelegation(...) || isDelegated(chain)`.
 
 ## No native fallback after a submitted op
 
-`setupDelegationViaBundler` returns `delegated | unavailable | pending | failed`. Only `unavailable` —
-`null` from `trySendSponsored`, or missing config — proceeds to the direct tx, as before. A
-`SubmittedUnconfirmedError` is `pending` (or `delegated` if the chain already shows the delegation),
-and a `reverted on-chain` op or any other throw is `failed` (or `delegated` likewise); both stop
-setup and return false. `setupDelegation` logs the outcome and lets the caller retry later. The
-caller only ever sees the boolean, so the public API is unchanged.
+`setupDelegationViaBundler` returns `delegated | unavailable | pending | failed`, and only
+`unavailable` proceeds to the direct tx.
+
+- A `SubmittedUnconfirmedError` or a `PendingOpOnNonceError` is `pending`, and a reverted op or any
+  other throw is `failed`; either is `delegated` if the chain already shows the delegation. Setup
+  stops and returns false.
+- An unconfirmed UserOp is remembered per wallet and chain. The next attempt resolves it before
+  anything is sent: a receipt confirms it on chain, a moved EntryPoint nonce without a delegation
+  drops it, and anything unresolved stays `pending`, so a retry whose bundler call is refused as
+  already known cannot go native.
+
+`setupDelegation` still answers a boolean. It can also reject, when the read that sizes the
+sponsored op fails before anything is submitted, so the caller retries.
 
 ## One attempt per wallet and chain
 
-A module-level map keyed by wallet address and chain serialises the delegation operations: the filler
-and the limit-order service build separate `DelegationService` instances for the same wallet, so a
-second `setupDelegation` joins the attempt already in flight rather than sending a competing op on the
-same EntryPoint nonce. `revokeDelegation` shares the lock — a revoke during a setup runs, but only
-after it — so the two can never overlap. The entry clears when the attempt settles.
+The filler and the limit-order service build separate `DelegationService` instances for one wallet,
+so a module-level lock makes a second `setupDelegation` join the attempt in flight. A
+`revokeDelegation` queues behind a setup instead of overlapping it.
 
 ## Watch-only
 
@@ -77,4 +63,7 @@ later override-free run sees what it would have.
 ## Limit orders
 
 `LimitOrderService.create` runs the 7702-delegation check for same-asset orders too. They are never
-posted, but they still price bids, and a bid from an undelegated EOA cannot execute.
+posted, but they still price bids, and a bid from an undelegated EOA cannot execute. On a watch-only
+chain the service is given a live predicate (`boot.ts` reads the filler's watch-only flags) and only
+checks `isDelegated`: an undelegated solver is refused with the watch-only wording, and
+`setupDelegation` is never called, so creating an order cannot send a set-code tx or a sponsored op.

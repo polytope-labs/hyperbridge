@@ -24,7 +24,10 @@ import type { Signer } from "@/services/wallet"
  * a send (or an explicitly landed sponsored op) flips it.
  */
 
-const { trySendSponsored } = vi.hoisted(() => ({ trySendSponsored: vi.fn() }))
+const { trySendSponsored, lookupUserOpReceipt } = vi.hoisted(() => ({
+	trySendSponsored: vi.fn(),
+	lookupUserOpReceipt: vi.fn(),
+}))
 
 vi.mock("@/services/paymaster", () => ({ hasPaymaster: () => true }))
 vi.mock("@/services/paymaster/provider/simplex", () => ({ resolvePendingPermit2Approval: vi.fn() }))
@@ -34,6 +37,7 @@ vi.mock("@/services/UserOpSender", () => ({
 			return true
 		}
 		trySendSponsored = trySendSponsored
+		lookupUserOpReceipt = lookupUserOpReceipt
 	},
 }))
 
@@ -42,6 +46,7 @@ const SOLVER = "0x13E41CdE1D55880cbe031c69f206C2E9BC3c94C2" as HexString
 const SOLVER_ACCOUNT = "0x00000000000000000000000000000000000000cc" as HexString
 const OLD_SOLVER_ACCOUNT = "0x00000000000000000000000000000000000000bb" as HexString
 const PAYMASTER = "0x00000000000000000000000000000000000000aa" as HexString
+const ENTRY_POINT = "0x4337843378433784337843378433784337843378" as HexString
 const USDT = "0x55d398326f99059fF775485246999027B3197955" as HexString
 const USDC = "0xaf88d065e77c8cC2239327C5EDb3A432268e5831" as HexString
 const PERMIT2 = "0x000000000022D473030F116dDEE9F6B43aC78BA3" as HexString
@@ -54,14 +59,20 @@ const configService = {
 	getSolverAccountContractAddress: () => SOLVER_ACCOUNT,
 	getChainId: () => 56,
 	getSimplexPaymasterAddress: () => PAYMASTER,
+	getEntryPointAddress: () => ENTRY_POINT,
 	loggers: undefined,
 } as unknown as FillerConfigService
 
-const signer = {
+const signerStub = {
 	address: SOLVER,
 	mode: "test",
 	signAuthorization: async () => ({ r: "0x01" as HexString, s: "0x02" as HexString, yParity: 0 }),
-} as unknown as Signer
+}
+const signer = signerStub as unknown as Signer
+
+// An unconfirmed delegation op is remembered per wallet and chain for the life of the process,
+// so each test gets a wallet of its own and cannot inherit another's pending op.
+let walletCount = 0
 
 function build(opts: {
 	native: bigint
@@ -81,6 +92,10 @@ function build(opts: {
 	codeReadError?: boolean
 	/** Make the bundler path's fresh-EOA `getCode` read (the second unblocked read) throw. */
 	freshReadError?: boolean
+	/** Make every receipt wait fail, as a lagging public RPC does. */
+	receiptError?: boolean
+	/** The wallet's EntryPoint nonce at `latest`. */
+	entryPointNonce?: bigint
 }) {
 	let unblockedReads = 0
 	const state = {
@@ -89,6 +104,7 @@ function build(opts: {
 		nonce: opts.latestNonce ?? 0,
 		/** The authority's nonce including the mempool. */
 		pendingNonce: opts.pendingNonce ?? opts.latestNonce ?? 0,
+		entryPointNonce: opts.entryPointNonce ?? 0n,
 	}
 	/** The code a landed delegation leaves. `null` means no code at all. */
 	const landedCode = () =>
@@ -118,7 +134,11 @@ function build(opts: {
 		getGasPrice: async () => GAS_PRICE,
 		getTransactionCount: async (args: { blockTag?: string } = {}) =>
 			(args.blockTag ?? "latest") === "pending" ? state.pendingNonce : state.nonce,
-		waitForTransactionReceipt: async () => ({ status: opts.receiptStatus ?? "success", blockNumber: 1n }),
+		waitForTransactionReceipt: async () => {
+			if (opts.receiptError) throw new Error("receipt wait timed out")
+			return { status: opts.receiptStatus ?? "success", blockNumber: 1n }
+		},
+		readContract: async () => state.entryPointNonce,
 		getTransactionReceipt: async () => ({ status: opts.receiptStatus ?? "success", blockNumber: 1n }),
 	}
 	const clientManager = {
@@ -132,6 +152,10 @@ function build(opts: {
 		/** Move the wallet's on-chain code, for tests where the sponsored op is mocked. */
 		setDelegated: (to?: HexString) => {
 			state.delegatedTo = to
+		},
+		/** Move the EntryPoint nonce, as a landed or replaced op does. */
+		setEntryPointNonce: (nonce: bigint) => {
+			state.entryPointNonce = nonce
 		},
 		/**
 		 * Apply the delegation a landed sponsored op leaves — but only when its tuple is the
@@ -178,7 +202,11 @@ function unconfirmed(): SubmittedUnconfirmedError {
 }
 
 beforeEach(() => {
+	signerStub.address = `0x${(++walletCount).toString(16).padStart(40, "0")}` as HexString
 	trySendSponsored.mockReset()
+	lookupUserOpReceipt.mockReset()
+	// The bundler does not know the op, unless a test says it does.
+	lookupUserOpReceipt.mockResolvedValue(null)
 	vi.mocked(resolvePendingPermit2Approval).mockReset()
 })
 
@@ -480,12 +508,56 @@ describe("confirming a delegation on chain", () => {
 		expect(trySendSponsored).toHaveBeenCalledOnce()
 	})
 
-	it("does not confirm a delegation when the pinned-block read fails", async () => {
+	it("does not confirm a delegation when the pinned-block read fails and nothing landed", async () => {
+		vi.mocked(resolvePendingPermit2Approval).mockResolvedValue(null)
+		trySendSponsored.mockResolvedValue(null)
+		const { service, sendTransaction } = build({ native: DIRECT_TX_COST, codeReadError: true, delegateAfterSend: null })
+
+		expect(await service.setupDelegation(CHAIN)).toBe(false)
+
+		expect(sendTransaction).toHaveBeenCalledOnce()
+	})
+
+	it("reports a delegation that landed as done when the pinned-block read fails", async () => {
 		vi.mocked(resolvePendingPermit2Approval).mockResolvedValue(null)
 		trySendSponsored.mockResolvedValue(null)
 		const { service, sendTransaction } = build({ native: DIRECT_TX_COST, codeReadError: true })
 
+		// The mined block cannot be read, but the code is there at `latest`.
+		expect(await service.setupDelegation(CHAIN)).toBe(true)
+
+		expect(sendTransaction).toHaveBeenCalledOnce()
+	})
+
+	it("reports a delegation that landed as done when the bundler path's receipt wait times out", async () => {
+		vi.mocked(resolvePendingPermit2Approval).mockResolvedValue(null)
+		const { service, sendTransaction, setDelegated } = build({ native: DIRECT_TX_COST, receiptError: true })
+		trySendSponsored.mockImplementation(async () => {
+			setDelegated(SOLVER_ACCOUNT)
+			return { txHash: SPONSORED_TX_HASH }
+		})
+
+		expect(await service.setupDelegation(CHAIN)).toBe(true)
+
+		expect(sendTransaction).not.toHaveBeenCalled()
+	})
+
+	it("still fails when the bundler path's receipt wait times out and nothing is delegated", async () => {
+		vi.mocked(resolvePendingPermit2Approval).mockResolvedValue(null)
+		const { service, sendTransaction } = build({ native: DIRECT_TX_COST, receiptError: true })
+		trySendSponsored.mockResolvedValue({ txHash: SPONSORED_TX_HASH })
+
 		expect(await service.setupDelegation(CHAIN)).toBe(false)
+
+		expect(sendTransaction).not.toHaveBeenCalled()
+	})
+
+	it("reports the final native fallback as done when its receipt was lost but the delegation landed", async () => {
+		vi.mocked(resolvePendingPermit2Approval).mockResolvedValue(null)
+		trySendSponsored.mockResolvedValue(null)
+		const { service, sendTransaction } = build({ native: DIRECT_TX_COST, receiptError: true })
+
+		expect(await service.setupDelegation(CHAIN)).toBe(true)
 
 		expect(sendTransaction).toHaveBeenCalledOnce()
 	})
@@ -571,6 +643,99 @@ describe("no native fallback after a sponsored op that may still land or did lan
 
 		expect(await service.setupDelegation(CHAIN)).toBe(false)
 
+		expect(sendTransaction).not.toHaveBeenCalled()
+	})
+
+	it("keeps a retry off the native path while the unconfirmed op may still land", async () => {
+		vi.mocked(resolvePendingPermit2Approval).mockResolvedValue(null)
+		const { service, sendTransaction } = build({ native: DIRECT_TX_COST })
+		trySendSponsored.mockRejectedValueOnce(unconfirmed())
+
+		expect(await service.setupDelegation(CHAIN)).toBe(false)
+		expect(trySendSponsored).toHaveBeenCalledOnce()
+
+		// The retry would build a new op on the same nonce; the bundler answers it "already
+		// known", which reads as unavailable. The pending op is settled first, so no op is
+		// built and nothing goes native.
+		trySendSponsored.mockResolvedValue(null)
+		expect(await service.setupDelegation(CHAIN)).toBe(false)
+		expect(await service.setupDelegation(CHAIN)).toBe(false)
+
+		expect(trySendSponsored).toHaveBeenCalledOnce()
+		expect(lookupUserOpReceipt).toHaveBeenCalledWith(CHAIN, SPONSORED_TX_HASH)
+		expect(sendTransaction).not.toHaveBeenCalled()
+	})
+
+	it("treats the bundler's pending-on-nonce answer as pending too", async () => {
+		vi.mocked(resolvePendingPermit2Approval).mockResolvedValue(null)
+		trySendSponsored.mockRejectedValue(new PendingOpOnNonceError("already known", CHAIN, 0n, 0n))
+		const { service, sendTransaction } = build({ native: DIRECT_TX_COST })
+
+		expect(await service.setupDelegation(CHAIN)).toBe(false)
+		expect(await service.setupDelegation(CHAIN)).toBe(false)
+
+		expect(sendTransaction).not.toHaveBeenCalled()
+	})
+
+	it("confirms the earlier op on chain once its receipt turns up", async () => {
+		vi.mocked(resolvePendingPermit2Approval).mockResolvedValue(null)
+		const { service, sendTransaction, setDelegated } = build({ native: DIRECT_TX_COST })
+		trySendSponsored.mockRejectedValueOnce(unconfirmed())
+		expect(await service.setupDelegation(CHAIN)).toBe(false)
+
+		lookupUserOpReceipt.mockResolvedValue({ txHash: SPONSORED_TX_HASH, success: true })
+		setDelegated(SOLVER_ACCOUNT)
+		// The delegation shows only at the mined block, not through the early `latest` read.
+		expect(await service.setupDelegation(CHAIN)).toBe(true)
+
+		expect(trySendSponsored).toHaveBeenCalledOnce()
+		expect(sendTransaction).not.toHaveBeenCalled()
+	})
+
+	it("does not retry past an earlier op that mined without delegating", async () => {
+		vi.mocked(resolvePendingPermit2Approval).mockResolvedValue(null)
+		const { service, sendTransaction } = build({ native: DIRECT_TX_COST })
+		trySendSponsored.mockRejectedValueOnce(unconfirmed())
+		expect(await service.setupDelegation(CHAIN)).toBe(false)
+
+		lookupUserOpReceipt.mockResolvedValue({ txHash: SPONSORED_TX_HASH, success: true })
+		trySendSponsored.mockResolvedValue(null)
+		expect(await service.setupDelegation(CHAIN)).toBe(false)
+
+		// Settled, so the record is gone and the next call runs the normal flow.
+		expect(trySendSponsored).toHaveBeenCalledOnce()
+		lookupUserOpReceipt.mockResolvedValue(null)
+		expect(await service.setupDelegation(CHAIN)).toBe(true)
+		expect(trySendSponsored).toHaveBeenCalledTimes(2)
+		expect(sendTransaction).toHaveBeenCalledOnce()
+	})
+
+	it("goes on once the EntryPoint nonce moved past the earlier op and nothing is delegated", async () => {
+		vi.mocked(resolvePendingPermit2Approval).mockResolvedValue(null)
+		const { service, sendTransaction, setEntryPointNonce } = build({ native: DIRECT_TX_COST })
+		trySendSponsored.mockRejectedValueOnce(unconfirmed())
+		expect(await service.setupDelegation(CHAIN)).toBe(false)
+
+		// The op's nonce (0) was consumed by something else: it can never land.
+		setEntryPointNonce(1n)
+		trySendSponsored.mockResolvedValue(null)
+		expect(await service.setupDelegation(CHAIN)).toBe(true)
+
+		expect(trySendSponsored).toHaveBeenCalledTimes(2)
+		expect(sendTransaction).toHaveBeenCalledOnce()
+	})
+
+	it("stays pending when neither the bundler nor the EntryPoint can be asked", async () => {
+		vi.mocked(resolvePendingPermit2Approval).mockResolvedValue(null)
+		const { service, sendTransaction } = build({ native: DIRECT_TX_COST })
+		trySendSponsored.mockRejectedValueOnce(unconfirmed())
+		expect(await service.setupDelegation(CHAIN)).toBe(false)
+
+		lookupUserOpReceipt.mockRejectedValue(new Error("bundler down"))
+		trySendSponsored.mockResolvedValue(null)
+		expect(await service.setupDelegation(CHAIN)).toBe(false)
+
+		expect(trySendSponsored).toHaveBeenCalledOnce()
 		expect(sendTransaction).not.toHaveBeenCalled()
 	})
 

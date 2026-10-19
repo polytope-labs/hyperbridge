@@ -434,6 +434,8 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 		initialOrderNonce,
 		// A fill withdraws a payout shortfall from the vaults, so what they hold backs an order too.
 		vaultVenue,
+		// Read live from the filler: the operator can switch a chain's watch-only mode at runtime.
+		(chain) => intentFiller.getWatchOnly()[configService.getChainId(chain)] === true,
 	)
 	// A fill has to work its limit order down and put the rest back on the book,
 	// which the filler cannot do until the service that owns the connection exists.

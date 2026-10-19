@@ -1,13 +1,14 @@
 import type { HexString } from "@hyperbridge/sdk"
 import { encodeFunctionData, erc20Abi, formatEther, maxUint256, zeroAddress } from "viem"
 import { encodeERC7821ExecuteBatch } from "@hyperbridge/sdk"
+import { ENTRYPOINT_ABI } from "@/config/abis/Entrypoint"
 import type { ChainClientManager } from "./ChainClientManager"
 import type { FillerConfigService } from "./FillerConfigService"
 import { type Logger, moduleLogger } from "./Logger"
 import type { Signer } from "./wallet"
 import { hasPaymaster } from "./paymaster"
 import { resolvePendingPermit2Approval } from "./paymaster/provider/simplex"
-import { PendingOpOnNonceError, SubmittedUnconfirmedError } from "./submission"
+import { PendingOpOnNonceError, SubmittedUnconfirmedError, type SubmittedUserOp } from "./submission"
 import { UserOpSender, type Eip7702Authorization } from "./UserOpSender"
 
 /** EIP-7702 delegation indicator prefix */
@@ -73,6 +74,20 @@ interface InFlightDelegation {
  * instances and must still see each other's attempt.
  */
 const inFlightDelegationByWallet = new Map<string, InFlightDelegation>()
+
+/** The identity of a sponsored delegation op that was submitted but never confirmed. */
+type UnconfirmedDelegationOp = Pick<SubmittedUserOp, "userOpHash" | "nonce" | "nonceKey">
+
+/**
+ * The sponsored delegation op each wallet and chain is still waiting on, by the same key as
+ * {@link inFlightDelegationByWallet}. The in-flight map only covers an attempt while it runs;
+ * an op that outlived its receipt wait is still in the bundler's pool afterwards. A retry
+ * (a fills enable, a limit-order create, a restart of the caller) builds a new op on the same
+ * nonce, the bundler refuses it as a replacement, and that refusal reads as "unavailable" —
+ * so without this record the retry would send a native delegation alongside the pending op.
+ * Module-level for the same reason as the map above.
+ */
+const unconfirmedDelegationOps = new Map<string, UnconfirmedDelegationOp>()
 
 /**
  * Service for managing EIP-7702 delegation of the filler's EOA to the SolverAccount contract.
@@ -296,16 +311,21 @@ export class DelegationService {
 	}
 
 	/**
-	 * Confirms the delegation at the block a tx mined in. A read failure is "not confirmed"
-	 * (false), never a pass: setupDelegation's callers retry, and the next attempt's
-	 * `isDelegated(latest)` sees a delegation that did land.
+	 * Confirms the delegation at the block a tx mined in. A failed read of that one block is
+	 * not a verdict, so the wallet's delegation at `latest` decides instead: a delegation that
+	 * landed is not reported as failed because a node could not serve a historical `getCode`.
+	 * `isDelegated` answers false when `latest` cannot be read either, which is "not confirmed",
+	 * never a pass.
 	 */
 	private async confirmDelegationAt(chain: string, blockNumber: bigint): Promise<boolean> {
 		try {
 			return await this.readDelegation(chain, blockNumber)
 		} catch (error) {
-			this.logger.error({ chain, blockNumber, error }, "Could not confirm delegation at the mined block")
-			return false
+			this.logger.error(
+				{ chain, blockNumber, error },
+				"Could not confirm delegation at the mined block; checking the latest state",
+			)
+			return this.isDelegated(chain)
 		}
 	}
 
@@ -405,6 +425,7 @@ export class DelegationService {
 					{ chain, txHash: result.txHash },
 					"Delegation via bundler successful — paymaster paid gas",
 				)
+				unconfirmedDelegationOps.delete(this.walletKey(chain))
 				return "delegated"
 			}
 
@@ -424,6 +445,11 @@ export class DelegationService {
 				// visible on chain proves it did; otherwise this is pending and the caller
 				// retries on the next cycle.
 				this.logger.warn({ chain, error, delegated }, "Sponsored delegation unconfirmed; not falling back")
+				// Remembered so the retry resolves this op before building another on its nonce.
+				if (!delegated && error instanceof SubmittedUnconfirmedError && error.submission.kind === "userOp") {
+					const { userOpHash, nonce, nonceKey } = error.submission
+					unconfirmedDelegationOps.set(this.walletKey(chain), { userOpHash, nonce, nonceKey })
+				}
 				return delegated ? "delegated" : "pending"
 			}
 			this.logger.warn({ chain, error, delegated }, "Bundler delegation did not confirm; not falling back")
@@ -432,11 +458,60 @@ export class DelegationService {
 	}
 
 	/**
+	 * Resolves the sponsored delegation op an earlier attempt left unconfirmed, before anything
+	 * new is built on its nonce.
+	 *
+	 * - Its receipt is found: the delegation is confirmed on chain.
+	 * - The EntryPoint nonce at `latest` has moved past the op's and the wallet is not delegated:
+	 *   the nonce was consumed without delegating, so the op is gone.
+	 * - Anything else, including a lookup or read that failed: still unresolved, so "pending".
+	 *   The op may land, and a replacement or a native delegation alongside it would double up.
+	 */
+	private async resolveUnconfirmedOp(chain: string): Promise<"none" | "delegated" | "gone" | "failed" | "pending"> {
+		const key = this.walletKey(chain)
+		const op = unconfirmedDelegationOps.get(key)
+		if (!op) return "none"
+
+		try {
+			const receipt = await this.userOpSender.lookupUserOpReceipt(chain, op.userOpHash)
+			if (receipt) {
+				unconfirmedDelegationOps.delete(key)
+				return (await this.confirmBundlerDelegation(chain, receipt.txHash)) ? "delegated" : "failed"
+			}
+		} catch (error) {
+			// The bundler could not be asked; the nonce below is the other evidence.
+			this.logger.warn({ chain, userOpHash: op.userOpHash, error }, "Could not look up the unconfirmed delegation op")
+		}
+
+		try {
+			const entryPoint = this.configService.getEntryPointAddress(chain)
+			if (!entryPoint) throw new Error(`No EntryPoint is configured for ${chain}`)
+			const current = (await this.clientManager.getPublicClient(chain).readContract({
+				address: entryPoint,
+				abi: ENTRYPOINT_ABI,
+				functionName: "getNonce",
+				args: [this.signer.address as HexString, op.nonceKey],
+				blockTag: "latest",
+			})) as bigint
+			if (current > op.nonce) {
+				// The nonce was consumed. A read failure here throws rather than reading as
+				// "not delegated", which would call a landed op gone.
+				const delegated = await this.readDelegation(chain)
+				unconfirmedDelegationOps.delete(key)
+				return delegated ? "delegated" : "gone"
+			}
+		} catch (error) {
+			this.logger.warn({ chain, userOpHash: op.userOpHash, error }, "Could not read the unconfirmed delegation op's nonce")
+		}
+		return "pending"
+	}
+
+	/**
 	 * Confirms the delegation at the block a sponsored op's transaction mined in. The public
 	 * RPC can lag the bundler's, so the receipt is waited for, bounded by
-	 * {@link BUNDLER_RECEIPT_WAIT_TIMEOUT_MS}. A missing or unreadable receipt is not
-	 * confirmation, so this returns false and the caller reports "failed" rather than
-	 * falling back to a native tx.
+	 * {@link BUNDLER_RECEIPT_WAIT_TIMEOUT_MS}. A receipt that cannot be read is not evidence
+	 * either way, so the wallet's delegation at `latest` decides instead: a delegation that
+	 * landed is not reported as failed because the receipt wait timed out.
 	 */
 	private async confirmBundlerDelegation(chain: string, txHash: HexString): Promise<boolean> {
 		const publicClient = this.clientManager.getPublicClient(chain)
@@ -447,12 +522,12 @@ export class DelegationService {
 			})
 			if (!receipt) {
 				this.logger.error({ chain, txHash }, "The sponsored delegation tx has no receipt to confirm against")
-				return false
+				return this.isDelegated(chain)
 			}
 			return await this.confirmDelegationAt(chain, receipt.blockNumber)
 		} catch (error) {
 			this.logger.error({ chain, txHash, error }, "Could not read the sponsored delegation tx receipt")
-			return false
+			return this.isDelegated(chain)
 		}
 	}
 
@@ -543,6 +618,11 @@ export class DelegationService {
 		return this.withDelegationLock(chain, "setup", () => this.setupDelegationOnce(chain))
 	}
 
+	/** The key every per-wallet, per-chain delegation map shares. */
+	private walletKey(chain: string): string {
+		return `${this.signer.address.toLowerCase()}:${chain}`
+	}
+
 	/**
 	 * Runs one delegation operation under the per-wallet/chain lock.
 	 *
@@ -556,7 +636,7 @@ export class DelegationService {
 		operation: DelegationOperation,
 		work: () => Promise<boolean>,
 	): Promise<boolean> {
-		const key = `${this.signer.address.toLowerCase()}:${chain}`
+		const key = this.walletKey(chain)
 		const running = inFlightDelegationByWallet.get(key)
 
 		if (running?.operation === operation) {
@@ -586,6 +666,7 @@ export class DelegationService {
 		}
 
 		if (await this.isDelegated(chain)) {
+			unconfirmedDelegationOps.delete(this.walletKey(chain))
 			this.logger.info({ chain }, "EOA already delegated to SolverAccount")
 			// Delegated does NOT imply bootstrapped. An account delegated by a release that
 			// charged EIP-2612 permits has no Permit2 allowance at all, and the delegation op
@@ -594,6 +675,16 @@ export class DelegationService {
 			// entry in docs/ai/Decisions.md records hitting on Base and Arbitrum.
 			await this.ensurePermit2Allowance(chain)
 			return true
+		}
+
+		// An earlier sponsored op that never confirmed is settled before anything new goes out:
+		// it may still be in the bundler's pool, and a second op on its nonce is refused in a way
+		// that reads as "unavailable", which would send a native delegation next to it.
+		const earlier = await this.resolveUnconfirmedOp(chain)
+		if (earlier === "delegated") return true
+		if (earlier === "failed" || earlier === "pending") {
+			this.logger.warn({ chain, outcome: earlier }, "An earlier sponsored delegation op has not settled; not sending another")
+			return false
 		}
 
 		const authority = this.signer.address as HexString
@@ -664,7 +755,8 @@ export class DelegationService {
 			{ chain, authority, solverAccountContract, mode: this.signer.mode ?? "custom" },
 			"Setting up EIP-7702 delegation via direct tx",
 		)
-		return this.trySendDelegation(chain, solverAccountContract, undefined)
+		// A delegation that landed is success even when the confirmation read failed.
+		return (await this.trySendDelegation(chain, solverAccountContract, undefined)) || this.isDelegated(chain)
 	}
 
 	/** Whether the EOA can pay for one direct set-code tx at the current gas price. */

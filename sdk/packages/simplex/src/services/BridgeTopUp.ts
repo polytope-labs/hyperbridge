@@ -1540,9 +1540,15 @@ export class BridgeTopUp {
 			return receipt.status === "success" ? sent.txHash : undefined
 		}
 
+		// Only a definite answer reaches the nonce rule below: a receipt, or null for "the bundler does
+		// not know the op". A lookup that failed is not an answer. The placement can fall back on its
+		// `OrderPlaced` log scan, but nothing independent backs the cancel, so an unanswered lookup
+		// with a moved nonce cannot tell our landed op from another op that took the nonce. Clearing
+		// it would send a duplicate cancel that reverts and drop the hash whose receipt carries the
+		// GET commitment the claim needs, so the attempt waits and retries instead.
 		const userOp = await this.deps.tokenSender.userOpReceipt(chain, sent.userOpHash).catch((err) => {
 			this.logger.debug({ err }, "Could not ask the bundler for the cancel's receipt")
-			return null
+			throw new Error(`Could not ask the bundler for the cancel UserOp ${sent.userOpHash}'s receipt; waiting`)
 		})
 		if (userOp) return userOp.success ? userOp.txHash : undefined
 		const nonce = (await withTimeout(

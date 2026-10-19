@@ -1571,6 +1571,8 @@ describe("BRIDGE top-up placement recovery", () => {
 			accountNonce?: number
 			entryPointNonce?: bigint
 			userOpReceipt?: { txHash: string; success: boolean } | null
+			/** The bundler cannot be asked: the lookup throws instead of answering. */
+			userOpReceiptError?: Error
 			/** The chain's clock in seconds at the evidence block. */
 			blockTimestamp?: number
 			/** A pending tx the node still lists; any other hash is unknown to it. */
@@ -1601,7 +1603,10 @@ describe("BRIDGE top-up placement recovery", () => {
 				if (submits === 1 && submission) throw new SubmittedUnconfirmedError("no receipt in time", "EVM-8453", submission)
 				return { txHash: "0xnewcancel", sponsored: true }
 			},
-			userOpReceipt: async () => client.userOpReceipt ?? null,
+			userOpReceipt: async () => {
+				if (client.userOpReceiptError) throw client.userOpReceiptError
+				return client.userOpReceipt ?? null
+			},
 		}
 		;(internals.deps.clientManager as unknown as Record<string, unknown>).getPublicClient = () => ({
 			getBlockNumber: async () => 1_000n,
@@ -1727,6 +1732,28 @@ describe("BRIDGE top-up placement recovery", () => {
 			const dropped = await retriedCancel(unconfirmedOp, { entryPointNonce: 7n })
 			expect(dropped.submits()).toBe(2)
 			expect(dropped.handedBack).toEqual(["0xnewcancel"])
+		}))
+
+	it("waits, sending nothing, when the bundler cannot be asked about a cancel UserOp whose nonce moved", () =>
+		withFetch(async () => {
+			// The lookup failed, so it says nothing about the op: a moved nonce may be our own landed op.
+			const unanswered = await retriedCancel(unconfirmedOp, {
+				entryPointNonce: 7n,
+				userOpReceiptError: new Error("bundler unreachable"),
+			})
+			expect(unanswered.submits()).toBe(1)
+			expect(unanswered.handedBack).toEqual([])
+			expect(unanswered.record.stage).toBe("reclaiming")
+			expect(unanswered.record.error).toContain("Could not ask the bundler")
+			expect(unanswered.record.reclaimSubmission).toMatchObject({ kind: "userOp", userOpHash: USER_OP_HASH })
+		}))
+
+	it("clears and resends when the bundler answers that it has no receipt and the nonce moved", () =>
+		withFetch(async () => {
+			const answered = await retriedCancel(unconfirmedOp, { entryPointNonce: 7n, userOpReceipt: null })
+			expect(answered.submits()).toBe(2)
+			expect(answered.handedBack).toEqual(["0xnewcancel"])
+			expect(answered.record.reclaimSubmission).toBeUndefined()
 		}))
 
 	it("clears a Permit2 cancel UserOp whose permit expired on a quiet chain, and sends a new cancel", () =>

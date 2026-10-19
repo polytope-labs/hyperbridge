@@ -97,6 +97,12 @@ bundler); a reverted receipt, or no receipt with the wallet's or EntryPoint's no
 below the tip), clears it and sends a new cancel; otherwise the attempt waits and retries. A
 UserOp-kind cancel that timed out is therefore never resent while it can still land.
 
+For a UserOp, "no receipt" means the bundler answered that it does not know the op. A bundler
+lookup that fails is not that answer: the attempt waits and retries
+(`Could not ask the bundler for the cancel UserOp …'s receipt; waiting`) and the nonce rule is not
+applied. Unlike the placement, the cancel has no `OrderPlaced` log scan behind it, so an unanswered
+lookup with a moved nonce cannot tell our landed op from another op that took the nonce.
+
 A Permit2-mode cancel UserOp also clears when its permit has expired: on a quiet chain the
 EntryPoint nonce never moves, so without this a bundler that never included the op would hold the
 escrow for good. Like the placement rule, it applies when the stored `expires` is true and the

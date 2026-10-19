@@ -6,6 +6,7 @@ import type { VaultConfig, FundingVenue } from "@/funding/types"
 import { VaultFundingPlanner } from "@/funding/vault/VaultFundingPlanner"
 import { VaultLiquidityState } from "@/funding/vault/VaultLiquidityState"
 import { TokenSender } from "@/services/TokenSender"
+import { revokeStaleGatewayAllowances } from "@/services/gateway-allowance"
 import { BridgeTopUp } from "@/services/BridgeTopUp"
 import { deriveSubstrateKeyPair } from "@/services/substrate-key"
 import { formatChainKey, parseChainKey } from "@/config/interpolated-curve"
@@ -622,6 +623,21 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 		userOpSender,
 		configService,
 	)
+	// Fills before the exact-approval release left the gateway approved for the destination fee
+	// token. A fill clears that only for the token and chain it touches, so clear what is still
+	// standing now, once delegation is set up. A signerless observer holds nothing to revoke.
+	// Fire-and-forget: it is housekeeping that retries on the next boot, and it never rejects.
+	if (options.signer) {
+		void revokeStaleGatewayAllowances({
+			clientManager: chainClientManager,
+			configService,
+			contractService,
+			tokenSender,
+			solver: runtimeSigner.address as HexString,
+			watchOnly: watchOnlyConfig,
+			logger: moduleLogger(options.loggers, "gateway-allowance"),
+		})
+	}
 	// BRIDGE trades only on mainnet BSC, so a testnet filler has nothing to top up with.
 	const bridgeTopUp =
 		config.simplex.substratePrivateKey && network === "mainnet"

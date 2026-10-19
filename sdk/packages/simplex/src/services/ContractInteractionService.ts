@@ -55,8 +55,9 @@ const FUNDING_GAS_PER_CALL = 400_000n
 const DEBIT_ORDER_GAS = 60_000n
 
 /**
- * Call gas allowed per ERC20 the batch approves to the gateway. The bundler's estimate is of
- * the prepends and a lone `fillOrder`, so the approvals are not in it. Each token costs three
+ * Call gas allowed per ERC20 the batch approves to the gateway. The bundler's estimate is of a
+ * lone `fillOrder` (`estimateGasFillPost` passes no prepends; `FUNDING_GAS_PER_CALL` covers
+ * those), so the approvals are not in it. Each token costs three
  * `approve` calls: the reset ahead of the set (about 5-10k, a write of zero over zero or over a
  * leftover), the set from zero (about 22k for the write and 2k for the cold slot), and the reset
  * after the fill (about 5k). A call into the token, through a proxy for the stablecoins, adds a

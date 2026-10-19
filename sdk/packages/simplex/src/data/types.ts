@@ -493,7 +493,8 @@ export interface LimitOrderStore {
 	 * Lowers an `open` or `resizing` order's `remaining` to `room`, what the solver's
 	 * account on chain will still pay for this order, at 1e18. Never raises it.
 	 * Returns the order when it was lowered, null otherwise. A `resizing` order is
-	 * one a repost holds: it lowers the row to the tally before it posts.
+	 * one a repost holds: it lowers the row to the tally before it posts. A store
+	 * that refuses `resizing` would have the repost advertise the pre-fill size.
 	 */
 	clampRemaining(id: string, room: string): Promise<LimitOrder | null>
 	/** Records a fill against its limit order, for its history and profit. */

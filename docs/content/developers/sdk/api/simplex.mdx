@@ -849,8 +849,9 @@ nothing else.
 `open()` is what the matcher prices against. `setPosting` and `setStatus` take an optional `only`
 list and write only while the row still holds one of those statuses, answering `null` otherwise, so
 a slow orderbook answer cannot undo a cancel or expiry that landed first. `clampRemaining` lowers an
-`open` order's `remaining` to the room its on-chain budget leaves and never raises it; settlement and
-the tally pass both use it.
+`open` or `resizing` order's `remaining` to the room its on-chain budget leaves and never raises it;
+settlement and the tally pass both use it. It must accept `resizing`: a repost holds the order in
+that status and posts the clamped size, so a store that refuses it re-advertises the pre-fill size.
 
 ### Implementations
 

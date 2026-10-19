@@ -12,6 +12,8 @@ figures, and `remaining` is brought down to the order's tally after every fill. 
   `BidInsert.reservations`, `StoredBid.reservations` and `BidStore.claimReservation` are gone, so a
   custom store no longer implements them. `LimitOrderStore.clampRemaining` is the one write to
   `remaining`: it lowers an `open` or `resizing` order to the on-chain room, and never raises it.
+  A store must accept `resizing`: a repost holds that status and posts the clamped size, so a
+  store that refuses it re-advertises the pre-fill size. The public store reference says so.
 - `StoredBid.pricedBy` is new (below). A custom `BidStore` that returns `undefined` for it on old
   rows is read as `null`.
 - `LimitOrderService.syncToChain(id, blockNumber?)` and
@@ -61,7 +63,9 @@ retraction or a fill. `BidStore.byLimitOrder` reads from it.
    answering with the tally from before the fill; the tally only grows, so that block already
    includes it. An endpoint that has not reached the block gives no figure, and the periodic pass
    follows up. That pass reads the latest block, and now logs a lowering at `warn`, since
-   settlement should already have made it.
+   settlement should already have made it. A scanner that cannot tell the block substitutes
+   `0n`, and a read pinned to block 0 fails, so `EventMonitor` forwards `blockNumber` only when
+   it is above zero; an unset one reads the latest block.
 
    `syncToChain` answers `false` when the order is not `open`, when the tally leaves it where it
    is, when the chain does not show the fill yet, or when the tally cannot be read (the read

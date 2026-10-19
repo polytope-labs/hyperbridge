@@ -158,7 +158,10 @@ export class EventMonitor extends EventEmitter {
 			logIndex: event.logIndex,
 			// The block the fill landed in, which the limit order's on-chain tally is read at
 			// so that a lagging endpoint cannot answer with the tally from before the fill.
-			blockNumber: event.blockNumber,
+			// A scanner that lacks the coordinate substitutes `0n`, and the tally read treats
+			// any defined value as a pinned block: a read at block 0 fails, so settlement
+			// would never lower the order. Left unset, it reads the latest block.
+			blockNumber: event.blockNumber > 0n ? event.blockNumber : undefined,
 			// A scanner that cannot tell leaves this unset; treated as closing the order,
 			// as every fill of ours was before partial fills were told apart.
 			complete: event.complete !== false,

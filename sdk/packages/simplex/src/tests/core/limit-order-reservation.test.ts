@@ -106,6 +106,8 @@ async function build(options: { bids?: BidStore; retract?: BidSubmissionResult }
 		complete: boolean,
 		transactionHash?: string,
 		logIndex?: number,
+		/** When the scanner reported the fill, if not when it is settled. */
+		filledAtMs?: number,
 	) => {
 		await filler.handleOrderFilledOnChain(
 			COMMITMENT,
@@ -117,6 +119,7 @@ async function build(options: { bids?: BidStore; retract?: BidSubmissionResult }
 			transactionHash,
 			logIndex,
 			FILL_BLOCK,
+			filledAtMs,
 		)
 		await filler.retractionQueue.onIdle()
 	}
@@ -510,7 +513,7 @@ describe("a retracted bid that still executes", () => {
 		await ctx.fill(1000n * ONE, 100n, false, "0xlate")
 
 		expect(await ctx.recorded(LIMIT_ORDER)).toEqual([[COMMITMENT, FIRST_BID, (1000n * ONE).toString(), "0xlate"]])
-		expect(ctx.syncToChain).toHaveBeenCalledWith(LIMIT_ORDER)
+		expect(ctx.syncToChain).toHaveBeenCalledWith(LIMIT_ORDER, FILL_BLOCK)
 		expect(await ctx.remaining(LIMIT_ORDER)).toBe(2000n * ONE)
 	})
 })
@@ -551,11 +554,105 @@ describe("attributing a fill when some bids are retracted", () => {
 		expect(await ctx.recorded(LIMIT_ORDER)).toEqual([[COMMITMENT, FIRST_BID, (1000n * ONE).toString(), "0xfill"]])
 	})
 
+	it("attributes by the escrow released: a retracted bid that covers it beats a live bid that cannot", async () => {
+		// RB (second order, take 40) is live, RA (first order, take 100) was retracted, and the
+		// fill released 100: only RA's take covers it, so RB cannot have been the bid that executed.
+		const ctx = await build()
+		await ctx.bid({ limitOrderId: LIMIT_ORDER, payout: (1000n * ONE).toString(), take: "100" }, FIRST_BID)
+		await ctx.bid({ limitOrderId: SECOND_ORDER, payout: (900n * ONE).toString(), take: "40" }, SECOND_BID)
+		await retract(ctx, FIRST_BID)
+		ctx.spend(LIMIT_ORDER, 1000n)
+
+		await ctx.fill(1000n * ONE, 100n, false, "0xfill")
+
+		expect(await ctx.recorded(LIMIT_ORDER)).toEqual([[COMMITMENT, FIRST_BID, (1000n * ONE).toString(), "0xfill"]])
+		expect(await ctx.recorded(SECOND_ORDER)).toEqual([])
+	})
+
+	it("still prefers a live bid whose take covers the escrow over a retracted one that also does", async () => {
+		const ctx = await build()
+		await ctx.bid({ limitOrderId: LIMIT_ORDER, payout: (1000n * ONE).toString(), take: "100" }, FIRST_BID)
+		await ctx.bid({ limitOrderId: SECOND_ORDER, payout: (900n * ONE).toString(), take: "100" }, SECOND_BID)
+		await retract(ctx, FIRST_BID)
+		ctx.spend(SECOND_ORDER, 900n)
+
+		await ctx.fill(900n * ONE, 100n, false, "0xfill")
+
+		expect(await ctx.recorded(LIMIT_ORDER)).toEqual([])
+		expect(await ctx.recorded(SECOND_ORDER)).toEqual([[COMMITMENT, SECOND_BID, (900n * ONE).toString(), "0xfill"]])
+	})
+
+	it("falls back to the live bid's payout when no bid's take covers the escrow", async () => {
+		// Neither take reaches the 200 released, so there is no escrow evidence and the
+		// payout that matches the delivery decides, among the live bids.
+		const ctx = await build()
+		await ctx.bid({ limitOrderId: LIMIT_ORDER, payout: (1000n * ONE).toString(), take: "100" }, FIRST_BID)
+		await ctx.bid({ limitOrderId: SECOND_ORDER, payout: (900n * ONE).toString(), take: "100" }, SECOND_BID)
+		await retract(ctx, FIRST_BID)
+		ctx.spend(SECOND_ORDER, 900n)
+
+		await ctx.fill(900n * ONE, 200n, false, "0xfill")
+
+		expect(await ctx.recorded(SECOND_ORDER)).toEqual([[COMMITMENT, SECOND_BID, (900n * ONE).toString(), "0xfill"]])
+	})
+
+	it("takes the time the fill was seen from the scanner's event, not from the settlement queue", async () => {
+		const ctx = await build()
+		const handled = vi.spyOn(ctx.filler, "handleOrderFilledOnChain").mockResolvedValue(undefined)
+		let release!: () => void
+		ctx.filler.settlementQueue.add(() => new Promise<void>((resolve) => (release = resolve)))
+
+		const before = Date.now()
+		ctx.filler.monitor.emit("orderFilledOnChain", {
+			commitment: COMMITMENT,
+			filler: OUR_ADDRESS,
+			chainId: 8453,
+			outputs: [],
+			inputs: [],
+			complete: false,
+			blockNumber: FILL_BLOCK,
+		})
+		await new Promise((resolve) => setTimeout(resolve, 20))
+		release()
+		await ctx.filler.settlementQueue.onIdle()
+
+		const seenAtMs = handled.mock.calls[0][9] as number
+		expect(seenAtMs).toBeGreaterThanOrEqual(before)
+		// Taken when the event arrived, before the queue let the settlement start.
+		expect(seenAtMs).toBeLessThan(Date.now() - 15)
+	})
+
+	it("counts a retracted bid's window back from when the fill happened, not from its settlement", async () => {
+		const ctx = await build()
+		await ctx.bid({ limitOrderId: LIMIT_ORDER, payout: (1000n * ONE).toString(), take: "100" }, FIRST_BID)
+		const row = await retract(ctx, FIRST_BID)
+		// The window is 450 s. The bid is 500 s old when settled, but the fill was seen 100 s
+		// before that, when the bid was 400 s old and could still execute.
+		backdate(ctx, row.id, 500 * 1000)
+		ctx.spend(LIMIT_ORDER, 1000n)
+
+		await ctx.fill(1000n * ONE, 100n, false, "0xfill", undefined, Date.now() - 100 * 1000)
+
+		expect(await ctx.recorded(LIMIT_ORDER)).toEqual([[COMMITMENT, FIRST_BID, (1000n * ONE).toString(), "0xfill"]])
+	})
+
+	it("passes over a retracted bid that was already outside its window when the fill happened", async () => {
+		const ctx = await build()
+		await ctx.bid({ limitOrderId: LIMIT_ORDER, payout: (1000n * ONE).toString(), take: "100" }, FIRST_BID)
+		const row = await retract(ctx, FIRST_BID)
+		backdate(ctx, row.id, 600 * 1000)
+		ctx.spend(LIMIT_ORDER, 1000n)
+
+		await ctx.fill(1000n * ONE, 100n, false, "0xfill", undefined, Date.now() - 100 * 1000)
+
+		expect(await ctx.recorded(LIMIT_ORDER)).toEqual([])
+	})
+
 	it("does not attribute a fill to a retracted bid placed longer ago than its validity window", async () => {
 		const ctx = await build()
 		await ctx.bid({ limitOrderId: LIMIT_ORDER, payout: (1000n * ONE).toString(), take: "100" }, FIRST_BID)
 		const row = await retract(ctx, FIRST_BID)
-		// 300 s + the 30 s pad + a 60 s margin is 390 s; this one is ten minutes old.
+		// 300 s + the 30 s pad + a 120 s margin is 450 s; this one is ten minutes old.
 		backdate(ctx, row.id, 10 * 60 * 1000)
 		ctx.spend(LIMIT_ORDER, 1000n)
 

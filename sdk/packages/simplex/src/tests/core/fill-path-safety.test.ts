@@ -200,12 +200,24 @@ describe("every bid on one order", () => {
 			async (): Promise<BidSubmissionResult> => ({ success: true, extrinsicHash: "0xretract" as HexString }),
 		)
 		;(filler as any).hyperbridge = Promise.resolve({ retractBid })
-		return { filler, data, retractBid, sent: () => calls }
+		return { filler, data, limitOrders, retractBid, sent: () => calls }
 	}
 
-	/** A rival completing the order, handled the way the settlement queue would. */
+	/** A rival completing the order: the scanner reports the fill and the settlement queue handles it. */
 	async function rivalCompletes(filler: IntentFiller, commitment: HexString) {
-		await (filler as any).handleRivalCompletion(commitment, "0xBBBB00000000000000000000000000000000BBBB", 1)
+		observeRivalCompletion(filler, commitment)
+		await (filler as any).settlementQueue.onIdle()
+	}
+
+	/** The scanner reporting a rival's complete fill, without waiting for the settlement queue. */
+	function observeRivalCompletion(filler: IntentFiller, commitment: HexString) {
+		filler.monitor.emit("orderFillObserved", {
+			commitment,
+			filler: "0xBBBB00000000000000000000000000000000BBBB",
+			chainId: 1,
+			ours: false,
+			complete: true,
+		})
 	}
 
 	it("goes out whatever became of the bid before it", async () => {
@@ -283,6 +295,144 @@ describe("every bid on one order", () => {
 		expect(sent()).toBe(2)
 		expect(retractBid.mock.calls.map((call) => (call as unknown[])[1])).toEqual([FIRST_BID, SECOND_BID])
 		expect((await data.bids.byCommitments([COMMITMENT])).every((row) => row.retracted && row.dead)).toBe(true)
+	})
+
+	describe("a limit order that closes around a bid", () => {
+		const order = { ...ORDER, id: COMMITMENT }
+
+		it.each(["cancelled", "expired", "filled", "rejected"] as const)(
+			"places no bid its %s limit order priced",
+			async (status) => {
+				// The plans were cached when the order was evaluated; the limit order closed
+				// before the loop reached its bid.
+				const { filler, data, limitOrders, sent } = await twoBids([
+					{ success: true, commitment: COMMITMENT, txHash: "0xtx", bid: FIRST_BID },
+					{ success: true, commitment: COMMITMENT, txHash: "0xtx2", bid: SECOND_BID },
+				])
+				await limitOrders.setStatus(LIMIT_ORDER, status)
+
+				await execute(filler, order)
+
+				expect(sent()).toBe(1)
+				const rows = await data.bids.byCommitments([COMMITMENT])
+				expect(rows.map((row) => row.pricedBy?.limitOrderId)).toEqual([SECOND_ORDER])
+			},
+		)
+
+		it("places nothing when every limit order that priced the order has closed", async () => {
+			const { filler, data, limitOrders, sent } = await twoBids([
+				{ success: true, commitment: COMMITMENT, txHash: "0xtx", bid: FIRST_BID },
+			])
+			await limitOrders.setStatus(LIMIT_ORDER, "cancelled")
+			await limitOrders.setStatus(SECOND_ORDER, "cancelled")
+
+			await execute(filler, order)
+
+			expect(sent()).toBe(0)
+			expect(await data.bids.byCommitments([COMMITMENT])).toEqual([])
+		})
+
+		it("places no bid when the limit order cannot be read", async () => {
+			// Unconfirmed is not standing: a bid at a price that may be withdrawn costs a deposit.
+			const { filler, limitOrders, sent } = await twoBids([
+				{ success: true, commitment: COMMITMENT, txHash: "0xtx", bid: FIRST_BID },
+			])
+			limitOrders.get = async () => {
+				throw new Error("database is locked")
+			}
+
+			await execute(filler, order)
+
+			expect(sent()).toBe(0)
+		})
+
+		it("keeps a limit order's bid that is still resizing", async () => {
+			const { filler, limitOrders, sent } = await twoBids([
+				{ success: true, commitment: COMMITMENT, txHash: "0xtx", bid: FIRST_BID },
+				{ success: true, commitment: COMMITMENT, txHash: "0xtx2", bid: SECOND_BID },
+			])
+			await limitOrders.setStatus(LIMIT_ORDER, "resizing")
+
+			await execute(filler, order)
+
+			expect(sent()).toBe(2)
+		})
+
+		it("retracts at once a bid whose limit order closed between its placement and its row", async () => {
+			// The cancel's retraction read the order's rows before this one was stored, so it
+			// never saw it. Only this bid is retracted: the second plan's order still stands.
+			const { filler, data, limitOrders, retractBid, sent } = await twoBids([
+				async () => {
+					await limitOrders.setStatus(LIMIT_ORDER, "cancelled")
+					return { success: true, commitment: COMMITMENT, txHash: "0xtx", bid: FIRST_BID }
+				},
+				{ success: true, commitment: COMMITMENT, txHash: "0xtx2", bid: SECOND_BID },
+			])
+
+			await execute(filler, order)
+			await (filler as any).retractionQueue.onIdle()
+
+			expect(sent()).toBe(2)
+			expect(retractBid).toHaveBeenCalledTimes(1)
+			expect(retractBid).toHaveBeenCalledWith(COMMITMENT, FIRST_BID)
+			const rows = await data.bids.byCommitments([COMMITMENT])
+			expect(rows.map((row) => [row.bid, row.retracted])).toEqual(
+				expect.arrayContaining([
+					[FIRST_BID, true],
+					[SECOND_BID, false],
+				]),
+			)
+		})
+	})
+
+	it("stops at once when the completion is recorded while the settlement queue is busy", async () => {
+		// Settlement waits behind reconcile passes and orderbook requests. The completion is
+		// recorded when the fill is seen, not when its settlement runs, so the second bid,
+		// which could only revert `Filled()`, is not sent while the queue is stuck.
+		const order = { ...ORDER, id: COMMITMENT }
+		let release!: () => void
+		const stuck = new Promise<void>((resolve) => (release = resolve))
+		const { filler, sent } = await twoBids([
+			async (f) => {
+				observeRivalCompletion(f, COMMITMENT)
+				return { success: true, commitment: COMMITMENT, txHash: "0xtx", bid: FIRST_BID }
+			},
+			{ success: true, commitment: COMMITMENT, txHash: "0xtx2", bid: SECOND_BID },
+		])
+		;(filler as any).settlementQueue.add(() => stuck)
+
+		await execute(filler, order)
+
+		expect(sent()).toBe(1)
+		expect((filler as any).hasCompleted(COMMITMENT)).toBe(true)
+		release()
+		await (filler as any).settlementQueue.onIdle()
+	})
+
+	it("records only a complete fill as completing the order", async () => {
+		const { filler } = await twoBids([])
+		const monitor = filler.monitor
+		monitor.emit("orderFillObserved", { commitment: COMMITMENT, filler: "0xBBBB", chainId: 1, ours: false, complete: false })
+		monitor.emit("orderFilledOnChain", {
+			commitment: COMMITMENT,
+			filler: OUR_ADDRESS,
+			chainId: 1,
+			outputs: [],
+			inputs: [],
+			complete: false,
+		})
+		expect((filler as any).hasCompleted(COMMITMENT)).toBe(false)
+
+		monitor.emit("orderFilledOnChain", {
+			commitment: COMMITMENT,
+			filler: OUR_ADDRESS,
+			chainId: 1,
+			outputs: [],
+			inputs: [],
+			complete: true,
+		})
+		expect((filler as any).hasCompleted(COMMITMENT)).toBe(true)
+		await (filler as any).settlementQueue.onIdle()
 	})
 
 	it("remembers only the most recent completed orders", async () => {

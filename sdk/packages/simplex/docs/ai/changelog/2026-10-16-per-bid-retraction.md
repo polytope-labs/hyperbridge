@@ -15,8 +15,12 @@ back. The chain still enforces the budget (see
 
 `BidStore.markRetracted(commitment, hash, rows?)` and `markDead(commitment, rows?)` take an
 optional list of row ids (`StoredBid.id`). Without it they act on the whole commitment; an empty
-list matches nothing. `BidStore` is public, so a custom implementation must honour the `rows`
-filter on both: one that ignores it still type-checks but closes or flags the whole commitment.
+list matches nothing.
+
+**Breaking change for custom `BidStore` implementations.** `BidStore` is public, and the `rows`
+filter is new on both methods. An implementation that ignores it still type-checks, but it closes
+or flags every bid on the commitment instead of the rows named, so retracting one limit order's bid
+would retract another's. A custom store must honour `rows` before upgrading.
 
 `LimitOrderEvent` gains `{ kind: "expired" }` and `{ kind: "rejected" }`. Neither is added to the
 public `SimplexEvents`.
@@ -47,10 +51,23 @@ not only the newest.
 ## No bids on an order that has completed
 
 Our complete fill and a rival's completion record the commitment in `completedOrders` (the last
-1,000, oldest dropped). `executeOrder`'s multi-bid loop stops before placing on a completed order.
-A bid stored after completion is retracted at once with `enqueueRetraction(commitment, { bids })` and
-its row marked `dead`, unless the `pendingRetractions` handoff (a fill seen before any row existed)
-already retracts the whole commitment.
+1,000, oldest dropped). The two `EventMonitor` listeners record it when the event arrives, before
+the work is queued on `settlementQueue`, which waits behind reconcile passes and orderbook requests;
+a partial fill records nothing. `executeOrder`'s multi-bid loop stops before placing on a completed
+order. A bid stored after completion is retracted at once with
+`enqueueRetraction(commitment, { bids })` and its row marked `dead`, unless the
+`pendingRetractions` handoff (a fill seen before any row existed) already retracts the whole
+commitment.
+
+## No bids on behalf of a limit order that has closed
+
+`executeOrder` places the bid plans cached when the order was evaluated, so a plan can outlive the
+limit order that priced it. Before each placement it reads that limit order and skips the plan unless
+the order is `open` or `resizing`; an order that cannot be read counts as not standing. After the bid's
+row is stored it reads the order again, and a bid that went out while the order closed is retracted at
+once with `enqueueRetraction(commitment, { bids: [bid] })`. The re-check covers a cancel, expiry or
+close that took its snapshot of the order's rows before this one was stored. Other plans of the
+same swap order, priced by orders that still stand, are placed as usual.
 
 ## A limit order that can no longer stand behind its bids
 
@@ -77,10 +94,24 @@ runs:
 ## Attributing a fill to a retracted bid
 
 A retracted bid stays a candidate when a fill is attributed, since it can still execute until its
-`validUntil`. Live bids are preferred: the fill is attributed among the unretracted bids whose
-order pays a delivered token, and only when there are none among the retracted ones. A retracted bid
-placed more than `bidValiditySeconds` + the 30 s pad + 60 s ago can no longer have executed and is
-not a candidate.
+`validUntil`. The escrow the fill released decides first, since a bid releases its signed take, or
+less when the gateway clamps it, so only a bid whose take covers the release can have been it:
+
+1. Among the live bids whose order pays a delivered token, those whose take covers the release,
+   best rate first.
+2. Then among the retracted bids in the window, those whose take covers the release, best rate
+   first. A retracted bid is attributed only when no live bid could have been it: a live bid the
+   escrow rules out does not hide it.
+3. Only then the payout fallbacks (the payout that matches the delivery, the closest one above it,
+   the order the bids went out in), among the live bids if there are any.
+
+A retracted bid is in the window when it was stored no more than `bidValiditySeconds` + the 30 s
+discovery pad + `RETRACTED_BID_EXECUTION_MARGIN_SECONDS` (120) before the fill. The margin covers
+the tail between `validUntil` and the transaction landing (the window is converted to blocks at the
+fastest block time seen, so a slower chain keeps a bid executable longer in wall-clock time) and
+matches the permit skew allowed for the same execution tail. The fill's time is when the
+scanner's event reached the filler. It is not the time settlement runs, which can be long after,
+behind the settlement queue, and would stretch the window.
 
 ## Shutdown drains before it disconnects
 

@@ -66,11 +66,13 @@ const RETRACTION_DRAIN_TIMEOUT_MS = 30_000
 const MAX_COMPLETED_ORDERS = 1_000
 
 /**
- * Added to a bid's validity window before a retracted bid stops being a candidate for a
- * fill. The window is converted to blocks at the fastest block time seen, so a slower chain
- * keeps a bid executable a little longer in wall-clock time, and a fill can be scanned late.
+ * Added to a bid's validity window before a retracted bid stops being a candidate for a fill.
+ * `validUntil` is the last moment the gateway accepts the bid, but the window is converted to
+ * blocks at the fastest block time seen, so a slower chain keeps a bid executable longer in
+ * wall-clock time, and the fill is seen only after its block is scanned. 120 s covers that
+ * tail, and matches the permit skew allowed for the same execution tail.
  */
-const RETRACTED_BID_MARGIN_SECONDS = 60
+const RETRACTED_BID_EXECUTION_MARGIN_SECONDS = 120
 
 /** A bid whose deposit may still be locked on Hyperbridge: placed or pooled, and not retracted. */
 function isLiveBid(row: StoredBid): boolean {
@@ -91,22 +93,34 @@ function byPayout(a: BidPricing, b: BidPricing): number {
  * so only a bid whose take covers the release can have been it. Several can: a bid
  * whose payout covers the ask takes the whole input, so one solver's bids at several
  * levels of its book all sign the same take. Among them it is the best rate, which is
- * the one the executor takes first. Bids without a take fall back to the delivery:
- * the payout that matches it, then the closest one at or above it, then the order the
- * bids went out in.
+ * the one the executor takes first.
+ *
+ * That evidence is read before anything else, live bids first and then the retracted
+ * ones: a retracted bid whose take covers the release is the bid that executed when no
+ * live bid's does, and a live bid the escrow rules out must not take the fill from it.
+ * Only when no bid's take covers the release, or the fill released nothing the bids can
+ * be compared with, do the payout fallbacks apply, among the live bids if there are
+ * any: the payout that matches the delivery, then the closest one at or above it, then
+ * the order the bids went out in.
  */
 function executedPricing(
-	bids: BidPricing[],
+	live: BidPricing[],
+	retracted: BidPricing[],
 	/** What the fill delivered of the token the bid's own limit order pays, at 1e18. */
 	deliveredTo: (bid: BidPricing) => bigint,
 	released: bigint,
 ): BidPricing {
-	const withTake = released > 0n ? bids.filter((bid) => bid.take !== undefined) : []
+	const covering = (bids: BidPricing[]) =>
+		released > 0n
+			? bids.filter((bid) => bid.take !== undefined && BigInt(bid.take) >= released).sort(byBestRate)[0]
+			: undefined
+	const pool = live.length > 0 ? live : retracted
 	return (
-		withTake.filter((bid) => BigInt(bid.take!) >= released).sort(byBestRate)[0] ??
-		bids.find((bid) => BigInt(bid.payout) === deliveredTo(bid)) ??
-		bids.filter((bid) => BigInt(bid.payout) >= deliveredTo(bid)).sort(byPayout)[0] ??
-		bids[0]
+		covering(live) ??
+		covering(retracted) ??
+		pool.find((bid) => BigInt(bid.payout) === deliveredTo(bid)) ??
+		pool.filter((bid) => BigInt(bid.payout) >= deliveredTo(bid)).sort(byPayout)[0] ??
+		pool[0]
 	)
 }
 
@@ -281,6 +295,12 @@ export class IntentFiller {
 		})
 
 		this.monitor.on("orderFilledOnChain", ({ commitment, filler, chainId, outputs, inputs, complete, transactionHash, logIndex, blockNumber }) => {
+			// Recorded here, ahead of the queue: settlement waits behind reconcile passes and
+			// orderbook requests, and a bid loop on this order that has not seen the fill places
+			// bids that can only revert `Filled()`. Only a complete fill closes the order.
+			if (complete) this.markCompleted(commitment)
+			// When the fill was seen, for the window a retracted bid can still have executed in.
+			const seenAtMs = Date.now()
 			this.settlementQueue
 				.add(() =>
 					this.handleOrderFilledOnChain(
@@ -293,6 +313,7 @@ export class IntentFiller {
 						transactionHash,
 						logIndex,
 						blockNumber,
+						seenAtMs,
 					),
 				)
 				.catch((err) => {
@@ -303,6 +324,8 @@ export class IntentFiller {
 
 		this.monitor.on("orderFillObserved", ({ commitment, filler, chainId, ours, complete }) => {
 			if (ours || !complete) return
+			// Ahead of the queue for the same reason as our own complete fill above.
+			this.markCompleted(commitment)
 			this.settlementQueue
 				.add(() => this.handleRivalCompletion(commitment as HexString, filler, chainId))
 				.catch((err) => {
@@ -1490,6 +1513,18 @@ export class IntentFiller {
 				}
 				let pricedBy: BidPricing | undefined
 				if (plan) {
+					// The plan was cached when the order was evaluated, and the limit order that
+					// priced it can have been cancelled, expired or closed since. A bid placed now
+					// goes out at a price the order has withdrawn, after the retraction of its
+					// bids took its snapshot, and nothing would retract it until the stale-bid sweep.
+					const stands = await this.limitOrderStands(plan.limitOrderId)
+					if (stands !== true) {
+						this.logger.info(
+							{ orderId: order.id, limitOrder: plan.limitOrderId, unreadable: stands === undefined },
+							"Skipping a bid: the limit order that priced it no longer stands behind it",
+						)
+						continue
+					}
 					// What this bid signs. `executeOrder` reads these back out, so they are
 					// set per bid rather than once per order.
 					if (order.id) {
@@ -1556,6 +1591,22 @@ export class IntentFiller {
 							)
 							this.enqueueRetraction(commitment, result.bid ? { bids: [result.bid] } : undefined)
 							await this.bidStorage.markDead(commitment)
+						} else if (
+							plan &&
+							result.bid &&
+							(result.success || result.pending === true) &&
+							(await this.limitOrderStands(plan.limitOrderId)) === false
+						) {
+							// The limit order closed while this bid went out. Its retraction took
+							// its snapshot of the order's rows before this one was stored, so
+							// nothing else retracts this bid before the stale-bid sweep. Only this
+							// bid: the order's other bids are already covered by that pass. A pass
+							// that cannot close it flags the row dead itself.
+							this.logger.info(
+								{ commitment, bid: result.bid, limitOrder: plan.limitOrderId },
+								"The limit order closed while this bid went out, retracting it now",
+							)
+							this.enqueueRetraction(commitment, { bids: [result.bid] })
 						}
 					}
 
@@ -1609,13 +1660,22 @@ export class IntentFiller {
 		transactionHash?: string,
 		logIndex?: number,
 		blockNumber?: bigint,
+		filledAtMs?: number,
 	): Promise<void> {
 		const ours = filler.toLowerCase() === this.fillerAddress.toLowerCase()
-		if (complete) this.markCompleted(commitment)
 		// Top up EntryPoint deposit if we were the filler, but only on chains
 		// without any paymaster (paymaster chains pay gas in ERC-20 tokens).
 		if (ours) {
-			await this.settleFilledLimitOrder(commitment, chainId, outputs, inputs, transactionHash, logIndex, blockNumber)
+			await this.settleFilledLimitOrder(
+				commitment,
+				chainId,
+				outputs,
+				inputs,
+				transactionHash,
+				logIndex,
+				blockNumber,
+				filledAtMs,
+			)
 			const chain = `EVM-${chainId}`
 			if (!hasPaymaster(chain, this.configService)) {
 				const targetGasUnits = this.configService.getTargetGasUnits()
@@ -1682,9 +1742,6 @@ export class IntentFiller {
 	 * the deferral set, which would otherwise keep one entry per rival fill.
 	 */
 	private async handleRivalCompletion(commitment: HexString, filler: string, chainId: number): Promise<void> {
-		// Recorded before anything is read: a bid loop on this order may not have stored
-		// its first row yet, and it must stop placing bids all the same.
-		this.markCompleted(commitment)
 		if (!this.bidStorage) return
 		const rows = await this.bidStorage.byCommitments([commitment])
 		if (!rows.some(isLiveBid)) return
@@ -1712,13 +1769,14 @@ export class IntentFiller {
 		transactionHash?: string,
 		logIndex?: number,
 		blockNumber?: bigint,
+		filledAtMs?: number,
 	): Promise<void> {
 		if (!this.bidStorage || !this.limitOrders) return
 		const rows = (await this.bidStorage.byCommitments([commitment])).filter((row): row is PricedBid => row.pricedBy != null)
 		if (rows.length === 0) return
 
 		try {
-			await this.recordExecutedFill(commitment, chainId, rows, outputs, inputs, transactionHash, logIndex)
+			await this.recordExecutedFill(commitment, chainId, rows, outputs, inputs, transactionHash, logIndex, filledAtMs)
 		} finally {
 			for (const limitOrderId of new Set(rows.map((row) => row.pricedBy.limitOrderId))) {
 				await this.syncLimitOrder(commitment, limitOrderId, blockNumber)
@@ -1733,10 +1791,13 @@ export class IntentFiller {
 	 * A bid that failed outright cannot have executed, and a bid executes at most once,
 	 * so one already recorded against this order is passed over. A retracted bid is not:
 	 * retraction takes it out of discovery but does not stop a placer that already fetched
-	 * it, which can execute it until its `validUntil`. A retracted bid placed longer ago than
-	 * its validity window cannot have executed and is passed over. The same fill delivered
-	 * twice, which a scanner replaying from a cursor can do, is recorded once: a fill is named by its transaction hash and log index,
-	 * since one transaction can carry several of our fills.
+	 * it, which can execute it until its `validUntil`. A retracted bid placed longer before
+	 * the fill than its validity window cannot have executed and is passed over; the window is
+	 * counted back from when the fill happened (`filledAtMs`, when the scanner reported it),
+	 * not from when it is settled, which can be long after behind the settlement queue. The
+	 * same fill delivered twice, which a scanner replaying from a cursor can do, is recorded
+	 * once: a fill is named by its transaction hash and log index, since one transaction can
+	 * carry several of our fills.
 	 *
 	 * Deduplication is weaker where those are missing. A fill with no transaction hash
 	 * cannot be named, and a bid row with no `bid` identifier cannot be told from the
@@ -1745,9 +1806,11 @@ export class IntentFiller {
 	 *
 	 * A multi-leg swap can be priced by limit orders that pay different tokens, so
 	 * the delivery is read per limit order and only bids whose order pays a token the
-	 * fill delivered are candidates. Live bids are preferred over retracted ones: a retracted
-	 * bid at a better rate must not take the fill from the live bid that executed, so retracted
-	 * bids are attributed only when no live bid could have been it.
+	 * fill delivered are candidates. The fill is attributed by the escrow it released
+	 * (see `executedPricing`): a retracted bid at a better rate must not take the fill from a
+	 * live bid whose take covers that escrow, so retracted bids are attributed only when no
+	 * live bid could have been it. A live bid the escrow rules out does not hide a retracted
+	 * one that covers it.
 	 */
 	private async recordExecutedFill(
 		commitment: HexString,
@@ -1757,6 +1820,7 @@ export class IntentFiller {
 		inputs: TokenInfo[],
 		transactionHash?: string,
 		logIndex?: number,
+		filledAtMs: number = Date.now(),
 	): Promise<void> {
 		const recorded = (
 			await Promise.all(
@@ -1777,7 +1841,10 @@ export class IntentFiller {
 		}
 		const filledBids = new Set(recorded.map((fill) => fill.bid).filter((bid) => bid !== null))
 
-		const executableSince = sqliteDatetime(new Date(Date.now() - this.retractedBidWindowMs()))
+		// Counted back from when the fill happened. Settlement waits behind the queue, so
+		// counting from now would stretch the window by however long it waited and
+		// attribute the fill to a bid that could no longer have executed.
+		const executableSince = sqliteDatetime(new Date(filledAtMs - this.retractedBidWindowMs()))
 		const candidates = rows.filter(
 			(row) =>
 				(row.success || row.pending) &&
@@ -1801,15 +1868,14 @@ export class IntentFiller {
 			return
 		}
 
-		const live = paying.filter((row) => !row.retracted)
-		const pool = live.length > 0 ? live : paying
 		const settled = executedPricing(
-			pool.map((row) => row.pricedBy),
+			paying.filter((row) => !row.retracted).map((row) => row.pricedBy),
+			paying.filter((row) => row.retracted).map((row) => row.pricedBy),
 			(bid) => deliveries.get(bid.limitOrderId)!.scaled,
 			released,
 		)
 		const delivered = deliveries.get(settled.limitOrderId)!
-		const row = pool.find((candidate) => candidate.pricedBy === settled)!
+		const row = paying.find((candidate) => candidate.pricedBy === settled)!
 		const charged = chargedFor(settled, delivered, released)
 		const amount = charged < BigInt(settled.payout) ? charged : BigInt(settled.payout)
 		if (amount <= 0n) return
@@ -1858,7 +1924,7 @@ export class IntentFiller {
 	 */
 	private retractedBidWindowMs(): number {
 		const seconds =
-			this.configService.getBidValiditySeconds() + BID_DISCOVERY_PAD_SECONDS + RETRACTED_BID_MARGIN_SECONDS
+			this.configService.getBidValiditySeconds() + BID_DISCOVERY_PAD_SECONDS + RETRACTED_BID_EXECUTION_MARGIN_SECONDS
 		return seconds * 1000
 	}
 
@@ -1909,6 +1975,22 @@ export class IntentFiller {
 
 		const decimals = await this.contractService.getTokenDecimals(address, chain)
 		return { scaled: toScaled(total, decimals), raw: total, decimals }
+	}
+
+	/**
+	 * Whether a limit order can still stand behind a bid at its price: `open`, or `resizing`
+	 * while a repost holds it. False once it is filled, cancelled, expired or rejected, or is
+	 * gone. Undefined when the store cannot be read, which a caller placing a bid treats as
+	 * unconfirmed and one retracting treats as nothing to do.
+	 */
+	private async limitOrderStands(limitOrderId: string): Promise<boolean | undefined> {
+		try {
+			const order = await this.limitOrders?.get(limitOrderId)
+			return !!order && (order.status === "open" || order.status === "resizing")
+		} catch (err) {
+			this.logger.warn({ limitOrder: limitOrderId, err }, "Could not read the limit order that priced a bid")
+			return undefined
+		}
 	}
 
 	private markCompleted(commitment: string): void {

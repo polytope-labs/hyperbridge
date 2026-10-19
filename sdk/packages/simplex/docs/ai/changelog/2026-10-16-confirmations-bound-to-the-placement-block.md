@@ -39,7 +39,7 @@ reported as a phantom commitment.
 - `newOrder` carries `blockHash` alongside `order`, `transactionHash` and `graffiti`, and
   so does the public `order:detected` event (`SimplexEvents` gains `blockHash`).
 - A custom `OrderScanner` must set `ScannedOrder.blockHash`: an empty value skips every
-  cross-chain order (`Placement block unknown`).
+  cross-chain order that waits for confirmations (`Placement block unknown`).
 - `QuorumPublicClient.getTransactionInclusion` returns the `(blockHash, blockNumber,
 confirmations)` a quorum agreed on; `getTransactionConfirmations` is its depth.
 - `QuorumPublicClient.readWithQuorum(label, read)` votes each endpoint's whole read value.

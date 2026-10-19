@@ -21,8 +21,9 @@ sponsored op is unaffected: the check sits after the sponsored attempt.
 `redeemChain` redeemed `balanceOf(solver)` from every vault in one per-chain batch. A vault whose
 `maxRedeem` is below the balance (a liquidity-capped stataToken) reverts the whole batch, taking the
 other vaults with it. It now redeems `min(balanceOf, maxRedeem)`, skips a vault whose cap is zero,
-and warns with both numbers when shares are left behind. `maxRedeem(address)` was added to
-`ERC4626_ABI`.
+and warns with both numbers when shares are left behind. `redeemAll` runs only at shutdown or on
+`POST /api/vault/redeem`, so a later pass does not pick those shares up; the warning says the
+operator has to redeem the rest. `maxRedeem(address)` was added to `ERC4626_ABI`.
 
 `TokenSender.send` reads `maxRedeem(this.solver)` on the vault-share branch and throws before
 submitting anything when the requested shares exceed it, naming the amount redeemable now.
@@ -51,12 +52,6 @@ past the bid window is rejected at validation. An op landing inside that tail, a
 block-based `validUntil` but before the permit deadline, still reverts `FillExpired` at the
 solver's cost. Closing it needs `SolverAccount` to return a block-number `validUntil` (contract
 follow-up).
-
-## A capped redeem tells the operator the rest is theirs
-
-`redeemAll` runs only at shutdown or on `POST /api/vault/redeem`, so the shares a `maxRedeem` cap
-leaves behind are not picked up by a later pass. The warning now says the operator has to redeem the
-rest.
 
 ## A Binance deposit is checked against the coin's contract for that network
 

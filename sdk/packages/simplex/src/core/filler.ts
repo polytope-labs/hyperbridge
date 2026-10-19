@@ -389,7 +389,16 @@ export class IntentFiller {
 	 */
 	public async guardDelegation(chainId: number): Promise<void> {
 		const chain = `EVM-${chainId}`
-		if (!(await this.contractService.isSolverSelectionActive(chain))) return
+		// A chain that was watch-only at boot has no cached answer, so this is a live
+		// read. When it fails, solver selection is assumed active: the delegation check
+		// below then runs, and a failed read of that marks the chain undelegated, the
+		// conservative outcome. Letting the error escape would fail `setWatchOnly(false)`
+		// on a transient RPC error.
+		const active = await this.contractService.isSolverSelectionActive(chain).catch((err) => {
+			this.logger.warn({ chainId, err }, "Could not read solver selection, assuming it is active")
+			return true
+		})
+		if (!active) return
 		if (await this.delegation().isDelegated(chain).catch(() => false)) return
 		this.logger.warn({ chainId }, "Chain is not delegated to the SolverAccount, orders to it are skipped until it is")
 		this.undelegatedChains.add(chainId)

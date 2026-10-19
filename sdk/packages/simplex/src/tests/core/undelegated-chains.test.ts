@@ -13,7 +13,7 @@ import { stubOrderScanner } from "../helpers/stub-scanner"
 
 const OUR_ADDRESS = "0xAAAA00000000000000000000000000000000AAAA" as HexString
 
-function build(results: Record<string, boolean>, options: { chainConfigs?: number[]; solverSelectionActive?: boolean } = {}) {
+function build(results: Record<string, boolean>, options: { chainConfigs?: number[]; solverSelectionActive?: boolean; solverSelectionFails?: boolean } = {}) {
 	const chainConfigs = options.chainConfigs ?? [1, 8453]
 	const delegationResults = { ...results }
 	// Once the operator enables fills on a chain, its delegation succeeds.
@@ -47,7 +47,10 @@ function build(results: Record<string, boolean>, options: { chainConfigs?: numbe
 		{} as never,
 		{
 			getCache: () => ({ getSolverSelection }),
-			isSolverSelectionActive: async () => options.solverSelectionActive ?? true,
+			isSolverSelectionActive: async () => {
+				if (options.solverSelectionFails) throw new Error("rpc down")
+				return options.solverSelectionActive ?? true
+			},
 			topUpEntryPointDeposit: async () => {},
 		} as never,
 		{ address: OUR_ADDRESS } as never,
@@ -217,6 +220,24 @@ describe("guardDelegation, for a chain turned out of watch-only", () => {
 
 		await detect(filler, "EVM-8453")
 		expect(isUserAllowed).toHaveBeenCalled()
+	})
+
+	it("still checks delegation when the solver selection read fails", async () => {
+		// Uncached for a chain that was watch-only at boot, so a transient RPC error
+		// must not fail `setWatchOnly(false)` or skip the check.
+		const { filler, isDelegated } = build({}, { chainConfigs: [8453], solverSelectionFails: true })
+
+		await expect(filler.guardDelegation(8453)).resolves.toBeUndefined()
+		expect(isDelegated).toHaveBeenCalledWith("EVM-8453")
+		expect((filler as any).undelegatedChains.has(8453)).toBe(true)
+	})
+
+	it("leaves a delegated chain alone when the solver selection read fails", async () => {
+		const { filler, onChain } = build({}, { chainConfigs: [8453], solverSelectionFails: true })
+		onChain["EVM-8453"] = true
+
+		await filler.guardDelegation(8453)
+		expect((filler as any).undelegatedChains.has(8453)).toBe(false)
 	})
 
 	it("leaves a chain without solver selection alone", async () => {

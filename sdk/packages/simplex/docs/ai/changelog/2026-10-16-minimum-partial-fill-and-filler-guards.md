@@ -92,6 +92,10 @@ Turning watch-only off for a running chain (`ChainController.setWatchOnly(chainI
 calls `IntentFiller.guardDelegation`. A chain that was watch-only at boot was never
 delegated or marked, so on a solver-selection chain it reads `isDelegated` and marks the
 chain undelegated when that is false. The re-read at intake, or `enableFills`, clears it.
+That solver selection read is uncached for such a chain, so a failure of it is logged and
+solver selection is assumed active: the delegation check still runs, and a failed
+delegation read marks the chain undelegated, so a transient RPC error does not fail
+`setWatchOnly(false)`.
 
 `reconcile()` can reach `retire()` through `repost()` from its snapshot, so the
 `expired` write there takes the same `POSTABLE` status guard and cannot undo a cancel.

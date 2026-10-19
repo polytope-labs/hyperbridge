@@ -8,6 +8,7 @@ import type { ChainClientManager } from "@/services/ChainClientManager"
 import type { DelegationService } from "@/services/DelegationService"
 import type { UserOpSender } from "@/services/UserOpSender"
 import { addLogSink } from "@/services/Logger"
+import { PendingOpOnNonceError } from "@/services/submission"
 import type { HexString } from "@hyperbridge/sdk"
 
 const CHAIN = "EVM-8453"
@@ -588,6 +589,18 @@ describe("VaultFundingPlanner — paymaster-sponsored sweep", () => {
 
 		expect(trySendSponsored).toHaveBeenCalledOnce()
 		expect(sendTransaction).toHaveBeenCalledOnce()
+	})
+
+	it("stalls, rather than sending natively, while an earlier op holds the nonce", async () => {
+		const { sender, trySendSponsored } = makeSender({ canSponsor: true })
+		trySendSponsored.mockRejectedValue(new PendingOpOnNonceError("pending", CHAIN, 0n, 0n))
+		const { planner, sendTransaction } = makeSweepPlanner(sweepWallet, sweepVault, {}, undefined, sender)
+		await planner.initialise(SOLVER)
+
+		await expect(planner.sweepExcessToVault(CHAIN)).rejects.toBeInstanceOf(PendingOpOnNonceError)
+
+		expect(trySendSponsored).toHaveBeenCalledOnce()
+		expect(sendTransaction).not.toHaveBeenCalled()
 	})
 
 	it("uses a native tx when the chain cannot be sponsored", async () => {

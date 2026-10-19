@@ -13,7 +13,7 @@ import { type Logger , moduleLogger} from "./Logger"
 import type { Signer } from "./wallet"
 import { buildPaymasterAndData, hasPaymaster } from "./paymaster"
 import type { PaymasterDataResult } from "./paymaster"
-import { SubmittedUnconfirmedError, type SubmittedUserOp } from "./submission"
+import { PendingOpOnNonceError, SubmittedUnconfirmedError, type SubmittedUserOp } from "./submission"
 
 /**
  * Raw EIP-7702 authorization, as produced by the delegation flow. Attached to the
@@ -84,6 +84,11 @@ const BUNDLER_POLL_TIMEOUT_MS = 10_000
 // may read as unconfirmed), nor an estimate into the ~1.9M-gas fallback limits.
 const BUNDLER_SIMULATION_TIMEOUT_MS = 30_000
 
+// The fee lookup runs before anything is signed or sent, and the SDK's `rundlerUserOperationFees`
+// fetches the bundler with no timeout of its own. A hung gateway would otherwise pin the send path;
+// timing out here is "never submitted", the same as any other preparation failure.
+const GAS_PRICE_TIMEOUT_MS = 10_000
+
 // A receipt is polled every `RECEIPT_POLL_INTERVAL_MS` until this wall-clock deadline. Time-based
 // rather than a poll count so the per-poll timeout cannot stretch the wait (a 30-poll count with a
 // 10 s poll timeout would run to six minutes).
@@ -119,12 +124,13 @@ const UNREACHABLE_CODES = new Set([
 	"ERR_TLS_CERT_ALTNAME_INVALID",
 ])
 
-type BundlerCallOutcome = "rejected" | "unreachable" | "ambiguous"
+type BundlerCallOutcome = "rejected" | "unreachable" | "ambiguous" | "pending"
 
 /**
  * A bundler JSON-RPC call that returned no result. `outcome` records how definite the failure
  * was, which the send path must not flatten: a `rejected` or `unreachable` call provably did not
- * enter the op, while an `ambiguous` one may have been accepted with only the response lost.
+ * enter the op, while an `ambiguous` one may have been accepted with only the response lost. A
+ * `pending` call was refused because an earlier op already holds the nonce, which is neither.
  */
 class BundlerCallError extends Error {
 	constructor(
@@ -160,6 +166,32 @@ function isDeterministicRejectionCode(code: unknown): boolean {
 }
 
 /**
+ * Whether a JSON-RPC error says an op from this sender is already pending on the nonce. Rundler
+ * answers a resent or re-priced op with -32602 (invalid params), the same code as a malformed
+ * request, so the code alone cannot tell them apart: it is the `ReplacementUnderpriced` error's
+ * `currentMaxPriorityFee`/`currentMaxFee` data, or the "replacement underpriced" / "already known"
+ * message, that does. Read as a rejection it would let the caller send the same calls natively
+ * while the earlier op can still land.
+ */
+function isPendingOnNonceError(rpcError: { code?: unknown; message?: unknown; data?: unknown }): boolean {
+	if (rpcError.code !== -32602) return false
+	const data = rpcError.data as { currentMaxPriorityFee?: unknown; currentMaxFee?: unknown } | null | undefined
+	if (data && typeof data === "object" && (data.currentMaxPriorityFee !== undefined || data.currentMaxFee !== undefined)) {
+		return true
+	}
+	return typeof rpcError.message === "string" && /already known|replacement underpriced/i.test(rpcError.message)
+}
+
+/** Rejects if `promise` has not settled within `ms`. */
+function withTimeout<T>(promise: Promise<T>, ms: number, what: string): Promise<T> {
+	let timer: NodeJS.Timeout | undefined
+	const timeout = new Promise<never>((_, reject) => {
+		timer = setTimeout(() => reject(new Error(`Timed out ${what} after ${ms}ms`)), ms)
+	})
+	return Promise.race([promise, timeout]).finally(() => clearTimeout(timer))
+}
+
+/**
  * Submits self-initiated, paymaster-sponsored UserOperations through the bundler,
  * so the solver pays gas in stablecoins rather than native token. Shared by the
  * delegation setup and the vault sweep/redeem paths.
@@ -171,15 +203,16 @@ function isDeterministicRejectionCode(code: unknown): boolean {
  *   bundler rejected `eth_sendUserOperation` outright, the connection could not be
  *   established, or a post-failure lookup proved the op never entered the pool. The
  *   caller may fall back to native.
- *   `null` means *this* op never entered the pool, not that nothing is pending for
- *   its EntryPoint nonce: a retry builds a new op on the same nonce, and the bundler's
- *   "replacement underpriced"/"already known" answer for it rejects the new op only.
  * - Returns `{ txHash, userOp }` once a receipt is observed.
  * - **Throws** {@link SubmittedUnconfirmedError} when the op **was submitted** but no
  *   receipt arrived, or when its submission could not be determined at all (the send
  *   response was lost and the lookup could not ask). The caller must NOT fall back (the
  *   op may still land) — retry on the next cycle, and resolve the op's fate later with
  *   {@link lookupUserOpReceipt}.
+ * - **Throws** {@link PendingOpOnNonceError} when the bundler refuses the op because an
+ *   earlier op from this sender already holds its EntryPoint nonce ("replacement
+ *   underpriced", "already known"). Not a rejection: that earlier op may still land, so
+ *   the caller must NOT fall back — retry later.
  */
 export class UserOpSender {
 	private logger: Logger
@@ -224,7 +257,7 @@ export class UserOpSender {
 		try {
 			// Fetched before paymaster selection so the deposit gate can price the op's
 			// max prefund; a failure here means nothing was submitted, safe to fall back.
-			fees = await this.getGasPrice(bundlerUrl, publicClient)
+			fees = await withTimeout(this.getGasPrice(bundlerUrl, publicClient), GAS_PRICE_TIMEOUT_MS, "pricing the UserOp")
 
 			// Without explicit limits the fallbacks (~1.9M gas) over-require the deposit;
 			// a false skip degrades to the caller's native fallback, which is safe —
@@ -359,6 +392,17 @@ export class UserOpSender {
 			userOpHash = sent
 		} catch (error) {
 			const outcome = error instanceof BundlerCallError ? error.outcome : "ambiguous"
+			if (outcome === "pending") {
+				// Refused because an earlier op holds this nonce, which says nothing about the
+				// calls in it: they may be that op's own. Falling back would send them again.
+				this.logger.warn({ chain, nonce, nonceKey, error }, "Bundler holds a pending UserOp on this nonce")
+				throw new PendingOpOnNonceError(
+					`An earlier sponsored op from this wallet is still pending on ${chain}; wait for it to land or expire before sending again`,
+					chain,
+					nonce,
+					nonceKey,
+				)
+			}
 			if (outcome !== "ambiguous") {
 				// The bundler answered and refused the op, or the connection never reached it —
 				// either way nothing entered the pool, safe to fall back.
@@ -390,6 +434,7 @@ export class UserOpSender {
 					`Sponsored UserOp ${localUserOpHash}: the bundler's answer was lost and the op could not be looked up`,
 					chain,
 					{ kind: "userOp", userOpHash: localUserOpHash, nonce, nonceKey, expires, submittedAt },
+					true,
 				)
 			}
 			// The bundler holds the op: proceed exactly as a successful send, from the locally
@@ -626,12 +671,18 @@ export class UserOpSender {
 				// the op. Both are ambiguous — reading them as rejected would resend natively. A
 				// missing or non-numeric code, or any code outside the parse/rejection ranges, is
 				// likewise ambiguous: when in doubt, keep the op.
+				//
+				// The exception is an op already pending on the nonce: rundler reports that as
+				// -32602 too, so it is told apart first. It is not checked against the HTTP status,
+				// since misreading it costs a double send and flagging it costs a retry.
 				const rejected =
 					response.status === 200 && isDeterministicRejectionCode((rpcError as { code?: unknown }).code)
-				throw new BundlerCallError(
-					`Bundler RPC error (${method}): ${message}`,
-					rejected ? "rejected" : "ambiguous",
-				)
+				const outcome: BundlerCallOutcome = isPendingOnNonceError(rpcError)
+					? "pending"
+					: rejected
+						? "rejected"
+						: "ambiguous"
+				throw new BundlerCallError(`Bundler RPC error (${method}): ${message}`, outcome)
 			}
 			// A non-object `error` (a proxy's plain `{"error":"Bad Gateway"}`) is not a JSON-RPC
 			// answer, so it stays ambiguous.

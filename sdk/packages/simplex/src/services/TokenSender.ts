@@ -233,6 +233,10 @@ export class TokenSender {
 	 * `nonceKey` puts the sponsored op on its own EntryPoint nonce lane (default 0). Two ops on one
 	 * key read the same `getNonce`, so a caller that can run alongside another key-0 sender passes
 	 * its own. It has no effect on the native fallback.
+	 *
+	 * A `PendingOpOnNonceError` from the sponsored path is not caught: an earlier op from
+	 * this wallet is still pending on the nonce and may land, so a native send of the same calls
+	 * could pay twice. It reaches the caller, which waits and retries.
 	 */
 	async submitCalls(
 		chain: string,

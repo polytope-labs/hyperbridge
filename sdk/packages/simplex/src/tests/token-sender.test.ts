@@ -13,7 +13,7 @@ import { ERC20_ABI } from "@/config/abis/ERC20"
 import { ERC4626_ABI } from "@/config/abis/Erc4626"
 import { TokenSender } from "@/services/TokenSender"
 import { UserOpSender } from "@/services/UserOpSender"
-import { SubmittedUnconfirmedError, type SubmittedUserOp } from "@/services/submission"
+import { PendingOpOnNonceError, SubmittedUnconfirmedError, type SubmittedUserOp } from "@/services/submission"
 import { buildPaymasterAndData } from "@/services/paymaster"
 import {
 	packPaymasterAndData,
@@ -652,5 +652,35 @@ describe("TokenSender sponsored send with a lost bundler response", () => {
 		expect(await promise).toMatchObject({ txHash, sponsored: true })
 		expect(fetchMethods).toContain("eth_getUserOperationByHash")
 		expect(sendTransaction).not.toHaveBeenCalled()
+	})
+
+	it("throws PendingOpOnNonceError and never sends natively when an earlier op holds the nonce", async () => {
+		// A resend of a still-pending send: rundler answers it -32602, the code of a malformed request.
+		stubFetch({
+			eth_sendUserOperation: {
+				error: {
+					code: -32602,
+					message: "replacement underpriced",
+					data: { currentMaxPriorityFee: "0x1", currentMaxFee: "0x2" },
+				},
+			},
+		})
+		const { sender, sendTransaction } = makeRealSender("http://tok-pending.test/bundler")
+
+		const error = await sender.submitCalls("EVM-8453", [transfer]).catch((err) => err)
+
+		expect(error).toBeInstanceOf(PendingOpOnNonceError)
+		expect(error).not.toBeInstanceOf(SubmittedUnconfirmedError)
+		expect(sendTransaction).not.toHaveBeenCalled()
+		// It is a definite answer, so there is nothing to look up.
+		expect(fetchMethods).not.toContain("eth_getUserOperationByHash")
+	})
+
+	it("still falls back to a native tx on a plain -32602 invalid-params rejection", async () => {
+		stubFetch({ eth_sendUserOperation: { error: { code: -32602, message: "invalid params: sender" } } })
+		const { sender, sendTransaction } = makeRealSender("http://tok-invalid.test/bundler")
+
+		expect(await sender.submitCalls("EVM-8453", [transfer])).toMatchObject({ txHash: "0xnative", sponsored: false })
+		expect(sendTransaction).toHaveBeenCalledOnce()
 	})
 })

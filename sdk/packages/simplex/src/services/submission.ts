@@ -15,9 +15,35 @@ export class SubmittedUnconfirmedError extends Error {
 		/** Source state machine id the batch was submitted on, e.g. "EVM-8453". */
 		readonly chain: string,
 		readonly submission: SubmittedUserOp | SubmittedTx,
+		/**
+		 * True when the batch is not known to have been submitted at all: the bundler's answer
+		 * was lost and every lookup failed too. The calls may or may not be in its pool, so a
+		 * report must say "may have been submitted", not "was submitted".
+		 */
+		readonly maybeSubmitted = false,
 	) {
 		super(message)
 		this.name = "SubmittedUnconfirmedError"
+	}
+}
+
+/**
+ * The bundler refused a new op because an op from the same sender is already pending on that
+ * EntryPoint nonce ("replacement underpriced" or "already known"). Nothing new was submitted, but
+ * the earlier op may still land, so a caller must not read this as a rejection and send the same
+ * calls natively: that would pay for them twice. Retry once the earlier op has landed or expired.
+ */
+export class PendingOpOnNonceError extends Error {
+	constructor(
+		message: string,
+		/** Source state machine id the op was meant for, e.g. "EVM-8453". */
+		readonly chain: string,
+		/** The EntryPoint nonce and key the refused op was signed with. */
+		readonly nonce: bigint,
+		readonly nonceKey: bigint,
+	) {
+		super(message)
+		this.name = "PendingOpOnNonceError"
 	}
 }
 

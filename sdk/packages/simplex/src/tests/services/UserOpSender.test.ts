@@ -3,7 +3,7 @@ import { toHex } from "viem"
 import { CryptoUtils, rundlerUserOperationFees, type HexString } from "@hyperbridge/sdk"
 
 import { UserOpSender, type Eip7702Authorization, type SponsoredUserOpRequest } from "@/services/UserOpSender"
-import { SubmittedUnconfirmedError } from "@/services/submission"
+import { PendingOpOnNonceError, SubmittedUnconfirmedError } from "@/services/submission"
 import { buildPaymasterAndData } from "@/services/paymaster"
 import { packPaymasterAndData, VERIFICATION_GAS_LIMIT_PERMIT2, POST_OP_GAS_LIMIT_SIMPLEX } from "@/services/paymaster/types"
 import type { ChainClientManager } from "@/services/ChainClientManager"
@@ -247,6 +247,23 @@ describe("UserOpSender gas price", () => {
 		expect(sentFees()).toEqual([fees])
 	})
 
+	it("gives up on a bundler that never answers the fee lookup, before anything is sent", async () => {
+		vi.stubGlobal("fetch", (_url: unknown, init?: { body?: string }) => {
+			const { method } = JSON.parse(init?.body ?? "{}") as { method: string }
+			bundlerCalls.push({ method, params: [] })
+			return new Promise(() => {})
+		})
+		vi.useFakeTimers()
+
+		const promise = sponsorWith("http://hung-fees.test/bundler")
+		await vi.advanceTimersByTimeAsync(10_000)
+
+		// Never submitted, so the caller may fall back.
+		await expect(promise).resolves.toBeNull()
+		expect(bundlerCalls.map((c) => c.method)).toEqual(["rundler_getUserOperationGasPrice"])
+		vi.useRealTimers()
+	})
+
 	it("keeps the chain estimate and stops asking when the bundler does not serve rundler fees", async () => {
 		bundlerReplies.rundler_getUserOperationGasPrice = METHOD_NOT_FOUND
 		bundlerReplies.rundler_maxPriorityFeePerGas = METHOD_NOT_FOUND
@@ -431,6 +448,49 @@ describe("UserOpSender ambiguous send outcome", () => {
 		expect(bundlerCalls.some((c) => c.method === "eth_getUserOperationByHash")).toBe(false)
 	})
 
+	it("throws PendingOpOnNonceError, not null, for a -32602 replacement-underpriced answer", async () => {
+		stubBundler({
+			eth_sendUserOperation: {
+				error: {
+					code: -32602,
+					message: "replacement underpriced",
+					data: { currentMaxPriorityFee: "0x3b9aca00", currentMaxFee: "0x77359400" },
+				},
+			},
+		})
+
+		const error = await sponsorWith("http://pending-replacement.test/bundler").catch((err) => err)
+
+		expect(error).toBeInstanceOf(PendingOpOnNonceError)
+		expect(error).toMatchObject({ chain: CHAIN, nonce: 0n, nonceKey: 0n })
+		expect(bundlerCalls.some((c) => c.method === "eth_getUserOperationByHash")).toBe(false)
+	})
+
+	it("throws PendingOpOnNonceError for a -32602 whose data carries only one replacement field", async () => {
+		stubBundler({ eth_sendUserOperation: { error: { code: -32602, message: "bad", data: { currentMaxFee: "0x1" } } } })
+
+		await expect(sponsorWith("http://pending-data.test/bundler")).rejects.toBeInstanceOf(PendingOpOnNonceError)
+	})
+
+	it("throws PendingOpOnNonceError for a -32602 'already known' answer", async () => {
+		stubBundler({ eth_sendUserOperation: { error: { code: -32602, message: "already known" } } })
+
+		await expect(sponsorWith("http://pending-known.test/bundler")).rejects.toBeInstanceOf(PendingOpOnNonceError)
+	})
+
+	it("still returns null for a plain -32602 invalid-params rejection", async () => {
+		stubBundler({ eth_sendUserOperation: { error: { code: -32602, message: "invalid params: missing sender" } } })
+
+		await expect(sponsorWith("http://invalid-params.test/bundler")).resolves.toBeNull()
+		expect(bundlerCalls.some((c) => c.method === "eth_getUserOperationByHash")).toBe(false)
+	})
+
+	it("does not read 'already known' under another code as a pending op", async () => {
+		stubBundler({ eth_sendUserOperation: { error: { code: -32500, message: "already known" } } })
+
+		await expect(sponsorWith("http://known-other-code.test/bundler")).resolves.toBeNull()
+	})
+
 	it("returns null when the connection cannot be established (nothing was sent)", async () => {
 		const refused = Object.assign(new TypeError("fetch failed"), { cause: { code: "ECONNREFUSED" } })
 		stubBundler({ eth_sendUserOperation: refused })
@@ -477,6 +537,8 @@ describe("UserOpSender ambiguous send outcome", () => {
 		const error = await promise
 
 		expect(error).toBeInstanceOf(SubmittedUnconfirmedError)
+		// Nothing proves the op reached the bundler, so the report must say "may have".
+		expect(error.maybeSubmitted).toBe(true)
 		expect(error.message).toContain("the bundler's answer was lost and the op could not be looked up")
 		expect(error.submission).toMatchObject({ kind: "userOp", nonce: 0n, nonceKey: 0n, expires: true })
 		expect(error.submission.submittedAt).toBeTypeOf("number")
@@ -596,6 +658,8 @@ describe("UserOpSender ambiguous send outcome", () => {
 		const error = await promise
 
 		expect(error).toBeInstanceOf(SubmittedUnconfirmedError)
+		// The bundler confirmed it holds the op, so this one is submitted, not "maybe".
+		expect(error.maybeSubmitted).toBe(false)
 		expect(error.chain).toBe(CHAIN)
 		const [sentOp] = bundlerCalls.filter((c) => c.method === "eth_sendUserOperation")[0].params as [
 			Record<string, string>,

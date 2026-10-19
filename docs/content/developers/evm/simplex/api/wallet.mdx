@@ -148,6 +148,33 @@ When the wallet is short of an ERC-20 and one of your vaults holds it, the short
 
 A send that cannot go through answers `400` with the reason, such as an insufficient balance. A send that goes through is recorded in the wallet history.
 
+### A pending send
+
+A send that is not confirmed yet answers `202`, not `400`, because it may still land. Do not send it again until you have checked.
+
+```json lineNumbers
+{
+  "pending": true,
+  "sponsored": true,
+  "userOpHash": "0x…",
+  "message": "The send was submitted to the bundler but is not confirmed yet. It may still land; wait a few minutes and check the wallet history before resending it."
+}
+```
+
+| Field | Description |
+|---|---|
+| `pending` | Always `true`. |
+| `sponsored` | `true` when the send is a paymaster-sponsored UserOperation, `false` for a plain transaction. |
+| `userOpHash` | The UserOperation's hash, for a sponsored send that was submitted. A UserOperation has no transaction hash until it lands, so it is not recorded in the wallet history. |
+| `txHash` | The transaction's hash. Present only when `sponsored` is `false`. Look it up on the block explorer. A pending plain transaction is recorded in the wallet history like a confirmed one. |
+| `message` | What to do next. |
+
+A `202` takes one of three forms:
+
+- **Submitted, no receipt yet.** The bundler accepted the UserOperation, or the node accepted the transaction, but no receipt came within the wait. It may land at any time. A wallet balance cannot show a UserOperation that is still in the bundler's pool, so wait a few minutes before sending again.
+- **Possibly submitted.** The bundler did not answer the send or any of the lookups after it, so the send *may have been submitted*. The message says so. This is what an outage of the bundler looks like.
+- **Earlier send still pending.** The bundler refused the send because an earlier UserOperation from this wallet is still waiting on the same nonce (it answers "replacement underpriced" or "already known"). Nothing new was submitted, so the response has no hash, and its message is "An earlier send from this wallet is still pending; wait for it before sending again." The send is never repeated as a plain transaction, because the earlier one could still land and the same tokens would leave twice.
+
 ## PUT /api/vault
 
 Replaces the vault treasury. The body is the whole list of vaults, in the same shape as `[[vault.vaults]]` in the config. An empty list turns the treasury off.

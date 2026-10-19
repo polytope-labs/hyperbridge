@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest"
 import { decodeFunctionData, keccak256, toHex } from "viem"
-import type { ERC7821Call, HexString } from "@hyperbridge/sdk"
+import type { HexString } from "@hyperbridge/sdk"
 import { ERC20_ABI } from "@/config/abis/ERC20"
 import { chainConfigs } from "@hyperbridge/sdk"
 import {
@@ -9,6 +9,8 @@ import {
 	type RetiredGateways,
 	type StaleGatewayAllowanceDeps,
 } from "@/services/gateway-allowance"
+import type { SubmittedUserOp } from "@/services/submission"
+import type { TokenSender } from "@/services/TokenSender"
 
 /**
  * Fills used to approve the gateway for the destination fee token in the wrong decimals and never
@@ -27,6 +29,15 @@ const USDT = "0x4444444444444444444444444444444444444444" as HexString
 const STALE = 10_900_000_000_000_000n
 /** The revoke's own EntryPoint nonce lane: a uint192 key, so it never shares key 0 with boot-time senders. */
 const REVOKE_NONCE_KEY = BigInt(keccak256(toHex("simplex.gateway-allowance-revoke"))) >> 64n
+/** What `submitCalls` reports of the op it sent; nothing here reads it. */
+const SUBMISSION: SubmittedUserOp = {
+	kind: "userOp",
+	userOpHash: "0xrevokeop" as HexString,
+	nonce: 0n,
+	nonceKey: REVOKE_NONCE_KEY,
+	expires: false,
+	submittedAt: 0,
+}
 
 function build(
 	opts: {
@@ -39,7 +50,7 @@ function build(
 		watchOnly?: Record<number, boolean>
 		usdt?: HexString
 		feeToken?: () => Promise<{ address: HexString; decimals: number }>
-		submitCalls?: (chain: string, calls: ERC7821Call[], opts?: { nonceKey?: bigint }) => Promise<{ txHash: HexString; sponsored: boolean }>
+		submitCalls?: TokenSender["submitCalls"]
 		readContract?: (call: { address: HexString; args: [HexString, HexString] }) => Promise<bigint>
 	} = {},
 ) {
@@ -52,7 +63,10 @@ function build(
 				return args[1] === GATEWAY ? (allowances[address.toLowerCase()] ?? 0n) : 0n
 			}),
 	)
-	const submitCalls = vi.fn(opts.submitCalls ?? (async () => ({ txHash: "0xrevoke" as HexString, sponsored: true })))
+	const submitCalls = vi.fn(
+		opts.submitCalls ??
+			(async () => ({ txHash: "0xrevoke" as HexString, sponsored: true, submission: SUBMISSION })),
+	)
 	const logger = { info: vi.fn(), warn: vi.fn() }
 	const deps: StaleGatewayAllowanceDeps = {
 		clientManager: { getPublicClient: () => ({ readContract }) } as never,
@@ -316,7 +330,7 @@ describe("retired gateways", () => {
 				overlap ||= ++inFlight > 1
 				await new Promise((resolve) => setTimeout(resolve, 1))
 				inFlight--
-				return { txHash: "0xrevoke" as HexString, sponsored: true }
+				return { txHash: "0xrevoke" as HexString, sponsored: true, submission: SUBMISSION }
 			},
 		})
 

@@ -569,6 +569,11 @@ export interface StoredBridgeTopUp {
 	commitment?: HexString
 	placeTxHash?: HexString
 	/**
+	 * The wallet nonce a native placement tx was sent with. Only the wallet's nonce moving past it
+	 * shows the tx can no longer be mined; a node that forgot the tx shows nothing.
+	 */
+	placeTxNonce?: number
+	/**
 	 * The placement UserOp the bundler accepted when its receipt never arrived. The batch may have
 	 * been mined, so the record stays pending and the op is looked up again; without it a restart
 	 * would declare that nothing was escrowed while the order could still be live.
@@ -584,9 +589,9 @@ export interface StoredBridgeTopUp {
 	 */
 	placeUserOpExpires?: boolean
 	/**
-	 * When the placement batch was submitted, in ms. Bounds how long an unindexed UserOp is still
-	 * looked up and how long a native tx may yet be mined. Records placed before this was recorded
-	 * are dated by `updatedAt` instead.
+	 * When the placement batch was submitted, in ms. Dates a UserOp's permit window. Records from
+	 * before this was recorded are dated by `stageTimes.placing`, then `createdAt`; `updatedAt` is
+	 * rewritten by every save, so it never ages.
 	 */
 	placeSubmittedAt?: number
 	/**
@@ -598,12 +603,18 @@ export interface StoredBridgeTopUp {
 	/** Block the paying chain was at before the placement was submitted, as a decimal string; the scan starts here. */
 	placeFromBlock?: string
 	/**
-	 * The height a recovery scan has read up to, as a decimal string, trailing the tip by a reorg
-	 * margin. The next scan starts here instead of re-reading the whole range.
+	 * The next block a recovery scan reads, as a decimal string. Saved after each chunk and trailing
+	 * the tip by a reorg margin, so the next scan resumes here instead of re-reading the whole range.
 	 */
 	placeScannedTo?: string
 	fillTxHash?: HexString
 	reclaimTxHash?: HexString
+	/**
+	 * A cancel that was submitted without a receipt. It is handed back to the SDK only once a
+	 * check shows it succeeded; if it reverted or can no longer be mined, it is cleared and a new
+	 * cancel is sent.
+	 */
+	reclaimSubmission?: StoredSubmission
 	/** The HyperFungibleToken request that carries the BRIDGE to Hyperbridge. */
 	deliveryCommitment?: HexString
 	/** The Hyperbridge extrinsic that delivered it, when this filler relayed it. */
@@ -628,6 +639,19 @@ export interface StoredBridgeTopUp {
 	claimTxHash?: HexString
 	error?: string
 }
+
+/** A submission as kept in the JSON state: bigints as decimal strings. */
+export type StoredSubmission =
+	| { kind: "tx"; txHash: HexString; nonce: number; submittedAt: number }
+	| {
+			kind: "userOp"
+			userOpHash: HexString
+			nonce: string
+			nonceKey: string
+			/** Whether the paymaster attached a validity deadline; see {@link StoredBridgeTopUp.placeUserOpExpires}. */
+			expires: boolean
+			submittedAt: number
+	  }
 
 export interface RecoveryStepRecord {
 	step:

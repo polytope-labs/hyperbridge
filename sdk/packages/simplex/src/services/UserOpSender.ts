@@ -13,7 +13,7 @@ import { type Logger , moduleLogger} from "./Logger"
 import type { Signer } from "./wallet"
 import { buildPaymasterAndData, hasPaymaster } from "./paymaster"
 import type { PaymasterDataResult } from "./paymaster"
-import { SubmittedUnconfirmedError } from "./submission"
+import { SubmittedUnconfirmedError, type SubmittedUserOp } from "./submission"
 
 /**
  * Raw EIP-7702 authorization, as produced by the delegation flow. Attached to the
@@ -85,7 +85,7 @@ const MAX_FEE_BUMP_PERCENT = 10n
  *   configured, insufficient USDC, preparation failed (approve tx or signing), or
  *   the bundler rejected `eth_sendUserOperation` outright (it never entered the
  *   mempool). The caller may fall back to native.
- * - Returns `{ txHash }` once a receipt is observed.
+ * - Returns `{ txHash, userOp }` once a receipt is observed.
  * - **Throws** {@link SubmittedUnconfirmedError} when the op **was submitted** but no receipt
  *   arrived. The caller must NOT fall back (the op may still land) — retry on the next cycle,
  *   and resolve the op's fate later with {@link lookupUserOpReceipt}.
@@ -110,7 +110,7 @@ export class UserOpSender {
 		)
 	}
 
-	async trySendSponsored(req: SponsoredUserOpRequest): Promise<{ txHash: HexString } | null> {
+	async trySendSponsored(req: SponsoredUserOpRequest): Promise<{ txHash: HexString; userOp: SubmittedUserOp } | null> {
 		const { chain, callData, eip7702Auth, nonceKey = 0n, gas, permitBootstrap } = req
 		// A Permit2-mode op reports a validity deadline the paymaster enforces; a PERMIT bootstrap
 		// op's EIP-2612 permit never expires. Only the former stops landing after its deadline.
@@ -267,7 +267,9 @@ export class UserOpSender {
 		}
 
 		this.logger.info({ chain, userOpHash, txHash }, "Sponsored UserOp confirmed — paymaster paid gas")
-		return { txHash }
+		// The op's identity travels with the receipt: a caller that stores it can still settle the
+		// op by its EntryPoint nonce if the bundle's tx hash later vanishes in a reorg.
+		return { txHash, userOp: { kind: "userOp", userOpHash, nonce, nonceKey, expires, submittedAt } }
 	}
 
 	/**

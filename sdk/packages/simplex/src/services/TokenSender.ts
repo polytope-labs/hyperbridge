@@ -7,7 +7,7 @@ import { paymasterReserveForToken } from "@/services/paymaster"
 import { resolvePendingPermit2Approval } from "@/services/paymaster/provider/simplex"
 import type { UserOpSender } from "@/services/UserOpSender"
 import { type Logger , moduleLogger} from "@/services/Logger"
-import { SubmittedUnconfirmedError } from "@/services/submission"
+import { SubmittedUnconfirmedError, type SubmittedTx, type SubmittedUserOp } from "@/services/submission"
 import { encodeERC7821ExecuteBatch, type ERC7821Call, type HexString } from "@hyperbridge/sdk"
 import { encodeFunctionData, isAddress, maxUint256, parseUnits } from "viem"
 
@@ -149,9 +149,10 @@ export class TokenSender {
 			}
 		}
 
-		const result = await this.submitCalls(chain, calls)
-		this.logger.warn({ chain, token, amount, to, redeemed, ...result }, "Operator send executed")
-		return { ...result, redeemed }
+		// Only the hash and mode are reported: the submission's bigints do not belong in the API response.
+		const { txHash, sponsored } = await this.submitCalls(chain, calls)
+		this.logger.warn({ chain, token, amount, to, redeemed, txHash, sponsored }, "Operator send executed")
+		return { txHash, sponsored, redeemed }
 	}
 
 	/**
@@ -237,7 +238,7 @@ export class TokenSender {
 		chain: string,
 		calls: ERC7821Call[],
 		opts?: { nonceKey?: bigint },
-	): Promise<{ txHash: HexString; sponsored: boolean }> {
+	): Promise<{ txHash: HexString; sponsored: boolean; submission: SubmittedUserOp | SubmittedTx }> {
 		if (this.userOpSender?.canSponsor(chain)) {
 			const bootstrap = await this.permit2Bootstrap(chain)
 			const batch = bootstrap ? [bootstrap, ...calls] : calls
@@ -252,7 +253,7 @@ export class TokenSender {
 				},
 				permitBootstrap: !!bootstrap,
 			})
-			if (result) return { txHash: result.txHash, sponsored: true }
+			if (result) return { txHash: result.txHash, sponsored: true, submission: result.userOp }
 			this.logger.warn({ chain }, "Sponsored send unavailable, sending native tx")
 		}
 
@@ -265,18 +266,23 @@ export class TokenSender {
 				`The wallet is not 7702-delegated on ${chain} (or its delegation could not be read); a batch sent to it would do nothing`,
 			)
 		}
+		// Chosen here and sent explicitly, so the nonce is known whatever happens to the tx: a node
+		// that no longer lists it proves nothing, the wallet's nonce moving past this one does.
+		const nonce = await publicClient.getTransactionCount({ address: this.solver, blockTag: "pending" })
 		const tx =
 			calls.length === 1
 				? await walletClient.sendTransaction({
 						to: calls[0].target,
 						data: calls[0].data,
 						value: calls[0].value,
+						nonce,
 						chain: walletClient.chain,
 					})
 				: await walletClient.sendTransaction({
 						to: this.solver,
 						data: encodeERC7821ExecuteBatch(calls),
 						value: 0n,
+						nonce,
 						chain: walletClient.chain,
 					})
 		const submittedAt = Date.now()
@@ -290,12 +296,13 @@ export class TokenSender {
 			throw new SubmittedUnconfirmedError(error instanceof Error ? error.message : String(error), chain, {
 				kind: "tx",
 				txHash: tx,
+				nonce,
 				submittedAt,
 			})
 		}
 		// Mined and reverted is a definite failure, not an unknown outcome; keep it outside the wait.
 		if (receipt.status !== "success") throw new Error(`Send tx reverted: ${tx}`)
-		return { txHash: tx, sponsored: false }
+		return { txHash: tx, sponsored: false, submission: { kind: "tx", txHash: tx, nonce, submittedAt } }
 	}
 
 	/**

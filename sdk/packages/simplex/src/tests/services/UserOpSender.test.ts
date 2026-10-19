@@ -135,7 +135,9 @@ describe("UserOpSender EIP-7702 authorization ordering", () => {
 			gas: GAS,
 		})
 
-		expect(result).toEqual({ txHash: "0x" + "cd".repeat(32) })
+		expect(result?.txHash).toBe("0x" + "cd".repeat(32))
+		// The op's identity comes back with the receipt, for a caller that has to settle it later.
+		expect(result?.userOp).toMatchObject({ kind: "userOp", nonce: expect.any(BigInt), nonceKey: 0n, expires: true })
 		expect(signAuthorization).toHaveBeenCalledOnce()
 
 		// The authorization submitted to the bundler must carry the post-approve

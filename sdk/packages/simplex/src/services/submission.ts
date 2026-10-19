@@ -42,6 +42,11 @@ export interface SubmittedUserOp {
 export interface SubmittedTx {
 	kind: "tx"
 	txHash: HexString
+	/**
+	 * The wallet nonce the tx was sent with. A node or mempool that no longer lists the tx proves
+	 * nothing; the wallet's nonce moving past this one does.
+	 */
+	nonce: number
 	/** When the transaction was sent, in ms. */
 	submittedAt: number
 }

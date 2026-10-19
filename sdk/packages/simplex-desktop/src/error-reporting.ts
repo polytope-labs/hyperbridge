@@ -81,6 +81,9 @@ export function startDesktopErrorReporting(version: string, packaged: boolean, d
 	return true
 }
 
+/** Shared by the main process and its solver child handles; never sends a Sentry event. */
+export const recordDesktopDiagnostic: DiagnosticLog = (event, error) => diagnosticLog(event, error)
+
 export function reportDesktopError(error: unknown): void {
 	diagnosticLog("error", error)
 	Sentry.captureException(error)

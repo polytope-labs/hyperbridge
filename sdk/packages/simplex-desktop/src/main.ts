@@ -24,6 +24,7 @@ import {
 	flushDesktopErrorReports,
 	rendererReportingOrigin,
 	reportDesktopError,
+	recordDesktopDiagnostic,
 	reportSolverFailure,
 	reportUncleanExit,
 	startDesktopErrorReporting,
@@ -447,6 +448,7 @@ async function createWindow(notificationPath?: string): Promise<void> {
 			})
 			return result.response === 0
 		},
+		reportCrash: (error) => recordDesktopDiagnostic("renderer-exit", error),
 		report: reportDesktopError,
 	})
 	rendererRecovery = recovery
@@ -534,6 +536,7 @@ async function prepareDesktop(): Promise<void> {
 		socketPath,
 		dataDir: dataDirectory,
 		diagnosticsPath: resources.diagnostics,
+		diagnosticLog: recordDesktopDiagnostic,
 	}
 	vault = new DesktopVault({
 		dataDir: dataDirectory,

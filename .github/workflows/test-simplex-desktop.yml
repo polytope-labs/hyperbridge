@@ -19,11 +19,6 @@ on:
             - "sdk/packages/simplex/ui/src/app/DesktopAccess.tsx"
             - ".github/workflows/test-simplex-desktop.yml"
     workflow_dispatch:
-        inputs:
-            test_published_windows:
-                description: Also test the installed Windows v0.17.4 release
-                type: boolean
-                default: false
 
 jobs:
     macos-provisioning-profile:
@@ -154,7 +149,7 @@ jobs:
         name: Desktop Electron E2E (${{ matrix.target }})
         needs: desktop-e2e-artifacts
         runs-on: ${{ matrix.runner }}
-        timeout-minutes: 30
+        timeout-minutes: 20
         strategy:
             fail-fast: false
             matrix:
@@ -221,34 +216,3 @@ jobs:
             - name: Run Electron E2E on macOS and Windows
               if: runner.os != 'Linux'
               run: pnpm --dir packages/simplex-desktop test:e2e
-
-            - name: Download and install published Windows build
-              if: runner.os == 'Windows' && inputs.test_published_windows == true
-              shell: pwsh
-              env:
-                  GH_TOKEN: ${{ github.token }}
-              run: |
-                  $download = Join-Path $env:RUNNER_TEMP 'simplex-release'
-                  New-Item -ItemType Directory -Force $download | Out-Null
-                  gh release download simplex-desktop-v0.17.4 --repo polytope-labs/hyperbridge --pattern Simplex-0.17.4-win-x64.exe --dir $download
-                  if ($LASTEXITCODE -ne 0) { throw 'Release download failed' }
-                  $installer = Join-Path $download 'Simplex-0.17.4-win-x64.exe'
-                  $hash = (Get-FileHash -Algorithm SHA256 $installer).Hash.ToLower()
-                  if ($hash -ne '894b1e2d0c72e75101077064dc372dd690f948381cddaa72999ba3b7adde12f1') { throw 'Release checksum mismatch' }
-                  $installed = Join-Path $env:RUNNER_TEMP 'simplex-installed'
-                  $process = Start-Process -FilePath $installer -ArgumentList "/S /D=$installed" -PassThru -Wait
-                  if ($process.ExitCode -ne 0) { throw "Installer failed: $($process.ExitCode)" }
-                  "SIMPLEX_TEST_EXECUTABLE=$installed\Simplex.exe" >> $env:GITHUB_ENV
-                  "SIMPLEX_TEST_VERSION=0.17.4" >> $env:GITHUB_ENV
-                  "SIMPLEX_TEST_RELOADS=1000" >> $env:GITHUB_ENV
-                  "SIMPLEX_ERROR_REPORTING=off" >> $env:GITHUB_ENV
-                  $browsers = @('C:\Program Files\Google\Chrome\Application\chrome.exe', 'C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe')
-                  $browser = $browsers | Where-Object { Test-Path $_ } | Select-Object -First 1
-                  if (-not $browser) { throw 'No browser available for Windows passkey coverage' }
-                  "SIMPLEX_PASSKEY_BROWSER=$browser" >> $env:GITHUB_ENV
-
-            - name: Reproduce lifecycle and reload stress on published Windows build
-              if: runner.os == 'Windows' && inputs.test_published_windows == true
-              run: pnpm --dir packages/simplex-desktop exec node --import tsx --test --test-name-pattern="password account survives|custom protocol reconnects|passkeys register" --test-timeout=300000 scripts/e2e/desktop.e2e.mjs
-              env:
-                  TSX_TSCONFIG_PATH: ../simplex/tsconfig.json

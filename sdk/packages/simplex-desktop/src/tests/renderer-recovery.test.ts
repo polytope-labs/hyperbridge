@@ -9,17 +9,20 @@ function fixture() {
 	})
 	const prompt = vi.fn(async () => false)
 	const report = vi.fn()
+	const reportCrash = vi.fn()
 	const recovery = new RendererRecovery({
 		canRecover: () => active && crashed,
 		reload,
 		prompt,
 		report,
+		reportCrash,
 	})
 	return {
 		recovery,
 		reload,
 		prompt,
 		report,
+		reportCrash,
 		crash: () => {
 			crashed = true
 		},
@@ -31,6 +34,28 @@ function fixture() {
 
 describe("renderer recovery", () => {
 	afterEach(() => vi.useRealTimers())
+
+	it.each([false, true])("prompts again when a manual reload crashes, next retry=%s", async (retryAgain) => {
+		const f = fixture()
+		await f.recovery.crashed("crashed", 1)
+		let rejectReload!: (error: Error) => void
+		f.reload.mockImplementationOnce(
+			() =>
+				new Promise<void>((_resolve, reject) => {
+					rejectReload = reject
+				}),
+		)
+		f.prompt.mockResolvedValueOnce(true).mockResolvedValueOnce(retryAgain)
+		f.crash()
+		const retry = f.recovery.crashed("crashed", 2)
+		await vi.waitFor(() => expect(f.reload).toHaveBeenCalledTimes(2))
+		// macOS/Windows can deliver the next crash before loadURL rejects.
+		const nextCrash = f.recovery.crashed("crashed", 3)
+		rejectReload(new Error("ERR_FAILED"))
+		await Promise.all([retry, nextCrash])
+		expect(f.prompt).toHaveBeenCalledTimes(2)
+		expect(f.reload).toHaveBeenCalledTimes(retryAgain ? 3 : 2)
+	})
 
 	it("lets crash recovery own an initial navigation rejection that arrives before the crash event", async () => {
 		const f = fixture()
@@ -47,9 +72,11 @@ describe("renderer recovery", () => {
 	it("also accepts a navigation rejection after recovery has already reloaded the renderer", async () => {
 		const f = fixture()
 		await f.recovery.crashed("crashed", 1)
-		await expect(f.recovery.loadInitial(async () => {
-			throw new Error("ERR_ABORTED")
-		})).resolves.toBeUndefined()
+		await expect(
+			f.recovery.loadInitial(async () => {
+				throw new Error("ERR_ABORTED")
+			}),
+		).resolves.toBeUndefined()
 		expect(f.reload).toHaveBeenCalledOnce()
 	})
 
@@ -57,7 +84,9 @@ describe("renderer recovery", () => {
 		vi.useFakeTimers()
 		const f = fixture()
 		const error = new Error("navigation failed")
-		const startup = f.recovery.loadInitial(async () => { throw error })
+		const startup = f.recovery.loadInitial(async () => {
+			throw error
+		})
 		const rejected = expect(startup).rejects.toBe(error)
 		await f.recovery.crashed("clean-exit", 0)
 		await vi.advanceTimersByTimeAsync(1000)
@@ -97,6 +126,8 @@ describe("renderer recovery", () => {
 		expect(f.reload).not.toHaveBeenCalled()
 		f.reload.mockRejectedValueOnce(new Error("load failed"))
 		await expect(f.recovery.crashed("crashed", 1)).resolves.toBeUndefined()
+		expect(f.reportCrash).toHaveBeenCalledOnce()
+		expect(f.report).toHaveBeenCalledOnce()
 		expect(f.report).toHaveBeenCalledWith(expect.objectContaining({ message: "load failed" }))
 	})
 })

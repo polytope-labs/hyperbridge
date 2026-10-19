@@ -51,10 +51,13 @@ function NativeAccess({ children }: { children: ReactNode }) {
 	const [pending, setPending] = useState(false)
 	const [passkeyPending, setPasskeyPending] = useState(false)
 	const [notice, setNotice] = useState<string>()
-	const refresh = useCallback(async () => {
-		const next = await api.get<AccessState>("/api/desktop/security")
+	const refresh = useCallback(async (signal?: AbortSignal) => {
+		const next = await api.get<AccessState>("/api/desktop/security", { signal })
 		const recovery =
-			next.mode === "save-recovery" ? await api.get<{ code: string }>("/api/desktop/recovery-code") : undefined
+			next.mode === "save-recovery"
+				? await api.get<{ code: string }>("/api/desktop/recovery-code", { signal })
+				: undefined
+		if (signal?.aborted) return
 		setCode(recovery?.code ?? "")
 		setAccess(next)
 	}, [])
@@ -62,6 +65,23 @@ function NativeAccess({ children }: { children: ReactNode }) {
 		void refresh().catch((cause) => setError(message(cause)))
 	}, [refresh])
 	const unlocked = access?.mode === "unlocked"
+	const storageUnavailable = access?.secureDeviceStorageAvailable === false
+	useEffect(() => {
+		if (!storageUnavailable || unlocked || pending) return
+		const controller = new AbortController()
+		let timer: ReturnType<typeof setTimeout>
+		const poll = async () => {
+			// A timed-out native storage check may finish after the first screen renders.
+			// Keep requests sequential and leave existing login choices usable on failure.
+			await refresh(controller.signal).catch(() => {})
+			if (!controller.signal.aborted) timer = setTimeout(poll, 2_000)
+		}
+		timer = setTimeout(poll, 2_000)
+		return () => {
+			controller.abort()
+			clearTimeout(timer)
+		}
+	}, [storageUnavailable, unlocked, pending, refresh])
 	useEffect(() => {
 		// Child effects run first, so the app's Toaster is mounted by the time this fires.
 		if (!unlocked || !notice) return
@@ -253,14 +273,16 @@ function Login({ access, perform, forgot }: { access: AccessState; perform: Perf
 	const [password, setPassword] = useState("")
 	const [confirmation, setConfirmation] = useState("")
 	const [usePasskey, setUsePasskey] = useState(false)
-	const [selectedMethod, setSelectedMethod] = useState<AccessMethod>()
+	const [selectedMethod, setSelectedMethod] = useState<AccessMethod>(() =>
+		access.passkeyAvailable ? preferredAccessMethod(access) : "password",
+	)
 	const [restartSolver, setRestartSolver] = useState(false)
 	const unlock = async (method: string) => {
 		await perform("unlock", { method, password, confirmation, usePasskey, restartSolver })
 		setPassword("")
 		setConfirmation("")
 	}
-	const passkeyFirst = access.passkeyAvailable && (selectedMethod ?? preferredAccessMethod(access)) === "passkey"
+	const passkeyFirst = access.passkeyAvailable && selectedMethod === "passkey"
 	if (passkeyFirst || (!creating && !access.passwordEnabled))
 		return (
 			<PasskeyLogin
@@ -449,11 +471,13 @@ function Recover({ access, perform, cancel }: { access: AccessState; perform: Pe
 }
 
 function NewPassword({ access, perform, cancel }: { access: AccessState; perform: Perform; cancel(): void }) {
-	const [selectedMethod, setSelectedMethod] = useState<AccessMethod>()
+	const [selectedMethod, setSelectedMethod] = useState<AccessMethod>(() =>
+		access.passkeyAvailable ? preferredAccessMethod(access) : "password",
+	)
 	const [password, setPassword] = useState("")
 	const [confirmation, setConfirmation] = useState("")
 	const [restartSolver, setRestartSolver] = useState(false)
-	if (access.passkeyAvailable && (selectedMethod ?? preferredAccessMethod(access)) === "passkey")
+	if (access.passkeyAvailable && selectedMethod === "passkey")
 		return (
 			<div className="desktop-unlock-panel">
 				<h1>Create a replacement passkey</h1>

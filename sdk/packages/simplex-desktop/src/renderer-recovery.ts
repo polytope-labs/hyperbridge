@@ -2,7 +2,7 @@
 export class RendererRecovery {
 	private autoReloaded = false
 	private pending?: Promise<void>
-	private prompting?: Promise<void>
+	private prompting?: Promise<boolean>
 	private crashObserved = false
 	private readonly crashObservers = new Set<() => void>()
 
@@ -11,6 +11,7 @@ export class RendererRecovery {
 			canRecover(): boolean
 			reload(): Promise<void>
 			prompt(): Promise<boolean>
+			reportCrash(error: Error): void
 			report(error: Error): void
 		},
 	) {}
@@ -40,23 +41,30 @@ export class RendererRecovery {
 		if (reason === "clean-exit" || !this.options.canRecover()) return
 		this.crashObserved = true
 		for (const finish of this.crashObservers) finish()
-		this.options.report(new Error(`Dashboard renderer exited: ${reason} (code ${exitCode})`))
+		this.options.reportCrash(new Error(`Dashboard renderer exited: ${reason} (code ${exitCode})`))
 		if (!this.autoReloaded) {
 			this.autoReloaded = true
 			return this.show()
 		}
 		if (!this.prompting) {
 			this.prompting = (async () => {
+				// A crash can arrive before the previous load rejects. Finish that
+				// attempt before offering a retry, so show() cannot coalesce it away.
+				await this.pending
 				// Chromium must finish tearing down the old renderer before any recovery UI.
 				await new Promise<void>((resolve) => setImmediate(resolve))
-				if (this.options.canRecover() && (await this.options.prompt())) await this.show()
+				return this.options.canRecover() && (await this.options.prompt())
 			})()
-				.catch((error) => this.options.report(error))
+				.catch((error) => {
+					this.options.report(error)
+					return false
+				})
 				.finally(() => {
 					this.prompting = undefined
 				})
 		}
-		await this.prompting
+		// Release the dialog before reloading: another crash needs a fresh prompt.
+		if (await this.prompting) await this.show()
 	}
 
 	/** Show Simplex is also an explicit retry after an operator dismisses recovery. */

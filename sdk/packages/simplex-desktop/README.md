@@ -62,7 +62,9 @@ Passkeys require secure OS storage. Mac native passkeys also require Apple signi
 profile, and the configured associated domain; Windows requires browser platform WebAuthn support.
 Storage availability checks return unavailable after five seconds, so a stalled OS check does not
 indefinitely hide password login. Password-protected configuration remains encrypted; OS-backed
-passkeys and background resume require a completed availability check.
+passkeys and background resume require a completed availability check. The locked login screen
+refreshes unavailable storage every two seconds, pausing during authentication, so a slow successful
+check can restore passkey access without restarting the app.
 If the device prompt is unavailable or cancelled, retry or choose another sign-in method. A request expires
 after two minutes and can also be cancelled from Simplex. Linux passkey integration is not
 implemented.
@@ -153,7 +155,7 @@ and **Open Current Log** opens the newest one. Scrubbed desktop errors and solve
 written separately under `<userData>/diagnostics`, accessible through **Open Data Directory**.
 Each source retains five files of up to 1 MiB. Local diagnostics work without a Sentry DSN and with
 `SIMPLEX_ERROR_REPORTING=off`. Builds with a DSN may also send scrubbed error events as described in
-[Crash recovery and error reporting](../../../docs/ai/changelog/2026-10-14-simplex-desktop-crash-recovery.md).
+[Sentry error reporting](../../../docs/ai/changelog/2026-10-14-simplex-sentry-error-reporting.md).
 No native memory dumps are collected.
 
 Desktop removal leaves Electron's user-data directory in place. Neither this shell nor its installer

@@ -1,7 +1,7 @@
 import { spawn, type ChildProcess, type SpawnOptions, type StdioOptions } from "node:child_process"
 import { closeSync, openSync, readdirSync } from "node:fs"
 import { pathToFileURL } from "node:url"
-import { createDiagnosticLog } from "./diagnostic-log"
+import type { DiagnosticLog } from "./diagnostic-log"
 import { socketRequest } from "./socket-request"
 
 export type SimplexMode = "init" | "operator"
@@ -58,6 +58,7 @@ export interface DaemonLaunch {
 	dataDir: string
 	configKey?: Buffer
 	diagnosticsPath?: string
+	diagnosticLog?: DiagnosticLog
 }
 
 export function daemonArgs(launch: DaemonLaunch): string[] {
@@ -104,10 +105,9 @@ export function spawnDaemon(
 		}
 		const options: SpawnOptions = { detached: true, stdio, windowsHide: true }
 		const child = spawnImpl(launch.nodePath, daemonArgs(launch), options)
-		const log = createDiagnosticLog(launch.dataDir, "desktop")
-		child.once("error", (error) => log("solver-spawn", error))
+		child.once("error", (error) => launch.diagnosticLog?.("solver-spawn", error))
 		child.once("exit", (code, signal) =>
-			log("solver-exit", `pid=${child.pid ?? "unknown"} code=${code} signal=${signal}`),
+			launch.diagnosticLog?.("solver-exit", `pid=${child.pid ?? "unknown"} code=${code} signal=${signal}`),
 		)
 		if (launch.configKey) {
 			child.stdin?.on("error", () => {})

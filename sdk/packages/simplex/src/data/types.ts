@@ -586,6 +586,8 @@ export interface StoredBridgeTopUp {
 	deliveryStatuses?: DeliveryStatus[]
 	/** The unfilled order's recovery, step by step, as the SDK's cancel flow reported it. */
 	recoverySteps?: RecoveryStepRecord[]
+	/** The GET request a cross-chain cancel dispatched; Hyperbridge answers it with the refund response. */
+	getCommitment?: HexString
 	/** Hyperbridge's finalized response, which refunds the escrow when submitted on the source. */
 	claimCalldata?: HexString
 	/** The filler's own refund claim, when no relayer delivered it in time. */

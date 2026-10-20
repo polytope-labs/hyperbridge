@@ -101,12 +101,6 @@ async function handleExistingConfig(outputPath: string): Promise<Prefill | undef
 			}
 		}
 		if (!degraded) validateConfig(config)
-		// Overfill protection was removed and its section is ignored at boot. Dropped
-		// here so the update run's write does not carry it into the new file.
-		if (config.simplex?.overfillProtection !== undefined) {
-			delete config.simplex.overfillProtection
-			log.info("Dropped [simplex.overfillProtection]: overfill protection was removed, so it is no longer read.")
-		}
 	} catch (error) {
 		invalidReason = error instanceof Error ? error.message : String(error)
 	}

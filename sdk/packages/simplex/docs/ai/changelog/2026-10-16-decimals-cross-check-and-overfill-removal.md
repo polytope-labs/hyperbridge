@@ -36,8 +36,10 @@ never trip, so both are gone along with everything that configured or reported t
   uncommented for existing operators and refusing it would crash-loop their deployments.
   Boot logs a warning (`[simplex.overfillProtection] is ignored: overfill protection was
   removed …`) when `simplex.overfillProtection !== undefined`, so a library caller passing
-  `{ overfillProtection: undefined }` is not warned. `simplex init` drops the key when it
-  loads an existing config, and the update run does not write it back.
+  `{ overfillProtection: undefined }` is not warned. An update run of `simplex init` does
+  not write the section into the new file, and logs `Dropped [simplex.overfillProtection]`
+  once that file is written; "Start the filler with it as-is" leaves the file untouched, so
+  boot's warning is what the operator sees.
 - **Library:** `Simplex.isHalted()`, `Simplex.resetHalt()` and `SimplexStatus.halted`;
   `FillerConfigService.getMaxOverfillBps()` / `getMaxConsecutiveClamps()`;
   `FXFiller.isHalted()` / `resetHalt()`; the `HaltControl` type and

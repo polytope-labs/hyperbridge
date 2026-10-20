@@ -52,6 +52,11 @@ export async function stepWrite(state: WizardState, outputPath: string, prefill?
 
 	writeConfigFileAtomic(path, emitted)
 	log.success(`Config written to ${path} (permissions 600 — it contains secrets, don't commit it)`)
+	// Said here, not when the old file is read: "Start the filler with it as-is" never
+	// reaches this point and leaves the section in place, where boot warns and ignores it.
+	if (state.prefillConfig?.simplex?.overfillProtection !== undefined) {
+		log.info("Dropped [simplex.overfillProtection]: overfill protection was removed, so it is no longer read.")
+	}
 
 	note(FUNDING_CHECKLIST, "Before the filler can fill")
 

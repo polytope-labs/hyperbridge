@@ -232,7 +232,7 @@ on<E extends keyof SimplexEvents>(
 
 | Event | Payload |
 |------|---------|
-| `order:detected` | `{ order: Order; transactionHash: string }` |
+| `order:detected` | `{ order: Order; transactionHash: string; blockHash: string }` |
 | `order:skipped` | `{ orderId: string; reason: string }` |
 | `order:filled` | `{ orderId: string; txHash?: HexString; chainId?: number; volumeUsd?: number; profitUsd?: number }` |
 | `order:executed` | `{ orderId: string; success: boolean; strategy?: string; commitment?: HexString; txHash?: HexString; error?: string }` |
@@ -958,6 +958,14 @@ gap. It throws on a chain the scanner does not have.
 | `onError` | `(error, chainId)` — informational; the scanner retries and never advances its cursor past an unread range |
 
 `Subscription` is `{ close(): void; readonly dropped: number }`.
+
+<Callout type="warn">
+    `ScannedOrder.blockHash` matters to a custom scanner. A cross-chain order is only filled while a
+    quorum of source endpoints still places its `OrderPlaced` transaction in that block, so an empty
+    `blockHash` makes the solver skip every cross-chain order that waits for confirmations
+    (`Placement block unknown`). Fill it
+    with the hash of the block the log was read from.
+</Callout>
 
 <Callout type="warn">
     Delivery is at-least-once and per-chain FIFO. A scanner that resumes from a cursor after a

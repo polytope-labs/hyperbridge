@@ -115,7 +115,11 @@ export interface SimplexOptions {
 
 /** Events a running filler emits. */
 export interface SimplexEvents {
-	"order:detected": { order: Order; transactionHash: string }
+	/**
+	 * `blockHash` is the block the scanner read the placement from; a cross-chain
+	 * order is only filled while a quorum still places its transaction there.
+	 */
+	"order:detected": { order: Order; transactionHash: string; blockHash: string }
 	"order:skipped": { orderId: string; reason: string }
 	"order:filled": {
 		orderId: string

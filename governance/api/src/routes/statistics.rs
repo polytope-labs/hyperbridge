@@ -21,8 +21,23 @@ struct Delegation {
 	delegator: String,
 	target: String,
 	track: i32,
+	conviction: i32,
 	balance: u128,
 	votes: u128,
+}
+
+impl Delegation {
+	/// The delegation as the forum lists it, named from the delegator's side.
+	fn json(&self) -> Value {
+		json!({
+			"account": self.delegator,
+			"delegatee": self.target,
+			"trackId": self.track,
+			"conviction": self.conviction,
+			"balance": self.balance.to_string(),
+			"votes": self.votes.to_string(),
+		})
+	}
 }
 
 async fn delegations(state: &AppState, track: Option<i32>) -> ApiResult<Vec<Delegation>> {
@@ -42,6 +57,7 @@ async fn delegations(state: &AppState, track: Option<i32>) -> ApiResult<Vec<Dele
 				delegator: row.get(0),
 				target: row.get(1),
 				track: row.get(2),
+				conviction: row.get(3),
 				balance,
 				votes: with_conviction(balance, row.get(3)),
 			}
@@ -244,17 +260,20 @@ pub async fn track_delegators(
 		.into_iter()
 		.skip(paging.offset() as usize)
 		.take(paging.page_size as usize)
-		.map(|d| {
-			json!({
-				"account": d.delegator,
-				"delegatee": d.target,
-				"trackId": d.track,
-				"balance": d.balance.to_string(),
-				"votes": d.votes.to_string(),
-			})
-		})
+		.map(|d| d.json())
 		.collect();
 	Ok(Json(paging.page(items, total)))
+}
+
+/// Every delegation in force to an account, on any track, largest first.
+pub async fn user_delegators(
+	State(state): State<AppState>,
+	Path(address): Path<String>,
+) -> ApiResult<Json<Vec<Value>>> {
+	let mut delegations = delegations(&state, None).await?;
+	delegations.retain(|d| d.target == address);
+	delegations.sort_by_key(|d| std::cmp::Reverse(d.votes));
+	Ok(Json(delegations.iter().map(Delegation::json).collect()))
 }
 
 /// What the delegation pages show about an account others may delegate to.

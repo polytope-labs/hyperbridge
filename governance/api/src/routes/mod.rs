@@ -93,6 +93,7 @@ pub fn router(state: AppState) -> Router {
 		.route("/users/:address/referenda/votes", get(votes::user_votes))
 		.route("/users/:address/referenda/vote-calls", get(votes::user_vote_calls))
 		.route("/users/:address/referenda/vote-stats", get(votes::user_vote_stats))
+		.route("/users/:address/referenda/delegators", get(statistics::user_delegators))
 		.route("/delegation/referenda/delegates/:address", get(statistics::delegate))
 		.route("/gov2/tracks", get(referenda::tracks))
 		.route("/preimages/:hash", get(referenda::preimage))

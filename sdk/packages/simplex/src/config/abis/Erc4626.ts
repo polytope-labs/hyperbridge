@@ -76,6 +76,13 @@ export const ERC4626_ABI = [
 		type: "function",
 	},
 	{
+		inputs: [{ internalType: "address", name: "owner", type: "address" }],
+		name: "maxRedeem",
+		outputs: [{ internalType: "uint256", name: "", type: "uint256" }],
+		stateMutability: "view",
+		type: "function",
+	},
+	{
 		inputs: [{ internalType: "address", name: "receiver", type: "address" }],
 		name: "maxDeposit",
 		outputs: [{ internalType: "uint256", name: "", type: "uint256" }],

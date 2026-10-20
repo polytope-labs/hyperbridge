@@ -85,6 +85,21 @@ export class TokenSender {
 			)
 			if (isVaultShare) {
 				if (balance < units) throw new Error(`Insufficient token balance: have ${balance}, need ${units}`)
+				// A share balance can exceed what the vault will let out at the moment (a
+				// liquidity-capped stataToken, a partially liquid market): `redeem(units)` then
+				// reverts and takes the whole batch with it. Refuse up front with the number the
+				// operator can actually send instead of submitting a tx that cannot succeed.
+				const maxRedeem = (await publicClient.readContract({
+					abi: ERC4626_ABI,
+					address: token as HexString,
+					functionName: "maxRedeem",
+					args: [this.solver],
+				})) as bigint
+				if (units > maxRedeem) {
+					throw new Error(
+						`This vault will only redeem ${maxRedeem} shares right now, which is less than the ${units} requested`,
+					)
+				}
 				redeemed = true
 				calls.push({
 					target: token as HexString,

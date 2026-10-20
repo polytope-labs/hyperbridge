@@ -34,7 +34,7 @@ export function hasPaymaster(chain: string, configService: FillerConfigService):
  * EntryPoint configured; without either, selection is balance-only.
  */
 export async function buildPaymasterAndData(options: PaymasterOptions): Promise<PaymasterDataResult> {
-	const { chain, solverAccount, publicClient, walletClient, signer, configService, permitBootstrap } = options
+	const { chain, solverAccount, publicClient, walletClient, signer, configService, permitBootstrap, permitDeadline } = options
 
 	const simplexAddr = configService.getSimplexPaymasterAddress(chain)
 	if (!simplexAddr) {
@@ -68,6 +68,7 @@ export async function buildPaymasterAndData(options: PaymasterOptions): Promise<
 			chain,
 			configService,
 			permitBootstrap,
+			permitDeadline,
 		)
 		if ("paymaster" in pm) {
 			return {

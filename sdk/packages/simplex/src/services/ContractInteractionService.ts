@@ -121,7 +121,19 @@ const LIMIT_ORDER_PRE_VERIFICATION_GAS = 50_000n
  * The asymmetry decides the direction: overshooting costs a marginally staler quote,
  * undershooting silently throws away bids that were about to be won.
  */
-const BID_DISCOVERY_PAD_SECONDS = 30
+export const BID_DISCOVERY_PAD_SECONDS = 30
+
+/**
+ * Added on top of the bid's own validity when sizing its Permit2 deadline — the permit deadline is
+ * a timestamp (the destination head's, plus `bidValiditySeconds + BID_DISCOVERY_PAD_SECONDS + this`),
+ * while the bid's on-chain `validUntil` is block-based and can run longer in wall-clock time when
+ * blocks are slow, so whichever is earlier binds. Anchored to the chain, the deadline does not
+ * depend on this host's clock; the skew covers the head's age by the time the permit is signed, the
+ * latency from submission to inclusion, and the buffer bundlers apply when rejecting an op whose
+ * `validUntil` is too close to now (rundler's time-range buffer is roughly 30–60s): the placer
+ * bundles our bid later than we sign it, so a shorter skew left no margin at the end of the window.
+ */
+export const BID_PERMIT_SKEW_SECONDS = 120
 
 /**
  * How many blocks back a chain's block time is measured over. Block timestamps are whole
@@ -866,6 +878,10 @@ export class ContractInteractionService {
 
 		const sdkHelper = await this.getIntentGateway(order.source, order.destination)
 
+		// One read of the destination head serves both clocks the bid runs on: its number
+		// bounds `validUntil`, and its timestamp anchors the Permit2 deadline below.
+		const head = await this.clientManager.getPublicClient(order.destination).getBlock({ blockTag: "latest" })
+
 		const fillOptions: FillOptions = {
 			relayerFee: cachedEstimate.dispatchFee,
 			// The dispatch is always paid in the fee token: the native rail drew
@@ -876,7 +892,7 @@ export class ContractInteractionService {
 			nativeDispatchFee: 0n,
 			// Caps how long this quote stands. Without it the placer holds a free option:
 			// they choose the moment of execution and we are committed to the old price.
-			validUntil: await this.bidValidUntilBlock(order.destination),
+			validUntil: await this.bidValidUntilBlock(order.destination, head.number),
 			outputs: cachedFillerOutputs,
 			// One take per leg, paired with its output; the gateway settles the pair as our rate.
 			inputs: cachedFillerInputs,
@@ -917,6 +933,20 @@ export class ContractInteractionService {
 			walletClient: this.clientManager.getWalletClient(order.destination),
 			signer: this.signer,
 			configService: this.configService,
+			// The paymaster reports the Permit2 deadline as the op's `validUntil`, and the default
+			// hour outlives a bid's validity: a bid selected late still validated, then `fillOrder`
+			// reverted `FillExpired` and the solver paid the gas. Sizing the permit to the bid's window
+			// lets the EntryPoint drop an op far past it at validation, for free. That is a bound on
+			// the tail, not a guarantee: an op landing between the bid's block-based `validUntil` and
+			// this deadline (up to BID_PERMIT_SKEW_SECONDS later) still reverts `FillExpired`, at the
+			// solver's cost. Closing it needs `SolverAccount` to return a block-number `validUntil`.
+			// The deadline is anchored to the chain's head timestamp, not this host's clock: the
+			// EntryPoint judges it against the chain, and a host running behind it would shorten
+			// every bid's window until the skew allowance was gone and each op failed validation.
+			// Sends, sweeps and delegation keep the hour default.
+			permitDeadline:
+				head.timestamp +
+				BigInt(Math.ceil(this.configService.getBidValiditySeconds() + BID_DISCOVERY_PAD_SECONDS + BID_PERMIT_SKEW_SECONDS)),
 			prefund: {
 				baseGas:
 					callGasLimit + cachedEstimate.verificationGasLimit + cachedEstimate.preVerificationGas,
@@ -997,9 +1027,14 @@ export class ContractInteractionService {
 	 * deliberately rounded up, since erring long costs a slightly stale quote while erring
 	 * short silently drops winnable bids.
 	 */
-	private async bidValidUntilBlock(chain: string): Promise<bigint> {
+	private async bidValidUntilBlock(chain: string, head?: bigint): Promise<bigint> {
 		const client = this.clientManager.getPublicClient(chain)
-		const [currentBlock, blockTimeSec] = await Promise.all([client.getBlockNumber(), this.blockTimeSeconds(chain)])
+		// A caller that already read the head passes its number, so the bid is bounded and
+		// its permit anchored to one block rather than two reads that could straddle one.
+		const [currentBlock, blockTimeSec] = await Promise.all([
+			head ?? client.getBlockNumber(),
+			this.blockTimeSeconds(chain),
+		])
 		// Converted once, so the rounding happens in one place rather than twice.
 		const windowSec = this.configService.getBidValiditySeconds() + BID_DISCOVERY_PAD_SECONDS
 		return currentBlock + BigInt(Math.ceil(windowSec / blockTimeSec))

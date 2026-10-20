@@ -11,10 +11,14 @@ import {
 	type Order,
 	type PackedUserOperation,
 } from "@hyperbridge/sdk"
-import { decodeFunctionData, encodeFunctionData, erc20Abi } from "viem"
+import { decodeFunctionData, encodeFunctionData, erc20Abi, maxUint256, slice } from "viem"
 import { SOLVER_ACCOUNT_ABI } from "@/config/abis/SolverAccount"
 import { budgetIdFor, type LimitOrderBudget } from "@/orderbook/amounts"
-import { ContractInteractionService } from "@/services/ContractInteractionService"
+import {
+	BID_DISCOVERY_PAD_SECONDS,
+	BID_PERMIT_SKEW_SECONDS,
+	ContractInteractionService,
+} from "@/services/ContractInteractionService"
 import { privateKeySigner } from "@/services/wallet"
 
 /**
@@ -84,6 +88,7 @@ function service(feeToken: HexString = USDC): ContractInteractionService {
 	const client = {
 		chain: { blockTime: 2000 },
 		getBlockNumber: async () => 100n,
+		getBlock: async () => ({ number: 100n, timestamp: BigInt(Math.floor(Date.now() / 1000)) }),
 		readContract: async () => 0n,
 	}
 	const contract = new ContractInteractionService(
@@ -109,6 +114,52 @@ function batchOf(callData: HexString): ERC7821Call[] {
 /** The index of the call to the account settling the budget, which is the one call that account receives. */
 function debitIndex(batch: ERC7821Call[]): number {
 	return batch.findIndex((call) => call.target.toLowerCase() === SOLVER.toLowerCase())
+}
+
+const PERMIT2 = "0x000000000022D473030F116dDEE9F6B43aC78BA3" as HexString
+const PAYMASTER = "0x0578cFB241215b77442a541325d6A4E6dFE700Ec" as HexString
+
+/**
+ * A service with the Simplex paymaster configured, so a bid actually builds `paymasterAndData`
+ * instead of falling back to the EntryPoint deposit. The mocked reads satisfy fee-token
+ * selection and the PERMIT2() probe; `getNonce` is the `0n` default.
+ */
+function paymasterService(headTimestamp = BigInt(Math.floor(Date.now() / 1000))): ContractInteractionService {
+	const client = {
+		chain: { blockTime: 2000 },
+		getBlockNumber: async () => 100n,
+		getBlock: async () => ({ number: 100n, timestamp: headTimestamp }),
+		readContract: async ({ functionName }: { functionName: string }) => {
+			if (functionName === "balanceOf") return 10n ** 18n
+			if (functionName === "allowance") return maxUint256
+			if (functionName === "PERMIT2") return PERMIT2
+			return 0n
+		},
+	}
+	const contract = new ContractInteractionService(
+		{ getPublicClient: () => client, getWalletClient: () => ({}) } as any,
+		{
+			loggers: undefined,
+			getIntentGatewayAddress: () => GATEWAY,
+			getSimplexPaymasterAddress: () => PAYMASTER,
+			getEntryPointAddress: () => undefined,
+			getBidValiditySeconds: () => 60,
+			getChainId: () => 97,
+			getPermit2Address: () => PERMIT2,
+			getUsdcAsset: () => USDC,
+			getUsdcDecimals: () => 18,
+			getUsdtAsset: () => "0x",
+			getUsdtDecimals: () => 6,
+		} as any,
+		privateKeySigner(SOLVER_KEY),
+	)
+	contract.cacheService.setFeeTokenWithDecimals(FILL_CHAIN, USDC, 18)
+	return contract
+}
+
+/** The Permit2 deadline in a packed `paymasterAndData`: 52-byte header + mode(1)+token(20)+amount(32)+nonce(32). */
+function permitDeadline(paymasterAndData: HexString): bigint {
+	return BigInt(slice(paymasterAndData, 52 + 85, 52 + 117))
 }
 
 /** The arguments of the batch's call to the account settling the budget, which follows the fill. */
@@ -181,7 +232,12 @@ async function prepareBid(
 		cached,
 	)
 	await contract.prepareBidUserOp(bidOrder, ENTRY_POINT, SOLVER)
-	return signed as { callData: HexString; callGasLimit: bigint; fillOptions: FillOptions }
+	return signed as {
+		callData: HexString
+		callGasLimit: bigint
+		fillOptions: FillOptions
+		paymasterAndData: HexString
+	}
 }
 
 describe("the budget call a bid ends with", () => {
@@ -416,5 +472,28 @@ describe("preparing a bid", () => {
 
 			expect(bid.callGasLimit).toBe(BASE_CALL_GAS + APPROVAL_GAS_PER_TOKEN)
 		})
+	})
+
+	it("sizes the bid's Permit2 deadline to the bid window, not the hour default", async () => {
+		const before = BigInt(Math.floor(Date.now() / 1000))
+		const bid = await prepareBid(paymasterService(), sameChain)
+
+		// The paymaster is what the deadline rides in; without it there is nothing to size.
+		expect(bid.paymasterAndData).not.toBe("0x")
+		const window = BigInt(60 + BID_DISCOVERY_PAD_SECONDS + BID_PERMIT_SKEW_SECONDS)
+		const deadline = permitDeadline(bid.paymasterAndData)
+		expect(deadline).toBeGreaterThanOrEqual(before + window)
+		expect(deadline).toBeLessThanOrEqual(before + window + 5n)
+	})
+
+	it("anchors the Permit2 deadline to the chain's head, not the host clock", async () => {
+		// The host runs 400s behind the chain, past the whole skew allowance: a deadline taken from
+		// the host clock would already be in the chain's past, and every sponsored bid would fail
+		// validation.
+		const headTimestamp = BigInt(Math.floor(Date.now() / 1000)) + 400n
+		const bid = await prepareBid(paymasterService(headTimestamp), sameChain)
+
+		const window = BigInt(60 + BID_DISCOVERY_PAD_SECONDS + BID_PERMIT_SKEW_SECONDS)
+		expect(permitDeadline(bid.paymasterAndData)).toBe(headTimestamp + window)
 	})
 })

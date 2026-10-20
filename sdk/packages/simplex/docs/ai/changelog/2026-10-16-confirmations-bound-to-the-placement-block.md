@@ -21,9 +21,10 @@ commitment, and the destination paid the output for an order whose redeem then r
 The scanner's `OrderPlaced` log carries its `blockHash`, and `newOrder` now passes it on.
 The confirmation wait compares the block a quorum agrees the transaction is in against
 that scanned block on every poll; a mismatch stops the wait and the order is skipped
-(`Source placement reorged`). A cross-chain order the scanner reported without a block is
-skipped too (`Placement block unknown`) — without it there is nothing to bind the depth
-to.
+(`Source placement reorged`). A cross-chain order that waits for confirmations but that
+the scanner reported without a block is skipped too (`Placement block unknown`) — without
+it there is nothing to bind the depth to. An order that waits for none (same-chain, or a
+zero-confirmation curve point) needs no block.
 
 After the wait and before bidding, the source escrow is re-read through the quorum
 (`readWithQuorum`): each endpoint votes on the whole escrow vector, and a bid goes out
@@ -31,8 +32,9 @@ only when a quorum agrees every leg still holds escrow. Endpoints that fail do n
 (the bar is the BFT threshold over those that answer), so this is not a floor of
 `floor(2N/3)+1` of the configured set. An empty escrow skips the order (`Source escrow
 missing after confirmations`); an escrow that could not be read at all skips it under its
-own reason (`Source escrow unverifiable after confirmations`), so an RPC fault is not
-reported as a phantom commitment.
+own reason (`Source escrow unverifiable after confirmations`) — the endpoints failed, or
+those that answered split with no quorum — so an RPC fault is not reported as a phantom
+commitment.
 
 ## Interfaces
 
@@ -49,8 +51,8 @@ confirmations)` a quorum agreed on; `getTransactionConfirmations` is its depth.
 
 ## Constraints
 
-- Fail closed: a cross-chain order missing its scanned block, or whose escrow no quorum
-  agrees on (or can read) after the wait, is skipped.
+- Fail closed: a cross-chain order that waits for confirmations and is missing its scanned
+  block, or whose escrow no quorum agrees on (or can read) after the wait, is skipped.
 - A placement re-mined in a different block is skipped even if its nonce — and so its
   commitment — did not change: the check is on the block, deliberately conservative.
 - Same-chain orders and zero-confirmation curve points are unchanged: they still make no

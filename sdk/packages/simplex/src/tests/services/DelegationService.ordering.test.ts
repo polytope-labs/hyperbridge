@@ -100,6 +100,8 @@ function build(opts: {
 	receiptError?: boolean
 	/** The wallet's EntryPoint nonce at `latest`. */
 	entryPointNonce?: bigint
+	/** Receives the service's log calls, to assert what an operator is told. */
+	logger?: Record<"debug" | "info" | "warn" | "error", ReturnType<typeof vi.fn>>
 }) {
 	let unblockedReads = 0
 	const state = {
@@ -146,7 +148,7 @@ function build(opts: {
 		getTransactionReceipt: async () => ({ status: opts.receiptStatus ?? "success", blockNumber: 1n }),
 	}
 	const clientManager = {
-		loggers: undefined,
+		loggers: opts.logger ? { get: () => opts.logger } : undefined,
 		getPublicClient: () => publicClient,
 		getWalletClient: () => ({ chain: undefined, sendTransaction }),
 	} as unknown as ChainClientManager
@@ -697,6 +699,29 @@ describe("no native fallback after a sponsored op that may still land or did lan
 
 		expect(trySendSponsored).toHaveBeenCalledOnce()
 		expect(sendTransaction).not.toHaveBeenCalled()
+	})
+
+	it("tells an earlier op that is still pending from one that mined without delegating", async () => {
+		vi.mocked(resolvePendingPermit2Approval).mockResolvedValue(null)
+		const logger = { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() }
+		const { service } = build({ native: DIRECT_TX_COST, logger })
+		trySendSponsored.mockRejectedValueOnce(unconfirmed())
+		expect(await service.setupDelegation(CHAIN)).toBe(false)
+
+		// No receipt yet: the op may still land.
+		expect(await service.setupDelegation(CHAIN)).toBe(false)
+		expect(logger.warn).toHaveBeenCalledWith(
+			{ chain: CHAIN, outcome: "pending" },
+			"An earlier sponsored delegation op has not settled yet; not sending another",
+		)
+
+		// A receipt without a delegation: it mined, so waiting will not change the outcome.
+		lookupUserOpReceipt.mockResolvedValue({ txHash: SPONSORED_TX_HASH, success: true })
+		expect(await service.setupDelegation(CHAIN)).toBe(false)
+		expect(logger.warn).toHaveBeenCalledWith(
+			{ chain: CHAIN, outcome: "failed" },
+			"An earlier sponsored delegation op mined but did not delegate the wallet; not sending another",
+		)
 	})
 
 	it("does not retry past an earlier op that mined without delegating", async () => {

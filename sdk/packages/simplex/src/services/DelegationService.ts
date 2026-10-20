@@ -27,8 +27,9 @@ const BOOTSTRAP_CALL_GAS_LIMIT = 150_000n
 
 /**
  * How long to wait for a sponsored delegation's tx receipt on this chain's public RPC.
- * The bundler's node saw the tx first, so the public one can lag; past this bound the
- * delegation is reported "failed" with no native fallback and the caller retries.
+ * The bundler's node saw the tx first, so the public one can lag. Past this bound
+ * `isDelegated(latest)` decides: a delegation that landed is reported delegated, and anything
+ * else is reported failed with no native fallback, so the caller retries.
  */
 const BUNDLER_RECEIPT_WAIT_TIMEOUT_MS = 30_000
 
@@ -723,7 +724,14 @@ export class DelegationService {
 		const earlier = await this.resolveUnconfirmedOp(chain)
 		if (earlier === "delegated") return true
 		if (earlier === "failed" || earlier === "pending") {
-			this.logger.warn({ chain, outcome: earlier }, "An earlier sponsored delegation op has not settled; not sending another")
+			// Told apart because they need different reading: a pending op may still land, while a
+			// failed one mined without delegating the wallet and its record is already dropped.
+			this.logger.warn(
+				{ chain, outcome: earlier },
+				earlier === "pending"
+					? "An earlier sponsored delegation op has not settled yet; not sending another"
+					: "An earlier sponsored delegation op mined but did not delegate the wallet; not sending another",
+			)
 			return false
 		}
 

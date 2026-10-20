@@ -466,6 +466,9 @@ describe("UserOpSender ambiguous send outcome", () => {
 
 		expect(error).toBeInstanceOf(PendingOpOnNonceError)
 		expect(error).toMatchObject({ chain: CHAIN, nonce: 0n, nonceKey: 0n })
+		// The fees of the op in the way travel with the error so an operator can see what blocks.
+		expect(error.blockingFees).toEqual({ currentMaxFee: "0x77359400", currentMaxPriorityFee: "0x3b9aca00" })
+		expect(error.message).toContain("0x77359400")
 		expect(bundlerCalls.some((c) => c.method === "eth_getUserOperationByHash")).toBe(false)
 	})
 
@@ -478,7 +481,11 @@ describe("UserOpSender ambiguous send outcome", () => {
 	it("throws PendingOpOnNonceError for a -32602 'already known' answer", async () => {
 		stubBundler({ eth_sendUserOperation: { error: { code: -32602, message: "already known" } } })
 
-		await expect(sponsorWith("http://pending-known.test/bundler")).rejects.toBeInstanceOf(PendingOpOnNonceError)
+		const error = await sponsorWith("http://pending-known.test/bundler").catch((err) => err)
+
+		expect(error).toBeInstanceOf(PendingOpOnNonceError)
+		// "already known" carries no fee data.
+		expect(error.blockingFees).toBeUndefined()
 	})
 
 	it("still returns null for a plain -32602 invalid-params rejection", async () => {

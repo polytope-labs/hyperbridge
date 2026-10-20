@@ -39,7 +39,14 @@ sender is already pending on that EntryPoint nonce: `ReplacementUnderpriced` car
 `currentMaxPriorityFee`/`currentMaxFee` in its error data, and `OperationAlreadyKnown` has the
 message "already known". `UserOpSender` reads either as `pending` and throws
 `PendingOpOnNonceError` instead of returning `null`. A plain `-32602` (invalid params) is still a
-rejection.
+rejection. When the error data has `currentMaxFee`/`currentMaxPriorityFee`, they are on the error
+as `blockingFees`, in its message and in the log, so an operator can see what is in the way.
+
+Detection recognises rundler's wording only, because production runs rundler. Alto's "already
+present in mempool" would read as a rejection, so another bundler needs its wording added.
+
+A PERMIT bootstrap op has no `validUntil`. If it sits in rundler's pool (`max_time_in_pool` is
+unset by default), every key-0 sponsored op gets `PendingOpOnNonceError` until rundler drops it.
 
 Without this, a send answered `202` and then repeated would be refused as a replacement, read as
 `null`, and sent natively — paid twice. `PendingOpOnNonceError` means "not now": `TokenSender`
@@ -71,8 +78,8 @@ suffix.
 
 ## A bundler outage
 
-When every lookup fails, the send is `unknown`. `POST /api/send` answers `202` saying the send *may
-have been submitted*. A top-up placement is recorded with the local hash and waits out its window
+When no lookup finds the op and at least one fails, the send is `unknown`. `POST /api/send` answers
+`202` saying the send *may have been submitted*. A top-up placement is recorded with the local hash and waits out its window
 before it settles. A vault sweep or redeem throws, and the batch stalls, rather than going native,
 until the bundler answers again.
 
@@ -84,8 +91,10 @@ stays a 400.
 
 - A native tx has a hash from the moment the node accepts it, so it gets a wallet-history row like a
   confirmed send. A UserOp has none until it lands (`WalletTx.txHash` is required), so it gets no row.
-- A sponsored UserOp's message says it may still land and to wait before resending: the wallet
-  balance cannot show an op still in the bundler's pool. When the outcome is `unknown` it says the
+- A sponsored UserOp's message names the UserOp hash and says it may still land: wait, then look the
+  hash up on the bundler or check the wallet's and the recipient's balance before resending. The
+  wallet history is no evidence here, since a sponsored send that answers `202` never gets a row, and
+  the balance cannot show an op still in the bundler's pool. When the outcome is `unknown` it says the
   send *may have been submitted*. A native tx keeps the explorer wording and link.
 - A `PendingOpOnNonceError` answers "an earlier sponsored operation from this wallet is still pending;
   wait for it to land before sending again" with no hash, since nothing new was submitted. The

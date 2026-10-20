@@ -150,14 +150,14 @@ A send that cannot go through answers `400` with the reason, such as an insuffic
 
 ### A pending send
 
-A send that is not confirmed yet answers `202`, not `400`, because it may still land. Do not send it again until you have checked.
+A send that is not confirmed yet answers `202`, not `400`, because it may still land. Do not send it again until you have checked. For a sponsored send, check the UserOperation by its hash, not the wallet history: a pending sponsored send has no history row.
 
 ```json lineNumbers
 {
   "pending": true,
   "sponsored": true,
   "userOpHash": "0x…",
-  "message": "The send was submitted to the bundler but is not confirmed yet. It may still land; wait a few minutes and check the wallet history before resending it."
+  "message": "The send was submitted to the bundler as UserOp 0x… but is not confirmed yet. It may still land; wait a few minutes, then look that UserOp up on the bundler or check the wallet's and the recipient's balance before resending it."
 }
 ```
 
@@ -165,15 +165,15 @@ A send that is not confirmed yet answers `202`, not `400`, because it may still 
 |---|---|
 | `pending` | Always `true`. |
 | `sponsored` | `true` when the send is a paymaster-sponsored UserOperation, `false` for a plain transaction. |
-| `userOpHash` | The UserOperation's hash, for a sponsored send that was submitted. A UserOperation has no transaction hash until it lands, so it is not recorded in the wallet history. |
+| `userOpHash` | The UserOperation's hash, for a sponsored send that was submitted. A UserOperation has no transaction hash until it lands, so a sponsored send that answers `202` gets no wallet-history row, and none is added when it lands later. Ask the bundler for it with `eth_getUserOperationByHash`, or compare the wallet's and the recipient's balances once it has had time to land. |
 | `txHash` | The transaction's hash. Present only when `sponsored` is `false`. Look it up on the block explorer. A pending plain transaction is recorded in the wallet history like a confirmed one. |
 | `message` | What to do next. |
 
 A `202` takes one of three forms:
 
-- **Submitted, no receipt yet.** The bundler accepted the UserOperation, or the node accepted the transaction, but no receipt came within the wait. It may land at any time. A wallet balance cannot show a UserOperation that is still in the bundler's pool, so wait a few minutes before sending again.
-- **Possibly submitted.** The bundler did not answer the send or any of the lookups after it, so the send *may have been submitted*. The message says so. This is what an outage of the bundler looks like.
-- **Earlier operation still pending.** The bundler refused the send because an earlier sponsored operation from this wallet (a send, a vault sweep or redeem, or a delegation setup) is still waiting on the same nonce (it answers "replacement underpriced" or "already known"). Nothing new was submitted, so the response has no hash, and its message is "An earlier sponsored operation from this wallet is still pending; wait for it to land before sending again." The send is never repeated as a plain transaction, because the earlier one could still land and the same tokens would leave twice.
+- **Submitted, no receipt yet.** The bundler accepted the UserOperation, or the node accepted the transaction, but no receipt came within the wait. It may land at any time. A wallet balance cannot show a UserOperation that is still in the bundler's pool, so wait a few minutes, then look the UserOperation up by `userOpHash` or compare balances before sending again.
+- **Possibly submitted.** The bundler's answer to the send was lost and none of the lookups after it found the UserOperation, and at least one did not answer at all. The send *may have been submitted*, and the message says so. This is what an outage of the bundler looks like. The message names the UserOperation's hash, which is also `userOpHash`.
+- **Earlier operation still pending.** The bundler refused the send because an earlier sponsored operation from this wallet (a send, a vault sweep or redeem, or a delegation setup) is still waiting on the same nonce (it answers "replacement underpriced" or "already known"). Nothing new was submitted, so the response has no hash, and its message is "An earlier sponsored operation from this wallet is still pending; wait for it to land before sending again." The send is never repeated as a plain transaction, because the earlier one could still land and the same tokens would leave twice. A bootstrap operation that approves Permit2 for the wallet has no expiry, so if the bundler keeps it in its pool, every sponsored send is refused this way until the bundler drops it.
 
 ## PUT /api/vault
 

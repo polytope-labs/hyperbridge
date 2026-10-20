@@ -2087,13 +2087,15 @@ export class UiServer {
 					sponsored,
 					...(sponsored ? { userOpHash: hash } : { txHash: hash }),
 					// A sponsored UserOp has no tx hash, so there is nothing to look up on the
-					// explorer, and the wallet balance cannot show an op that is still in the bundler's
-					// pool. It may land at any time, so the operator waits before resending. A native
-					// tx does have a hash, and its message says to check it before resending.
+					// explorer and, as the comment above says, no wallet-history row to check. The
+					// evidence that exists is the UserOp hash, which the bundler can be asked about,
+					// and the balances once the op lands. A balance cannot show an op still in the
+					// pool, so the operator waits before looking. A native tx does have a hash, and
+					// its message says to check it before resending.
 					message: sponsored
 						? err.maybeSubmitted
-							? "The bundler did not answer, so the send may have been submitted. It may still land. Wait a few minutes and check the wallet history before resending it."
-							: "The send was submitted to the bundler but is not confirmed yet. It may still land; wait a few minutes and check the wallet history before resending it."
+							? `The bundler did not answer, so the send may have been submitted as UserOp ${hash}. It may still land. Wait a few minutes, then look that UserOp up on the bundler or check the wallet's and the recipient's balance before resending it.`
+							: `The send was submitted to the bundler as UserOp ${hash} but is not confirmed yet. It may still land; wait a few minutes, then look that UserOp up on the bundler or check the wallet's and the recipient's balance before resending it.`
 						: "The send was submitted but is not confirmed yet. Do not resend it until it has been checked on the explorer.",
 				})
 			}

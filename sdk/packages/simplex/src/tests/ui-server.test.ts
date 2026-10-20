@@ -918,8 +918,12 @@ describe("UiServer (operator mode)", () => {
 		expect(payload.message).toContain("not confirmed")
 		// A balance check cannot show an op still in the pool, so the message says it may land and to wait.
 		expect(payload.message).toContain("may still land")
-		expect(payload.message).toContain("wallet history")
-		expect(payload.message).toContain("bundler")
+		// A sponsored send has no wallet-history row, so the message must not send the operator
+		// there; it names the UserOp hash to look up instead.
+		expect(payload.message).not.toContain("wallet history")
+		expect(payload.message).toContain(userOpHash)
+		expect(payload.message).toContain("look that UserOp up on the bundler")
+		expect(payload.message).toContain("recipient's balance")
 		expect(payload.message).not.toContain("explorer")
 		// A UserOp has no tx hash until it lands, so none is reported — and no history row is written.
 		expect(payload.txHash).toBeUndefined()
@@ -957,6 +961,8 @@ describe("UiServer (operator mode)", () => {
 		const payload = await res.json()
 		expect(payload).toMatchObject({ pending: true, sponsored: true, userOpHash })
 		expect(payload.message).toContain("may have been submitted")
+		expect(payload.message).toContain(userOpHash)
+		expect(payload.message).not.toContain("wallet history")
 	})
 
 	it("answers a send refused by a pending earlier op with a wait message and no hash", async () => {

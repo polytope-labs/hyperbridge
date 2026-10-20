@@ -172,6 +172,11 @@ function isDeterministicRejectionCode(code: unknown): boolean {
  * `currentMaxPriorityFee`/`currentMaxFee` data, or the "replacement underpriced" / "already known"
  * message, that does. Read as a rejection it would let the caller send the same calls natively
  * while the earlier op can still land.
+ *
+ * This recognises rundler's wording only, because production runs rundler. Alto reports the same
+ * situation as "already present in mempool", which neither pattern below matches, so it would
+ * read as a rejection and allow the native resend. Moving to another bundler means adding its
+ * wording here first.
  */
 function isPendingOnNonceError(rpcError: { code?: unknown; message?: unknown; data?: unknown }): boolean {
 	if (rpcError.code !== -32602) return false
@@ -180,6 +185,24 @@ function isPendingOnNonceError(rpcError: { code?: unknown; message?: unknown; da
 		return true
 	}
 	return typeof rpcError.message === "string" && /already known|replacement underpriced/i.test(rpcError.message)
+}
+
+/**
+ * The fees of the op holding the nonce, when rundler's `ReplacementUnderpriced` error carries
+ * them. They show an operator what is blocking: an op priced too low to be mined sits in the pool
+ * and refuses every later op on the nonce.
+ */
+function blockingOpFees(rpcError: unknown): PendingOpOnNonceError["blockingFees"] {
+	const data = (rpcError as { data?: unknown } | null | undefined)?.data as
+		| { currentMaxFee?: unknown; currentMaxPriorityFee?: unknown }
+		| null
+		| undefined
+	if (!data || typeof data !== "object") return undefined
+	const fees = {
+		...(typeof data.currentMaxFee === "string" ? { currentMaxFee: data.currentMaxFee } : {}),
+		...(typeof data.currentMaxPriorityFee === "string" ? { currentMaxPriorityFee: data.currentMaxPriorityFee } : {}),
+	}
+	return Object.keys(fees).length > 0 ? fees : undefined
 }
 
 /** Rejects if `promise` has not settled within `ms`. */
@@ -395,12 +418,20 @@ export class UserOpSender {
 			if (outcome === "pending") {
 				// Refused because an earlier op holds this nonce, which says nothing about the
 				// calls in it: they may be that op's own. Falling back would send them again.
-				this.logger.warn({ chain, nonce, nonceKey, error }, "Bundler holds a pending UserOp on this nonce")
+				const blockingFees = blockingOpFees((error as BundlerCallError).reason)
+				this.logger.warn(
+					{ chain, nonce, nonceKey, blockingFees, error },
+					"Bundler holds a pending UserOp on this nonce",
+				)
 				throw new PendingOpOnNonceError(
-					`An earlier sponsored op from this wallet is still pending on ${chain}; wait for it to land or expire before sending again`,
+					`An earlier sponsored op from this wallet is still pending on ${chain}; wait for it to land or expire before sending again` +
+						(blockingFees
+							? ` (it pays currentMaxFee ${blockingFees.currentMaxFee ?? "unknown"}, currentMaxPriorityFee ${blockingFees.currentMaxPriorityFee ?? "unknown"})`
+							: ""),
 					chain,
 					nonce,
 					nonceKey,
+					blockingFees,
 				)
 			}
 			if (outcome !== "ambiguous") {
@@ -428,8 +459,8 @@ export class UserOpSender {
 				return null
 			}
 			if (found === "unknown") {
-				// Every lookup failed too, so we cannot tell whether the op was accepted. The
-				// caller must not fall back — a resend could execute the calls twice.
+				// No lookup found the op and at least one failed, so we cannot tell whether it was
+				// accepted. The caller must not fall back — a resend could execute the calls twice.
 				throw new SubmittedUnconfirmedError(
 					`Sponsored UserOp ${localUserOpHash}: the bundler's answer was lost and the op could not be looked up`,
 					chain,
@@ -682,7 +713,9 @@ export class UserOpSender {
 					: rejected
 						? "rejected"
 						: "ambiguous"
-				throw new BundlerCallError(`Bundler RPC error (${method}): ${message}`, outcome)
+				// The error object rides along as `reason` so a `pending` outcome can report the fees
+				// of the op in the way.
+				throw new BundlerCallError(`Bundler RPC error (${method}): ${message}`, outcome, rpcError)
 			}
 			// A non-object `error` (a proxy's plain `{"error":"Bad Gateway"}`) is not a JSON-RPC
 			// answer, so it stays ambiguous.

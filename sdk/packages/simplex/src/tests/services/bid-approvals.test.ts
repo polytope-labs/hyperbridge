@@ -42,6 +42,7 @@ function bidService(feeDecimals: number): ContractInteractionService {
 	const client = {
 		chain: { blockTime: 2000 },
 		getBlockNumber: async () => 100n,
+		getBlock: async () => ({ number: 100n, timestamp: BigInt(Math.floor(Date.now() / 1000)) }),
 		readContract: async () => 0n,
 	}
 	const contract = new ContractInteractionService(

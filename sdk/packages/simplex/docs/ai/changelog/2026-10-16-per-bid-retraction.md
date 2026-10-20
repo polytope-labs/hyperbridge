@@ -109,10 +109,10 @@ less when the gateway clamps it, so only a bid whose take covers the release can
    the order the bids went out in), among the live bids if there are any.
 
 A retracted bid is in the window when it was stored no more than `bidValiditySeconds` + the 30 s
-discovery pad + `RETRACTED_BID_EXECUTION_MARGIN_SECONDS` (120) before the fill. The margin covers
-the tail between `validUntil` and the transaction landing (the window is converted to blocks at the
-fastest block time seen, so a slower chain keeps a bid executable longer in wall-clock time) and
-matches the permit skew allowed for the same execution tail.
+discovery pad + `BID_PERMIT_SKEW_SECONDS` (120) before the fill. A bid can execute until its permit
+deadline, which is the bid's window plus that skew, so the skew is the same execution tail: the
+window is converted to blocks at the fastest block time seen, so a slower chain keeps a bid
+executable longer in wall-clock time.
 
 The window is counted back from when the fill landed, not from when settlement runs, which can be
 long after, behind the settlement queue, and would stretch it. The event's arrival time is a

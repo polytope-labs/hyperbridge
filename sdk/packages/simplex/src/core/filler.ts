@@ -17,6 +17,7 @@ import { parseChainKey } from "@/config/interpolated-curve"
 import pQueue from "p-queue"
 import {
 	BID_DISCOVERY_PAD_SECONDS,
+	BID_PERMIT_SKEW_SECONDS,
 	type ChainClientManager,
 	type ContractInteractionService,
 	DelegationService,
@@ -69,15 +70,6 @@ const RETRACTION_DRAIN_TIMEOUT_MS = 30_000
  * the cap is set well above that rate: the memory cost is small.
  */
 const MAX_COMPLETED_ORDERS = 20_000
-
-/**
- * Added to a bid's validity window before a retracted bid stops being a candidate for a fill.
- * `validUntil` is the last moment the gateway accepts the bid, but the window is converted to
- * blocks at the fastest block time seen, so a slower chain keeps a bid executable longer in
- * wall-clock time, and the fill is seen only after its block is scanned. 120 s covers that
- * tail, and matches the permit skew allowed for the same execution tail.
- */
-const RETRACTED_BID_EXECUTION_MARGIN_SECONDS = 120
 
 /** A bid whose deposit may still be locked on Hyperbridge: placed or pooled, and not retracted. */
 function isLiveBid(row: StoredBid): boolean {
@@ -1937,11 +1929,16 @@ export class IntentFiller {
 	 * How long after it is stored a retracted bid may still execute, in milliseconds:
 	 * `bidValiditySeconds` plus `BID_DISCOVERY_PAD_SECONDS`, the window the bid is signed for,
 	 * counted from the row (written after the head that window was counted from was read),
-	 * plus a margin.
+	 * plus `BID_PERMIT_SKEW_SECONDS`.
+	 *
+	 * The skew is the same execution tail the bid's Permit2 deadline allows: a bid can execute
+	 * until its permit deadline, which is this window plus that skew. `validUntil` is block-based
+	 * and the window is converted to blocks at the fastest block time seen, so a slower chain
+	 * keeps a bid executable longer in wall-clock time, and the fill is seen only after its block
+	 * is scanned.
 	 */
 	private retractedBidWindowMs(): number {
-		const seconds =
-			this.configService.getBidValiditySeconds() + BID_DISCOVERY_PAD_SECONDS + RETRACTED_BID_EXECUTION_MARGIN_SECONDS
+		const seconds = this.configService.getBidValiditySeconds() + BID_DISCOVERY_PAD_SECONDS + BID_PERMIT_SKEW_SECONDS
 		return seconds * 1000
 	}
 

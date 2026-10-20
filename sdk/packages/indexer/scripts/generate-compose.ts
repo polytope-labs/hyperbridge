@@ -60,6 +60,7 @@ const generateNodeServices = () => {
 				// A standalone project with only event handlers over finalized blocks, so the node runs
 				// without multichain metadata, extrinsic decoding or historical rows
 				governance: true,
+				backfill: config.governanceCutoverBlock !== undefined,
 			})
 		}
 	})

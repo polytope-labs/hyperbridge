@@ -142,7 +142,9 @@ async fn serve(admins: Vec<String>) -> anyhow::Result<String> {
 	client.batch_execute(include_str!("../../tests/governance.sql")).await?;
 
 	let state = AppState {
-		db: Arc::new(db::connect(&url).await?),
+		db: Arc::new(
+			db::connect(&url, &db::Indexer::Standalone { schema: "governance".into() }).await?,
+		),
 		admins: Arc::new(admins),
 		limiter: Arc::new(RateLimiter::default()),
 	};

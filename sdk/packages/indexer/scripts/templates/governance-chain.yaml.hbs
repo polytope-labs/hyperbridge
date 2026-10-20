@@ -7,6 +7,9 @@
 dataSources:
   - kind: substrate/Runtime
     startBlock: {{blockNumber}}
+{{#if endBlock}}
+    endBlock: {{endBlock}}
+{{/if}}
     mapping:
       file: ./dist/index.js
       handlers:

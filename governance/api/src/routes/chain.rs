@@ -17,7 +17,7 @@ use crate::{error::ApiResult, primitives::Page};
 async fn indexed_height(state: &AppState) -> ApiResult<i64> {
 	let row = state
 		.db
-		.query_opt("SELECT value FROM governance._metadata WHERE key = 'lastProcessedHeight'", &[])
+		.query_opt("SELECT value FROM _metadata WHERE key = 'lastProcessedHeight'", &[])
 		.await?;
 	Ok(row.and_then(|row| row.get::<_, Value>(0).as_i64()).unwrap_or_default())
 }

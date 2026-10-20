@@ -151,10 +151,8 @@ const DEFAULT_BLOCK_TIME_SECONDS = 0.25
 const NETWORK_TIMEOUT_MS = 30_000
 /** Rebuilding a refund response fetches Hyperbridge and consensus proofs, which takes longer than a read. */
 const REBUILD_CLAIM_TIMEOUT_MS = 120_000
-/** Public BSC endpoints serve logs over a few hundred blocks at a time; the search stays near the fill. */
+/** Public BSC endpoints serve logs over a few hundred blocks at a time, so a wide search is read in chunks. */
 const LOG_CHUNK_BLOCKS = 300n
-const FILL_SEARCH_BEFORE_MS = 3 * 60_000
-const FILL_SEARCH_AFTER_MS = 60_000
 const ORDER_FILLED_EVENT = IntentGatewayABI.find(
 	(item) => item.type === "event" && item.name === "OrderFilled",
 ) as AbiEvent
@@ -1277,7 +1275,14 @@ export class BridgeTopUp {
 	/**
 	 * The transaction that filled the order. The executor reports it only for a fill this
 	 * process selected, so it comes from the indexer, or, while the indexer has yet to reach
-	 * BSC's latest blocks, from the gateway's `OrderFilled` log around when the fill was seen.
+	 * BSC's latest blocks, from the gateway's `OrderFilled` log.
+	 *
+	 * The log is searched over the whole range a fill can be in, not around when it was seen: a
+	 * fill found late (another filler's, after a restart) landed any time before the deadline. The
+	 * range starts where the order became fillable, which placement fixed as the deadline less
+	 * {@link ORDER_WINDOW_SECONDS} of BSC blocks (less an evidence margin, since the block time
+	 * is measured now and the order was built at an earlier one), and ends at the deadline or the
+	 * head. A failed read throws, so the caller retries; it never reads as "no fill".
 	 */
 	private async findFill(): Promise<HexString | undefined> {
 		const record = this.record!
@@ -1286,20 +1291,16 @@ export class BridgeTopUp {
 			if (indexed.filler && !record.filler) await this.update({ filler: indexed.filler })
 			return indexed.transactionHash
 		}
-		const seenAt = record.events?.find((event) => event.status === "FILLED")?.timestamp ?? record.stageTimes?.delivering
-		if (!seenAt) return undefined
 
 		const client = this.bsc()
+		const { deadline } = deserializeOrder(record.order)
 		const [latest, blockTime] = await Promise.all([
-			withTimeout(client.getBlock(), "the latest BSC block"),
+			withTimeout(client.getBlockNumber(), "the latest BSC block"),
 			this.blockTimeSeconds(),
 		])
-		const blockAt = (ms: number) => latest.number - BigInt(Math.ceil((Number(latest.timestamp) - ms / 1000) / blockTime))
-		const from = blockAt(seenAt - FILL_SEARCH_BEFORE_MS)
-		const to = (() => {
-			const end = blockAt(seenAt + FILL_SEARCH_AFTER_MS)
-			return end < latest.number ? end : latest.number
-		})()
+		const windowBlocks = BigInt(Math.ceil(ORDER_WINDOW_SECONDS / blockTime))
+		const from = belowTip(deadline - windowBlocks, evidenceMarginBlocks(client))
+		const to = deadline < latest ? deadline : latest
 		return this.scanLogs<HexString>(from, to, async (fromBlock, toBlock) => {
 			const logs = await withTimeout(
 				client.getLogs({
@@ -1483,9 +1484,29 @@ export class BridgeTopUp {
 				await this.update({ stage: "unfilled", error: message })
 				return true
 			}
-			case "CANCELLED":
-				await this.update({ stage: "reclaimed" })
+			case "CANCELLED": {
+				// A cancel on BSC does not move the escrow: anyone may send it once the deadline has passed,
+				// and the source escrow is refunded only when that cancel's `RefundEscrow` is relayed. So
+				// `reclaimed` is recorded only when the source gateway shows the refund; until then the
+				// top-up is `unfilled`, where the reclaim recovers the escrow.
+				const id = this.record!.id
+				let settled: boolean
+				try {
+					settled = await this.refunded(await this.gateway(this.record!.chain), deserializeOrder(this.record!.order), true)
+				} catch (err) {
+					// Neither outcome is recorded from a read that failed. The executor reports the cancel
+					// again when tracking resumes.
+					const reason = err instanceof Error ? err.message : String(err)
+					this.logger.warn({ err, id }, "Could not verify the refund of a cancelled BRIDGE top-up order")
+					await this.update({ error: `The order was cancelled; its refund is unverified, retrying: ${reason}` })
+					this.scheduleRetry(id, () => void this.resumeOrder())
+					return true
+				}
+				if (!settled) {
+					await this.update({ stage: "unfilled", error: "The order was cancelled on BSC but its escrow is not refunded yet" })
+				}
 				return true
+			}
 			default:
 				return false
 		}
@@ -1840,8 +1861,11 @@ export class BridgeTopUp {
 	 * too. So before calling it a refund the order's fill is checked on BSC ({@link filledByOther}),
 	 * and an order that filled moves to `delivering` instead (also true, since the reclaim has
 	 * nothing to do).
+	 *
+	 * An escrow read that fails reads as "not refunded" so the reclaim goes on to the cancel; a
+	 * caller that records an outcome from the answer passes `strict` to have it throw instead.
 	 */
-	private async refunded(gateway: IntentGateway, order: Order): Promise<boolean> {
+	private async refunded(gateway: IntentGateway, order: Order, strict = false): Promise<boolean> {
 		if (!this.record?.commitment) return false
 		const indexed = (await this.indexedOrder().catch(() => undefined))?.find((s) => s.status === "REFUNDED")
 		let onChain: boolean
@@ -1850,7 +1874,7 @@ export class BridgeTopUp {
 		} catch (err) {
 			// With the indexer reporting a refund the chain could not confirm, retry rather than go
 			// on as if nothing was refunded and send a cancel for an order that is already settled.
-			if (indexed) throw err
+			if (indexed || strict) throw err
 			return false
 		}
 		if (!onChain) return false

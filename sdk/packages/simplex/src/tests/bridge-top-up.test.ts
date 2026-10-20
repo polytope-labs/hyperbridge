@@ -403,42 +403,80 @@ describe("BRIDGE top-up persistence", () => {
 		])
 	})
 
-	it("finds a fill the indexer has not reached on BSC itself, near when it was seen", async () => {
-		const seenAt = 1_791_900_416_000
-		const { topUp } = topUpWith(
-			stored("delivering", {
-				commitment: `0x${"77".repeat(32)}`,
-				events: [{ status: "FILLED", timestamp: seenAt }],
-			}),
-		)
-		// The indexer has the order only as placed.
-		const fetchSpy = vi
-			.spyOn(globalThis, "fetch")
-			.mockImplementation(
-				async () => new Response(JSON.stringify({ data: { iOrderV3s: { nodes: [{ statusMetadata: { nodes: [] } }] } } })),
+	describe("finding a fill on BSC when the indexer has not reached it", () => {
+		const DEADLINE = 1_000_000n
+
+		/**
+		 * A delivering top-up whose order ends at `DEADLINE`, with BSC at 0.5 s a block and the
+		 * indexer holding the order only as placed. The order window is then 3600 blocks and the
+		 * evidence margin 600, so the search starts at 995_800.
+		 */
+		async function searching(head: bigint, getLogs: (range: { fromBlock: bigint; toBlock: bigint }) => unknown[]) {
+			const { topUp } = topUpWith(
+				stored("delivering", {
+					commitment: `0x${"77".repeat(32)}`,
+					order: serializeOrder({ ...ORDER, deadline: DEADLINE } as never),
+				}),
 			)
-		const ranges: [bigint, bigint][] = []
-		const internals = topUp as unknown as {
-			record: StoredBridgeTopUp
-			bsc: () => unknown
-			blockTimeSeconds: () => Promise<number>
-			findFill: () => Promise<HexString | undefined>
+			const fetchSpy = vi
+				.spyOn(globalThis, "fetch")
+				.mockImplementation(
+					async () =>
+						new Response(JSON.stringify({ data: { iOrderV3s: { nodes: [{ statusMetadata: { nodes: [] } }] } } })),
+				)
+			const ranges: [bigint, bigint][] = []
+			const internals = topUp as unknown as {
+				bsc: () => unknown
+				blockTimeSeconds: () => Promise<number>
+				findFill: () => Promise<HexString | undefined>
+				resumeDelivery: () => Promise<void>
+			}
+			// Loading the record would otherwise start its delivery, and with it a search of its own.
+			internals.resumeDelivery = async () => {}
+			await topUp.current()
+			internals.blockTimeSeconds = async () => 0.5
+			internals.bsc = () => ({
+				chain: { blockTime: 500 },
+				getBlockNumber: async () => head,
+				getLogs: async (range: { fromBlock: bigint; toBlock: bigint }) => {
+					ranges.push([range.fromBlock, range.toBlock])
+					return getLogs(range)
+				},
+			})
+			return { internals, ranges, restore: () => fetchSpy.mockRestore() }
 		}
-		await topUp.current()
-		internals.blockTimeSeconds = async () => 0.5
-		internals.bsc = () => ({
-			// The latest block is 2 minutes after the fill was seen.
-			getBlock: async () => ({ number: 1_000_000n, timestamp: BigInt(seenAt / 1000 + 120) }),
-			getLogs: async ({ fromBlock, toBlock }: { fromBlock: bigint; toBlock: bigint }) => {
-				ranges.push([fromBlock, toBlock])
-				return fromBlock <= 999_700n && 999_700n <= toBlock ? [{ transactionHash: FILL_TX }] : []
-			},
+
+		it("finds a fill from long before now, as long as it was before the deadline", async () => {
+			// The fill is 24_000 blocks (3 hours) behind the head, far outside a few minutes around now.
+			const { internals, ranges, restore } = await searching(1_024_000n, ({ fromBlock, toBlock }) =>
+				fromBlock <= 996_000n && 996_000n <= toBlock ? [{ transactionHash: FILL_TX }] : [],
+			)
+			expect(await internals.findFill()).toBe(FILL_TX)
+			// Searched from where the order became fillable (less the margin), a few hundred blocks at a time.
+			expect(ranges[0][0]).toBe(DEADLINE - 3_600n - 600n)
+			expect(ranges.every(([from, to]) => to - from < 300n)).toBe(true)
+			restore()
 		})
-		expect(await internals.findFill()).toBe(FILL_TX)
-		// Searched from 3 minutes before the fill was seen, a few hundred blocks at a time.
-		expect(ranges[0][0]).toBe(1_000_000n - 600n)
-		expect(ranges.every(([from, to]) => to - from < 300n)).toBe(true)
-		fetchSpy.mockRestore()
+
+		it("stops at the deadline, or at the head when that is lower", async () => {
+			const past = await searching(1_024_000n, () => [])
+			expect(await past.internals.findFill()).toBeUndefined()
+			expect(past.ranges.at(-1)![1]).toBe(DEADLINE)
+			past.restore()
+
+			const live = await searching(998_000n, () => [])
+			expect(await live.internals.findFill()).toBeUndefined()
+			expect(live.ranges.at(-1)![1]).toBe(998_000n)
+			live.restore()
+		})
+
+		it("throws, rather than report no fill, when a range cannot be read", async () => {
+			const { internals, restore } = await searching(1_024_000n, () => {
+				throw new Error("range unavailable")
+			})
+			await expect(internals.findFill()).rejects.toThrow("range unavailable")
+			restore()
+		})
 	})
 
 	it("only pays from a network the filler fills on and is delegated on", async () => {
@@ -2771,6 +2809,86 @@ describe("BRIDGE top-up live order tracking", () => {
 
 		await vi.waitFor(async () => expect((await data.state.get()).bridgeTopUp?.stage).toBe("unfilled"))
 		expect((await data.state.get()).bridgeTopUp?.error).toContain("Unexpected error: destination read failed")
+	})
+
+	describe("when the executor reports the order cancelled on BSC", () => {
+		/**
+		 * Tracks a live order with an executor that yields `CANCELLED` and a source gateway reading
+		 * `isOrderRefunded`. The record is built fresh: earlier tests write their outcomes into `OPEN`.
+		 */
+		async function cancelled(isOrderRefunded: () => Promise<boolean>, filled: HexString | Error = ZERO_ADDRESS) {
+			const { topUp, data } = topUpWith(
+				stored("awaiting_bids", {
+					commitment: `0x${"77".repeat(32)}`,
+					sessionPrivateKey: `0x${"55".repeat(32)}`,
+				}),
+			)
+			const internals = topUp as unknown as TopUpInternals
+			internals.gateways.set(
+				"EVM-8453",
+				Promise.resolve({
+					isOrderRefunded,
+					async *resumeBest() {
+						yield { status: "CANCELLED" }
+					},
+				}),
+			)
+			const fetchSpy = vi
+				.spyOn(globalThis, "fetch")
+				.mockImplementation(async () => new Response(JSON.stringify({ data: { iOrderV3s: { nodes: [] } } })))
+			// The first `_filled` read is the tracking flow's own, before the executor runs: nothing yet.
+			// Later ones are the refund check's, and read as the test says.
+			let reads = 0
+			const bsc = (topUp as unknown as { bsc: () => { readContract: unknown } }).bsc()
+			bsc.readContract = async () => {
+				if (++reads === 1) return ZERO_ADDRESS
+				if (filled instanceof Error) throw filled
+				return filled
+			}
+			await topUp.current()
+			return { data, restore: () => fetchSpy.mockRestore() }
+		}
+
+		it("records the order unfilled, not reclaimed, while its escrow is still held", async () => {
+			const { data, restore } = await cancelled(async () => false)
+
+			await vi.waitFor(async () => expect((await data.state.get()).bridgeTopUp?.stage).toBe("unfilled"))
+			const saved = (await data.state.get()).bridgeTopUp!
+			expect(saved.error).toContain("escrow is not refunded")
+			expect(saved.recoverySteps).toBeUndefined()
+			restore()
+		})
+
+		it("records the order reclaimed once the escrow is empty and `_filled` is its creator", async () => {
+			const { data, restore } = await cancelled(async () => true, SOLVER)
+
+			await vi.waitFor(async () => expect((await data.state.get()).bridgeTopUp?.stage).toBe("reclaimed"))
+			expect((await data.state.get()).bridgeTopUp?.recoverySteps?.map((step) => step.step)).toEqual(["FUNDS_CLAIMED"])
+			restore()
+		})
+
+		const unreadable: [string, () => Promise<boolean>, HexString | Error, string][] = [
+			["the escrow", async () => Promise.reject(new Error("source rpc down")), ZERO_ADDRESS, "source rpc down"],
+			["the fill", async () => true, new Error("BSC rpc down"), "BSC rpc down"],
+		]
+
+		it.each(unreadable)("records neither outcome, and retries, when %s cannot be read", async (_name, isOrderRefunded, filled, reason) => {
+			vi.useFakeTimers()
+			try {
+				const { data, restore } = await cancelled(isOrderRefunded, filled)
+				await vi.advanceTimersByTimeAsync(0)
+
+				const saved = (await data.state.get()).bridgeTopUp!
+				expect(saved.stage).toBe("awaiting_bids")
+				expect(saved.error).toContain("refund is unverified")
+				expect(saved.error).toContain(reason)
+				expect(saved.recoverySteps).toBeUndefined()
+				restore()
+			} finally {
+				vi.clearAllTimers()
+				vi.useRealTimers()
+			}
+		})
 	})
 
 	it("picks up an unfilled order the indexer shows as filled", async () => {

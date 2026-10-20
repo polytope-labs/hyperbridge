@@ -75,6 +75,19 @@ clients are already verified at boot and on runtime RPC edits.
   it looks for a refund, and so does tracking a live order (`trackOrder`): anyone may cancel on
   the destination once the deadline has passed, for instance while simplex was down, and that
   cancel sets `_filled` too. A failed read in tracking throws and is retried.
+- **A cancelled order is not reclaimed by itself.** When the executor reports `CANCELLED`, the
+  top-up is recorded by the same refund check, not as `reclaimed`: a cancel on BSC (anyone may send
+  it once the deadline has passed) refunds the source escrow only when its `RefundEscrow` is
+  relayed. A refunded escrow records `reclaimed`; one still held records `unfilled`, so the reclaim
+  can recover it. A read of the escrow or of `_filled` that fails records neither: the error is
+  noted, the stage stays, and tracking resumes after the delivery retry delay.
+- **A fill the indexer has not reached is found on BSC over the order's whole life.** `findFill`
+  reads the gateway's `OrderFilled` log for the commitment from where the order became fillable to
+  its deadline, capped at BSC's head. The start is the deadline less the order window
+  (`ORDER_WINDOW_SECONDS`) in blocks at the measured block time, less the evidence margin, since
+  placement fixes the deadline that way. A fill found late landed before the deadline, not near
+  when it was seen. It reads in `LOG_CHUNK_BLOCKS` chunks and a failed range throws, so the caller
+  retries; it never reports "no fill".
 - **Delivered** needs Hyperbridge's `queryRequestReceipt`. The indexer's `DESTINATION` status is
   still stored in `deliveryStatuses` for the timeline.
 - **Start** quotes the solver fee with the gateway's `quoteOrderFees` before persisting. The wallet

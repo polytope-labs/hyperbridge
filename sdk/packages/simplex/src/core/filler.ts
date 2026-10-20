@@ -1512,6 +1512,8 @@ export class IntentFiller {
 		// Execute with the most profitable strategy using the chain-specific queue
 		// This ensures transactions for the same chain are processed sequentially
 		const queuedAtMs = Date.now()
+		// Set once the task starts, and given back once it is over, however it ends.
+		let unpin: (() => void) | undefined
 		chainQueue.add(async () => {
 			const queueDurationSec = (Date.now() - queuedAtMs) / 1000
 			this.monitor.emit("orderTiming", { orderId: order.id, phase: "queue_wait", durationSec: queueDurationSec })
@@ -1527,8 +1529,11 @@ export class IntentFiller {
 			// limit-order priced it) still sends the one bid it always did. Nothing is
 			// held against the limit order: its on-chain budget refuses a fill past its
 			// cap, in the same calldata as the fill.
-			const plans = this.limitOrders && order.id ? this.contractService.cacheService.getBidPlans(order.id) : []
 			const cache = this.contractService.cacheService
+			// The evaluation these bids were priced by stays alive until the last of them is
+			// sent: a slow submission would otherwise expire the gas estimate the rest sign.
+			unpin = order.id ? cache.pinOrder(order.id) : undefined
+			const plans = this.limitOrders && order.id ? cache.getBidPlans(order.id) : []
 			let lastResult: FillResult | undefined
 			// Each bid's nonce key binds its own calldata, so every bid is the first
 			// sequence of a key no other bid shares and executes on its own: none waits
@@ -1684,7 +1689,9 @@ export class IntentFiller {
 			// The queued promise is nobody's return value, so the rethrow above would be an
 			// unhandled rejection — which this process has no handler for and Node turns
 			// into an exit, stopping the retraction sweep for every other outstanding bid.
-		}).catch((err) => this.logger.error({ orderId: order.id, err }, "Order execution task failed"))
+		})
+			.catch((err) => this.logger.error({ orderId: order.id, err }, "Order execution task failed"))
+			.finally(() => unpin?.())
 	}
 
 	/**

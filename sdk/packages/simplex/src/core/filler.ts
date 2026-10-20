@@ -153,6 +153,8 @@ export class IntentFiller {
 	private undelegatedChains = new Set<number>()
 	/** When each marked chain was last compared with the chain, by `Date.now()`. */
 	private delegationCheckedAt = new Map<number, number>()
+	/** The re-check running now for a chain, so concurrent orders await its answer. */
+	private delegationRechecks = new Map<number, Promise<boolean>>()
 	private retractionSweepInterval?: NodeJS.Timeout
 	private hyperbridge: Promise<IntentsCoprocessor> | undefined = undefined
 	private hyperbridgeEndpoint?: { wsUrl: string; substrateKey: string }
@@ -359,25 +361,37 @@ export class IntentFiller {
 	/**
 	 * Whether a marked chain is in fact delegated, and clears the mark when it is.
 	 *
-	 * Read at most once per `DELEGATION_RECHECK_MS` per chain: the time is taken
-	 * before the read, so orders arriving while it is in flight do not start their
-	 * own. A read that fails counts as not delegated, the same as at boot.
+	 * Read at most once per `DELEGATION_RECHECK_MS` per chain. Orders arriving while a
+	 * read is in flight await its answer rather than being skipped on the old mark: the
+	 * read can be the one that clears it. A read that fails counts as not delegated,
+	 * the same as at boot.
 	 */
-	private async recheckDelegation(chainId: number): Promise<boolean> {
+	private recheckDelegation(chainId: number): Promise<boolean> {
+		const inFlight = this.delegationRechecks.get(chainId)
+		if (inFlight) return inFlight
+
 		const now = Date.now()
 		const checkedAt = this.delegationCheckedAt.get(chainId)
-		if (checkedAt !== undefined && now - checkedAt < DELEGATION_RECHECK_MS) return false
+		if (checkedAt !== undefined && now - checkedAt < DELEGATION_RECHECK_MS) return Promise.resolve(false)
+		// Taken before the read, so the limit counts from when it started.
 		this.delegationCheckedAt.set(chainId, now)
 
-		const delegated = await this.delegation()
+		const recheck = this.delegation()
 			.isDelegated(`EVM-${chainId}`)
 			.catch(() => false)
-		if (!delegated) return false
-
-		this.logger.info({ chainId }, "Chain is delegated to the SolverAccount on chain, clearing the undelegated mark")
-		this.undelegatedChains.delete(chainId)
-		this.delegationCheckedAt.delete(chainId)
-		return true
+			.then((delegated) => {
+				if (!delegated) return false
+				this.logger.info(
+					{ chainId },
+					"Chain is delegated to the SolverAccount on chain, clearing the undelegated mark",
+				)
+				this.undelegatedChains.delete(chainId)
+				this.delegationCheckedAt.delete(chainId)
+				return true
+			})
+			.finally(() => this.delegationRechecks.delete(chainId))
+		this.delegationRechecks.set(chainId, recheck)
+		return recheck
 	}
 
 	/**
@@ -390,13 +404,14 @@ export class IntentFiller {
 	public async guardDelegation(chainId: number): Promise<void> {
 		const chain = `EVM-${chainId}`
 		// A chain that was watch-only at boot has no cached answer, so this is a live
-		// read. When it fails, solver selection is assumed active: the delegation check
-		// below then runs, and a failed read of that marks the chain undelegated, the
-		// conservative outcome. Letting the error escape would fail `setWatchOnly(false)`
-		// on a transient RPC error.
+		// read, and the read also fills the shared cache that intake needs to evaluate
+		// the chain's orders. When it fails the error escapes: assuming "active" would
+		// leave the cache empty and every later order dropped, so `setWatchOnly(false)`
+		// fails instead, the chain stays watch-only and the operator can retry.
 		const active = await this.contractService.isSolverSelectionActive(chain).catch((err) => {
-			this.logger.warn({ chainId, err }, "Could not read solver selection, assuming it is active")
-			return true
+			throw new Error(
+				`Could not read solver selection on ${chain}, so it stays watch-only: ${err instanceof Error ? err.message : String(err)}`,
+			)
 		})
 		if (!active) return
 		if (await this.delegation().isDelegated(chain).catch(() => false)) return
@@ -941,6 +956,10 @@ export class IntentFiller {
 				const solverSelectionActive = this.contractService.getCache().getSolverSelection(order.destination)
 				if (solverSelectionActive == null) {
 					this.logger.error({ orderId: order.id }, "Shared cache is not initialized")
+					this.monitor.emit("orderSkipped", {
+						orderId: order.id,
+						reason: "Solver selection not read for the destination chain",
+					})
 					return
 				}
 				if (solverSelectionActive && !this.hyperbridge) {

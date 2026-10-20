@@ -27,9 +27,9 @@ defaults to 20, must be a number `>= 0`, and is read through
   the way an unpriceable order sits below `minOrderSizeUsd`.
 - **Behaviour change: a partial nothing can price is skipped by default.** The operator's
   own book must give the payout, or the input it releases, a dollar value, and
-  `limitOrderUsdEdges` drops same-asset orders. A book of same-asset CNGN/CNGN or
-  EURC/EURC orders, or a ZARP/CNGN book on its own, has no path to a dollar stable, so
-  every partial on it is skipped until `minPartialFillUsd = 0` is set.
+  `limitOrderUsdEdges` drops same-asset orders. So the partials of a same-asset book
+  (CNGN/CNGN, EURC/EURC) and of a book with no path to a dollar stable (ZARP/CNGN on its
+  own) are all skipped until `minPartialFillUsd = 0` is set.
   `docs/content/developers/evm/simplex/configuration.mdx` documents the field beside
   `minOrderSizeUsd`, and `troubleshooting.mdx` lists both skip reasons.
 - The check runs before `estimateGasFillPost`, so a skipped bid costs no gas estimate.
@@ -79,7 +79,9 @@ belief: a failed `getCode`, or a delegation that mines after its receipt timeout
 a delegated wallet marked, and the dashboard cannot clear it because its switch reads
 the chain and is disabled. So `handleNewOrder` re-reads `isDelegated` for a marked chain
 at most once per `DELEGATION_RECHECK_MS` (60 s), and drops the mark, then evaluates the
-order, when the wallet is delegated. `handleNewOrder`
+order, when the wallet is delegated. The read in flight is held per chain
+(`delegationRechecks`), so orders arriving while it runs await its answer instead of
+being skipped on the old mark. `handleNewOrder`
 skips an order whose destination is in the set, logging at `info` and emitting
 `orderSkipped` with reason `undelegated`, right after the watch-only intake check. With
 `requireAll: true` a failure still throws as before, but the chain is marked first.
@@ -92,10 +94,15 @@ Turning watch-only off for a running chain (`ChainController.setWatchOnly(chainI
 calls `IntentFiller.guardDelegation`. A chain that was watch-only at boot was never
 delegated or marked, so on a solver-selection chain it reads `isDelegated` and marks the
 chain undelegated when that is false. The re-read at intake, or `enableFills`, clears it.
-That solver selection read is uncached for such a chain, so a failure of it is logged and
-solver selection is assumed active: the delegation check still runs, and a failed
-delegation read marks the chain undelegated, so a transient RPC error does not fail
-`setWatchOnly(false)`.
+That solver selection read is live for such a chain, and it also fills the shared cache
+that intake reads (`isSolverSelectionActive` caches its answer), so a chain turned out of
+watch-only can evaluate orders. When the read fails, `guardDelegation` throws
+`Could not read solver selection on EVM-<id>, so it stays watch-only: <reason>`:
+`ChainController.setWatchOnly(chainId, false)` rejects before the flag flips or anything
+is persisted, and the operator can retry. Assuming "active" would have left the cache
+empty and every later order dropped. Should an order still reach intake with no cached
+answer, it is skipped with `orderSkipped` reason `Solver selection not read for the
+destination chain` (and the existing error log) rather than dropped silently.
 
 `reconcile()` can reach `retire()` through `repost()` from its snapshot, so the
 `expired` write there takes the same `POSTABLE` status guard and cannot undo a cancel.

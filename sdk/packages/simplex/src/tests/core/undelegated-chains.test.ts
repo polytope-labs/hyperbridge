@@ -13,7 +13,17 @@ import { stubOrderScanner } from "../helpers/stub-scanner"
 
 const OUR_ADDRESS = "0xAAAA00000000000000000000000000000000AAAA" as HexString
 
-function build(results: Record<string, boolean>, options: { chainConfigs?: number[]; solverSelectionActive?: boolean; solverSelectionFails?: boolean } = {}) {
+function build(
+	results: Record<string, boolean>,
+	options: {
+		chainConfigs?: number[]
+		solverSelectionActive?: boolean
+		solverSelectionFails?: boolean
+		/** The shared cache starts empty, as for a chain that was watch-only at boot. */
+		cacheEmpty?: boolean
+		maxConcurrentOrders?: number
+	} = {},
+) {
 	const chainConfigs = options.chainConfigs ?? [1, 8453]
 	const delegationResults = { ...results }
 	// Once the operator enables fills on a chain, its delegation succeeds.
@@ -29,12 +39,16 @@ function build(results: Record<string, boolean>, options: { chainConfigs?: numbe
 	const onChain: Record<string, boolean> = {}
 	const isDelegated = vi.fn(async (chain: string) => onChain[chain] ?? false)
 	const isUserAllowed = vi.fn(() => false) // ends the happy path right after the guards
-	const getSolverSelection = vi.fn(() => false)
+	// The shared cache the intake check reads. Boot fills it for the chains that fill;
+	// a chain that was watch-only at boot has no entry until a read of solver selection
+	// writes one, which is what `ContractInteractionService.isSolverSelectionActive` does.
+	const cache = new Map<string, boolean>(options.cacheEmpty ? [] : [["EVM-1", false], ["EVM-8453", false]])
+	const getSolverSelection = vi.fn((chain: string) => cache.get(chain) ?? null)
 
 	const filler = new IntentFiller(
 		chainConfigs.map((chainId) => ({ chainId }) as never),
 		[],
-		{ maxConcurrentOrders: 1 } as never,
+		{ maxConcurrentOrders: options.maxConcurrentOrders ?? 1 } as never,
 		{
 			loggers: undefined,
 			getHyperbridgeWsUrl: () => undefined,
@@ -47,9 +61,11 @@ function build(results: Record<string, boolean>, options: { chainConfigs?: numbe
 		{} as never,
 		{
 			getCache: () => ({ getSolverSelection }),
-			isSolverSelectionActive: async () => {
+			isSolverSelectionActive: async (chain: string) => {
 				if (options.solverSelectionFails) throw new Error("rpc down")
-				return options.solverSelectionActive ?? true
+				const active = options.solverSelectionActive ?? true
+				cache.set(chain, active)
+				return active
 			},
 			topUpEntryPointDeposit: async () => {},
 		} as never,
@@ -62,7 +78,7 @@ function build(results: Record<string, boolean>, options: { chainConfigs?: numbe
 	// through this service. Both are stubbed to the failure under test.
 	;(filler as any).hyperbridge = Promise.resolve({})
 	;(filler as any).delegationService = { setupDelegationOnChains, isDelegated }
-	return { filler, isUserAllowed, delegate, isDelegated, onChain }
+	return { filler, isUserAllowed, delegate, isDelegated, onChain, cache }
 }
 
 async function detect(filler: IntentFiller, destination: string) {
@@ -183,6 +199,48 @@ describe("a chain whose delegation failed", () => {
 		expect(isUserAllowed).toHaveBeenCalledTimes(1)
 	})
 
+	it("makes orders that arrive during the re-check wait for its answer", async () => {
+		const { filler, isUserAllowed, isDelegated } = build({ "EVM-1": true, "EVM-8453": false }, { maxConcurrentOrders: 5 })
+		const skipped: Array<{ orderId?: string; reason?: string }> = []
+		filler.monitor.on("orderSkipped", (event) => skipped.push(event))
+		await (filler as any).setupSolverSelection(["EVM-1", "EVM-8453"], { requireAll: false })
+
+		let answer!: (delegated: boolean) => void
+		isDelegated.mockImplementationOnce(() => new Promise<boolean>((resolve) => (answer = resolve)))
+		for (const id of ["0xa", "0xb", "0xc"]) {
+			;(filler as any).handleNewOrder({ id, user: "0xUSER", source: "EVM-1", destination: "EVM-8453" }, "0xtx")
+		}
+		await vi.waitFor(() => expect(isDelegated).toHaveBeenCalledTimes(1))
+		expect(skipped).toEqual([])
+
+		// The one read clears the mark, and every order that was waiting is evaluated.
+		answer(true)
+		await (filler as any).globalQueue.onIdle()
+		expect(isDelegated).toHaveBeenCalledTimes(1)
+		expect(isUserAllowed).toHaveBeenCalledTimes(3)
+		expect(skipped).toEqual([])
+	})
+
+	it("skips every order that waited when the re-check finds the chain undelegated", async () => {
+		const { filler, isUserAllowed, isDelegated } = build({ "EVM-1": true, "EVM-8453": false }, { maxConcurrentOrders: 5 })
+		const skipped: Array<{ orderId?: string; reason?: string }> = []
+		filler.monitor.on("orderSkipped", (event) => skipped.push(event))
+		await (filler as any).setupSolverSelection(["EVM-1", "EVM-8453"], { requireAll: false })
+
+		let answer!: (delegated: boolean) => void
+		isDelegated.mockImplementationOnce(() => new Promise<boolean>((resolve) => (answer = resolve)))
+		for (const id of ["0xa", "0xb"]) {
+			;(filler as any).handleNewOrder({ id, user: "0xUSER", source: "EVM-1", destination: "EVM-8453" }, "0xtx")
+		}
+		await vi.waitFor(() => expect(isDelegated).toHaveBeenCalledTimes(1))
+
+		answer(false)
+		await (filler as any).globalQueue.onIdle()
+		expect(isDelegated).toHaveBeenCalledTimes(1)
+		expect(skipped.map((event) => event.reason)).toEqual(["undelegated", "undelegated"])
+		expect(isUserAllowed).not.toHaveBeenCalled()
+	})
+
 	it("keeps a chain marked when the read fails", async () => {
 		const { filler, isUserAllowed, isDelegated } = build({ "EVM-1": true, "EVM-8453": false })
 		await (filler as any).setupSolverSelection(["EVM-1", "EVM-8453"], { requireAll: false })
@@ -222,22 +280,45 @@ describe("guardDelegation, for a chain turned out of watch-only", () => {
 		expect(isUserAllowed).toHaveBeenCalled()
 	})
 
-	it("still checks delegation when the solver selection read fails", async () => {
-		// Uncached for a chain that was watch-only at boot, so a transient RPC error
-		// must not fail `setWatchOnly(false)` or skip the check.
-		const { filler, isDelegated } = build({}, { chainConfigs: [8453], solverSelectionFails: true })
+	it("fails, leaving the chain watch-only, when the solver selection read fails", async () => {
+		// Uncached for a chain that was watch-only at boot. Assuming "active" would leave
+		// the shared cache empty and every later order dropped, so the error escapes and
+		// the operator can retry.
+		const { filler, isDelegated, cache } = build({}, { chainConfigs: [8453], solverSelectionFails: true, cacheEmpty: true })
+		filler.setWatchOnly(8453, true)
 
-		await expect(filler.guardDelegation(8453)).resolves.toBeUndefined()
-		expect(isDelegated).toHaveBeenCalledWith("EVM-8453")
-		expect((filler as any).undelegatedChains.has(8453)).toBe(true)
+		await expect(filler.guardDelegation(8453)).rejects.toThrow(/Could not read solver selection on EVM-8453.*rpc down/)
+		expect(isDelegated).not.toHaveBeenCalled()
+		expect((filler as any).undelegatedChains.has(8453)).toBe(false)
+		expect(filler.getWatchOnly()[8453]).toBe(true)
+		expect(cache.has("EVM-8453")).toBe(false)
 	})
 
-	it("leaves a delegated chain alone when the solver selection read fails", async () => {
-		const { filler, onChain } = build({}, { chainConfigs: [8453], solverSelectionFails: true })
+	it("fills the shared cache, so a chain turned out of watch-only evaluates its orders", async () => {
+		const { filler, isUserAllowed, onChain, cache } = build(
+			{},
+			{ chainConfigs: [8453], solverSelectionActive: true, cacheEmpty: true },
+		)
 		onChain["EVM-8453"] = true
+		const skipped: Array<{ reason?: string }> = []
+		filler.monitor.on("orderSkipped", (event) => skipped.push(event))
 
 		await filler.guardDelegation(8453)
-		expect((filler as any).undelegatedChains.has(8453)).toBe(false)
+		expect(cache.get("EVM-8453")).toBe(true)
+
+		await detect(filler, "EVM-8453")
+		expect(isUserAllowed).toHaveBeenCalled()
+		expect(skipped).toEqual([])
+	})
+
+	it("records a skip, rather than dropping silently, when the shared cache has no answer", async () => {
+		const { filler, isUserAllowed } = build({}, { chainConfigs: [8453], cacheEmpty: true })
+		const skipped: Array<{ orderId?: string; reason?: string }> = []
+		filler.monitor.on("orderSkipped", (event) => skipped.push(event))
+
+		await detect(filler, "EVM-8453")
+		expect(skipped).toEqual([{ orderId: "0xorder", reason: "Solver selection not read for the destination chain" }])
+		expect(isUserAllowed).not.toHaveBeenCalled()
 	})
 
 	it("leaves a chain without solver selection alone", async () => {

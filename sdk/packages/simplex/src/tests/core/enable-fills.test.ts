@@ -101,6 +101,15 @@ describe("ChainController.setWatchOnly", () => {
 		expect(persist).toHaveBeenCalled()
 	})
 
+	it("leaves the chain watch-only, and unsaved, when the delegation check rejects", async () => {
+		const { controller, intentFiller, persist } = controllerFor({ watchOnly: { 56: true } })
+		intentFiller.guardDelegation.mockRejectedValue(new Error("Could not read solver selection on EVM-56"))
+
+		await expect(controller.setWatchOnly(56, false)).rejects.toThrow(/Could not read solver selection/)
+		expect(intentFiller.setWatchOnly).not.toHaveBeenCalled()
+		expect(persist).not.toHaveBeenCalled()
+	})
+
 	it("does not check delegation when it turns watch-only on", async () => {
 		const { controller, intentFiller } = controllerFor()
 		await controller.setWatchOnly(56, true)

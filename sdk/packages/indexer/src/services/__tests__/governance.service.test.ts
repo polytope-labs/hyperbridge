@@ -185,6 +185,26 @@ describe("GovernanceService", () => {
 		expect(records.has(`GovernanceVote:2-${ALICE}`)).toBe(true)
 	})
 
+	it("keeps a finished referendum's electorate when its deposit is refunded later", async () => {
+		referendum(2, true)
+		records.get("GovernanceReferendum:2").electorate = 50n
+		;(global as any).api.query.referenda.referendumInfoFor.mockResolvedValueOnce({
+			isNone: false,
+			isSome: true,
+			unwrap: () => ({ isOngoing: false }),
+		})
+
+		await GovernanceService.handleReferendaEvent(
+			event("DecisionDepositRefunded", { index: 2, who: ALICE, amount: 1 }, 200),
+		)
+
+		expect(records.get("GovernanceReferendum:2")).toMatchObject({
+			electorate: 50n,
+			state: "Confirmed",
+			updatedBlock: 200,
+		})
+	})
+
 	it("opens, replaces and closes delegation periods and refreshes the delegatee", async () => {
 		referendum(1, false)
 		votingFor.set(BOB, [[1, casting([[1, standard(true, 1, 4n)]], 30n)]])

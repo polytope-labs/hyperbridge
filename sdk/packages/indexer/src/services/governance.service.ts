@@ -149,7 +149,9 @@ export class GovernanceService {
 		const ongoing =
 			this.ongoingInfo(info) ?? (referendum.isFinal ? undefined : await this.ongoingInfoBefore(event, index))
 		referendum.info = ongoing ?? referendum.info
-		referendum.electorate = await this.electorate()
+		// Deposit refunds arrive after a referendum ends, and its tally was measured against the
+		// electorate when it ended
+		if (!referendum.isFinal) referendum.electorate = await this.electorate()
 		if (event.event.method === "Confirmed") referendum.enactmentTask = this.enactmentTask(index)
 		if (!DEPOSIT_REFUNDS.includes(event.event.method)) {
 			referendum.state = event.event.method
@@ -161,7 +163,10 @@ export class GovernanceService {
 		await referendum.save()
 		await this.saveReferendumEvent(referendum.id, event.event.method, args, position)
 		// Ongoing referenda are read from storage, finishing events carry the final tally themselves
-		if (tally) await this.saveTallySnapshot(referendum.id, tally, referendum.electorate, position)
+		if (tally) {
+			const electorate = referendum.electorate ?? (await this.electorate())
+			await this.saveTallySnapshot(referendum.id, tally, electorate, position)
+		}
 	}
 
 	/** Refreshes the track definitions, which only change with a runtime upgrade. */

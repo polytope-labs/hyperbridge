@@ -3273,7 +3273,7 @@ type GovernanceReferendum @entity {
 	support: BigInt!
 
 	"""
-	Active issuance at the referendum's last event, which support is measured against
+	Active issuance at the referendum's last event before it ended, which support is measured against
 	"""
 	electorate: BigInt
 

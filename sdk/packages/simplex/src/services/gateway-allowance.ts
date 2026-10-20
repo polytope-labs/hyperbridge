@@ -7,6 +7,55 @@ import type { FillerConfigService } from "@/services/FillerConfigService"
 import type { Logger } from "@/services/Logger"
 import type { TokenSender } from "@/services/TokenSender"
 
+/** IntentGateway addresses a chain no longer points at, by chain ID. */
+export type RetiredGateways = Readonly<Record<number, readonly HexString[]>>
+
+/**
+ * Mainnet IntentGateway addresses the SDK config has since replaced. The over-approval this sweep
+ * undoes dates from 2026-03-11 (9149fc527), so every gateway the filler pointed at from then on
+ * may still hold an allowance. Each address was the filler's gateway on the chains below, and the
+ * dates are those of the SDK config commits that set it:
+ *
+ * - `0x2d61…` from 2b0e7fb12 (2026-03-05; Optimism and Gnosis from 2caeb37d6, 2026-03-12) to
+ *   898e9e95a (2026-05-13, #825).
+ * - `0x09a7…` from 898e9e95a to bf74af936 (2026-05-29, #933).
+ * - `0x16F9…` from bf74af936 to f7e085486 (2026-06-25, #996), which moved mainnet to `0xAe04…`.
+ *   Polkadot Hub took it from 76514f7e4 (2026-05-27) until the same move.
+ */
+const RETIRED_MAINNET_GATEWAYS: readonly HexString[] = [
+	"0x2d61624A17f361020679FaA16fbB566C344AaF4B",
+	"0x09a74AA91eb532C21862d4C6222753e4fC7e22dB",
+	"0x16F9E57f735bBfF9f6c4E5276330f9c437d0e9E0",
+]
+
+/**
+ * Testnet gateways the SDK config has since replaced: BSC Chapel and Polygon Amoy used
+ * `0xFbF5…` from 9149fc527 (2026-03-11), `0xE13f…` from 713a589ba (2026-06-05, #950), and
+ * `0x6CF4…` from 57982b94d (2026-06-30, #1009).
+ */
+const RETIRED_TESTNET_GATEWAYS: readonly HexString[] = [
+	"0xFbF50B2b32768127603cC9eF4b871574b881b8eD",
+	"0xE13fB34CAe12505ae51BaC8C405AF8EB27AC8058",
+]
+
+/**
+ * Retired gateways per chain, from the history of `sdk/src/configs/chain.ts`. A chain that has
+ * kept its gateway, or never had a retired one, is absent. A new gateway move adds the address it
+ * leaves behind here, since an allowance to it outlives the config entry.
+ */
+export const RETIRED_GATEWAY_ADDRESSES: RetiredGateways = {
+	1: RETIRED_MAINNET_GATEWAYS,
+	10: RETIRED_MAINNET_GATEWAYS,
+	56: RETIRED_MAINNET_GATEWAYS,
+	100: RETIRED_MAINNET_GATEWAYS,
+	137: RETIRED_MAINNET_GATEWAYS,
+	8453: RETIRED_MAINNET_GATEWAYS,
+	42161: RETIRED_MAINNET_GATEWAYS,
+	420420419: ["0x16F9E57f735bBfF9f6c4E5276330f9c437d0e9E0"],
+	97: RETIRED_TESTNET_GATEWAYS,
+	80002: RETIRED_TESTNET_GATEWAYS,
+}
+
 export interface StaleGatewayAllowanceDeps {
 	clientManager: Pick<ChainClientManager, "getPublicClient">
 	configService: Pick<
@@ -18,6 +67,8 @@ export interface StaleGatewayAllowanceDeps {
 	solver: HexString
 	/** Chains the filler only observes: it never sends from them, so it does not here. */
 	watchOnly?: Record<number, boolean>
+	/** Defaults to {@link RETIRED_GATEWAY_ADDRESSES}. */
+	retiredGateways?: RetiredGateways
 	logger: Pick<Logger, "info" | "warn">
 }
 
@@ -47,6 +98,11 @@ function isConfigured(address: HexString): boolean {
  * the tokens it touches, so the leftover would otherwise stand on a chain until the next fill in
  * that token there, and the gateway is an upgradeable proxy. This clears it at boot instead.
  *
+ * The same code ran against the gateways the chain used before its current one, and moving to a
+ * new gateway does not clear what was granted to the old one. So the sweep covers the current
+ * gateway and every address in `retiredGateways` for the chain, other than one equal to the
+ * current gateway. A chain with no retired address costs no extra reads.
+ *
  * Reads `allowance(solver, gateway)` for the gateway's fee token and the configured USDC and USDT
  * on every configured chain that is not watch-only, and sends `approve(gateway, 0)` for each
  * that is not zero, one call per submission: `submitCalls` tries a sponsored op whenever a paymaster
@@ -58,18 +114,20 @@ function isConfigured(address: HexString): boolean {
  */
 export async function revokeStaleGatewayAllowances(deps: StaleGatewayAllowanceDeps): Promise<void> {
 	const { configService, logger } = deps
-	const chains = configService
-		.getConfiguredChainIds()
-		.filter((chainId) => deps.watchOnly?.[chainId] !== true)
-		.map((chainId) => `EVM-${chainId}`)
+	const chainIds = configService.getConfiguredChainIds().filter((chainId) => deps.watchOnly?.[chainId] !== true)
+	const retiredGateways = deps.retiredGateways ?? RETIRED_GATEWAY_ADDRESSES
 
-	// Chains run side by side, but one chain's tokens go one after another: two native
-	// transactions from the same wallet would race for a nonce, and so would two ops on the one
-	// revoke nonce key. Another chain has its own EntryPoint and wallet nonce, so it never shares them.
+	// Chains run side by side, but one chain's revokes go one after another, over its tokens and
+	// gateways alike: two native transactions from the same wallet would race for a nonce, and so
+	// would two ops on the one revoke nonce key. Going in turn only keeps them apart while each op
+	// confirms. If one is left unconfirmed, the next op on that key collides with it and fails, and
+	// the next boot retries it. Another chain has its own EntryPoint and wallet nonce, so it never
+	// shares them.
 	await Promise.all(
-		chains.map(async (chain) => {
+		chainIds.map(async (chainId) => {
+			const chain = `EVM-${chainId}`
 			try {
-				await revokeOnChain(deps, chain)
+				await revokeOnChain(deps, chain, retiredGateways[chainId] ?? [])
 			} catch (err) {
 				logger.warn({ chain, err }, "Could not check the gateway allowance, leaving it as it is")
 			}
@@ -77,10 +135,21 @@ export async function revokeStaleGatewayAllowances(deps: StaleGatewayAllowanceDe
 	)
 }
 
-async function revokeOnChain(deps: StaleGatewayAllowanceDeps, chain: string): Promise<void> {
+async function revokeOnChain(
+	deps: StaleGatewayAllowanceDeps,
+	chain: string,
+	retired: readonly HexString[],
+): Promise<void> {
 	const { clientManager, configService, contractService, tokenSender, solver, logger } = deps
 	const client = clientManager.getPublicClient(chain)
 	const gateway = configService.getIntentGatewayAddress(chain)
+	// Distinct from the current gateway and from each other; the current one is swept first.
+	const gateways = new Map<string, { address: HexString; retired: boolean }>([
+		[gateway.toLowerCase(), { address: gateway, retired: false }],
+	])
+	for (const address of retired) {
+		if (!gateways.has(address.toLowerCase())) gateways.set(address.toLowerCase(), { address, retired: true })
+	}
 
 	const tokens = new Map<string, HexString>()
 	const add = (token: HexString) => {
@@ -95,30 +164,35 @@ async function revokeOnChain(deps: StaleGatewayAllowanceDeps, chain: string): Pr
 	add(configService.getUsdcAsset(chain))
 	add(configService.getUsdtAsset(chain))
 
-	for (const token of tokens.values()) {
-		try {
-			const allowance = (await client.readContract({
-				address: token,
-				abi: ERC20_ABI,
-				functionName: "allowance",
-				args: [solver, gateway],
-			})) as bigint
-			if (allowance === 0n) continue
+	for (const { address: spender, retired: isRetired } of gateways.values()) {
+		for (const token of tokens.values()) {
+			try {
+				const allowance = (await client.readContract({
+					address: token,
+					abi: ERC20_ABI,
+					functionName: "allowance",
+					args: [solver, spender],
+				})) as bigint
+				if (allowance === 0n) continue
 
-			const revoke: ERC7821Call = {
-				target: token,
-				value: 0n,
-				data: encodeFunctionData({ abi: ERC20_ABI, functionName: "approve", args: [gateway, 0n] }),
+				const revoke: ERC7821Call = {
+					target: token,
+					value: 0n,
+					data: encodeFunctionData({ abi: ERC20_ABI, functionName: "approve", args: [spender, 0n] }),
+				}
+				const { txHash, sponsored } = await tokenSender.submitCalls(chain, [revoke], {
+					nonceKey: REVOKE_NONCE_KEY,
+				})
+				logger.info(
+					{ chain, token, gateway: spender, retired: isRetired, allowance: allowance.toString(), txHash, sponsored },
+					"Revoked a stale IntentGateway allowance",
+				)
+			} catch (err) {
+				logger.warn(
+					{ chain, token, gateway: spender, retired: isRetired, err },
+					"Could not revoke a stale IntentGateway allowance",
+				)
 			}
-			const { txHash, sponsored } = await tokenSender.submitCalls(chain, [revoke], {
-				nonceKey: REVOKE_NONCE_KEY,
-			})
-			logger.info(
-				{ chain, token, gateway, allowance: allowance.toString(), txHash, sponsored },
-				"Revoked a stale IntentGateway allowance",
-			)
-		} catch (err) {
-			logger.warn({ chain, token, gateway, err }, "Could not revoke a stale IntentGateway allowance")
 		}
 	}
 }

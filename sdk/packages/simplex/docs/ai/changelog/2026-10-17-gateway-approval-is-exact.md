@@ -39,6 +39,20 @@ configured chain that is not watch-only. Each non-zero allowance gets one `appro
 and bundler are configured, and sends natively only when the bundler refuses it; a single call goes
 straight to the token, so that fallback works from a wallet that is not delegated yet.
 
+The sweep also covers the gateways a chain has since left. The over-approval has been in the code
+since 2026-03-11, and moving to a new gateway does not clear what was granted to the old one. So for
+each chain it reads the same tokens against every address in `RETIRED_GATEWAY_ADDRESSES` and revokes
+a non-zero allowance the same way, with the same nonce key. An address equal to the chain's current
+gateway is skipped, and a chain with no retired address does no extra reads. The list is per chain
+ID, taken from the history of the SDK's `chain.ts`:
+
+- Mainnets 1, 10, 56, 100, 137, 8453 and 42161: `0x2d61…`, `0x09a7…` and `0x16F9…`, before the move
+  to `0xAe04…` (#996).
+- Polkadot Hub mainnet (420420419): `0x16F9…`.
+- BSC Chapel (97) and Polygon Amoy (80002): `0xFbF5…` and `0xE13f…`, before `0x6CF4…`.
+
+A later gateway move has to add the address it leaves behind to that list.
+
 The revoke covers the gateway fee token and the configured USDC and USDT, where the large leftover
 allowance was. Other output tokens a pre-fix clamped fill paid may hold a small leftover allowance,
 and they are not swept.
@@ -48,9 +62,12 @@ The sponsored revoke runs on its own EntryPoint nonce key (`submitCalls`' option
 30s later, the first vault sweep on key 0, and two ops on one key read the same `getNonce`, so the
 bundler would reject or replace one of them. The key is a fixed hash of
 `simplex.gateway-allowance-revoke`, shifted to fit the key's 192 bits. A bid's key is a hash of its
-commitment, session key and calldata, so the two do not meet. One chain's tokens are revoked one
-after another, so they share the key without competing.
+commitment, session key and calldata, so the two do not meet. One chain's revokes (its tokens, and
+its current and retired gateways) go one after another on that key. That keeps them apart only
+while each op confirms: if one is left unconfirmed, the next op on the key collides with it and
+fails, and the next boot retries it.
 
-It is best-effort and runs in the background: each revocation is logged, a failure is a warning, and
-neither delays nor fails boot. It is idempotent, since a revoked allowance reads zero on the next boot.
-It costs one small transaction per affected token and chain, once.
+It is best-effort and runs in the background: each revocation is logged (with the `gateway` and
+whether it is `retired`), a failure is a warning, and neither delays nor fails boot. It is idempotent,
+since a revoked allowance reads zero on the next boot. It costs one small transaction per affected
+token, gateway and chain, once.

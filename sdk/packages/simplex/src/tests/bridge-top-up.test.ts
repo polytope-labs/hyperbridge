@@ -185,6 +185,9 @@ const CANCEL_DATA = encodeFunctionData({
 const APPROVE_DATA = encodeFunctionData({ abi: ERC20_ABI, functionName: "approve", args: [GATEWAY, RELAYER_FEE] })
 const APPROVE_ZERO_DATA = encodeFunctionData({ abi: ERC20_ABI, functionName: "approve", args: [GATEWAY, 0n] })
 
+/** The submission `submitCalls` reports for a cancel that was sent and confirmed. */
+const SENT_CANCEL = { kind: "tx", txHash: "0xcanceltx", nonce: 4, submittedAt: 1 } as const
+
 /** The IntentGateway and host the test config returns for every chain. */
 const INTENT_GATEWAY = "0xAe041F7B0CB581876832830baeB6a2Aa2a3C9716" as HexString
 const HOST = "0x620128E2B19193d6Bd244a3AC8D3bBa0541B19c3" as HexString
@@ -489,10 +492,11 @@ describe("BRIDGE top-up persistence", () => {
 				sent.push(calls)
 				// The second batch is the claim; the escrow is refunded by it.
 				if (sent.length === 2) refunded = true
-				return { txHash: sent.length === 1 ? "0xcanceltx" : "0xclaimtx", sponsored: true }
+				return { txHash: sent.length === 1 ? "0xcanceltx" : "0xclaimtx", sponsored: true, submission: SENT_CANCEL }
 			},
 		}
 		;(internals.deps.clientManager as unknown as Record<string, unknown>).getPublicClient = () => ({
+			getBlockNumber: async () => 1_000n,
 			readContract: async ({ functionName }: { functionName: string }) => {
 				if (functionName === "feeToken") return FEE_TOKEN
 				if (functionName === "balanceOf") return 1_000_000n
@@ -526,6 +530,13 @@ describe("BRIDGE top-up persistence", () => {
 		expect(sent[1]).toEqual([{ target: handler, value: 0n, data: "0xresponse" }])
 		// The cancel's GET request is kept for rebuilding the claim.
 		expect(record.getCommitment).toBe(GET_COMMITMENT)
+		// The submission is kept, with the height read before the send, until ORDER_CANCELED is recorded.
+		const submitted = snapshots.filter((snapshot) => snapshot.reclaimSubmission)
+		expect(submitted.length).toBeGreaterThan(0)
+		expect(submitted[0].reclaimSubmission).toEqual({ ...SENT_CANCEL, fromBlock: "1000" })
+		expect(submitted.every((snapshot) => !snapshot.recoverySteps?.some((step) => step.step === "ORDER_CANCELED"))).toBe(true)
+		expect(record.reclaimSubmission).toBeUndefined()
+		expect(record.reclaimTxHash).toBe("0xcanceltx")
 		// The finalized step and its calldata reach the store together, never one without the other.
 		const finalized = snapshots.filter((snapshot) =>
 			snapshot.recoverySteps?.some((step) => step.step === "HYPERBRIDGE_FINALIZED"),
@@ -649,11 +660,12 @@ describe("BRIDGE top-up persistence", () => {
 		;(internals.deps as unknown as Record<string, unknown>).tokenSender = {
 			submitCalls: async (_chain: string, calls: { target: string; value: bigint; data: string }[]) => {
 				sent.push(calls)
-				return { txHash: "0xcanceltx", sponsored: true }
+				return { txHash: "0xcanceltx", sponsored: true, submission: SENT_CANCEL }
 			},
 		}
 		// A same-chain cancel pays no relayer fee, so it reads no fee token or balance.
 		;(internals.deps.clientManager as unknown as Record<string, unknown>).getPublicClient = () => ({
+			getBlockNumber: async () => 1_000n,
 			readContract: async ({ functionName }: { functionName: string }) => {
 				reads += 1
 				throw new Error(`unexpected read: ${functionName}`)
@@ -1038,9 +1050,12 @@ function payingClient(
 		onGetLogs?: (range: { fromBlock: bigint; toBlock: bigint }) => void
 		/** The chain's clock in seconds at the block read; defaults to this host's. */
 		blockTimestamp?: (blockNumber: bigint) => number
+		/** The chain's declared block time in ms (null: none declared); defaults to 12 s, the 64-block floor of the margin. */
+		blockTime?: number | null
 	} = {},
 ) {
 	return {
+		chain: opts.blockTime === null ? {} : { blockTime: opts.blockTime ?? 12_000 },
 		getBlock: async ({ blockNumber }: { blockNumber: bigint }) => ({
 			timestamp: BigInt(opts.blockTimestamp ? opts.blockTimestamp(blockNumber) : Math.floor(Date.now() / 1000)),
 		}),
@@ -1575,14 +1590,19 @@ describe("BRIDGE top-up placement recovery", () => {
 			userOpReceiptError?: Error
 			/** The chain's clock in seconds at the evidence block. */
 			blockTimestamp?: number
-			/** A pending tx the node still lists; any other hash is unknown to it. */
-			pendingTx?: { hash: string; nonce: number }
+			/** The gateway's `OrderCancelled` logs the scan reads. */
+			logs?: { transactionHash: string; args: { commitment: string } }[]
+			/** The scan cannot be read. */
+			getLogsError?: Error
+			/** The paying chain's height, and a hook on each page the scan reads. */
+			latestBlock?: bigint
+			onGetLogs?: (range: { fromBlock: bigint; toBlock: bigint }) => void
 		},
-		/** The record at the start; a cancel hash from older code sits here instead of being sent. */
+		/** The record at the start; a cancel hash from an earlier send sits here instead of being sent. */
 		patch: Partial<StoredBridgeTopUp> = {},
 	) {
 		vi.useFakeTimers()
-		const { topUp, data } = topUpWith(stored("unfilled", { commitment: `0x${"77".repeat(32)}`, ...patch }))
+		const { topUp, data } = topUpWith(stored("unfilled", { commitment: ORDER_COMMITMENT, ...patch }))
 		const internals = topUp as unknown as TopUpInternals
 		const handedBack: string[] = []
 		internals.gateways.set(
@@ -1601,7 +1621,11 @@ describe("BRIDGE top-up placement recovery", () => {
 			submitCalls: async () => {
 				submits += 1
 				if (submits === 1 && submission) throw new SubmittedUnconfirmedError("no receipt in time", "EVM-8453", submission)
-				return { txHash: "0xnewcancel", sponsored: true }
+				return {
+					txHash: "0xnewcancel",
+					sponsored: true,
+					submission: { kind: "tx", txHash: "0xnewcancel", nonce: 9, submittedAt: 2 },
+				}
 			},
 			userOpReceipt: async () => {
 				if (client.userOpReceiptError) throw client.userOpReceiptError
@@ -1609,15 +1633,19 @@ describe("BRIDGE top-up placement recovery", () => {
 			},
 		}
 		;(internals.deps.clientManager as unknown as Record<string, unknown>).getPublicClient = () => ({
-			getBlockNumber: async () => 1_000n,
+			// 12 s blocks: the evidence margin is its 64-block floor.
+			chain: { blockTime: 12_000 },
+			getBlockNumber: async () => client.latestBlock ?? 1_000n,
 			getBlock: async () => ({ timestamp: BigInt(client.blockTimestamp ?? 0) }),
-			getTransactionReceipt: async () => {
+			getLogs: async (range: { fromBlock: bigint; toBlock: bigint }) => {
+				client.onGetLogs?.(range)
+				if (client.getLogsError) throw client.getLogsError
+				return client.logs ?? []
+			},
+			getTransactionReceipt: async ({ hash }: { hash: string }) => {
+				if (client.logs?.some((log) => log.transactionHash === hash)) return { status: "success", transactionHash: hash }
 				if (!client.receipt) throw new TransactionReceiptNotFoundError({ hash: PLACE_TX })
 				return client.receipt
-			},
-			getTransaction: async ({ hash }: { hash: string }) => {
-				if (client.pendingTx?.hash !== hash) throw new TransactionNotFoundError({ hash: hash as HexString })
-				return { ...client.pendingTx, blockNumber: null }
 			},
 			getTransactionCount: async () => client.accountNonce ?? 0,
 			readContract: async ({ functionName }: { functionName: string }) => {
@@ -1649,6 +1677,21 @@ describe("BRIDGE top-up placement recovery", () => {
 		expires: true,
 		submittedAt: 1,
 	} as const
+	/** A cancel submission as the record keeps it, with the height read before the send. */
+	const storedOp = {
+		kind: "userOp",
+		userOpHash: USER_OP_HASH,
+		nonce: "6",
+		nonceKey: "0",
+		expires: true,
+		submittedAt: 1,
+		fromBlock: "1000",
+	} as const
+	/** The `OrderCancelled` log the gateway emits for a cancel, in the transaction that made it. */
+	const cancelLog = (transactionHash: string, commitment: string = ORDER_COMMITMENT) => ({
+		transactionHash,
+		args: { commitment },
+	})
 	const withFetch = async (run: () => Promise<void>) => {
 		const fetchSpy = vi
 			.spyOn(globalThis, "fetch")
@@ -1663,19 +1706,42 @@ describe("BRIDGE top-up placement recovery", () => {
 		}
 	}
 
-	it("stores a cancel sent without a receipt as unconfirmed, with its nonce, and hands it back once it succeeded", () =>
+	it("stores a cancel sent without a receipt as unconfirmed, with its nonce and start block, and hands it back once it succeeded", () =>
 		withFetch(async () => {
 			const { afterFirst, record, submits, handedBack } = await retriedCancel(unconfirmedTx, {
 				receipt: { status: "success" },
 			})
 
-			expect(afterFirst.reclaimSubmission).toEqual({ kind: "tx", txHash: "0xcanceltx", nonce: 4, submittedAt: 1 })
+			expect(afterFirst.reclaimSubmission).toEqual({
+				kind: "tx",
+				txHash: "0xcanceltx",
+				nonce: 4,
+				submittedAt: 1,
+				fromBlock: "1000",
+			})
 			// Not a confirmed cancel yet: the hash is not offered to the SDK until a check shows it landed.
 			expect(afterFirst.reclaimTxHash).toBeUndefined()
 			expect(submits()).toBe(1)
 			expect(handedBack).toEqual(["0xcanceltx"])
 			expect(record.reclaimTxHash).toBe("0xcanceltx")
-			expect(record.reclaimSubmission).toBeUndefined()
+			// Kept until the ORDER_CANCELED step is recorded, so a re-bundled tx is still found.
+			expect(record.reclaimSubmission).toMatchObject({ txHash: "0xcanceltx" })
+		}))
+
+	it("keeps the submission of a cancel whose send was confirmed, and hands the SDK its hash", () =>
+		withFetch(async () => {
+			const { record, submits, handedBack } = await retriedCancel(undefined, {})
+
+			expect(submits()).toBe(1)
+			expect(handedBack).toEqual(["0xnewcancel"])
+			expect(record.reclaimTxHash).toBe("0xnewcancel")
+			expect(record.reclaimSubmission).toEqual({
+				kind: "tx",
+				txHash: "0xnewcancel",
+				nonce: 9,
+				submittedAt: 2,
+				fromBlock: "1000",
+			})
 		}))
 
 	it("sends a new cancel when the unconfirmed one reverted", () =>
@@ -1685,12 +1751,12 @@ describe("BRIDGE top-up placement recovery", () => {
 			expect(submits()).toBe(2)
 			expect(handedBack).toEqual(["0xnewcancel"])
 			expect(record.reclaimTxHash).toBe("0xnewcancel")
-			expect(record.reclaimSubmission).toBeUndefined()
+			expect(record.reclaimSubmission).toMatchObject({ txHash: "0xnewcancel" })
 		}))
 
 	it("sends a new cancel when the unconfirmed one was dropped and its nonce reused", () =>
 		withFetch(async () => {
-			// No receipt, and the wallet's nonce is past the cancel's: another tx took it.
+			// No receipt, no log, and the wallet's nonce is past the cancel's: another tx took it.
 			const { submits, handedBack } = await retriedCancel(unconfirmedTx, { accountNonce: 5 })
 
 			expect(submits()).toBe(2)
@@ -1708,17 +1774,46 @@ describe("BRIDGE top-up placement recovery", () => {
 			expect(record.reclaimSubmission).toMatchObject({ txHash: "0xcanceltx" })
 		}))
 
+	it("hands back the cancel the gateway's OrderCancelled log names when its receipt is unreadable", () =>
+		withFetch(async () => {
+			// The tx the log is in is not the one stored: the cancel was re-sent or re-bundled.
+			const { record, submits, handedBack } = await retriedCancel(unconfirmedTx, {
+				accountNonce: 5,
+				logs: [cancelLog("0xlogtx")],
+			})
+
+			expect(submits()).toBe(1)
+			expect(handedBack).toEqual(["0xlogtx"])
+			expect(record.reclaimTxHash).toBe("0xlogtx")
+		}))
+
+	it("finds a confirmed cancel whose bundle tx was re-bundled, by the UserOp hash and the OrderCancelled log", () =>
+		withFetch(async () => {
+			// The send was confirmed and left a hash, then the bundle was reorged out and re-bundled.
+			const { submits, handedBack, record } = await retriedCancel(
+				undefined,
+				{ userOpReceipt: null, entryPointNonce: 7n, logs: [cancelLog("0xrebundled")] },
+				{ reclaimTxHash: "0xold", reclaimSubmission: storedOp },
+			)
+
+			expect(submits()).toBe(0)
+			expect(handedBack).toEqual(["0xrebundled"])
+			expect(record.reclaimTxHash).toBe("0xrebundled")
+		}))
+
+	it("ignores an OrderCancelled log for another order", () =>
+		withFetch(async () => {
+			const other = cancelLog("0xother", `0x${"55".repeat(32)}`)
+			const { submits, handedBack } = await retriedCancel(unconfirmedTx, { accountNonce: 5, logs: [other] })
+
+			expect(submits()).toBe(2)
+			expect(handedBack).toEqual(["0xnewcancel"])
+		}))
+
 	it("does not resend a UserOp cancel that timed out: it is checked by hash, nonce and key", () =>
 		withFetch(async () => {
 			const waiting = await retriedCancel(unconfirmedOp, { entryPointNonce: 6n })
-			expect(waiting.afterFirst.reclaimSubmission).toEqual({
-				kind: "userOp",
-				userOpHash: USER_OP_HASH,
-				nonce: "6",
-				nonceKey: "0",
-				expires: true,
-				submittedAt: 1,
-			})
+			expect(waiting.afterFirst.reclaimSubmission).toEqual(storedOp)
 			expect(waiting.submits()).toBe(1)
 			expect(waiting.record.error).toContain("can still land")
 			cleanup()
@@ -1728,32 +1823,100 @@ describe("BRIDGE top-up placement recovery", () => {
 			expect(landed.handedBack).toEqual(["0xlanded"])
 			cleanup()
 
-			// The bundler has no receipt and the op's EntryPoint nonce was consumed: it is not ours.
+			// The bundler has no receipt, the chain has no log, and the op's EntryPoint nonce was consumed: not ours.
 			const dropped = await retriedCancel(unconfirmedOp, { entryPointNonce: 7n })
 			expect(dropped.submits()).toBe(2)
 			expect(dropped.handedBack).toEqual(["0xnewcancel"])
 		}))
 
-	it("waits, sending nothing, when the bundler cannot be asked about a cancel UserOp whose nonce moved", () =>
+	it("hands back a cancel the chain logged when the bundler cannot be asked", () =>
 		withFetch(async () => {
-			// The lookup failed, so it says nothing about the op: a moved nonce may be our own landed op.
-			const unanswered = await retriedCancel(unconfirmedOp, {
-				entryPointNonce: 7n,
+			const { submits, handedBack, record } = await retriedCancel(unconfirmedOp, {
 				userOpReceiptError: new Error("bundler unreachable"),
+				// Even with the nonce moved: the log, not the nonce, says whose op it was.
+				entryPointNonce: 7n,
+				logs: [cancelLog("0xlogtx")],
 			})
-			expect(unanswered.submits()).toBe(1)
-			expect(unanswered.handedBack).toEqual([])
-			expect(unanswered.record.stage).toBe("reclaiming")
-			expect(unanswered.record.error).toContain("Could not ask the bundler")
-			expect(unanswered.record.reclaimSubmission).toMatchObject({ kind: "userOp", userOpHash: USER_OP_HASH })
+
+			expect(submits()).toBe(1)
+			expect(handedBack).toEqual(["0xlogtx"])
+			expect(record.reclaimTxHash).toBe("0xlogtx")
 		}))
 
-	it("clears and resends when the bundler answers that it has no receipt and the nonce moved", () =>
+	it("resends when the bundler cannot be asked, the chain has no log and the nonce moved", () =>
+		withFetch(async () => {
+			const { submits, handedBack } = await retriedCancel(unconfirmedOp, {
+				userOpReceiptError: new Error("bundler unreachable"),
+				entryPointNonce: 7n,
+			})
+
+			expect(submits()).toBe(2)
+			expect(handedBack).toEqual(["0xnewcancel"])
+		}))
+
+	it("resends when the bundler cannot be asked, the nonce is unchanged and the permit expired", () =>
+		withFetch(async () => {
+			const { submits, handedBack } = await retriedCancel(unconfirmedOp, {
+				userOpReceiptError: new Error("bundler unreachable"),
+				entryPointNonce: 6n,
+				blockTimestamp: 10_000_000_000,
+			})
+
+			expect(submits()).toBe(2)
+			expect(handedBack).toEqual(["0xnewcancel"])
+		}))
+
+	it("waits when the bundler cannot be asked, the nonce is unchanged and the permit has not expired", () =>
+		withFetch(async () => {
+			const { submits, handedBack, record } = await retriedCancel(unconfirmedOp, {
+				userOpReceiptError: new Error("bundler unreachable"),
+				entryPointNonce: 6n,
+				blockTimestamp: 2,
+			})
+
+			expect(submits()).toBe(1)
+			expect(handedBack).toEqual([])
+			expect(record.stage).toBe("reclaiming")
+			expect(record.error).toContain("can still land")
+			expect(record.reclaimSubmission).toMatchObject({ kind: "userOp", userOpHash: USER_OP_HASH })
+		}))
+
+	it("waits, never resending, when the cancel scan cannot be read, whatever the nonce says", () =>
+		withFetch(async () => {
+			const { submits, handedBack, record } = await retriedCancel(unconfirmedOp, {
+				userOpReceiptError: new Error("bundler unreachable"),
+				getLogsError: new Error("logs unavailable"),
+				entryPointNonce: 7n,
+				blockTimestamp: 10_000_000_000,
+			})
+
+			expect(submits()).toBe(1)
+			expect(handedBack).toEqual([])
+			expect(record.stage).toBe("reclaiming")
+			expect(record.error).toContain("logs unavailable")
+			expect(record.reclaimSubmission).toMatchObject({ userOpHash: USER_OP_HASH })
+		}))
+
+	it("waits on a cancel submission that has no recorded start block", () =>
+		withFetch(async () => {
+			// Not a shape any release wrote; it cannot be searched for, so it is never judged.
+			const { submits, handedBack, record } = await retriedCancel(
+				undefined,
+				{ entryPointNonce: 7n },
+				{ reclaimSubmission: { ...storedOp, fromBlock: undefined } as never },
+			)
+
+			expect(submits()).toBe(0)
+			expect(handedBack).toEqual([])
+			expect(record.error).toContain("no recorded start block")
+		}))
+
+	it("clears and resends when the bundler answers that it has no receipt, the chain has no log and the nonce moved", () =>
 		withFetch(async () => {
 			const answered = await retriedCancel(unconfirmedOp, { entryPointNonce: 7n, userOpReceipt: null })
 			expect(answered.submits()).toBe(2)
 			expect(answered.handedBack).toEqual(["0xnewcancel"])
-			expect(answered.record.reclaimSubmission).toBeUndefined()
+			expect(answered.record.reclaimSubmission).toMatchObject({ txHash: "0xnewcancel" })
 		}))
 
 	it("clears a Permit2 cancel UserOp whose permit expired on a quiet chain, and sends a new cancel", () =>
@@ -1764,7 +1927,6 @@ describe("BRIDGE top-up placement recovery", () => {
 			expect(expired.afterFirst.reclaimSubmission).toMatchObject({ kind: "userOp", expires: true })
 			expect(expired.submits()).toBe(2)
 			expect(expired.handedBack).toEqual(["0xnewcancel"])
-			expect(expired.record.reclaimSubmission).toBeUndefined()
 			cleanup()
 
 			// A permit still inside its window can land, so the attempt waits.
@@ -1783,51 +1945,40 @@ describe("BRIDGE top-up placement recovery", () => {
 			expect(bootstrap.record.error).toContain("can still land")
 		}))
 
-	it("hands back a legacy reclaimTxHash only when its receipt succeeded", () =>
+	it("scans for the cancel from a margin below the height read before the send, and resumes below its cursor", () =>
 		withFetch(async () => {
-			const legacy = { reclaimTxHash: "0xlegacy" } as const
-			const landed = await retriedCancel(undefined, { receipt: { status: "success" } }, legacy)
-			expect(landed.submits()).toBe(0)
-			expect(landed.handedBack).toEqual(["0xlegacy"])
-			expect(landed.record.reclaimTxHash).toBe("0xlegacy")
-		}))
-
-	it("clears a legacy reclaimTxHash that reverted and sends a new cancel", () =>
-		withFetch(async () => {
-			const { record, submits, handedBack } = await retriedCancel(
+			const ranges: bigint[] = []
+			let firstAt: number | undefined
+			// The first attempt reads one chunk and the next is refused; the retry, a minute on, reads on.
+			const { afterFirst } = await retriedCancel(
 				undefined,
-				{ receipt: { status: "reverted" } },
-				{ reclaimTxHash: "0xlegacy" },
+				{
+					accountNonce: 4,
+					latestBlock: 5_000n,
+					onGetLogs: ({ fromBlock }) => {
+						firstAt ??= Date.now()
+						ranges.push(fromBlock)
+						if (fromBlock >= 2_936n && Date.now() - firstAt < 30_000) throw new Error("range too wide")
+					},
+				},
+				{ reclaimSubmission: { ...unconfirmedTx, fromBlock: "1000" } },
 			)
-			expect(submits()).toBe(1)
-			expect(handedBack).toEqual(["0xnewcancel"])
-			expect(record.reclaimTxHash).toBe("0xnewcancel")
+
+			// 1000 less the 64-block floor of a 12 s chain: the first page.
+			expect(ranges[0]).toBe(936n)
+			// The cursor is saved with the submission after the chunk that read: 936 + 2000.
+			expect(afterFirst.reclaimSubmission).toMatchObject({ scannedTo: "2936" })
+			// The retry starts a margin below that cursor, not at it.
+			expect(ranges.find((fromBlock) => fromBlock !== 936n && fromBlock !== 2_936n)).toBe(2_872n)
 		}))
 
-	it("converts a legacy reclaimTxHash the node still lists to a submission, and applies the nonce rule", () =>
+	it("hands back a reclaimTxHash that has no submission: it is a confirmed cancel", () =>
 		withFetch(async () => {
-			const pendingTx = { hash: "0xlegacy", nonce: 4 }
-			const waiting = await retriedCancel(undefined, { pendingTx, accountNonce: 4 }, { reclaimTxHash: "0xlegacy" })
-			expect(waiting.submits()).toBe(0)
-			expect(waiting.handedBack).toEqual([])
-			expect(waiting.record.reclaimTxHash).toBeUndefined()
-			expect(waiting.record.reclaimSubmission).toMatchObject({ kind: "tx", txHash: "0xlegacy", nonce: 4 })
-			expect(waiting.record.error).toContain("is not mined yet")
-			cleanup()
-
-			// Its nonce taken by another tx: it can never land, so a new cancel goes out.
-			const dropped = await retriedCancel(undefined, { pendingTx, accountNonce: 5 }, { reclaimTxHash: "0xlegacy" })
-			expect(dropped.submits()).toBe(1)
-			expect(dropped.handedBack).toEqual(["0xnewcancel"])
-			expect(dropped.record.reclaimSubmission).toBeUndefined()
-		}))
-
-	it("clears a legacy reclaimTxHash the node does not know and sends a new cancel", () =>
-		withFetch(async () => {
-			const { record, submits, handedBack } = await retriedCancel(undefined, {}, { reclaimTxHash: "0xlegacy" })
-			expect(submits()).toBe(1)
-			expect(handedBack).toEqual(["0xnewcancel"])
-			expect(record.reclaimTxHash).toBe("0xnewcancel")
+			// Written only after a send was confirmed, so the chain is not asked about it again.
+			const confirmed = await retriedCancel(undefined, {}, { reclaimTxHash: "0xconfirmed" })
+			expect(confirmed.submits()).toBe(0)
+			expect(confirmed.handedBack).toEqual(["0xconfirmed"])
+			expect(confirmed.record.reclaimTxHash).toBe("0xconfirmed")
 		}))
 
 	it("keeps a bundler-confirmed placement pending when its receipt cannot be read", async () => {
@@ -1914,12 +2065,76 @@ describe("BRIDGE top-up placement recovery", () => {
 			expect((await data.state.get()).bridgeTopUp?.placeScannedTo).toBe("336")
 
 			await vi.advanceTimersByTimeAsync(60_000)
-			// The next attempt starts at the cursor, not at the placement's first block.
-			expect(ranges[ranges.length - 1]).toBe(336n)
+			// The next attempt starts a margin below the cursor, not at it and not at the placement's first block.
+			expect(ranges[ranges.length - 1]).toBe(272n)
 		} finally {
 			vi.clearAllTimers()
 			vi.useRealTimers()
 		}
+	})
+
+	it("sizes the evidence margin in seconds of the chain's blocks: 300 s, never fewer than 64 blocks", async () => {
+		const firstPage = async (blockTime: number | null) => {
+			const { topUp } = topUpWith(userOpPlacement({ placeUserOpExpires: false, placeFromBlock: "5000" }))
+			const internals = topUp as unknown as TopUpInternals
+			internals.deps.tokenSender = { userOpReceipt: async () => null } as never
+			const ranges: bigint[] = []
+			installPayingClient(internals, {
+				logs: [],
+				latestBlock: 5_100n,
+				nonce: 3n,
+				blockTime,
+				onGetLogs: ({ fromBlock }) => ranges.push(fromBlock),
+			})
+			vi.useFakeTimers()
+			try {
+				await topUp.current()
+				await vi.advanceTimersByTimeAsync(0)
+			} finally {
+				vi.clearAllTimers()
+				vi.useRealTimers()
+			}
+			return ranges[0]
+		}
+
+		// 250 ms blocks (Arbitrum): 300 s is 1200 blocks, so a lagging endpoint's 16 s is well inside it.
+		expect(await firstPage(250)).toBe(3_800n)
+		// A chain that declares no block time is assumed to be as fast: a larger margin is the safe error.
+		expect(await firstPage(null)).toBe(3_800n)
+		// 12 s blocks: 300 s is 25 blocks, below the 64-block floor.
+		expect(await firstPage(12_000)).toBe(4_936n)
+	})
+
+	it("rescans a margin below its cursor, so a page a lagging backend served empty is read again", async () => {
+		const rescanStart = async (blockTime: number) => {
+			vi.useFakeTimers()
+			try {
+				const { topUp, data } = topUpWith(userOpPlacement({ placeUserOpExpires: false, placeFromBlock: "5000" }))
+				const internals = topUp as unknown as TopUpInternals
+				internals.deps.tokenSender = { userOpReceipt: async () => null } as never
+				const ranges: bigint[] = []
+				installPayingClient(internals, {
+					logs: [],
+					latestBlock: 20_000n,
+					nonce: 3n,
+					blockTime,
+					onGetLogs: ({ fromBlock }) => ranges.push(fromBlock),
+				})
+				await topUp.current()
+				await vi.advanceTimersByTimeAsync(0)
+				const cursor = (await data.state.get()).bridgeTopUp!.placeScannedTo
+				const attemptPages = ranges.length
+				await vi.advanceTimersByTimeAsync(60_000)
+				return { cursor, restart: ranges[attemptPages] }
+			} finally {
+				vi.clearAllTimers()
+				vi.useRealTimers()
+			}
+		}
+
+		// 20,000 less the margin is where the cursor ends up; the next scan starts a margin below it.
+		expect(await rescanStart(250)).toEqual({ cursor: "18800", restart: 17_600n })
+		expect(await rescanStart(12_000)).toEqual({ cursor: "19936", restart: 19_872n })
 	})
 
 	it("picks our placement by user when no session address is stored", async () => {
@@ -2291,6 +2506,7 @@ describe("BRIDGE top-up placement recovery", () => {
 		)
 		const internals = topUp as unknown as TopUpInternals
 		const isOrderFilled = vi.fn(async () => false)
+		const warn = vi.spyOn((topUp as unknown as { logger: { warn: () => void } }).logger, "warn")
 		internals.gateways.set("EVM-8453", Promise.resolve(placementGateway({ isOrderFilled })))
 		let release!: () => void
 		const gate = new Promise<void>((resolve) => {
@@ -2322,6 +2538,11 @@ describe("BRIDGE top-up placement recovery", () => {
 		expect(internals.record).toEqual(stored("placing", { id: "next", updatedAt: 5 }))
 		expect((await data.state.get()).bridgeTopUp).toEqual(stored("placing", { id: "next", updatedAt: 5 }))
 		expect(isOrderFilled).not.toHaveBeenCalled()
+		// The live order it found is logged by commitment, since nothing tracks it now.
+		expect(warn).toHaveBeenCalledWith(
+			expect.objectContaining({ commitment: expect.stringMatching(/^0x[0-9a-f]{64}$/), txHash: placeTxHash }),
+			expect.stringContaining("no longer tracked"),
+		)
 	})
 
 	it("drops every write a flow makes, and the error it fails with, once its record was replaced", async () => {

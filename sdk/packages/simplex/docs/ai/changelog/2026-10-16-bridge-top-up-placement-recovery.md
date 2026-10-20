@@ -29,16 +29,25 @@ A legacy `failed` record with a hash is recovered the same way and never falls t
 
 ## Recovery takes the strongest evidence, read below the tip
 
+Chain evidence is read an evidence margin below the height a scan reached: `EVIDENCE_MARGIN_SECONDS`
+(300 s) of the chain's blocks, never fewer than 64. The block time is the chain's declared viem
+`blockTime`, else 0.25 s, so an undeclared chain gets the larger, safer margin: 1200 blocks on a
+0.25 s chain such as Arbitrum, 64 on a 12 s one. Load-balanced endpoints disagree about the newest
+blocks, a lagging backend serves an empty `getLogs` page for a range another already has, and a
+reorg can rewrite the newest blocks; 16 s of blocks is too short to outlast that.
+
 1. **A known tx**: its receipt. `recordPlacement` takes the `OrderPlaced` log emitted by this
    chain's IntentGateway whose `session` is `placeSession` (a bundle can carry other ops' logs,
    including forged ones from other contracts), and stores the canonical order as `awaiting_bids`.
    A mined receipt without it, or a reverted one, settles `failed`.
 2. **A submitted UserOp**: one `eth_getUserOperationReceipt` (`TokenSender.userOpReceipt`).
-3. **The scan** of the paying chain's `OrderPlaced` logs, from `max(placeScannedTo,
-   placeFromBlock − 64)` to latest, in halving chunks. `placeScannedTo` is saved after every chunk,
-   trailing the tip by the 64-block reorg margin. A failed read throws; it never counts as "not found".
+3. **The scan** of the paying chain's `OrderPlaced` logs, in halving chunks, from the later of
+   `placeFromBlock` and `placeScannedTo`, each an evidence margin lower: a rescan starts below its
+   cursor, not at it, so a page a lagging backend served empty is read again. `placeScannedTo` is
+   saved after every chunk, trailing the tip by the margin. A failed read throws; it never counts as
+   "not found".
 4. **Nothing on chain** settles `failed` only on proof the batch can no longer land. Every read,
-   the permit clock included, is at one block, `scannedTo − 64`:
+   the permit clock included, is at one block, `scannedTo` less the evidence margin:
    - a native tx: the wallet's nonce at that block is past `placeTxNonce`. A tx a node no longer
      lists proves nothing, since one backend or mempool can lack a valid tx, so a record with a
      nonce keeps waiting;
@@ -56,7 +65,7 @@ A legacy `failed` record with a hash is recovered the same way and never falls t
    **A legacy native record** (written before nonces were kept: no `placeTxNonce`, `placeSession`
    or `placeFromBlock`) cannot wait forever, because a `placing` record blocks `start()` and has
    no operator exit. If the node still lists the tx, its nonce is stored as `placeTxNonce` and the
-   nonce rule applies, read 64 blocks below the latest block since such a record was never scanned. If
+   nonce rule applies, read an evidence margin below the latest block since such a record was never scanned. If
    the node does not know the tx, the record settles `failed` with the tx hash, a note that it
    predates nonce tracking so the placement could not be verified, and the advice to check the tx
    on an explorer before starting another top-up. A warning is logged. Records written by this
@@ -68,6 +77,8 @@ Every background flow (placement, recovery, tracking, delivery, reclaim, sync) r
 of the record it started for. `update` does nothing once `this.record` is a different top-up, and
 `trackOrder` and `recordPlacement` stop, so a recovery that finishes after `start()` replaced a
 `failed` record cannot land its stage, hashes or errors in the new one. Retry timers carry the id too.
+When such a recovery finds a live order, it is logged at `warn` with its commitment, since nothing
+tracks it any more.
 
 ## A live order is settled only by its deadline
 
@@ -90,28 +101,36 @@ read-only `DelegationService` between `TokenSender` and `BridgeTopUp`.
 
 ## The reclaim cancel
 
-A cancel sent without a receipt is stored as `reclaimSubmission` (the tx hash and nonce, or the
-UserOp's hash, nonce and key), not as `reclaimTxHash`. Before the next attempt hands it to the SDK
-it is checked: a successful receipt hands the hash back (a UserOp's receipt comes from the
-bundler); a reverted receipt, or no receipt with the wallet's or EntryPoint's nonce past it (read
-below the tip), clears it and sends a new cancel; otherwise the attempt waits and retries. A
-UserOp-kind cancel that timed out is therefore never resent while it can still land.
+A duplicate cross-chain cancel does not revert: `_cancelFromSource` checks only the creator and the
+height, so a second one dispatches another GET request and `dispatchWithFeeToken` pulls the relayer
+fee again. A cancel is therefore sent again only on positive evidence that the first cannot land.
 
-For a UserOp, "no receipt" means the bundler answered that it does not know the op. A bundler
-lookup that fails is not that answer: the attempt waits and retries
-(`Could not ask the bundler for the cancel UserOp …'s receipt; waiting`) and the nonce rule is not
-applied. Unlike the placement, the cancel has no `OrderPlaced` log scan behind it, so an unanswered
-lookup with a moved nonce cannot tell our landed op from another op that took the nonce.
+Every cancel the filler sends is stored as `reclaimSubmission`, whether its send was confirmed or not:
+the tx hash and nonce, or the UserOp's hash, nonce, key, `expires` and `submittedAt`, plus `fromBlock`
+(the paying chain's height read before the send) and `scannedTo` (the scan cursor). It is kept until
+the `ORDER_CANCELED` step is recorded, which clears it in the same write. A confirmed send also stores
+`reclaimTxHash`. A cancel whose bundle tx is reorged out and re-bundled therefore still resolves by
+the UserOp hash and the `OrderCancelled` scan, instead of passing for a lost hash.
 
-A Permit2-mode cancel UserOp also clears when its permit has expired: on a quiet chain the
-EntryPoint nonce never moves, so without this a bundler that never included the op would hold the
-escrow for good. Like the placement rule, it applies when the stored `expires` is true and the
-timestamp of the block the nonce is read at is at least `submittedAt` plus the permit window. A
-PERMIT bootstrap op has no deadline and keeps waiting.
+Before the next attempt hands a stored cancel to the SDK, it is settled in this order:
 
-A `reclaimTxHash` that older code stored from an unconfirmed send (with no `reclaimSubmission` and
-no `ORDER_CANCELED` step) is checked before it is handed back. A successful receipt hands it back; a
-reverted receipt clears it and a new cancel goes out; a tx the node still lists is converted to a
-`reclaimSubmission` with that tx's nonce and follows the nonce rule; a tx the node does not know at
-all is cleared and the cancel is resent. A duplicate cancel can only revert (gas, never funds),
-unlike a duplicate placement.
+1. **The receipt.** A tx kind uses its receipt by hash. A UserOp kind uses the bundler's receipt if
+   the bundler answers; a lookup that fails (the bundler lost the op, is down, or its URL was
+   removed) is not fatal and the settling goes on. A successful receipt hands the hash back; a
+   reverted one clears the cancel and a new one is sent.
+2. **The `OrderCancelled` scan.** `cancelOrder` emits `OrderCancelled(commitment, canceller)` from
+   the paying chain's IntentGateway on every cancel that succeeds, however it was submitted. The
+   gateway's logs for the order's commitment are scanned from an evidence margin below `fromBlock`
+   to the latest block, in the placement scan's chunks, with the cursor saved per chunk in
+   `reclaimSubmission.scannedTo`. A log's transaction is the cancel: its receipt is read and its
+   hash is handed back. A scan failure throws, and the attempt waits.
+3. **The nonce rules**, with nothing found up to `scannedTo`, read an evidence margin below it. A
+   tx kind is not ours when the wallet's nonce is past the tx's. A UserOp kind is not ours when the
+   EntryPoint nonce is past the op's. A Permit2-mode op (`expires`) whose nonce is unchanged can
+   never land once the evidence block's timestamp is at least `submittedAt` plus the permit window.
+   Any of these clears the cancel and a new one is sent. A PERMIT bootstrap op has no deadline.
+4. **Anything else waits** and the attempt retries.
+
+A `reclaimSubmission` without `fromBlock` cannot be searched for; no release wrote one, and it waits
+with `no recorded start block`. A `reclaimTxHash` with no `reclaimSubmission` is a confirmed cancel
+(it was only ever written after a confirmed send) and is handed back as it is.

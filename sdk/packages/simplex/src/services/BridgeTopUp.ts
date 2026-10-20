@@ -130,11 +130,22 @@ const PLACEMENT_CHUNK_BLOCKS = 2_000n
 /** A chunk a public endpoint refuses is halved down to this before the attempt gives up. */
 const MIN_PLACEMENT_CHUNK_BLOCKS = 100n
 /**
- * Chain evidence is read this far below the height a scan reached, and a scan starts this far
- * below the block recorded before submission. Load-balanced endpoints disagree about the newest
- * blocks, and a reorg can rewrite them; state this deep does not change between backends.
+ * How far back, in seconds, chain evidence is read below the height a scan reached, and a scan
+ * starts below its saved cursor or the block recorded before submission. Load-balanced endpoints
+ * disagree about the newest blocks: a backend that lags serves an empty `getLogs` page for a range
+ * another already has, and a cursor saved past that page would skip it for good. A reorg can also
+ * rewrite the newest blocks. State this old does not change between backends. It is a duration
+ * rather than a block count because a block is ~0.25 s on Arbitrum and 12 s on Ethereum; see
+ * {@link evidenceMarginBlocks}.
  */
-const REORG_MARGIN_BLOCKS = 64n
+const EVIDENCE_MARGIN_SECONDS = 300
+/** The fewest blocks the evidence margin spans, for a chain slow enough that its seconds are few blocks. */
+const MIN_EVIDENCE_MARGIN_BLOCKS = 64n
+/**
+ * The block time assumed for a chain that declares none. Small on purpose: a smaller figure
+ * makes a larger, safer margin.
+ */
+const DEFAULT_BLOCK_TIME_SECONDS = 0.25
 /** Every chain, indexer and Hyperbridge read is bounded, so a stalled endpoint cannot hang a step. */
 const NETWORK_TIMEOUT_MS = 30_000
 /** Rebuilding a refund response fetches Hyperbridge and consensus proofs, which takes longer than a read. */
@@ -148,6 +159,9 @@ const ORDER_FILLED_EVENT = IntentGatewayABI.find(
 ) as AbiEvent
 const ORDER_PLACED_EVENT = IntentGatewayABI.find(
 	(item) => item.type === "event" && item.name === "OrderPlaced",
+) as AbiEvent
+const ORDER_CANCELLED_EVENT = IntentGatewayABI.find(
+	(item) => item.type === "event" && item.name === "OrderCancelled",
 ) as AbiEvent
 const DELIVERY_REQUEST_QUERY = `query TopUpDelivery($hash: String!) {
 	requestV2s(
@@ -613,7 +627,6 @@ export class BridgeTopUp {
 		const receipt = await this.deps.clientManager
 			.getPublicClient(record.chain)
 			.waitForTransactionReceipt({ hash: txHash, timeout: RECEIPT_TIMEOUT_MS })
-		if (this.superseded()) return false
 		// Only the gateway's own events count: another op in the same bundle can emit a log with
 		// the same shape, naming our session, from any contract.
 		const gatewayAddress = this.deps.configService.getIntentGatewayAddress(record.chain).toLowerCase()
@@ -629,6 +642,18 @@ export class BridgeTopUp {
 		const placed = session
 			? placements.find((log) => (log.args as { session?: string }).session?.toLowerCase() === session)
 			: placements.find((log) => (log.args as { user?: string }).user?.toLowerCase() === user)
+		if (this.superseded()) {
+			// The record this flow was started for has been replaced, so nothing here may write to
+			// it. A live order is still escrowed and untracked, so the operator is told which one.
+			if (placed && receipt.status !== "reverted") {
+				const commitment = deriveCanonicalPlacedOrder(order, placed.args as DecodedOrderPlacedLog["args"]).id
+				this.logger.warn(
+					{ commitment, txHash, id: record.id },
+					"A replaced top-up's placement landed a live order; it is no longer tracked",
+				)
+			}
+			return false
+		}
 		if (receipt.status === "reverted" || !placed) {
 			await this.update({
 				stage: "failed",
@@ -710,45 +735,112 @@ export class BridgeTopUp {
 	/**
 	 * The transaction that placed this order, found on the paying chain rather than from a
 	 * receipt: the `OrderPlaced` log whose `session` is this top-up's session key, from the scan
-	 * cursor (or a reorg margin below the block stored before submission) up to the latest.
+	 * cursor (or the block stored before submission), each an evidence margin lower, up to the latest.
 	 * Returns `undefined` when the record predates the scan; a read failure, or a node behind the
 	 * range that must be read, throws, so an unread range is never counted as "not found".
 	 * `scannedTo` is the height the scan reached, the reference for every later read of the chain.
+	 * See {@link scanGatewayEvent} for the margin and the cursor.
 	 */
 	private async findPlacementLog(
 		record: StoredBridgeTopUp,
 	): Promise<{ txHash?: HexString; scannedTo: bigint } | undefined> {
 		const session = record.placeSession?.toLowerCase()
 		if (!session || !record.placeFromBlock) return undefined
-		const client = this.deps.clientManager.getPublicClient(record.chain)
-		// `placeFromBlock` came from one backend of a load-balanced endpoint, which can be ahead of
-		// the one that took the broadcast; start a margin below it.
-		const placeFrom = belowTip(BigInt(record.placeFromBlock))
-		const cursor = record.placeScannedTo ? BigInt(record.placeScannedTo) : placeFrom
-		const fromBlock = cursor > placeFrom ? cursor : placeFrom
+		return this.scanGatewayEvent(record.chain, {
+			event: ORDER_PLACED_EVENT,
+			subject: "the placement",
+			what: "the placement on the paying chain",
+			isOurs: (args) => (args as { session?: string }).session?.toLowerCase() === session,
+			submittedFrom: BigInt(record.placeFromBlock),
+			savedCursor: record.placeScannedTo ? BigInt(record.placeScannedTo) : undefined,
+			saveCursor: (next) => this.update({ placeScannedTo: next.toString() }),
+		})
+	}
+
+	/**
+	 * The transaction whose `OrderCancelled` log on the paying chain's gateway names this order,
+	 * from the cancel's saved cursor (or a margin below `fromBlock`, the height read before the
+	 * cancel was sent) up to the latest block. `cancelOrder` emits it on every cancel that succeeds
+	 * and the gateway itself is the emitter, however the cancel was submitted; a cancel that
+	 * reverted leaves none. Throws on a read failure, so an unread range is never "not found".
+	 */
+	private findCancelLog(chain: string, sent: StoredSubmission): Promise<{ txHash?: HexString; scannedTo: bigint }> {
+		const commitment = this.record!.commitment!.toLowerCase()
+		return this.scanGatewayEvent(chain, {
+			event: ORDER_CANCELLED_EVENT,
+			subject: "the cancel",
+			what: "the cancel on the paying chain",
+			args: { commitment: this.record!.commitment },
+			isOurs: (args) => (args as { commitment?: string }).commitment?.toLowerCase() === commitment,
+			submittedFrom: BigInt(sent.fromBlock),
+			savedCursor: sent.scannedTo ? BigInt(sent.scannedTo) : undefined,
+			// Kept with the submission, so a new cancel starts a new scan.
+			saveCursor: (next) => {
+				const current = this.record!.reclaimSubmission
+				return current ? this.update({ reclaimSubmission: { ...current, scannedTo: next.toString() } }) : Promise.resolve()
+			},
+		})
+	}
+
+	/**
+	 * Scans the paying chain's IntentGateway for an event this top-up emitted, in chunks, and
+	 * returns the transaction of the first log `isOurs` accepts. A scan starts an evidence margin
+	 * below its saved cursor, not at it, so a page a lagging backend served empty is read again;
+	 * the first scan starts that margin below the height read before the send, since that height
+	 * came from one backend of a load-balanced endpoint that can be ahead of the one that took
+	 * the broadcast. The cursor is saved per chunk, so a scan that fails late resumes where it
+	 * got to. It trails the tip by the margin and never decides anything on its own: the evidence
+	 * was read up to `scannedTo`, the latest block, the reference for every later read of the chain.
+	 * A read failure, or a node behind the range that must be read, throws.
+	 */
+	private async scanGatewayEvent(
+		chain: string,
+		scan: {
+			event: AbiEvent
+			/** Names the range in the error for a node that is behind it. */
+			subject: string
+			what: string
+			/** Indexed arguments the endpoint may filter by. */
+			args?: Record<string, unknown>
+			isOurs: (args: unknown) => boolean
+			submittedFrom: bigint
+			savedCursor?: bigint
+			saveCursor: (next: bigint) => Promise<void>
+		},
+	): Promise<{ txHash?: HexString; scannedTo: bigint }> {
+		const client = this.deps.clientManager.getPublicClient(chain)
+		const margin = evidenceMarginBlocks(client)
+		const first = belowTip(scan.submittedFrom, margin)
+		const cursor = scan.savedCursor ?? first
+		const rescan = belowTip(cursor, margin)
+		const fromBlock = rescan > first ? rescan : first
 		const latest = await withTimeout(client.getBlockNumber(), "the latest block")
 		if (latest < fromBlock) {
 			// A node behind the range we must read would return nothing for it; that is not evidence.
-			throw new Error(`The paying chain is at ${latest}, behind the placement's range from ${fromBlock}`)
+			throw new Error(`The paying chain is at ${latest}, behind ${scan.subject}'s range from ${fromBlock}`)
 		}
-		const gateway = this.deps.configService.getIntentGatewayAddress(record.chain)
+		const gateway = this.deps.configService.getIntentGatewayAddress(chain)
 		const txHash = await this.scanPlacementLogs(
 			fromBlock,
 			latest,
 			async (from, to) => {
 				const logs = await withTimeout(
-					client.getLogs({ address: gateway, event: ORDER_PLACED_EVENT, fromBlock: from, toBlock: to }),
-					"the placement on the paying chain",
+					client.getLogs({
+						address: gateway,
+						event: scan.event,
+						args: scan.args,
+						fromBlock: from,
+						toBlock: to,
+					} as never),
+					scan.what,
 				)
-				const match = logs.find((log) => (log.args as { session?: string }).session?.toLowerCase() === session)
-				return match?.transactionHash
+				return (logs as unknown as { args: unknown; transactionHash: HexString }[]).find((log) => scan.isOurs(log.args))
+					?.transactionHash
 			},
-			// Saved per chunk, so a scan that fails late resumes where it got to. The cursor trails
-			// the tip, so a placement just under it is re-read after a reorg; it never decides
-			// anything on its own, the evidence was read up to `latest`.
 			async (scanned) => {
-				const next = scanned + 1n < belowTip(latest) ? scanned + 1n : belowTip(latest)
-				if (next > cursor) await this.update({ placeScannedTo: next.toString() })
+				const trailing = belowTip(latest, margin)
+				const next = scanned + 1n < trailing ? scanned + 1n : trailing
+				if (next > cursor) await scan.saveCursor(next)
 			},
 		)
 		return { txHash, scannedTo: latest }
@@ -773,7 +865,7 @@ export class BridgeTopUp {
 	}
 
 	/**
-	 * The paying-chain scan, in chunks wider than BSC's fill search. A chunk a public endpoint
+	 * The paying-chain scan (placement and cancel), in chunks wider than BSC's fill search. A chunk a public endpoint
 	 * refuses is halved and retried, down to a floor, before the attempt gives up and the caller
 	 * retries. `onChunk` runs after each chunk read without a match. Kept separate from
 	 * {@link scanLogs} so the BSC fill search is unchanged.
@@ -806,8 +898,8 @@ export class BridgeTopUp {
 
 	/**
 	 * Settles a placement with no order on chain. "Nothing was escrowed" is written only on
-	 * positive evidence that the batch can no longer land, read a reorg margin below the height
-	 * the scan covered, so it is asserted against state every backend agrees on:
+	 * positive evidence that the batch can no longer land, read an evidence margin (see
+	 * {@link evidenceMarginBlocks}) below the height the scan covered, so it is asserted against state every backend agrees on:
 	 *
 	 * - a native tx whose nonce the wallet has moved past: some other tx took that nonce, and had
 	 *   it been ours the scan would have found its `OrderPlaced`. A node that no longer lists the
@@ -829,7 +921,8 @@ export class BridgeTopUp {
 		// `updatedAt` is rewritten by every save, so it can never be a submission time.
 		const submittedAt = record.placeSubmittedAt ?? record.stageTimes?.placing ?? record.createdAt
 		const client = this.deps.clientManager.getPublicClient(record.chain)
-		const evidenceBlock = scannedTo === undefined ? undefined : belowTip(scannedTo)
+		const margin = evidenceMarginBlocks(client)
+		const evidenceBlock = scannedTo === undefined ? undefined : belowTip(scannedTo, margin)
 
 		const txHash = record.placeTxHash
 		if (txHash) {
@@ -864,7 +957,7 @@ export class BridgeTopUp {
 				}
 				// A legacy record was never scanned, so it has no scanned height; the tip stands in for it.
 				const nonceBlock =
-					evidenceBlock ?? belowTip(await withTimeout(client.getBlockNumber(), "the latest block"))
+					evidenceBlock ?? belowTip(await withTimeout(client.getBlockNumber(), "the latest block"), margin)
 				const accountNonce = await withTimeout(
 					client.getTransactionCount({ address: this.deps.solver, blockNumber: nonceBlock }),
 					"the filler wallet's nonce",
@@ -1383,44 +1476,48 @@ export class BridgeTopUp {
 							await this.recordRecoveryStep("DESTINATION_FINALIZED")
 							break
 						case "AWAITING_CANCEL_TRANSACTION": {
-							// A cancel already sent (before a restart) is handed back rather than sent twice. A hash
-							// written by older code may come from a send that was never confirmed, so it is
-							// checked first.
-							const legacy = this.record!.reclaimTxHash
-							if (legacy && !this.record!.reclaimSubmission && !this.hasRecoveryStep("ORDER_CANCELED")) {
-								const landed = await this.settleLegacyCancel(record.chain, legacy)
-								if (landed) {
-									input = landed
-									break
-								}
-							}
-							// A cancel sent without a receipt is handed back only once it is known to have
-							// landed; one that did not is cleared, and a new cancel goes out below.
+							// A cancel already sent (before a restart) is handed back rather than sent twice, but
+							// only once the chain shows it landed. One that cannot land is cleared, together with
+							// the hash it left, and a new cancel goes out below.
 							const earlier = this.record!.reclaimSubmission
 							if (earlier) {
 								const landed = await this.settleCancel(record.chain, earlier)
 								if (landed) {
-									await this.update({ reclaimTxHash: landed, reclaimSubmission: undefined })
+									// The submission stays until `ORDER_CANCELED` is recorded: a bundle tx reorged out
+									// and re-bundled is then still found by the UserOp hash and the `OrderCancelled` scan.
+									await this.update({ reclaimTxHash: landed })
 									input = landed
 									break
 								}
-								await this.update({ reclaimSubmission: undefined })
+								await this.update({ reclaimSubmission: undefined, reclaimTxHash: undefined })
+							} else if (this.record!.reclaimTxHash && !this.hasRecoveryStep("ORDER_CANCELED")) {
+								// Written without a submission only after a send was confirmed.
+								input = this.record!.reclaimTxHash
+								break
 							}
 							const calls = await this.cancelCalls(record.chain, value)
-							let txHash: HexString
+							// Read before the send: the evidence scan for this cancel starts below it.
+							const fromBlock = await withTimeout(
+								this.deps.clientManager.getPublicClient(record.chain).getBlockNumber(),
+								"the paying chain's height",
+							)
+							let sent: Awaited<ReturnType<TokenSender["submitCalls"]>>
 							try {
-								;({ txHash } = await this.deps.tokenSender.submitCalls(record.chain, calls))
+								sent = await this.deps.tokenSender.submitCalls(record.chain, calls)
 							} catch (err) {
 								// The cancel was broadcast before the failure. Keep what it takes to check
 								// it later, so a retry neither sends, and pays for, a second cancel while
 								// this one can still land, nor hands the SDK one that never will.
 								if (err instanceof SubmittedUnconfirmedError) {
-									await this.update({ reclaimSubmission: storedSubmission(err.submission) })
+									await this.update({ reclaimSubmission: storedSubmission(err.submission, fromBlock) })
 								}
 								throw err
 							}
-							await this.update({ reclaimTxHash: txHash })
-							input = txHash
+							await this.update({
+								reclaimTxHash: sent.txHash,
+								reclaimSubmission: storedSubmission(sent.submission, fromBlock),
+							})
+							input = sent.txHash
 							break
 						}
 						case "CANCEL_STARTED":
@@ -1428,6 +1525,7 @@ export class BridgeTopUp {
 							// claim is rebuilt from this request.
 							await this.recordRecoveryStep("ORDER_CANCELED", value.receipt.transactionHash as HexString, undefined, {
 								getCommitment: this.cancelRequestCommitment(record.chain, value.receipt.logs),
+								reclaimSubmission: undefined,
 							})
 							break
 						case "SOURCE_FINALIZED":
@@ -1446,7 +1544,9 @@ export class BridgeTopUp {
 						}
 						case "CANCELLATION_COMPLETE":
 							// The same-chain route: the cancel itself refunds the escrow.
-							await this.recordRecoveryStep("ORDER_CANCELED", value.transactionHash as HexString)
+							await this.recordRecoveryStep("ORDER_CANCELED", value.transactionHash as HexString, undefined, {
+								reclaimSubmission: undefined,
+							})
 							await this.recordRecoveryStep("FUNDS_CLAIMED", value.transactionHash as HexString)
 							break
 					}
@@ -1509,48 +1609,66 @@ export class BridgeTopUp {
 	}
 
 	/**
-	 * Whether a cancel that was submitted without a receipt landed. Returns its transaction hash
-	 * when it succeeded, and undefined when it cannot land any more (it reverted, or its nonce
-	 * was taken by another transaction), so a new cancel is safe to send. Throws while it could
-	 * still land, which keeps the recovery waiting and retrying.
+	 * Whether a submitted cancel landed. Returns its transaction hash when it did, and undefined
+	 * when it can no longer land (it reverted, or its nonce was taken by another transaction), so a
+	 * new cancel is safe to send. Throws while it could still land, or while the evidence cannot be
+	 * read, which keeps the recovery waiting and retrying.
 	 *
-	 * Like the placement's evidence, the nonce is read a reorg margin below the tip, and the
-	 * receipt is looked up before and after it, so a cancel mined in between is not discarded.
+	 * A duplicate cross-chain cancel does not revert: `_cancelFromSource` checks only the creator
+	 * and the height, so a second one dispatches another GET request and pulls the relayer fee
+	 * again. A cancel is therefore resent only on positive evidence that it cannot land. The
+	 * evidence, strongest first:
+	 *
+	 * 1. The receipt: a tx's by hash, a UserOp's from the bundler if it answers. A bundler that
+	 *    cannot be asked (it lost the op, is down, or its URL was removed) is not fatal.
+	 * 2. The paying chain's own `OrderCancelled` log for this order, scanned from the height read
+	 *    before the send, which backs the cancel whatever the bundler says. Its transaction is the
+	 *    cancel.
+	 * 3. With no log up to `scannedTo`, the nonce rules, read an evidence margin below it: the
+	 *    wallet's nonce is past a tx's, or the EntryPoint's is past the op's, so some other
+	 *    transaction took it; or a Permit2 op's deadline has passed by the chain's own clock.
+	 * 4. Anything else waits.
 	 */
 	private async settleCancel(chain: string, sent: StoredSubmission): Promise<HexString | undefined> {
+		const id = sent.kind === "tx" ? sent.txHash : sent.userOpHash
+		if (!sent.fromBlock) {
+			throw new Error(`The cancel ${id} has no recorded start block, so the chain cannot be searched for it; waiting`)
+		}
 		const client = this.deps.clientManager.getPublicClient(chain)
-		const evidenceBlock = belowTip(await withTimeout(client.getBlockNumber(), "the latest block"))
 
 		if (sent.kind === "tx") {
-			const receiptOf = () =>
-				withTimeout(client.getTransactionReceipt({ hash: sent.txHash }), "the cancel receipt").catch((err) => {
+			const receipt = await withTimeout(client.getTransactionReceipt({ hash: sent.txHash }), "the cancel receipt").catch(
+				(err) => {
 					if (err instanceof TransactionReceiptNotFoundError) return undefined
 					throw err
-				})
-			let receipt = await receiptOf()
-			if (!receipt) {
-				const nonce = await withTimeout(
-					client.getTransactionCount({ address: this.deps.solver, blockNumber: evidenceBlock }),
-					"the filler wallet's nonce",
-				)
-				if (nonce <= sent.nonce) throw new Error(`The cancel ${sent.txHash} is not mined yet; waiting`)
-				receipt = await receiptOf()
-			}
-			if (!receipt) return undefined
-			return receipt.status === "success" ? sent.txHash : undefined
+				},
+			)
+			if (receipt) return receipt.status === "success" ? sent.txHash : undefined
+		} else {
+			const receipt = await this.deps.tokenSender.userOpReceipt(chain, sent.userOpHash).catch((err) => {
+				this.logger.debug({ err }, "Could not ask the bundler for the cancel's receipt; searching the chain")
+				return null
+			})
+			if (receipt) return receipt.success ? receipt.txHash : undefined
 		}
 
-		// Only a definite answer reaches the nonce rule below: a receipt, or null for "the bundler does
-		// not know the op". A lookup that failed is not an answer. The placement can fall back on its
-		// `OrderPlaced` log scan, but nothing independent backs the cancel, so an unanswered lookup
-		// with a moved nonce cannot tell our landed op from another op that took the nonce. Clearing
-		// it would send a duplicate cancel that reverts and drop the hash whose receipt carries the
-		// GET commitment the claim needs, so the attempt waits and retries instead.
-		const userOp = await this.deps.tokenSender.userOpReceipt(chain, sent.userOpHash).catch((err) => {
-			this.logger.debug({ err }, "Could not ask the bundler for the cancel's receipt")
-			throw new Error(`Could not ask the bundler for the cancel UserOp ${sent.userOpHash}'s receipt; waiting`)
-		})
-		if (userOp) return userOp.success ? userOp.txHash : undefined
+		const scan = await this.findCancelLog(chain, sent)
+		if (scan.txHash) {
+			// Readable, or the SDK could not read it either: the attempt waits and tries again.
+			await withTimeout(client.getTransactionReceipt({ hash: scan.txHash }), "the cancel receipt")
+			return scan.txHash
+		}
+
+		const evidenceBlock = belowTip(scan.scannedTo, evidenceMarginBlocks(client))
+		if (sent.kind === "tx") {
+			const nonce = await withTimeout(
+				client.getTransactionCount({ address: this.deps.solver, blockNumber: evidenceBlock }),
+				"the filler wallet's nonce",
+			)
+			// Another tx took the cancel's nonce, and had it been ours the scan would have found its log.
+			if (nonce > sent.nonce) return undefined
+			throw new Error(`The cancel ${sent.txHash} is not mined yet; waiting`)
+		}
 		const nonce = (await withTimeout(
 			client.readContract({
 				abi: ENTRYPOINT_ABI,
@@ -1561,49 +1679,15 @@ export class BridgeTopUp {
 			}),
 			"the EntryPoint nonce",
 		)) as bigint
-		// The op's nonce was taken and the bundler has no receipt for it: it is not ours.
 		if (nonce > BigInt(sent.nonce)) return undefined
 		if (sent.expires) {
 			// Permit2 mode: on a quiet chain the nonce never moves, so the op's own deadline clears it,
 			// read at the block the nonce was read at. An op that landed before its deadline is in that
-			// block's nonce. A bootstrap op has no deadline and keeps waiting.
+			// block's nonce or in the scan. A bootstrap op has no deadline and keeps waiting.
 			const block = await withTimeout(client.getBlock({ blockNumber: evidenceBlock }), "the evidence block")
 			if (Number(block.timestamp) * 1000 >= sent.submittedAt + PLACEMENT_WINDOW_MS) return undefined
 		}
 		throw new Error(`The cancel UserOp ${sent.userOpHash} can still land; waiting`)
-	}
-
-	/**
-	 * Settles a cancel hash that older code stored as `reclaimTxHash` from a send it never
-	 * confirmed. Returns the hash when its receipt succeeded. A reverted receipt, or a tx the
-	 * node does not know at all, clears it so a new cancel goes out: a duplicate cancel can only
-	 * revert (gas, never funds), unlike a duplicate placement. A tx the node still lists is
-	 * converted to a `reclaimSubmission` with its nonce, so {@link settleCancel}'s nonce rule decides.
-	 */
-	private async settleLegacyCancel(chain: string, txHash: HexString): Promise<HexString | undefined> {
-		const client = this.deps.clientManager.getPublicClient(chain)
-		const receipt = await withTimeout(client.getTransactionReceipt({ hash: txHash }), "the cancel receipt").catch(
-			(err) => {
-				if (err instanceof TransactionReceiptNotFoundError) return undefined
-				throw err
-			},
-		)
-		if (receipt?.status === "success") return txHash
-		if (!receipt) {
-			const tx = await withTimeout(client.getTransaction({ hash: txHash }), "the cancel tx").catch((err) => {
-				if (err instanceof TransactionNotFoundError) return undefined
-				throw err
-			})
-			if (tx) {
-				await this.update({
-					reclaimTxHash: undefined,
-					reclaimSubmission: { kind: "tx", txHash, nonce: tx.nonce, submittedAt: Date.now() },
-				})
-				return undefined
-			}
-		}
-		await this.update({ reclaimTxHash: undefined })
-		return undefined
 	}
 
 	/** How the fee token reads in an error: USDC/USDT when configured, else its raw address in raw units. */
@@ -2037,9 +2121,21 @@ function publicState(record: StoredBridgeTopUp): BridgeTopUpState {
 
 const DELIVERY_STATUSES = new Set(["SOURCE", "SOURCE_FINALIZED", "DESTINATION"])
 
-/** `height` less the reorg margin, never below genesis: the newest height evidence is read at. */
-function belowTip(height: bigint): bigint {
-	return height > REORG_MARGIN_BLOCKS ? height - REORG_MARGIN_BLOCKS : 0n
+/**
+ * The evidence margin in blocks for the chain `client` reads: {@link EVIDENCE_MARGIN_SECONDS} of
+ * its blocks, at least {@link MIN_EVIDENCE_MARGIN_BLOCKS}. The block time is the chain's declared
+ * viem `blockTime` (ms) when it has one.
+ */
+function evidenceMarginBlocks(client: PublicClient): bigint {
+	const declared = client.chain?.blockTime
+	const seconds = declared && declared > 0 ? declared / 1000 : DEFAULT_BLOCK_TIME_SECONDS
+	const blocks = BigInt(Math.ceil(EVIDENCE_MARGIN_SECONDS / seconds))
+	return blocks > MIN_EVIDENCE_MARGIN_BLOCKS ? blocks : MIN_EVIDENCE_MARGIN_BLOCKS
+}
+
+/** `height` less the evidence margin, never below genesis: the newest height evidence is read at. */
+function belowTip(height: bigint, margin: bigint): bigint {
+	return height > margin ? height - margin : 0n
 }
 
 /** What a placement submission leaves in the record for recovery to settle it by. */
@@ -2056,9 +2152,9 @@ function placementEvidence(submission: SubmittedUserOp | SubmittedTx): Partial<S
 	}
 }
 
-/** A submission as the JSON state keeps it. */
-function storedSubmission(submission: SubmittedUserOp | SubmittedTx): StoredSubmission {
-	if (submission.kind === "tx") return submission
+/** A submission as the JSON state keeps it, with the paying chain's height read before the send. */
+function storedSubmission(submission: SubmittedUserOp | SubmittedTx, fromBlock: bigint): StoredSubmission {
+	if (submission.kind === "tx") return { ...submission, fromBlock: fromBlock.toString() }
 	return {
 		kind: "userOp",
 		userOpHash: submission.userOpHash,
@@ -2066,6 +2162,7 @@ function storedSubmission(submission: SubmittedUserOp | SubmittedTx): StoredSubm
 		nonceKey: submission.nonceKey.toString(),
 		expires: submission.expires,
 		submittedAt: submission.submittedAt,
+		fromBlock: fromBlock.toString(),
 	}
 }
 

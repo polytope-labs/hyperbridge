@@ -604,15 +604,21 @@ export interface StoredBridgeTopUp {
 	placeFromBlock?: string
 	/**
 	 * The next block a recovery scan reads, as a decimal string. Saved after each chunk and trailing
-	 * the tip by a reorg margin, so the next scan resumes here instead of re-reading the whole range.
+	 * the tip by the evidence margin; the next scan starts a margin below it, so a page a lagging
+	 * backend served empty is read again.
 	 */
 	placeScannedTo?: string
 	fillTxHash?: HexString
+	/**
+	 * The cancel's transaction. With no `reclaimSubmission` it is a cancel whose send was confirmed
+	 * (the only way it was ever written before submissions were kept), and is handed to the SDK as is.
+	 */
 	reclaimTxHash?: HexString
 	/**
-	 * A cancel that was submitted without a receipt. It is handed back to the SDK only once a
-	 * check shows it succeeded; if it reverted or can no longer be mined, it is cleared and a new
-	 * cancel is sent.
+	 * The cancel as submitted, kept until the `ORDER_CANCELED` step is recorded. It is settled from
+	 * on-chain evidence before the SDK is handed a hash or a new cancel is sent: a duplicate
+	 * cross-chain cancel does not revert, it dispatches another GET request and pays the relayer fee
+	 * again. See {@link StoredSubmission}.
 	 */
 	reclaimSubmission?: StoredSubmission
 	/** The HyperFungibleToken request that carries the BRIDGE to Hyperbridge. */
@@ -640,8 +646,11 @@ export interface StoredBridgeTopUp {
 	error?: string
 }
 
-/** A submission as kept in the JSON state: bigints as decimal strings. */
-export type StoredSubmission =
+/**
+ * A submission as kept in the JSON state: bigints as decimal strings, plus the evidence window of
+ * the chain scan that settles it.
+ */
+export type StoredSubmission = (
 	| { kind: "tx"; txHash: HexString; nonce: number; submittedAt: number }
 	| {
 			kind: "userOp"
@@ -652,6 +661,12 @@ export type StoredSubmission =
 			expires: boolean
 			submittedAt: number
 	  }
+) & {
+	/** The paying chain's height, read before the send, as a decimal string; the evidence scan starts a margin below it. */
+	fromBlock: string
+	/** The next block the scan reads, as a decimal string; see {@link StoredBridgeTopUp.placeScannedTo}. */
+	scannedTo?: string
+}
 
 export interface RecoveryStepRecord {
 	step:

@@ -816,7 +816,7 @@ open(): Promise<LimitOrder[]>
 setPosting(id: string, posting: LimitOrderPosting, only?: LimitOrderStatus[]): Promise<LimitOrder | null>
 setStatus(id: string, status: LimitOrderStatus, lastError?: string | null, only?: LimitOrderStatus[]):
     Promise<LimitOrder | null>
-clampRemaining(id: string, room: string): Promise<LimitOrder | null>
+clampRemaining(id: string, room: string, only?: LimitOrderStatus[]): Promise<LimitOrder | null>
 recordFill(fill: LimitOrderFillInsert): Promise<void>
 fills(limitOrderId: string, limit?: number): Promise<LimitOrderFill[]>
 fillHistory(): Promise<LimitOrderFillRecord[]>
@@ -849,9 +849,17 @@ nothing else.
 `open()` is what the matcher prices against. `setPosting` and `setStatus` take an optional `only`
 list and write only while the row still holds one of those statuses, answering `null` otherwise, so
 a slow orderbook answer cannot undo a cancel or expiry that landed first. `clampRemaining` lowers an
-`open` or `resizing` order's `remaining` to the room its on-chain budget leaves and never raises it;
-settlement and the tally pass both use it. It must accept `resizing`: a repost holds the order in
-that status and posts the clamped size, so a store that refuses it re-advertises the pre-fill size.
+`open` or `resizing` order's `remaining` to the room its on-chain budget leaves and never raises it,
+answering `null` for an order in any other status or one the room does not lower. Settlement and
+the tally pass use it.
+
+`clampRemaining` takes the same optional `only` list, which narrows the statuses it may act on and
+never widens them. The filler passes `["open"]` when a fill's sync or the tally pass lowers an order,
+since both go on to repost it and a row a repost already holds is left to that repost. It passes
+`["resizing"]` when a repost lowers the row it holds before posting. A store must therefore accept
+both statuses: one that refuses `resizing` re-advertises the pre-fill size. It must also apply the
+status check and the write as one step, so a row that moved on after the caller read it is left as
+it is.
 
 ### Implementations
 

@@ -10,10 +10,13 @@ figures, and `remaining` is brought down to the order's tally after every fill. 
 
 - `LimitOrder.reserved`, `LimitOrderStore.reserve`, `release`, `transaction` and `drawDown`,
   `BidInsert.reservations`, `StoredBid.reservations` and `BidStore.claimReservation` are gone, so a
-  custom store no longer implements them. `LimitOrderStore.clampRemaining` is the one write to
-  `remaining`: it lowers an `open` or `resizing` order to the on-chain room, and never raises it.
-  A store must accept `resizing`: a repost holds that status and posts the clamped size, so a
-  store that refuses it re-advertises the pre-fill size. The public store reference says so.
+  custom store no longer implements them. `LimitOrderStore.clampRemaining(id, room, only?)` is the
+  one write to `remaining`: it lowers an `open` or `resizing` order to the on-chain room, and never
+  raises it. `only` narrows those statuses, as it does for `setStatus` and `setPosting`, and never
+  widens them; any other status answers `null`. The tally path (a fill's `syncToChain` and the
+  periodic pass) passes `["open"]`, and a repost lowering the row it holds passes `["resizing"]`, so
+  a store must accept both, and must check the status and write as one step. A store that refuses
+  `resizing` re-advertises the pre-fill size. The public store reference says so.
 - `StoredBid.pricedBy` is new (below). A custom `BidStore` that returns `undefined` for it on old
   rows is read as `null`.
 - `LimitOrderService.syncToChain(id, blockNumber?)` and
@@ -61,14 +64,17 @@ retraction or a fill. `BidStore.byLimitOrder` reads from it.
    `remaining` to `budgetRoom`, and resizes or closes the order, which is what `reconcileTallies`
    does for each open order. Reading at the fill's block keeps a lagging load-balanced endpoint from
    answering with the tally from before the fill; the tally only grows, so that block already
-   includes it. An endpoint that has not reached the block gives no figure, and the periodic pass
-   follows up. That pass reads the latest block, and now logs a lowering at `warn`, since
+   includes it. An endpoint that cannot answer the pinned read (it has not reached the block, or
+   pruned that state) gets one read at the latest block instead, which is safe because the clamp
+   only lowers and the tally never shrinks. If that fails too there is no figure, and the periodic
+   pass follows up. That pass reads the latest block, and now logs a lowering at `warn`, since
    settlement should already have made it. A scanner that cannot tell the block substitutes
    `0n`, and a read pinned to block 0 fails, so `EventMonitor` forwards `blockNumber` only when
    it is above zero; an unset one reads the latest block.
 
-   `syncToChain` answers `false` when the order is not `open`, when the tally leaves it where it
-   is, when the chain does not show the fill yet, or when the tally cannot be read (the read
+   `syncToChain` answers `false` when the order is not `open` (including one a repost claims
+   between the check and the clamp, which the `["open"]` guard leaves to that repost), when the
+   tally leaves it where it is, when the chain does not show the fill yet, or when the tally cannot be read (the read
    logs a warning). It throws when the chain cannot be read for the token's decimals, or the store
    or orderbook fail. Settlement catches that and logs a warning.
 
@@ -77,7 +83,7 @@ retraction or a fill. `BidStore.byLimitOrder` reads from it.
 `syncToChain` leaves an order that is not `open`, so a fill that lands while a repost, a resize or
 a re-sign holds the row in `resizing` is not applied by settlement. `LimitOrderService.repost`
 therefore lowers the order to the chain's tally before it posts: it reads the tally, lowers
-`remaining` with `clampRemaining`, and posts that size. If the room left is under the orderbook's
+`remaining` with `clampRemaining(…, ["resizing"])`, and posts that size. If the room left is under the orderbook's
 dust floor it closes the order as `filled` instead of posting. A tally that cannot be read posts the
 size the store holds, and the periodic pass follows up.
 

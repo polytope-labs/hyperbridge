@@ -640,9 +640,9 @@ describe("LimitOrderService.reconcileTallies", () => {
 		// Whichever order the pass reaches first fails its store write.
 		const clamp = ctx.store.clampRemaining.bind(ctx.store)
 		let calls = 0
-		ctx.store.clampRemaining = async (id, room) => {
+		ctx.store.clampRemaining = async (id, room, only) => {
 			if (++calls === 1) throw new Error("database is locked")
-			return clamp(id, room)
+			return clamp(id, room, only)
 		}
 
 		expect(await ctx.service.reconcileTallies()).toBe(1)

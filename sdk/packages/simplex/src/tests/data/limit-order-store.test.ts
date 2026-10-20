@@ -171,6 +171,48 @@ describe.each(backends)("%s", (_name, open) => {
 			await close()
 		})
 
+		it("leaves a resizing order alone when only an open one may be clamped", async () => {
+			// A fill's sync passes ["open"]: a repost already holds the row, and a second
+			// repost of it would orphan a book entry.
+			const { store, close } = open()
+			await store.create({ ...ORDER, size: "100" })
+			const held = await store.setStatus(ORDER.id, "resizing")
+
+			expect(await store.clampRemaining(ORDER.id, "60", ["open"])).toBeNull()
+			expect(await store.get(ORDER.id)).toEqual(held)
+			await close()
+		})
+
+		it("lowers a resizing order, and leaves an open one, when only a resizing one may be clamped", async () => {
+			const { store, close } = open()
+			await store.create({ ...ORDER, size: "100" })
+
+			expect(await store.clampRemaining(ORDER.id, "60", ["resizing"])).toBeNull()
+			expect((await store.get(ORDER.id))?.remaining).toBe("100")
+
+			await store.setStatus(ORDER.id, "resizing")
+			expect((await store.clampRemaining(ORDER.id, "60", ["resizing"]))?.remaining).toBe("60")
+			await close()
+		})
+
+		it("lowers an open order when only an open one may be clamped", async () => {
+			const { store, close } = open()
+			await store.create({ ...ORDER, size: "100" })
+
+			expect((await store.clampRemaining(ORDER.id, "60", ["open"]))?.remaining).toBe("60")
+			await close()
+		})
+
+		it("never widens the statuses: a closed order stays alone whatever `only` lists", async () => {
+			const { store, close } = open()
+			await store.create({ ...ORDER, size: "100" })
+			const before = await store.setStatus(ORDER.id, "filled")
+
+			expect(await store.clampRemaining(ORDER.id, "0", ["filled"])).toBeNull()
+			expect(await store.get(ORDER.id)).toEqual(before)
+			await close()
+		})
+
 		it.each(["filled", "cancelled", "expired", "rejected"] as const)(
 			"leaves a %s order alone",
 			async (status) => {

@@ -1,7 +1,7 @@
 import { randomBytes, randomUUID } from "node:crypto"
 import { ENTRY_POINT_V08, getChainId, MAX_DECLARED_ENTRIES, type HexString } from "@hyperbridge/sdk"
 import { type AssetRegistry, normalizeSymbol } from "@/config/asset-registry"
-import type { LimitOrder, LimitOrderFilter, LimitOrderInsert, LimitOrderStore } from "@/data/types"
+import type { LimitOrder, LimitOrderFilter, LimitOrderInsert, LimitOrderStatus, LimitOrderStore } from "@/data/types"
 import type { ContractInteractionService } from "@/services/ContractInteractionService"
 import type { DelegationService } from "@/services/DelegationService"
 import type { FillerConfigService } from "@/services/FillerConfigService"
@@ -42,6 +42,13 @@ const LIMITS_TTL_MS = 5 * 60 * 1000
  * can land while one is in flight.
  */
 const POSTABLE = ["open", "resizing"] as const
+/**
+ * Which rows a tally clamp may lower. The tally path (a fill's sync and the periodic
+ * pass) acts on an `open` row and then reposts it, so a row a repost already holds is
+ * left to that repost; the repost itself lowers the row it holds.
+ */
+const TALLY_PATH = ["open"] as const
+const HELD_BY_REPOST = ["resizing"] as const
 
 /**
  * How long a row must have sat untouched before reconciliation treats a missing
@@ -718,7 +725,7 @@ export class LimitOrderService {
 	private async lowerBeforePosting(order: LimitOrder): Promise<LimitOrder | null> {
 		let lowered: LimitOrder | null
 		try {
-			lowered = await this.clampToTally(order, "info")
+			lowered = await this.clampToTally(order, HELD_BY_REPOST, "info")
 		} catch (err) {
 			this.logger.warn({ id: order.id, err }, "Could not read the limit order's tally before posting it; posting its present size")
 			return order
@@ -927,8 +934,10 @@ export class LimitOrderService {
 	 * in, so an endpoint lagging behind it cannot answer with the tally from before the
 	 * fill. The periodic pass reads the latest block.
 	 *
-	 * Answers whether the order was lowered. False when it is not `open`, or when
-	 * the tally leaves it where it is, including a chain that has not yet counted a
+	 * The read falls back to the latest block when the pinned one fails.
+	 *
+	 * Answers whether the order was lowered. False when it is not `open` (also when a
+	 * repost takes it between the check and the write), or when the tally leaves it where it is, including a chain that has not yet counted a
 	 * fill and a tally that cannot be read (logged by the read). Throws when the chain
 	 * cannot be read for the token's decimals, or the store or orderbook fail;
 	 * settlement catches that and the periodic pass follows up.
@@ -940,15 +949,21 @@ export class LimitOrderService {
 	}
 
 	private async lowerToTally(order: LimitOrder, level: "info" | "warn", blockNumber?: bigint): Promise<boolean> {
-		const clamped = await this.clampToTally(order, level, blockNumber)
+		const clamped = await this.clampToTally(order, TALLY_PATH, level, blockNumber)
 		if (!clamped) return false
 		await this.resize(clamped, BigInt(order.remaining) - BigInt(clamped.remaining))
 		return true
 	}
 
-	/** The order as the store now holds it when its tally lowered it, null when it was left alone. */
+	/**
+	 * The order as the store now holds it when its tally lowered it, null when it was left alone.
+	 *
+	 * `only` is the statuses the row may hold for the clamp to apply, so a row that moved to
+	 * another between the caller's read and this write is not touched.
+	 */
 	private async clampToTally(
 		order: LimitOrder,
+		only: readonly LimitOrderStatus[],
 		level: "info" | "warn",
 		blockNumber?: bigint,
 	): Promise<LimitOrder | null> {
@@ -959,7 +974,18 @@ export class LimitOrderService {
 		// kept in the token's units, and the cap each bid carries comes from this read.
 		const decimals = await this.contractService.getTokenDecimals(token, order.fillChain)
 		const budget = budgetFor(order, token, decimals)
-		const spent = await this.contractService.limitOrderSpent(order.fillChain, budget.budgetId, blockNumber)
+		let spent = await this.contractService.limitOrderSpent(order.fillChain, budget.budgetId, blockNumber)
+		if (spent === null && blockNumber !== undefined) {
+			// A node that pruned the fill's block, or has not reached it, cannot answer a pinned
+			// read. The clamp only ever lowers, so one read at the latest block is safe: the
+			// tally never shrinks, and an endpoint still behind the fill leaves the row where it
+			// is for the periodic pass.
+			this.logger.info(
+				{ id: order.id, blockNumber: blockNumber.toString() },
+				"Could not read the limit order's tally at the fill's block; reading the latest block",
+			)
+			spent = await this.contractService.limitOrderSpent(order.fillChain, budget.budgetId)
+		}
 		if (spent === null) return null
 
 		// A size finer than the token truncates into the cap, which leaves `remaining`
@@ -969,7 +995,7 @@ export class LimitOrderService {
 		const over = BigInt(order.remaining) - room
 		if (over < toScaled(1n, decimals)) return null
 
-		const clamped = await this.store.clampRemaining(order.id, room.toString())
+		const clamped = await this.store.clampRemaining(order.id, room.toString(), only)
 		if (!clamped) return null
 
 		this.logger[level](

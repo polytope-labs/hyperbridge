@@ -492,11 +492,22 @@ export interface LimitOrderStore {
 	/**
 	 * Lowers an `open` or `resizing` order's `remaining` to `room`, what the solver's
 	 * account on chain will still pay for this order, at 1e18. Never raises it.
-	 * Returns the order when it was lowered, null otherwise. A `resizing` order is
-	 * one a repost holds: it lowers the row to the tally before it posts. A store
-	 * that refuses `resizing` would have the repost advertise the pre-fill size.
+	 * Returns the order when it was lowered, null otherwise, including for an order in
+	 * any other status.
+	 *
+	 * `only` narrows the statuses it may act on, like `setStatus` and `setPosting` take;
+	 * it never widens them, so a status other than `open` or `resizing` is never clamped.
+	 * Both callers pass it, because the two statuses mean different things. A repost
+	 * holds a row in `resizing` and lowers it to the tally before it posts, so that call
+	 * passes `["resizing"]`: a store that refused `resizing` would have the repost
+	 * advertise the pre-fill size. A fill's sync starts a repost of its own after it
+	 * lowers the row, so it passes `["open"]`: a row a repost already holds is left to
+	 * it, and two reposts of one row would orphan a book entry.
+	 *
+	 * A custom store must apply the status check and the write atomically: a row that
+	 * moved to another status after the caller read it is left as it is.
 	 */
-	clampRemaining(id: string, room: string): Promise<LimitOrder | null>
+	clampRemaining(id: string, room: string, only?: readonly LimitOrderStatus[]): Promise<LimitOrder | null>
 	/** Records a fill against its limit order, for its history and profit. */
 	recordFill(fill: LimitOrderFillInsert): Promise<void>
 	/** Every fill of every limit order, oldest first, each with its order's terms. */

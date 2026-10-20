@@ -245,6 +245,88 @@ describe("the tally a fill is settled against", () => {
 	})
 })
 
+describe("a tally read pinned to the fill's block that fails", () => {
+	/** The chain answers the latest block but not the pinned one, as a node that pruned that state would. */
+	const prunedAt = (ctx: Awaited<ReturnType<typeof build>>, answers = true) => {
+		;(ctx.service as any).contractService.limitOrderSpent = async (
+			_chain: string,
+			_budgetId: HexString,
+			blockNumber?: bigint,
+		) => {
+			ctx.reads.push(blockNumber)
+			return blockNumber === undefined && answers ? ctx.tally() : null
+		}
+	}
+
+	it("is read once more at the latest block, which lowers the order", async () => {
+		const ctx = await build()
+		prunedAt(ctx)
+		const fill = await ctx.executeBid(250n)
+
+		ctx.scanFill(fill, 12_345n)
+		await ctx.idle()
+
+		// Pinned and failed, then the latest; the repost it triggers reads the latest once more.
+		expect(ctx.reads).toEqual([12_345n, undefined, undefined])
+		expect((await ctx.order()).remaining).toBe((750n * ONE).toString())
+		expect(ctx.posted.at(-1)).toBe(750n * UNIT)
+	})
+
+	it("leaves the order where it is when the latest block cannot be read either", async () => {
+		const ctx = await build()
+		prunedAt(ctx, false)
+		const fill = await ctx.executeBid(250n)
+		const submitted = ctx.client.submitted.length
+
+		ctx.scanFill(fill, 12_345n)
+		await ctx.idle()
+
+		expect(ctx.reads).toEqual([12_345n, undefined])
+		expect((await ctx.order()).remaining).toBe((1000n * ONE).toString())
+		expect(ctx.client.submitted).toHaveLength(submitted)
+	})
+
+	it("is not read twice when nothing was pinned", async () => {
+		const ctx = await build()
+		prunedAt(ctx, false)
+
+		expect(await ctx.service.syncToChain(LIMIT_ORDER)).toBe(false)
+		expect(ctx.reads).toEqual([undefined])
+	})
+})
+
+describe("a fill's sync and a repost that takes the row first", () => {
+	it("leaves the row to the repost, which is the only one to post", async () => {
+		const ctx = await build()
+		await ctx.executeBid(250n)
+		const submitted = ctx.client.submitted.length
+		// The sync reads the row `open`, then the tally; a repost claims the row in between.
+		const read = (ctx.service as any).contractService.limitOrderSpent
+		;(ctx.service as any).contractService.limitOrderSpent = async (...args: unknown[]) => {
+			await (ctx.service as any).store.setStatus(LIMIT_ORDER, "resizing")
+			return read(...args)
+		}
+
+		expect(await ctx.service.syncToChain(LIMIT_ORDER, 12_345n)).toBe(false)
+
+		const held = await ctx.order()
+		expect(held.status).toBe("resizing")
+		expect(held.remaining).toBe((1000n * ONE).toString())
+		expect(ctx.client.submitted).toHaveLength(submitted)
+	})
+
+	it("lowers the row the repost holds, which is how it applies a fill that landed meanwhile", async () => {
+		const ctx = await build()
+		await (ctx.service as any).store.setStatus(LIMIT_ORDER, "resizing")
+		await ctx.executeBid(250n)
+
+		const reposted = await ctx.service.repost(await ctx.order())
+
+		expect(reposted?.remaining).toBe((750n * ONE).toString())
+		expect(ctx.posted.at(-1)).toBe(750n * UNIT)
+	})
+})
+
 describe("a fill on a bid row that records no provenance", () => {
 	it("settles nothing and fails nothing, for a row whose pricedBy is left out", async () => {
 		// A custom `BidStore` holding rows from before bids carried `pricedBy` can return it

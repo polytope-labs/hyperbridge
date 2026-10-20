@@ -424,9 +424,11 @@ class MemoryLimitOrderStore implements LimitOrderStore {
 		return this.patch(id, { status, lastError }, only)
 	}
 
-	async clampRemaining(id: string, room: string): Promise<LimitOrder | null> {
+	async clampRemaining(id: string, room: string, only?: readonly LimitOrderStatus[]): Promise<LimitOrder | null> {
 		const order = this.orders.get(id)
+		// `open` and `resizing` (a repost holds the row in the latter); `only` narrows them.
 		if (!order || (order.status !== "open" && order.status !== "resizing")) return null
+		if (only && only.length > 0 && !only.includes(order.status)) return null
 		const target = BigInt(room) > 0n ? BigInt(room) : 0n
 		if (target >= BigInt(order.remaining)) return null
 		return this.patch(id, { remaining: target.toString() })

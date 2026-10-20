@@ -50,6 +50,15 @@ function statusGuard(only?: readonly LimitOrderStatus[]): string {
 	return only && only.length > 0 ? ` AND status IN (${only.map(() => "?").join(", ")})` : ""
 }
 
+/**
+ * The statuses `clampRemaining` may act on: `open`, and `resizing`, which a repost holds
+ * the row in. `only` narrows them and never widens them; none (or an empty list) leaves both.
+ */
+function clampable(only?: readonly LimitOrderStatus[]): LimitOrderStatus[] {
+	const live: LimitOrderStatus[] = ["open", "resizing"]
+	return only && only.length > 0 ? live.filter((status) => only.includes(status)) : live
+}
+
 export class SqliteLimitOrderStore implements LimitOrderStore {
 	private logger: Logger
 
@@ -290,9 +299,10 @@ export class SqliteLimitOrderStore implements LimitOrderStore {
 			.all(limitOrderId, Math.min(Math.max(limit, 1), 500)) as unknown as LimitOrderFill[]
 	}
 
-	async clampRemaining(id: string, room: string): Promise<LimitOrder | null> {
+	async clampRemaining(id: string, room: string, only?: readonly LimitOrderStatus[]): Promise<LimitOrder | null> {
+		const statuses = clampable(only)
 		const order = this.read(id)
-		if (!order || (order.status !== "open" && order.status !== "resizing")) return null
+		if (!order || !statuses.includes(order.status)) return null
 		const target = BigInt(room) > 0n ? BigInt(room) : 0n
 		if (target >= BigInt(order.remaining)) return null
 
@@ -302,9 +312,9 @@ export class SqliteLimitOrderStore implements LimitOrderStore {
 		const result = this.db
 			.prepare(`
 				UPDATE limit_orders SET remaining = ?, updated_at = datetime('now')
-				WHERE id = ? AND remaining = ? AND status IN ('open', 'resizing')
+				WHERE id = ? AND remaining = ? AND status IN (${statuses.map(() => "?").join(", ")})
 			`)
-			.run(target.toString(), id, order.remaining)
+			.run(target.toString(), id, order.remaining, ...statuses)
 		return result.changes === 1 ? this.read(id) : null
 	}
 }

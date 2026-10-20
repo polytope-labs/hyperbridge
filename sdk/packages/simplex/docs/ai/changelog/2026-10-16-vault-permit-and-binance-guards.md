@@ -40,10 +40,10 @@ validated and then reverted in `fillOrder`, with the solver paying the gas.
 `prepareBidUserOp` reads the destination head once with `getBlock`, reuses its number for
 `bidValidUntilBlock`, and passes `head.timestamp + bidValiditySeconds + BID_DISCOVERY_PAD_SECONDS +
 BID_PERMIT_SKEW_SECONDS` (120; it covers the head's age at signing, inclusion latency and the buffer
-a bundler applies when an op's `validUntil` is too close to now). The deadline is anchored to the
-chain because the EntryPoint judges it there: a window added to the host clock lost whatever the
-host was behind by, and with 6–7 minutes of skew every sponsored bid failed validation. Sends,
-sweeps and delegation keep the hour from the host clock. The one-time `buildPermitMode` bootstrap is
+a bundler applies when an op's `validUntil` is too close to now). A bid's deadline is therefore
+the destination head's timestamp plus that window; the host clock plays no part, because the
+EntryPoint judges the deadline against the chain's clock. Every other op (sends, sweeps,
+delegation) signs the host clock plus one hour. The one-time `buildPermitMode` bootstrap is
 untouched: its EIP-2612 deadline is `maxUint256` because a paymaster cannot read `block.timestamp`
 under 4337 validation rules.
 

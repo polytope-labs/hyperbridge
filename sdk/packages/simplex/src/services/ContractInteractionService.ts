@@ -935,7 +935,7 @@ export class ContractInteractionService {
 			configService: this.configService,
 			// The paymaster reports the Permit2 deadline as the op's `validUntil`, and the default
 			// hour outlives a bid's validity: a bid selected late still validated, then `fillOrder`
-			// reverted `Expired` and the solver paid the gas. Sizing the permit to the bid's window
+			// reverted `FillExpired` and the solver paid the gas. Sizing the permit to the bid's window
 			// lets the EntryPoint drop an op far past it at validation, for free. That is a bound on
 			// the tail, not a guarantee: an op landing between the bid's block-based `validUntil` and
 			// this deadline (up to BID_PERMIT_SKEW_SECONDS later) still reverts `FillExpired`, at the

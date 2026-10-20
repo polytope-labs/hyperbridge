@@ -89,10 +89,12 @@ async fn import_images(db: &Db, source: &ForumClient, post: &Value) -> anyhow::R
 
 async fn import_post(db: &Db, kind: PostKind, number: i64, post: &Value) -> anyhow::Result<()> {
 	db.execute(
-		"INSERT INTO posts (kind, number, title, content, content_type, author, labels, banner_cid, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::text::timestamptz, $10::text::timestamptz)
+		"INSERT INTO posts (kind, number, title, content, content_type, author, labels, banner_cid, created_at, updated_at,
+			edited)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::text::timestamptz, $10::text::timestamptz, $11)
 		ON CONFLICT (kind, number) DO UPDATE SET title = $3, content = $4, content_type = $5, author = $6,
-			labels = $7, banner_cid = $8, created_at = $9::text::timestamptz, updated_at = $10::text::timestamptz",
+			labels = $7, banner_cid = $8, created_at = $9::text::timestamptz, updated_at = $10::text::timestamptz,
+			edited = $11",
 		&[
 			&(kind as i16),
 			&number,
@@ -104,6 +106,7 @@ async fn import_post(db: &Db, kind: PostKind, number: i64, post: &Value) -> anyh
 			&post["bannerCid"].as_str(),
 			&post["createdAt"].as_str(),
 			&post["updatedAt"].as_str(),
+			&post["edited"].as_bool().unwrap_or_default(),
 		],
 	)
 	.await?;

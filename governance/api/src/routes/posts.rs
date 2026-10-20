@@ -8,14 +8,14 @@ use serde::Deserialize;
 use serde_json::{json, Map, Value};
 use tokio_postgres::Row;
 
-use super::{auth::Session, AppState, Params};
+use super::{auth::Session, common::ref_to_post, AppState, Params};
 use crate::{
 	error::{ApiError, ApiResult},
 	primitives::{author, iso, parse_post_id, post_id, Page, PostKind},
 };
 
 const DISCUSSIONS: &str = "
-	SELECT p.number, p.title, p.content, p.content_type, p.author, p.labels, p.banner_cid,
+	SELECT p.number, p.title, p.content, p.content_type, p.author, p.labels, p.banner_cid, p.edited,
 		ms(p.created_at) AS created_ms, ms(p.updated_at) AS updated_ms,
 		c.count AS comments_count, c.last_ms AS comment_ms
 	FROM posts p
@@ -33,6 +33,7 @@ fn discussion(row: &Row) -> Value {
 		"title": row.get::<_, Option<String>>("title"),
 		"content": row.get::<_, Option<String>>("content"),
 		"contentType": row.get::<_, String>("content_type"),
+		"edited": row.get::<_, bool>("edited"),
 		"author": author(&row.get::<_, Option<String>>("author").unwrap_or_default()),
 		"labels": row.get::<_, Value>("labels"),
 		"bannerCid": row.get::<_, Option<String>>("banner_cid"),
@@ -41,7 +42,12 @@ fn discussion(row: &Row) -> Value {
 		"updatedAt": iso(row.get("updated_ms")),
 		"lastActivityAt": iso(created.max(last_comment)),
 		"commentsCount": row.get::<_, i64>("comments_count"),
-		"refToPost": { "postId": post_id(PostKind::Discussion, number), "postType": PostKind::Discussion.post_type() },
+		"refToPost": ref_to_post(
+			PostKind::Discussion,
+			number,
+			created,
+			row.get::<_, bool>("edited").then(|| row.get("updated_ms")),
+		),
 	})
 }
 
@@ -197,10 +203,10 @@ pub async fn edit(
 	state
 		.db
 		.execute(
-			"INSERT INTO posts (kind, number, title, content, content_type, author, labels, banner_cid)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+			"INSERT INTO posts (kind, number, title, content, content_type, author, labels, banner_cid, edited)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, TRUE)
 			ON CONFLICT (kind, number) DO UPDATE SET title = $3, content = $4, content_type = $5, labels = $7,
-				banner_cid = $8, updated_at = NOW()",
+				banner_cid = $8, edited = TRUE, updated_at = NOW()",
 			&[
 				&(kind as i16),
 				&number,

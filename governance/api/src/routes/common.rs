@@ -14,7 +14,7 @@ pub const POST_COLUMNS: &str = "
 	s.event_index AS s_event, s.ms AS s_ms,
 	l.name AS l_name, l.args AS l_args, l.block_number AS l_block, l.block_hash AS l_hash,
 	l.extrinsic_index AS l_extrinsic, l.event_index AS l_event, l.ms AS l_ms,
-	p.title, p.content, p.content_type, p.author, p.labels, p.comment_filter,
+	p.title, p.content, p.content_type, p.author, p.labels, p.comment_filter, p.edited,
 	ms(p.updated_at) AS p_updated_ms,
 	c.count AS comments_count, c.last_ms AS comment_ms";
 
@@ -47,6 +47,17 @@ pub fn indexer(row: &Row, prefix: &str) -> Indexer {
 	}
 }
 
+/// The forum's link from an item to its post. The forum shows a post as edited when the link's
+/// update time differs from its creation time.
+pub fn ref_to_post(kind: PostKind, number: i64, created: i64, edited: Option<i64>) -> Value {
+	json!({
+		"postId": post_id(kind, number),
+		"postType": kind.post_type(),
+		"createdAt": iso(created),
+		"updatedAt": iso(edited.unwrap_or(created)),
+	})
+}
+
 /// The fields the forum shows for any post, filled from the forum when someone has written one.
 pub fn post_fields(row: &Row, kind: PostKind, number: i64, proposer: &str) -> Map<String, Value> {
 	let created = row.get::<_, i64>("s_ms");
@@ -56,6 +67,8 @@ pub fn post_fields(row: &Row, kind: PostKind, number: i64, proposer: &str) -> Ma
 	let content_type = row
 		.get::<_, Option<String>>("content_type")
 		.unwrap_or_else(|| "markdown".into());
+	let edited = row.get::<_, Option<bool>>("edited").unwrap_or_default();
+	let updated = row.get::<_, Option<i64>>("p_updated_ms").unwrap_or(last_event);
 
 	let Value::Object(fields) = json!({
 		"_id": post_id(kind, number),
@@ -65,13 +78,14 @@ pub fn post_fields(row: &Row, kind: PostKind, number: i64, proposer: &str) -> Ma
 		"title": row.get::<_, Option<String>>("title"),
 		"content": row.get::<_, Option<String>>("content"),
 		"contentType": content_type,
+		"edited": edited,
 		"labels": row.get::<_, Option<Value>>("labels").unwrap_or_else(|| json!([])),
 		"createdAt": iso(created),
-		"updatedAt": iso(row.get::<_, Option<i64>>("p_updated_ms").unwrap_or(last_event)),
+		"updatedAt": iso(updated),
 		"lastActivityAt": iso(last_event.max(last_comment)),
 		"commentsCount": row.get::<_, i64>("comments_count"),
 		"commentFilterSetting": row.get::<_, Option<Value>>("comment_filter"),
-		"refToPost": { "postId": post_id(kind, number), "postType": kind.post_type() },
+		"refToPost": ref_to_post(kind, number, created, edited.then_some(updated)),
 	}) else {
 		return Map::new();
 	};

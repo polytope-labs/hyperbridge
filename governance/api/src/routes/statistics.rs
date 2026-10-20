@@ -103,7 +103,8 @@ pub async fn summary(State(state): State<AppState>) -> ApiResult<Json<Value>> {
 		.collect::<BTreeMap<_, _>>();
 	let total = counts.values().sum::<i64>();
 
-	// A track's turnout is the average over its referenda of their capital, electorate and turnout
+	// A track's turnout is the average over its referenda of their capital, electorate and turnout,
+	// rounded to the nearest unit as the forum shows it
 	let mut track_turnouts = Vec::with_capacity(tracks.len());
 	for (id, name) in &tracks {
 		let turnouts = turnouts(&state, *id).await?;
@@ -112,7 +113,8 @@ pub async fn summary(State(state): State<AppState>) -> ApiResult<Json<Value>> {
 			turnouts
 				.iter()
 				.filter_map(|t| t[field].as_str()?.parse::<u128>().ok())
-				.sum::<u128>() /
+				.sum::<u128>()
+				.saturating_add(count / 2) /
 				count
 		};
 		let percentage =
@@ -126,14 +128,20 @@ pub async fn summary(State(state): State<AppState>) -> ApiResult<Json<Value>> {
 		}));
 	}
 
+	// Busiest tracks first, ties in track order
+	let mut track_counts = tracks
+		.iter()
+		.map(|(id, name)| (counts.get(id).copied().unwrap_or_default(), *id, name))
+		.collect::<Vec<_>>();
+	track_counts.sort_by_key(|(count, ..)| std::cmp::Reverse(*count));
+
 	let delegations = delegations(&state, None).await?;
 	let delegation = delegation_summary(delegations.iter());
 	Ok(Json(json!({
 		"trackTurnouts": track_turnouts,
-		"trackReferendaCounts": tracks
-			.iter()
-			.map(|(id, name)| {
-				let count = counts.get(id).copied().unwrap_or_default();
+		"trackReferendaCounts": track_counts
+			.into_iter()
+			.map(|(count, id, name)| {
 				let percent = if total == 0 { 0.0 } else { count as f64 / total as f64 };
 				json!({ "id": id, "name": name, "count": count, "percent": percent })
 			})

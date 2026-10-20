@@ -107,6 +107,10 @@ ALTER TABLE forum.comments ADD COLUMN IF NOT EXISTS spam BOOLEAN NOT NULL DEFAUL
 -- How a referendum's proposer or an admin wants its comments filtered
 ALTER TABLE forum.posts ADD COLUMN IF NOT EXISTS comment_filter JSONB;
 
+-- Whether the post was edited after it was written. The description of an on-chain item counts as
+-- edited from its first write, since the item existed before it.
+ALTER TABLE forum.posts ADD COLUMN IF NOT EXISTS edited BOOLEAN NOT NULL DEFAULT FALSE;
+
 CREATE TABLE IF NOT EXISTS forum.reports (
 	id BIGSERIAL PRIMARY KEY,
 	post_type TEXT NOT NULL,

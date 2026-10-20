@@ -25,6 +25,7 @@ fn query(filter: &str) -> String {
 	format!(
 		"SELECT r.index, r.track, r.proposer, r.proposal, r.proposal_hash, r.call, r.is_final, r.info,
 			r.ayes::text AS ayes, r.nays::text AS nays, r.support::text AS support,
+			r.electorate::text AS electorate,
 			t.name AS track_name, {POST_COLUMNS},
 			CASE WHEN r.is_final THEN COALESCE(r.track_info, t.info) ELSE t.info END AS track_info
 		FROM governance_referendums r
@@ -86,6 +87,30 @@ fn timeline_args(name: &str, args: Value, proposer: &str, proposal_hash: &Value)
 	Value::Object(fields)
 }
 
+/// The call hashes a proposal dispatches or whitelists through the whitelist pallet, looking inside
+/// batches. A dispatch with its preimage carries the call rather than its hash, so it is left out.
+fn whitelist_hashes(call: &Value, dispatched: &mut Vec<Value>, whitelisted: &mut Vec<Value>) {
+	let args = call["args"].as_array().into_iter().flatten();
+	if call["section"] == "whitelist" {
+		let hashes = match call["method"].as_str() {
+			Some("dispatchWhitelistedCall") => Some(&mut *dispatched),
+			Some("whitelistCall") => Some(&mut *whitelisted),
+			_ => None,
+		};
+		if let Some(hashes) = hashes {
+			hashes.extend(
+				args.filter(|arg| arg["name"] == "callHash").map(|arg| arg["value"].clone()),
+			);
+		}
+		return;
+	}
+	for arg in args {
+		for inner in arg["value"].as_array().into_iter().flatten() {
+			whitelist_hashes(inner, dispatched, whitelisted);
+		}
+	}
+}
+
 fn referendum(row: &Row) -> Value {
 	let index = row.get::<_, i32>("index");
 	let is_final = row.get::<_, bool>("is_final");
@@ -108,11 +133,15 @@ fn referendum(row: &Row) -> Value {
 		Value::Null => parse(row.get("proposal")),
 		call => json!({ "call": call, "shorten": false }),
 	};
+	let electorate = Value::from(row.get::<_, Option<String>>("electorate"));
 	let tally = json!({
 		"ayes": row.get::<_, String>("ayes"),
 		"nays": row.get::<_, String>("nays"),
 		"support": row.get::<_, String>("support"),
+		"electorate": electorate,
 	});
+	let (mut dispatched, mut whitelisted) = (Vec::new(), Vec::new());
+	whitelist_hashes(&proposal["call"], &mut dispatched, &mut whitelisted);
 
 	let mut post = post_fields(row, PostKind::Referendum, index.into(), &proposer);
 	post.extend([
@@ -135,6 +164,9 @@ fn referendum(row: &Row) -> Value {
 				"state": state,
 				"info": parse(row.get("info")),
 				"tally": tally,
+				"electorate": electorate,
+				"whitelistDispatchedHashes": dispatched,
+				"whitelistedHashes": whitelisted,
 				"isFinal": is_final,
 			}),
 		),

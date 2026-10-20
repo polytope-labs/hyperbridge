@@ -168,6 +168,11 @@ const APPROVE_ZERO_DATA = encodeFunctionData({ abi: ERC20_ABI, functionName: "ap
 const INTENT_GATEWAY = "0xAe041F7B0CB581876832830baeB6a2Aa2a3C9716" as HexString
 const HOST = "0x620128E2B19193d6Bd244a3AC8D3bBa0541B19c3" as HexString
 
+/** The commitment of the order the tests' records track. */
+const ORDER_COMMITMENT = `0x${"77".repeat(32)}` as HexString
+/** A cancel's `context` starts with the order's commitment (`abi.encode(commitment, user, ...)`). */
+const cancelContext = (commitment: HexString) => `${commitment}${"00".repeat(32)}` as HexString
+
 /** The GET request the source host dispatches for a cross-chain cancel, sent by the IntentGateway. */
 const CANCEL_GET_REQUEST = {
 	source: "EVM-8453",
@@ -177,12 +182,14 @@ const CANCEL_GET_REQUEST = {
 	height: 9_999n,
 	nonce: 3n,
 	timeoutTimestamp: 0n,
-	context: "0x",
+	context: cancelContext(ORDER_COMMITMENT),
 } as const
 const GET_COMMITMENT = getRequestCommitment({ ...CANCEL_GET_REQUEST, keys: [...CANCEL_GET_REQUEST.keys] })
 
 /** The `GetRequestEvent` log in a cross-chain cancel's receipt. */
-function getRequestLog(patch: { from?: HexString; address?: HexString; nonce?: bigint } = {}) {
+function getRequestLog(
+	patch: { from?: HexString; address?: HexString; nonce?: bigint; context?: HexString } = {},
+) {
 	const event = EVM_HOST.find((item) => item.type === "event" && item.name === "GetRequestEvent") as AbiEvent
 	const args: Record<string, unknown> = { ...CANCEL_GET_REQUEST, fee: 0n, ...patch }
 	return {
@@ -846,6 +853,28 @@ describe("BRIDGE top-up persistence", () => {
 				// Another sender's request through this host, then the gateway's from a contract that is not the host.
 				getRequestLog({ from: "0x00000000000000000000000000000000000000ee", nonce: 1n }),
 				getRequestLog({ address: "0x00000000000000000000000000000000000000dd", nonce: 2n }),
+				getRequestLog(),
+			]
+
+			await topUp.reclaim()
+			await vi.waitFor(async () => expect((await data.state.get()).bridgeTopUp?.stage).toBe("reclaimed"))
+			expect(rebuilt).toEqual([GET_COMMITMENT])
+			expect((await data.state.get()).bridgeTopUp?.getCommitment).toBe(GET_COMMITMENT)
+		} finally {
+			fetchSpy.mockRestore()
+		}
+	})
+
+	it("takes this order's cancel from a bundle where another order's cancel through the gateway comes first", async () => {
+		const fetchSpy = vi
+			.spyOn(globalThis, "fetch")
+			.mockImplementation(
+				async () => new Response(JSON.stringify({ data: { iOrderV3s: { nodes: [{ statusMetadata: { nodes: [] } }] } } })),
+			)
+		try {
+			const { topUp, data, rebuilt, state } = finalizedRecovery({})
+			state.receiptLogs = [
+				getRequestLog({ nonce: 1n, context: cancelContext(`0x${"55".repeat(32)}`) }),
 				getRequestLog(),
 			]
 

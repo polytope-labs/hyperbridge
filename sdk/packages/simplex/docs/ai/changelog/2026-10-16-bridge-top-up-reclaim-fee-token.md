@@ -28,6 +28,11 @@ cancel's GET request is kept as `getCommitment`. The calldata is proven at a fix
 height, so a claim that reverts clears it, and a missing or cleared `claimCalldata` is rebuilt with
 `queryGetRequestWithStatus(getCommitment)` instead of replaying the old bytes. `getCommitment` is
 read back from the cancel's receipt when a record lacks it. A sponsored cancel's receipt is its
-whole bundle, so only a `GetRequestEvent` emitted by the source chain's host for a request sent by
-the IntentGateway counts; another op's GET request in the same bundle is skipped, and a receipt
-with none fails as before.
+whole bundle, so only a `GetRequestEvent` emitted by the source chain's host, for a request sent by
+the IntentGateway, whose `context` starts with the order's commitment counts (`_cancelFromSource`
+encodes `context` as `abi.encode(commitment, user, inputs, totalRequired)`). Another op's GET
+request, or another order's cancel through the same gateway, in the same bundle is skipped, and a
+receipt with none fails.
+
+When no finalized response can be rebuilt, the error says either Hyperbridge has not finalized it
+yet or its proof could not be read: the SDK swallows proof and RPC errors, so the two look alike.

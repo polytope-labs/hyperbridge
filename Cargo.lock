@@ -8595,7 +8595,7 @@ dependencies = [
 
 [[package]]
 name = "grandpa-verifier"
-version = "2512.1.0"
+version = "2512.2.0"
 dependencies = [
  "anyhow",
  "derive_more 0.99.20",
@@ -10493,7 +10493,7 @@ version = "0.1.1"
 
 [[package]]
 name = "ismp-grandpa"
-version = "2512.1.0"
+version = "2512.2.0"
 dependencies = [
  "anyhow",
  "ckb-merkle-mountain-range",

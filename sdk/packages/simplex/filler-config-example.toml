@@ -81,6 +81,17 @@ hyperbridgeWsUrl = ""
 # to never check fees. An order Simplex cannot value in dollars is treated as below it.
 # minOrderSizeUsd = 20
 
+# Smallest payout a partial fill may bid, in USD. A partial fill collects none of the order's
+# fees and is exempt from the profit floor, so its gas is paid by the margin in the limit order
+# that prices it. Without a floor, a near-exhausted limit order or a wallet just above its gas
+# reserve bids dust on every matching order, each bid paying fill gas and the relayer fee.
+#
+# A partial that no limit order can value in USD is skipped too: a same-asset book (CNGN/CNGN)
+# or one with no path to a dollar stable (ZARP/CNGN) prices nothing.
+#
+# Set it to 0 to bid whatever can be filled. Full fills are unaffected.
+# minPartialFillUsd = 20
+
 # Gas fee bump configuration (optional)
 # These values control how much to bump gas fees for UserOperation submission
 # Both are percentages added ON TOP of the base gasPrice

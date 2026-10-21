@@ -150,6 +150,18 @@ export interface FillerTomlConfig {
 		 */
 		minOrderSizeUsd?: number
 		/**
+		 * The smallest payout, in USD, a partial fill may bid. Defaults to 20.
+		 *
+		 * A partial fill collects none of the order's fees, and is deliberately exempt from
+		 * the fee check and the profit floor: its gas is paid by the margin in the limit
+		 * order that prices it. That leaves it with no size floor of its own, so a
+		 * near-exhausted limit order, or a wallet just above its gas reserve, used to bid
+		 * dust on every matching order — each bid paying fill gas and the relayer fee.
+		 * Bids worth less than this are skipped. Set to 0 to bid whatever can be filled.
+		 * Full fills are unaffected.
+		 */
+		minPartialFillUsd?: number
+		/**
 		 * Remote access: an outbound SSH tunnel to a rendezvous relay so a phone's
 		 * SSH client can reach the local web UI. Off unless `enabled = true`; the
 		 * relay defaults to the hosted one. Devices are paired from the UI.
@@ -342,6 +354,13 @@ export function validateConfig(config: FillerTomlConfig, cliWatchOnly = false): 
 	if (minOrderSize !== undefined) {
 		if (!Number.isFinite(minOrderSize) || minOrderSize < 0) {
 			throw new Error(`simplex.minOrderSizeUsd must be a number >= 0 (USD); got ${minOrderSize}`)
+		}
+	}
+
+	const minPartialFill = config.simplex.minPartialFillUsd
+	if (minPartialFill !== undefined) {
+		if (!Number.isFinite(minPartialFill) || minPartialFill < 0) {
+			throw new Error(`simplex.minPartialFillUsd must be a number >= 0 (USD); got ${minPartialFill}`)
 		}
 	}
 

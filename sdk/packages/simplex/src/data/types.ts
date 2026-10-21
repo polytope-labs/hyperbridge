@@ -56,31 +56,30 @@ export interface StoredBid {
 	/** The order was seen filled on-chain, so this bid can never win — reclaim its deposit now. */
 	dead: boolean
 	/**
-	 * What this bid holds against the operator's limit orders, at 1e18, in the
-	 * order the payout draws on them. Empty for a bid placed before limit orders
-	 * priced anything, and empty again once the hold has been settled, whether it
-	 * was released because the bid lost or converted because the bid filled.
+	 * The limit order that priced this bid and the terms it signed, written when the bid is stored
+	 * and never changed. Null for a bid no limit order priced.
 	 *
-	 * More than one when a swap drew on several levels: the orderbook quotes a
-	 * same-chain swapper across every level that can fill the trade together, so a
-	 * bid may be meeting several of the operator's own orders at once.
+	 * Provenance only: nothing is held against the order. The order's on-chain budget refuses a
+	 * fill past its cap, and settlement re-reads that budget rather than doing arithmetic on this.
 	 */
-	reservations: LimitOrderHold[]
+	pricedBy: BidPricing | null
 }
 
-/** One limit order and what a bid holds against it, at 1e18. */
-export interface LimitOrderHold {
+/** The limit order a bid drew on and what the bid signed against it. */
+export interface BidPricing {
 	limitOrderId: string
-	amount: string
+	/** The output the bid offered to pay, at 1e18. */
+	payout: string
 	/**
-	 * The take the bid signed beside `amount`, in the input token's raw units. With it, settlement
-	 * works out what the gateway charged: the escrow it released at `amount / take`. Holds recorded
-	 * before bids carried their own rate have none.
+	 * The take the bid signed beside `payout`, in the input token's raw units. With it, settlement
+	 * works out what the gateway charged: the escrow it released at `payout / take`, and which of
+	 * several bids on one order a fill executed. Bids recorded before bids carried their own rate
+	 * have none.
 	 */
 	take?: string
 	/**
 	 * The input token's decimals on the order's source chain, which is where `take` and the escrow
-	 * a fill releases are counted. With it, settlement records what a fill took in at 1e18. Holds
+	 * a fill releases are counted. With it, settlement records what a fill took in at 1e18. Bids
 	 * recorded before fills kept their input have none.
 	 */
 	takeDecimals?: number
@@ -96,8 +95,8 @@ export interface BidInsert {
 	 * from the same account, lands after it and reclaims its deposit all the same.
 	 */
 	bid?: string
-	/** What this bid holds against the limit orders that priced it, best first. */
-	reservations?: LimitOrderHold[]
+	/** The limit order that priced this bid; see {@link StoredBid.pricedBy}. */
+	pricedBy?: BidPricing
 	extrinsicHash?: string
 	blockHash?: string
 	success: boolean
@@ -153,25 +152,8 @@ export interface BidStore {
 	/** Flags a bid dead (its order was filled on-chain). False when nothing matched. */
 	markDead(commitment: string): Promise<boolean>
 	/**
-	 * Takes what this bid holds, exactly once, and returns it.
-	 *
-	 * A losing bid gives its holds back and a winning one converts them into
-	 * draw-downs, and both routes end at the same bid row — a bid that won is still
-	 * retracted eventually, by the stale sweep, so an unguarded release would undo
-	 * a conversion that already happened. Whichever settles first claims them here;
-	 * the other gets an empty list and does nothing.
-	 */
-	/**
-	 * Takes the holds off a bid, exactly once, and hands them to the caller.
-	 *
-	 * With a `bid` it claims that one bid; without, every outstanding hold on the
-	 * commitment, which is what a filled or dead order needs so no bid's hold is
-	 * left behind.
-	 */
-	claimReservation(commitment: string, bid?: string): Promise<LimitOrderHold[]>
-	/**
-	 * Every bid that drew on a limit order, newest first. What makes a `remaining`
-	 * explicable to the operator: which bids took the difference.
+	 * Every bid a limit order priced, newest first, from each bid's `pricedBy`. What
+	 * makes a `remaining` explicable to the operator: which bids drew on the order.
 	 */
 	byLimitOrder(limitOrderId: string, limit?: number): Promise<StoredBid[]>
 	/** Newest first. Implementations should cap `limit` at a few hundred. */
@@ -360,8 +342,6 @@ export interface LimitOrder {
 	size: string
 	/** Output not yet delivered. */
 	remaining: string
-	/** Output promised to bids that have neither filled nor been retracted. */
-	reserved: string
 	/** Source chains this order accepts swaps from. Never empty. */
 	acceptedSources: string[]
 	/** TTL written into each posting. */
@@ -425,15 +405,8 @@ export interface LimitOrderPosting {
 }
 
 /**
- * Persistent record of the operator's limit orders.
- *
- * This is inventory, not a cache: `remaining` and `reserved` are what stop two
- * chains from paying out the same liability twice, so a store that loses writes
- * overcommits real money.
- */
-/**
- * One fill that drew a limit order down: kept apart from the bid that priced it, whose
- * holds are cleared on settlement, so an order keeps its history across every resize.
+ * One fill of a limit order, kept apart from the bid row so an order keeps its history
+ * across every resize and repost.
  */
 export interface LimitOrderFill {
 	id: number
@@ -451,6 +424,12 @@ export interface LimitOrderFill {
 	amountIn: string | null
 	/** The fill's transaction on the order's fill chain, when the event carried it. */
 	transactionHash: string | null
+	/**
+	 * Which log of that transaction the fill is. One transaction can carry several of our
+	 * fills, so the hash alone does not name one. Null for a fill recorded before this was
+	 * kept, and for one whose event carried none.
+	 */
+	logIndex: number | null
 	/** SQLite-style "YYYY-MM-DD HH:MM:SS" in UTC. */
 	filledAt: string
 }
@@ -462,6 +441,7 @@ export interface LimitOrderFillInsert {
 	amount: string
 	amountIn?: string | null
 	transactionHash?: string | null
+	logIndex?: number | null
 }
 
 /**
@@ -481,6 +461,13 @@ export interface LimitOrderFillRecord {
 	filledAt: string
 }
 
+/**
+ * Persistent record of the operator's limit orders.
+ *
+ * `remaining` follows the order's on-chain budget, which is what actually refuses a fill
+ * past the order's size: it is lowered to that budget after each fill and by the periodic
+ * tally reconciliation, and never raised.
+ */
 export interface LimitOrderStore {
 	create(order: LimitOrderInsert): Promise<LimitOrder>
 	get(id: string): Promise<LimitOrder | null>
@@ -503,51 +490,30 @@ export interface LimitOrderStore {
 		only?: readonly LimitOrderStatus[],
 	): Promise<LimitOrder | null>
 	/**
-	 * Adds `amount` to `reserved`, but only while the order is `open` and
-	 * `remaining` covers this one hold. Resolves false when it does not.
+	 * Lowers an `open` or `resizing` order's `remaining` to `room`, what the solver's
+	 * account on chain will still pay for this order, at 1e18. Never raises it.
+	 * Returns the order when it was lowered, null otherwise, including for an order in
+	 * any other status.
 	 *
-	 * Other bids' holds do not count against it: a pending bid must not stop the
-	 * next one going out, so the limit order bounds each bid and what fills draw
-	 * down, not the sum of bids still waiting. The hold is bookkeeping, turned into
-	 * a draw-down if the bid wins and given back if it loses. The write is still
-	 * guarded on the `reserved` it read, so two holds landing together both count.
-	 */
-	reserve(id: string, amount: string): Promise<boolean>
-	/** Gives a reservation back, after a bid was retracted, lost or found dead. */
-	release(id: string, amount: string): Promise<void>
-	/**
-	 * Works the order down by output that has actually been delivered, floored at
-	 * zero. Returns the order as it now stands, or null when there is none.
-	 */
-	drawDown(id: string, amount: string): Promise<LimitOrder | null>
-	/**
-	 * Lowers an `open` order's `remaining` to `room + reserved`, where `room` is
-	 * what the solver's account on chain will still pay for this order, at 1e18.
-	 * Never raises it. Returns the order when it was lowered, null otherwise.
+	 * `only` narrows the statuses it may act on, like `setStatus` and `setPosting` take;
+	 * it never widens them, so a status other than `open` or `resizing` is never clamped.
+	 * Both callers pass it, because the two statuses mean different things. A repost
+	 * holds a row in `resizing` and lowers it to the tally before it posts, so that call
+	 * passes `["resizing"]`: a store that refused `resizing` would have the repost
+	 * advertise the pre-fill size. A fill's sync starts a repost of its own after it
+	 * lowers the row, so it passes `["open"]`: a row a repost already holds is left to
+	 * it, and two reposts of one row would orphan a book entry.
 	 *
-	 * `reserved` is added back because a fill the chain has already counted, but
-	 * that has not been drawn down here yet, still holds its amount there until it
-	 * settles. Clamping to `room` alone would take that fill off twice.
+	 * A custom store must apply the status check and the write atomically: a row that
+	 * moved to another status after the caller read it is left as it is.
 	 */
-	clampRemaining(id: string, room: string): Promise<LimitOrder | null>
-	/** Records a fill against its limit order. Called alongside the draw-down it explains. */
+	clampRemaining(id: string, room: string, only?: readonly LimitOrderStatus[]): Promise<LimitOrder | null>
+	/** Records a fill against its limit order, for its history and profit. */
 	recordFill(fill: LimitOrderFillInsert): Promise<void>
 	/** Every fill of every limit order, oldest first, each with its order's terms. */
 	fillHistory(): Promise<LimitOrderFillRecord[]>
 	/** A limit order's fills, newest first. */
 	fills(limitOrderId: string, limit?: number): Promise<LimitOrderFill[]>
-	/**
-	 * Runs `settle` as one unit where the backend can.
-	 *
-	 * A fill claims what its bid held, works the orders down by what went out and
-	 * gives the rest back, and a crash between those leaves the hold released
-	 * against an order that was never drawn down. The bid rows live in the same
-	 * database as the limit orders, which is what lets one transaction cover both.
-	 *
-	 * Only store calls belong inside: they are synchronous underneath, so nothing
-	 * else interleaves on the connection, which would not hold for a network call.
-	 */
-	transaction<T>(settle: () => Promise<T>): Promise<T>
 }
 
 // ===========================================================================

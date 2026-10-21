@@ -705,14 +705,21 @@ export class ContractInteractionService {
 	 * Null rather than a throw: an account whose implementation keeps no tally answers
 	 * with a revert or with no data, and the caller carries on without the figure either
 	 * way. Not retried, since that answer does not change on a second ask.
+	 *
+	 * Read at `blockNumber` when given, otherwise at the latest block. A load-balanced
+	 * endpoint can lag the one that saw a fill, so a read at `latest` right after the
+	 * fill can return the tally from before it. The tally only grows, so a read at the
+	 * fill's own block already includes that fill. An endpoint that has not reached the
+	 * block answers with an error, which is null here: no figure, rather than a stale one.
 	 */
-	async limitOrderSpent(chain: string, budgetId: HexString): Promise<bigint | null> {
+	async limitOrderSpent(chain: string, budgetId: HexString, blockNumber?: bigint): Promise<bigint | null> {
 		try {
 			return await this.clientManager.getPublicClient(chain).readContract({
 				address: this.solverAccountAddress,
 				abi: SOLVER_ACCOUNT_ABI,
 				functionName: "spent",
 				args: [budgetId],
+				...(blockNumber !== undefined ? { blockNumber } : {}),
 			})
 		} catch (err) {
 			this.logger.warn({ err, chain, budgetId }, "Could not read the limit order's tally from the solver account")

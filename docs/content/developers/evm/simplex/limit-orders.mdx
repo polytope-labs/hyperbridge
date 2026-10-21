@@ -143,7 +143,7 @@ The list refreshes every 10 seconds, because orders fill, resize and expire with
 Each row is a progress bar for its order:
 
 - **The rate** comes first, such as `1,545 cNGN per USDC`.
-- **The bar** fills as the order pays out, green for a buy and red for a sell. The row says how far it has filled and what is left, such as `24% filled` and `7,520 USDC left`, followed by the token taken in and the fill chain. A fainter line past the fill is output held by bids that have not settled yet.
+- **The bar** fills as the order pays out, green for a buy and red for a sell. The row says how far it has filled and what is left, such as `24% filled` and `7,520 USDC left`, followed by the token taken in and the fill chain.
 - **Cap**, in the right corner, is the order's original size.
 
 A live order with no badge is posted and live on the orderbook. A badge marks any other status:
@@ -165,7 +165,7 @@ Click a row to see its details and the fills that drew it down.
 
 <figure style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
 
-![A limit order's detail panel: status, side, rate, 7,520 USDC left of 10,000, held by live bids, takes in, accepted sources, and three fills with transaction links](./images/limit-order-detail.png)
+![A limit order's detail panel: status, side, rate, 7,520 USDC left of 10,000, takes in, accepted sources, and three fills with transaction links](./images/limit-order-detail.png)
 
 <figcaption>The fills explain why an order has shrunk: 10,000 USDC less 2,480 paid out across three fills leaves 7,520.</figcaption>
 </figure>
@@ -174,7 +174,6 @@ Click a row to see its details and the fills that drew it down.
 |---|---|
 | **Rate** | The rate you set, in quote per base. |
 | **Pays out** | What is left of the order, out of its original size. |
-| **Held by live bids** | Output promised to bids that have neither filled nor been retracted. |
 | **Takes in** | The input token, and the chain the order fills on. |
 | **Accepts swaps from** | The source chains the order accepts. |
 | **Fills** | Each fill: when it happened, how much it paid out, and a link to the transaction on the fill chain's explorer. |
@@ -222,9 +221,9 @@ The log names which check failed: `No profitable strategy found for order` means
 
 **Multi-leg orders** are priced leg by leg. A bid on only some of the legs is a partial fill, with the same limits.
 
-**A fill resizes the order.** When a fill lands, Simplex reduces the order by what was actually delivered, releases whatever that bid was holding, and reposts the order at its new size. When what is left drops below the orderbook's dust floor, the order closes as **Filled**.
+**A fill resizes the order.** Each order has a budget on chain that counts what it has paid out and refuses any fill past its size. When a fill lands, Simplex records it against the order, lowers the order to what that budget has left, and reposts it at its new size. When what is left drops below the orderbook's dust floor, the order closes as **Filled**. If the chain cannot be read at that moment, the next reconciliation pass makes the same correction.
 
-**A pending bid does not block the next one.** Each bid holds its payout against its order until it settles. The next bid is still sized from the order's full remaining amount. So if several pending bids win at once, fills can briefly pay out more than the order's size, up to what the wallet holds.
+**A pending bid does not block the next one.** Nothing is set aside for a bid while it waits. Every bid is sized from what the order's budget has left on chain, so two bids at once can each offer that whole amount. If both are selected, the second fill is refused on chain and its gas is spent. The order never pays out more than its size.
 
 <Callout type="info">
     Simplex keeps the orderbook in sync on its own. It sends heartbeats so your postings stay live, withdraws expired orders every 30 seconds, and reconciles against the orderbook every `reconcileIntervalSecs` (5 minutes by default). Reconciliation reposts any order the orderbook has lost, cancels any entry that no longer has an order, and signs again any posting whose fill chain has moved to a different EntryPoint since it was posted. If the orderbook is unreachable when Simplex starts, filling still works, because Simplex prices from its local copy of your orders.

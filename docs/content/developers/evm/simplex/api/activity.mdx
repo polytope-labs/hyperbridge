@@ -145,7 +145,7 @@ curl -s "$SIMPLEX/api/activity/bids?limit=20"
 | `createdAt` | When it was placed, in UTC, as `YYYY-MM-DD HH:MM:SS`. |
 | `retracted`, `retractedAt`, `retractExtrinsicHash` | Whether the bid's deposit has been reclaimed, when, and in which extrinsic. |
 | `dead` | The order was filled on-chain, so the bid can never win. Its deposit is reclaimed straight away. |
-| `reservations` | What the bid holds against your [limit orders](/developers/evm/simplex/api/limit-orders): each `limitOrderId` and `amount`, 1e18-scaled. Empty once the bid has settled. |
+| `pricedBy` | The [limit order](/developers/evm/simplex/api/limit-orders) that priced the bid, or `null`: its `limitOrderId`, the `payout` the bid offered (1e18-scaled), and the `take` it signed in the input token's own units with `takeDecimals`. Set when the bid is placed and never changed. |
 
 ## GET /api/events
 

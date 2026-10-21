@@ -3,6 +3,7 @@ import { MemoryDataStore } from "@/data/memory"
 import type { LimitOrderSide, LimitOrderStore } from "@/data/types"
 import { ORDERBOOK_SCALE } from "@/orderbook/amounts"
 import { LimitOrderService, type CreateLimitOrderRequest, type VaultHoldings } from "@/orderbook/limit-orders"
+import type { LimitOrder } from "@/data/types"
 import type {
 	CancelOrderResult,
 	HeartbeatResult,
@@ -160,6 +161,8 @@ export function limitOrderService(
 ) {
 	const contractService = {
 		getTokenDecimals: async (token: string) => (token === USDC ? 6 : 18),
+		// No tally to read: a repost posts the size the store holds. A test that has one overrides it.
+		limitOrderSpent: async (): Promise<bigint | null> => null,
 		// Creation checks the wallet can pay out what an order promises.
 		getTokenBalance: async (_chain: string, token: HexString) => {
 			const decimals = token === USDC ? 6n : 18n
@@ -207,4 +210,34 @@ export const CREATE_REQUEST: CreateLimitOrderRequest = {
 	tokenOut: "CNGN",
 	amountOut: "1500000",
 	acceptedSources: ["EVM-1"],
+}
+
+/**
+ * Works an order down by `amount` of output, floored at zero, whatever its status: the way a
+ * settled fill used to. The stores no longer have a draw-down (an order follows its on-chain
+ * tally through `clampRemaining`, which only lowers an `open` or `resizing` order), so this
+ * reaches into the in-memory store the tests use.
+ */
+export async function drawDown(store: LimitOrderStore, id: string, amount: bigint | string): Promise<LimitOrder | null> {
+	const order = await store.get(id)
+	if (!order) return null
+	const left = BigInt(order.remaining) - BigInt(amount)
+	// A test-only reach into the in-memory store.
+	return (store as any).patch(id, { remaining: (left > 0n ? left : 0n).toString() })
+}
+
+/**
+ * What the lifecycle tests drive a fill with: the order is worked down by `delivered`, then the
+ * service resizes it. Production does the lowering from the order's on-chain tally instead
+ * (`LimitOrderService.syncToChain`), so this lives with the tests.
+ */
+export async function settleFill(
+	service: LimitOrderService,
+	id: string,
+	delivered: bigint,
+): Promise<LimitOrder | null> {
+	// The store is the service's own.
+	const store = (service as any).store as LimitOrderStore
+	const remaining = await drawDown(store, id, delivered)
+	return remaining ? service.resize(remaining, delivered) : null
 }

@@ -1,13 +1,20 @@
-import type { Order, ExecutionResult, HexString, IntentsCoprocessor } from "@hyperbridge/sdk"
+import type { Order, ExecutionResult, HexString } from "@hyperbridge/sdk"
+import type { Decimal } from "decimal.js"
+import type { BidPlacer } from "@/core/bid-venues"
+import type { SubmitBidResult } from "@/orderbook/types"
 
 /**
- * An execution outcome that can also report a still-pooled bid.
+ * An execution outcome that can also report a still-pooled bid, and what the orderbook said.
  *
- * `submitBid` can time out with the extrinsic still in Hyperbridge's pool. That
- * is neither success nor failure: the extrinsic may yet land and reserve a
- * deposit, so the bid record has to be reclaimable even though `success` is
- * false. Widened here rather than on the SDK's `ExecutionResult` so simplex does
- * not need an unreleased SDK.
+ * `success`, `txHash`, `pending` and `error` are Hyperbridge's answer. `submitBid` can time out
+ * with the extrinsic still in Hyperbridge's pool. That is neither success nor failure: the
+ * extrinsic may yet land and reserve a deposit, so the bid record has to be reclaimable even
+ * though `success` is false. Widened here rather than on the SDK's `ExecutionResult` so simplex
+ * does not need an unreleased SDK.
+ *
+ * A bid goes to the HyperFX orderbook as well, and to it alone when the filler holds no BRIDGE
+ * for the Hyperbridge deposit; `orderbook` is that venue's answer. A bid the orderbook holds is
+ * live whatever Hyperbridge said.
  */
 export interface FillResult extends ExecutionResult {
 	pending?: boolean
@@ -16,8 +23,9 @@ export interface FillResult extends ExecutionResult {
 	 * `keccak256` of its calldata. It tells the bids on one order apart, and retracting the bid names it.
 	 */
 	bid?: HexString
+	/** The orderbook's answer; absent when the bid was not offered to it. */
+	orderbook?: SubmitBidResult
 }
-import type { Decimal } from "decimal.js"
 
 export interface FillerStrategy {
 	name: string
@@ -26,7 +34,12 @@ export interface FillerStrategy {
 
 	calculateProfitability(order: Order): Promise<number>
 
-	executeOrder(order: Order, hyperbridge?: IntentsCoprocessor): Promise<FillResult>
+	/**
+	 * Places the strategy's bid on `order` through `bids`, the venues the filler bids on
+	 * (Hyperbridge and the HyperFX orderbook). Without `bids` the destination selects no
+	 * solver, so there is nothing to bid on.
+	 */
+	executeOrder(order: Order, bids?: BidPlacer): Promise<FillResult>
 
 	/**
 	 * Optional hook for strategies to provide a USD value for the full input basket.

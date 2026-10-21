@@ -74,6 +74,7 @@ class MemoryBidStore implements BidStore {
 			retractedAt: null,
 			retractExtrinsicHash: null,
 			dead: false,
+			onOrderbook: bid.onOrderbook === true,
 			pricedBy: bid.pricedBy ?? null,
 		})
 		if (this.rows.length > MAX_ROWS) {

@@ -1,6 +1,8 @@
+import { encodeUserOpScale } from "@/chains/intentsCoprocessor"
 import { CryptoUtils } from "@/protocols/intents/CryptoUtils"
 import { BidManager } from "@/protocols/intents/BidManager"
 import { OrderExecutor } from "@/protocols/intents/OrderExecutor"
+import type { HyperFxOrderbook, OrderbookBid } from "@/protocols/intents/orderbook/client"
 import type { Bid, FillerBid, HexString, Order, PackedUserOperation, SelectBidResult } from "@/types"
 import { describe, expect, it, vi } from "vitest"
 
@@ -31,14 +33,14 @@ function pendingDeadline() {
 }
 
 function makeContext(params: {
-	getBidsForOrder: () => Promise<FillerBid[]>
+	getBidsForOrder?: () => Promise<FillerBid[]>
 	readContract: ReturnType<typeof gatewayReads>
 	getBlockNumber: () => Promise<bigint>
 	setItem?: (key: string, value: string) => Promise<void>
 }) {
 	return {
 		bundlerUrl: "http://bundler.test",
-		intentsCoprocessor: { getBidsForOrder: params.getBidsForOrder },
+		intentsCoprocessor: params.getBidsForOrder ? { getBidsForOrder: params.getBidsForOrder } : undefined,
 		dest: {
 			config: { stateMachineId: "EVM-8453" },
 			configService: { getEntryPointAddress: () => ENTRY_POINT, getIntentGatewayAddress: () => GATEWAY },
@@ -53,6 +55,38 @@ function makeContext(params: {
 			setItem: params.setItem ?? vi.fn(async () => undefined),
 		},
 	} as never
+}
+
+/** An orderbook serving `bids` on every order, or failing every read when given an error. */
+function orderbookWith(bids: OrderbookBid[] | Error = []) {
+	return () =>
+		({
+			bids: vi.fn(async () => {
+				if (bids instanceof Error) throw bids
+				return bids
+			}),
+		}) as unknown as HyperFxOrderbook
+}
+
+/** `userOp` as the orderbook would serve it: the solver's signed op, SCALE-encoded. */
+function orderbookBid(userOp: PackedUserOperation): OrderbookBid {
+	return {
+		solver: userOp.sender as HexString,
+		commitment: COMMITMENT,
+		leg: 0,
+		book: { id: "USDC/CNGN", base: "USDC", quote: "CNGN" },
+		side: "BID",
+		fillChain: "EVM-8453",
+		sourceChain: "EVM-8453",
+		tokenIn: "USDC",
+		tokenOut: "CNGN",
+		price: 10n ** 18n,
+		amountIn: 10n ** 18n,
+		amountOut: 10n ** 18n,
+		receivedAt: "2026-10-21T00:00:00Z",
+		expiresAt: "2026-10-21T00:10:00Z",
+		userOp: encodeUserOpScale(userOp),
+	}
 }
 
 function makeUserOp(sender = SOLVER_ONE): PackedUserOperation {
@@ -143,7 +177,7 @@ describe("Order execution bid-selection integration", () => {
 		})
 		const bidManager = new BidManager(ctx, {} as never)
 		vi.spyOn(bidManager, "buildBids").mockReturnValue([first, second])
-		const executor = new OrderExecutor(ctx, bidManager)
+		const executor = new OrderExecutor(ctx, bidManager, orderbookWith())
 		const stream = executor.executeOrder({ order: makeOrder(), auctionTimeMs: 0, pollIntervalMs: 0 })
 
 		expect((await stream.next()).value).toMatchObject({ status: "AWAITING_BIDS", commitment: COMMITMENT })
@@ -175,7 +209,7 @@ describe("Order execution bid-selection integration", () => {
 			readContract: gatewayReads({ credited: [40n] }),
 			getBlockNumber: deadline.getBlockNumber,
 		})
-		const stream = new OrderExecutor(ctx, new BidManager(ctx, {} as never)).executeOrder({
+		const stream = new OrderExecutor(ctx, new BidManager(ctx, {} as never), orderbookWith()).executeOrder({
 			order: makeOrder(),
 			auctionTimeMs: 0,
 			pollIntervalMs: 0,
@@ -198,7 +232,7 @@ describe("Order execution bid-selection integration", () => {
 			readContract,
 			getBlockNumber: deadline.getBlockNumber,
 		})
-		const stream = new OrderExecutor(ctx, new BidManager(ctx, {} as never)).executeOrder({
+		const stream = new OrderExecutor(ctx, new BidManager(ctx, {} as never), orderbookWith()).executeOrder({
 			order: makeOrder(),
 			auctionTimeMs: 0,
 			pollIntervalMs: 0,
@@ -224,7 +258,7 @@ describe("Order execution bid-selection integration", () => {
 			readContract: gatewayReads({ finalizer: SOLVER_ONE, credited: [40n] }),
 			getBlockNumber: async () => 0n,
 		})
-		const stream = new OrderExecutor(ctx, new BidManager(ctx, {} as never)).executeOrder({
+		const stream = new OrderExecutor(ctx, new BidManager(ctx, {} as never), orderbookWith()).executeOrder({
 			order: makeOrder(),
 			auctionTimeMs: 0,
 			pollIntervalMs: 0,
@@ -243,7 +277,7 @@ describe("Order execution bid-selection integration", () => {
 		const readContract = gatewayReads({})
 		readContract.mockRejectedValue(new Error("rpc down"))
 		const ctx = makeContext({ getBidsForOrder: async () => [], readContract, getBlockNumber: async () => 0n })
-		const stream = new OrderExecutor(ctx, new BidManager(ctx, {} as never)).executeOrder({
+		const stream = new OrderExecutor(ctx, new BidManager(ctx, {} as never), orderbookWith()).executeOrder({
 			order: makeOrder(),
 			auctionTimeMs: 0,
 			pollIntervalMs: 0,
@@ -321,7 +355,7 @@ describe("Order execution bid-selection integration", () => {
 			vi.spyOn(bidManager, "buildBids").mockImplementation((_order, fillerBids) =>
 				fillerBids.map((fillerBid) => bySender.get(fillerBid.userOp.sender.toLowerCase())!),
 			)
-			const stream = new OrderExecutor(ctx, bidManager).executeOrder({
+			const stream = new OrderExecutor(ctx, bidManager, orderbookWith()).executeOrder({
 				order: rateOrder(),
 				auctionTimeMs: 0,
 				pollIntervalMs: 0,
@@ -434,7 +468,7 @@ describe("Order execution bid-selection integration", () => {
 		vi.spyOn(bidManager, "buildBids").mockImplementation((_order, fillerBids) =>
 			fillerBids.map((fillerBid) => bySender.get(fillerBid.userOp.sender.toLowerCase())!),
 		)
-		const stream = new OrderExecutor(ctx, bidManager).executeOrder({
+		const stream = new OrderExecutor(ctx, bidManager, orderbookWith()).executeOrder({
 			order: twoLegs,
 			auctionTimeMs: 0,
 			pollIntervalMs: 0,
@@ -463,5 +497,74 @@ describe("Order execution bid-selection integration", () => {
 
 		deadline.expire()
 		await stream.return()
+	})
+	describe("bids from Hyperbridge and the orderbook", () => {
+		/** The merged bids, as `executionStream` reads them each round. */
+		async function readBids(ctx: unknown, orderbook: () => HyperFxOrderbook): Promise<FillerBid[]> {
+			const executor = new OrderExecutor(ctx as never, new BidManager(ctx as never, {} as never), orderbook)
+			const { fetchBids } = executor as unknown as {
+				fetchBids(params: { commitment: HexString; solverLockStartTime: number }): Promise<FillerBid[]>
+			}
+			return fetchBids.call(executor, { commitment: COMMITMENT, solverLockStartTime: Date.now() })
+		}
+
+		function hyperbridgeBid(userOp: PackedUserOperation, deposit = 10n): FillerBid {
+			return { filler: "5Hyperbridge", bid: CryptoUtils.bidId(userOp.callData), userOp, deposit }
+		}
+
+		it("reads both sources and merges a bid posted to both under its identifier, keeping the deposit", async () => {
+			const shared = { ...makeUserOp(SOLVER_ONE), callData: "0xaaaa" as HexString }
+			const orderbookOnly = { ...makeUserOp(SOLVER_TWO), callData: "0xbbbb" as HexString }
+			const ctx = makeContext({
+				getBidsForOrder: async () => [hyperbridgeBid(shared)],
+				readContract: gatewayReads({}),
+				getBlockNumber: async () => 0n,
+			})
+
+			const bids = await readBids(ctx, orderbookWith([orderbookBid(shared), orderbookBid(orderbookOnly)]))
+
+			expect(bids.map((bid) => bid.bid)).toEqual([
+				CryptoUtils.bidId(shared.callData),
+				CryptoUtils.bidId(orderbookOnly.callData),
+			])
+			// The Hyperbridge copy wins the tie: same op, and it carries the deposit.
+			expect(bids[0]).toMatchObject({ filler: "5Hyperbridge", deposit: 10n })
+			expect(bids[0].venue).toBeUndefined()
+			// The orderbook's own: decoded from the SCALE op it served, with the solver's address for want of a Substrate account.
+			expect(bids[1]).toMatchObject({ filler: SOLVER_TWO, deposit: 0n, venue: "orderbook" })
+			expect(bids[1].userOp).toEqual(orderbookOnly)
+		})
+
+		it("reads the orderbook alone when no coprocessor is configured", async () => {
+			const op = makeUserOp(SOLVER_ONE)
+			const ctx = makeContext({ readContract: gatewayReads({}), getBlockNumber: async () => 0n })
+
+			const bids = await readBids(ctx, orderbookWith([orderbookBid(op)]))
+
+			expect(bids).toHaveLength(1)
+			expect(bids[0].userOp).toEqual(op)
+		})
+
+		it("keeps one source's bids when the other cannot be read, and fails only when neither can", async () => {
+			const op = makeUserOp(SOLVER_ONE)
+			const ctx = makeContext({
+				getBidsForOrder: async () => [hyperbridgeBid(op)],
+				readContract: gatewayReads({}),
+				getBlockNumber: async () => 0n,
+			})
+			expect(await readBids(ctx, orderbookWith(new Error("orderbook down")))).toHaveLength(1)
+
+			const failing = makeContext({
+				getBidsForOrder: async () => {
+					throw new Error("rpc down")
+				},
+				readContract: gatewayReads({}),
+				getBlockNumber: async () => 0n,
+			})
+			expect(await readBids(failing, orderbookWith([orderbookBid(op)]))).toHaveLength(1)
+			await expect(readBids(failing, orderbookWith(new Error("orderbook down")))).rejects.toThrow(
+				"Could not read the bids",
+			)
+		})
 	})
 })

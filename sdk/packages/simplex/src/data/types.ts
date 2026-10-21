@@ -56,6 +56,13 @@ export interface StoredBid {
 	/** The order was seen filled on-chain, so this bid can never win — reclaim its deposit now. */
 	dead: boolean
 	/**
+	 * The HyperFX orderbook took this bid, so a swapper can execute it whatever Hyperbridge said.
+	 * The orderbook serves a bid for its TTL and nothing withdraws it, so this never changes; the
+	 * bid is live there until its op's `validUntil`. False for a bid the orderbook refused or was
+	 * not offered, and for rows from before bids went to the orderbook.
+	 */
+	onOrderbook: boolean
+	/**
 	 * The limit order that priced this bid and the terms it signed, written when the bid is stored
 	 * and never changed. Null for a bid no limit order priced.
 	 *
@@ -103,6 +110,8 @@ export interface BidInsert {
 	/** Submission is still in the pool; see {@link StoredBid.pending}. */
 	pending?: boolean
 	error?: string
+	/** The orderbook holds this bid; see {@link StoredBid.onOrderbook}. */
+	onOrderbook?: boolean
 }
 
 export interface BidStats {

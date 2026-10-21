@@ -1481,7 +1481,10 @@ export interface BidStorageEntry {
  * Matches the Rust struct: Bid<AccountId> { filler: AccountId, user_op: Vec<u8> }
  */
 export interface FillerBid {
-	/** The filler's Substrate account ID (SS58 encoded) */
+	/**
+	 * The filler's Substrate account ID (SS58 encoded) for a bid read from Hyperbridge. The HyperFX
+	 * orderbook does not know it, so a bid read from there carries the solver's address instead.
+	 */
 	filler: string
 	/**
 	 * Which of the filler's bids on the order this is. A filler offering several prices bids once
@@ -1490,8 +1493,14 @@ export interface FillerBid {
 	bid: HexString
 	/** The decoded PackedUserOperation */
 	userOp: PackedUserOperation
-	/** The deposit amount stored on-chain (in plancks) */
+	/** The deposit amount stored on-chain (in plancks); 0 for a bid read from the orderbook. */
 	deposit: bigint
+	/**
+	 * Where the bid was read from. Absent means Hyperbridge: a solver posts to both when it holds
+	 * BRIDGE for the deposit and to the orderbook alone when it does not, and the executor merges the
+	 * two by bid identifier.
+	 */
+	venue?: "hyperbridge" | "orderbook"
 }
 
 /**

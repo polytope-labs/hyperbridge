@@ -27,7 +27,9 @@ import { sqliteDatetime } from "@/data/memory"
 import type { BidPricing, BidStore, LimitOrderStore, StoredBid } from "@/data/types"
 import type { AssetRegistry } from "@/config/asset-registry"
 import type { LimitOrderService } from "@/orderbook/limit-orders"
+import type { OrderbookClient } from "@/orderbook/client"
 import { toRaw, toScaled, toScaledUp } from "@/orderbook/amounts"
+import { BidVenues, BridgeBalanceGate, orderbookHoldsBid } from "./bid-venues"
 import type { OrderScanner } from "@/scanner/types"
 import type { FillerConfigService } from "@/services/FillerConfigService"
 import type { QuorumPublicClient, TransactionInclusion } from "@/services/QuorumPublicClient"
@@ -74,6 +76,14 @@ const MAX_COMPLETED_ORDERS = 20_000
 /** A bid whose deposit may still be locked on Hyperbridge: placed or pooled, and not retracted. */
 function isLiveBid(row: StoredBid): boolean {
 	return !row.retracted && (row.success || row.pending)
+}
+
+/**
+ * A bid the orderbook holds that Hyperbridge never did. Nothing retracts it: it stands until
+ * its op's `validUntil`, so for attribution it is bounded by the same window a retracted bid is.
+ */
+function isOrderbookOnly(row: StoredBid): boolean {
+	return row.onOrderbook && !row.success && !row.pending
 }
 
 /** Smallest payout first, for picking the tightest one that covers a delivery. */
@@ -174,6 +184,16 @@ export class IntentFiller {
 	 * built from this same store, so it cannot exist before the filler does.
 	 */
 	private limitOrderService?: LimitOrderService
+	/**
+	 * Set after construction, like the service: the orderbook every bid is posted to, beside
+	 * Hyperbridge. Absent only in tests that bid on Hyperbridge alone.
+	 */
+	private orderbookClient?: OrderbookClient
+	/**
+	 * Whether the Hyperbridge account can pay for a bid, read once the connection is up. A bid
+	 * the account cannot pay for goes to the orderbook alone.
+	 */
+	private bridgeBalance?: BridgeBalanceGate
 	private retractionQueue: pQueue
 	/**
 	 * Fills are settled one at a time, in the order they were scanned. Several fills of
@@ -344,6 +364,14 @@ export class IntentFiller {
 	}
 
 	/**
+	 * Hands the filler the orderbook its bids are posted to. Every bid goes there; it goes to
+	 * Hyperbridge as well when the account holds BRIDGE for the deposit.
+	 */
+	public setOrderbook(client: OrderbookClient): void {
+		this.orderbookClient = client
+	}
+
+	/**
 	 * Brings the limit orders' `remaining` in line with their on-chain tallies.
 	 *
 	 * On the settlement queue, so the pass and a fill never resize the same order at
@@ -400,6 +428,9 @@ export class IntentFiller {
 
 	public async initialize(): Promise<void> {
 		await this.connectHyperbridge()
+		if (this.hyperbridge) {
+			this.bridgeBalance = new BridgeBalanceGate(await this.hyperbridge, this.logger)
+		}
 		const chains = await this.solverSelectionChains(this.configService.getConfiguredChainIds())
 		// Boot tolerates partial failure: as long as one chain delegated, the
 		// filler is useful. Only a total failure is fatal.
@@ -1056,10 +1087,10 @@ export class IntentFiller {
 					})
 					return
 				}
-				if (solverSelectionActive && !this.hyperbridge) {
+				if (solverSelectionActive && !this.hyperbridge && !this.orderbookClient) {
 					this.logger.error(
 						{ orderId: order.id },
-						"Solver selection is active but Hyperbridge is not configured. Skipping order.",
+						"Solver selection is active but neither Hyperbridge nor an orderbook is configured. Skipping order.",
 					)
 					return
 				}
@@ -1542,9 +1573,11 @@ export class IntentFiller {
 
 				try {
 					const execStartMs = Date.now()
-					const hyperbridgeService = solverSelectionActive ? await this.hyperbridge : undefined
-					const result = await bestStrategy.executeOrder(order, hyperbridgeService)
+					const venues = solverSelectionActive ? await this.bidVenues() : undefined
+					const result = await bestStrategy.executeOrder(order, venues)
 					const execDurationSec = (Date.now() - execStartMs) / 1000
+					// Live somewhere: Hyperbridge took it or has it pooled, or the orderbook holds it.
+					const placed = result.success || result.pending === true || orderbookHoldsBid(result.orderbook)
 					this.monitor.emit("orderTiming", {
 						orderId: order.id,
 						phase: "execution",
@@ -1567,6 +1600,7 @@ export class IntentFiller {
 							success: result.success,
 							pending: result.pending === true,
 							error: result.error,
+							onOrderbook: orderbookHoldsBid(result.orderbook),
 							pricedBy,
 						})
 
@@ -1608,7 +1642,7 @@ export class IntentFiller {
 						}
 					}
 
-					if (result.success) {
+					if (result.success || (placed && !result.pending)) {
 						this.monitor.emit("orderFilled", {
 							orderId: order.id,
 							hash: result.txHash,
@@ -1616,17 +1650,20 @@ export class IntentFiller {
 							profitUsd,
 							chainId: getChainId(order.source),
 							// Under solver selection "success" means the bid was accepted by
-							// Hyperbridge, not that the order is filled; the commitment says which.
+							// Hyperbridge or the orderbook, not that the order is filled; the
+							// commitment says which.
 							commitment: result.commitment,
 						})
 					}
 					this.monitor.emit("orderExecuted", {
 						orderId: order.id,
-						success: result.success,
+						// An accepted bid, on either venue. A bid Hyperbridge refused that the
+						// orderbook holds is a bid a swapper can execute, not a failure.
+						success: placed,
 						txHash: result.txHash,
 						strategy: bestStrategy.name,
 						commitment: result.commitment,
-						error: result.error,
+						error: placed ? undefined : result.error,
 					})
 
 					lastResult = result
@@ -1646,6 +1683,21 @@ export class IntentFiller {
 			// unhandled rejection — which this process has no handler for and Node turns
 			// into an exit, stopping the retraction sweep for every other outstanding bid.
 		}).catch((err) => this.logger.error({ orderId: order.id, err }, "Order execution task failed"))
+	}
+
+	/**
+	 * The venues a bid goes to. The orderbook always; Hyperbridge when there is a connection and
+	 * the account holds BRIDGE for the deposit, which the gate decides per bid.
+	 */
+	private async bidVenues(): Promise<BidVenues> {
+		return new BidVenues(
+			{
+				hyperbridge: this.hyperbridge ? await this.hyperbridge : undefined,
+				orderbook: this.orderbookClient,
+				bridgeBalance: this.bridgeBalance,
+			},
+			this.logger,
+		)
 	}
 
 	private async handleOrderFilledOnChain(
@@ -1850,16 +1902,18 @@ export class IntentFiller {
 		}
 		const filledBids = new Set(recorded.map((fill) => fill.bid).filter((bid) => bid !== null))
 
-		const unfilled = rows.filter((row) => (row.success || row.pending) && !(row.bid && filledBids.has(row.bid)))
+		const unfilled = rows.filter(
+			(row) => (row.success || row.pending || row.onOrderbook) && !(row.bid && filledBids.has(row.bid)),
+		)
 		// Counted back from when the fill happened. Settlement waits behind the queue, so
 		// counting from now would stretch the window by however long it waited and
 		// attribute the fill to a bid that could no longer have executed. The time only
-		// matters to a retracted bid, which is rare, so the block is not read otherwise.
-		const filledAtMs = unfilled.some((row) => row.retracted)
-			? await this.fillTimeMs(chainId, blockNumber, seenAtMs)
-			: seenAtMs
+		// matters to a retracted bid or one the orderbook alone held, which nothing
+		// retracts, so the block is not read otherwise.
+		const windowed = (row: StoredBid) => row.retracted || isOrderbookOnly(row)
+		const filledAtMs = unfilled.some(windowed) ? await this.fillTimeMs(chainId, blockNumber, seenAtMs) : seenAtMs
 		const executableSince = sqliteDatetime(new Date(filledAtMs - this.retractedBidWindowMs()))
-		const candidates = unfilled.filter((row) => !row.retracted || row.createdAt >= executableSince)
+		const candidates = unfilled.filter((row) => !windowed(row) || row.createdAt >= executableSince)
 		if (candidates.length === 0) return
 
 		const released = inputs.reduce((sum, input) => sum + input.amount, 0n)

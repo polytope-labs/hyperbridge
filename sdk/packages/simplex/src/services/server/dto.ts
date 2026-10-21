@@ -116,7 +116,6 @@ export interface StatusOperator {
 	version: string
 	uptimeSec: number
 	paused: boolean
-	halted: number[]
 	work: SolverWork
 	watchOnly: Record<number, boolean>
 	chains: number[]

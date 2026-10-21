@@ -117,16 +117,14 @@ export interface FillerTomlConfig {
 			maxFeePerGasBumpPercent?: number
 		}
 		/**
-		 * Overfill protection knobs. Defaults: maxOverfillBps=500, maxConsecutiveClamps=3.
-		 * `maxOverfillBps` is warn-only: FXFiller logs a limit order whose offer exceeds
-		 * the swapper's ask by more than this, and clamps nothing. `maxConsecutiveClamps`
-		 * is accepted but dormant: the clamp that fed it was for Uniswap V4 venue pricing,
-		 * which is gone, so FXFiller never halts.
+		 * Removed. `[simplex.overfillProtection]` was dropped when the overfill clamp
+		 * and the self-halt were taken out. It is no longer read: boot warns when a
+		 * config still carries it, and `simplex init` drops it. Not rejected, because
+		 * `simplex init` wrote the section uncommented for existing operators, and
+		 * refusing it would crash-loop their Docker deployments. Typed `unknown` so
+		 * whatever an old file holds still parses.
 		 */
-		overfillProtection?: {
-			maxOverfillBps?: number
-			maxConsecutiveClamps?: number
-		}
+		overfillProtection?: unknown
 		/**
 		 * How long a signed bid stays executable, in seconds. Defaults to 300 (5 minutes).
 		 *

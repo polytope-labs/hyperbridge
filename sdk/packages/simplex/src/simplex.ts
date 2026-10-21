@@ -201,7 +201,6 @@ export interface ChainInput {
 
 export interface SimplexStatus {
 	paused: boolean
-	halted: boolean
 	/** The solver's EVM account — the same value as `simplex.address`. */
 	address: HexString
 	startedAt: number
@@ -1027,7 +1026,6 @@ export class Simplex extends EventEmitter {
 	status(): SimplexStatus {
 		return {
 			paused: this.isPaused(),
-			halted: this.isHalted(),
 			address: this.runtime.fillerAddress,
 			startedAt: this.runtime.startedAt,
 			uptimeSec: (Date.now() - this.runtime.startedAt) / 1000,
@@ -1052,18 +1050,6 @@ export class Simplex extends EventEmitter {
 	 */
 	bidStats(): Promise<BidStats> {
 		return this.runtime.data.bids.stats()
-	}
-
-	/**
-	 * Whether overfill protection has self-halted the engine. A halted filler
-	 * refuses every order until {@link resetHalt}.
-	 */
-	isHalted(): boolean {
-		return this.runtime.haltControls.some((control) => control.isHalted())
-	}
-
-	resetHalt(): void {
-		for (const control of this.runtime.haltControls) control.resetHalt()
 	}
 
 	/** Restricts which order `user` addresses are processed. Omit to accept all. */

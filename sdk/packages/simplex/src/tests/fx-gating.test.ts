@@ -193,8 +193,6 @@ function makeContractService(): any {
 function makeFiller(limitOrders?: LimitOrderStore) {
 	const configService = {
 		...resolver,
-		getMaxOverfillBps: () => 500n,
-		getMaxConsecutiveClamps: () => 3,
 	} as any
 	const registry = new AssetRegistry(configService, {
 		CNGN: { [CHAIN]: CNGN },
@@ -261,8 +259,6 @@ describe("FXFiller same-token markets (cross-chain only)", () => {
 			throw new Error("not configured")
 		},
 		getCNgnAsset: () => undefined,
-		getMaxOverfillBps: () => 500n,
-		getMaxConsecutiveClamps: () => 3,
 	} as any
 	const signer = { address: SOLVER } as any
 
@@ -332,8 +328,6 @@ describe("FXFiller profit gates (fees cover execution; spread independently posi
 			throw new Error("nc")
 		},
 		getCNgnAsset: () => undefined,
-		getMaxOverfillBps: () => 500n,
-		getMaxConsecutiveClamps: () => 3,
 		// No paymaster on any chain: the leg loop's paymasterReserveForToken
 		// consults these and must reserve nothing here — this suite asserts
 		// exact spread/fee arithmetic with no gas headroom held back.

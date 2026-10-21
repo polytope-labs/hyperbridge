@@ -100,18 +100,6 @@ hyperbridgeWsUrl = ""
 # maxPriorityFeePerGasBumpPercent = 8   # Percentage added to gasPrice for priority fee (default: 8)
 # maxFeePerGasBumpPercent = 10          # Percentage added to gasPrice for max fee (default: 10)
 
-# Overfill protection (optional)
-# A bid offers the matched limit order's whole payout at its rate (capped by what the
-# order has left), which can be more than the swapper asked for: the gateway credits the
-# swapper the requested amount and splits the surplus between swapper and protocol.
-# Nothing is clamped. The filler logs a warning when an offer exceeds
-# (1 + maxOverfillBps / 10000) × the requested output, which usually means a limit order's
-# amounts are mistyped. `maxConsecutiveClamps` is accepted but never halts the filler.
-# If not provided, defaults will be used (maxOverfillBps = 500, maxConsecutiveClamps = 3)
-# [simplex.overfillProtection]
-# maxOverfillBps = 500          # warn when an offer is 5% above the requested output (default: 500)
-# maxConsecutiveClamps = 3      # accepted, currently unused (default: 3)
-
 # Logging level: trace, debug, info, warn, error
 logging = "debug"
 

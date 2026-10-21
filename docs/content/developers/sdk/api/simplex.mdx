@@ -154,7 +154,6 @@ status(): SimplexStatus
 | Field | Type | Description |
 |------|------|-------------|
 | `paused` | `boolean` | |
-| `halted` | `boolean` | Same as `isHalted()` |
 | `address` | `HexString` | The solver's EVM account; same value as `simplex.address` |
 | `startedAt` | `number` | Epoch ms |
 | `uptimeSec` | `number` | |
@@ -187,17 +186,6 @@ bidStats(): Promise<BidStats>
 
 **Returns:** `{ total, successful, failed, retracted, pendingRetraction }`. Watch
 `pendingRetraction` — those are deposits still locked in the solver-selection pallet.
-
-### isHalted() / resetHalt()
-
-Whether a strategy has halted itself, and a reset for it. A halted solver refuses every order until
-`resetHalt()`. With pricing on limit orders nothing currently trips the halt, so `isHalted()` stays
-`false` in practice.
-
-```typescript lineNumbers
-isHalted(): boolean
-resetHalt(): void
-```
 
 ### setAllowlist(allowlist)
 

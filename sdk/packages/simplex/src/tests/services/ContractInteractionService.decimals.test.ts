@@ -48,22 +48,51 @@ function makeService(opts: { onChain?: number; registry?: number; chainIds?: num
 }
 
 describe("ContractInteractionService.getTokenDecimals", () => {
-	it("uses the on-chain value and caches it, without consulting the registry", async () => {
-		const { service, getAssetDecimalsByAddress, setTokenDecimals } = makeService({ onChain: 6, registry: 6 })
+	it("uses the on-chain value, cross-checks it against the registry and caches it", async () => {
+		const { service, readContract, getAssetDecimalsByAddress, setTokenDecimals } = makeService({ onChain: 6, registry: 6 })
 
 		await expect(service.getTokenDecimals(USDC, CHAIN)).resolves.toBe(6)
 
-		expect(getAssetDecimalsByAddress).not.toHaveBeenCalled()
+		// The registry is consulted on success too: a single RPC answering wrongly is
+		// what the cross-check exists to catch.
+		expect(getAssetDecimalsByAddress).toHaveBeenCalledWith(CHAIN, USDC)
+		expect(readContract).toHaveBeenCalledTimes(1)
 		expect(setTokenDecimals).toHaveBeenCalledWith(CHAIN, USDC, 6)
+	})
+
+	it("throws and does not cache when the read disagrees with the registry", async () => {
+		// The read goes through the plain fallback client, so the first endpoint's answer
+		// wins. One endpoint reporting 18 for a 6-decimal token inflates every amount
+		// scaled by it by 10^12; the registry value is verified on-chain at curation time.
+		const { service, readContract, setTokenDecimals } = makeService({ onChain: 18, registry: 6 })
+
+		await expect(service.getTokenDecimals(USDC, CHAIN)).rejects.toThrow(
+			/reports 18 decimals but the asset registry says 6; refusing to price it/,
+		)
+		expect(setTokenDecimals).not.toHaveBeenCalled()
+
+		// Nothing was cached, so the next call reads and re-checks rather than pinning the
+		// disagreement (or the questionable value) for the process.
+		await expect(service.getTokenDecimals(USDC, CHAIN)).rejects.toThrow(/refusing to price it/)
+		expect(readContract).toHaveBeenCalledTimes(2)
+		expect(setTokenDecimals).not.toHaveBeenCalled()
+	})
+
+	it("caches a token the registry does not know, without a cross-check", async () => {
+		const { service, getAssetDecimalsByAddress, setTokenDecimals } = makeService({ onChain: 8, registry: 6 })
+
+		// UNKNOWN is absent from the registry, so there is no curated value to disagree with.
+		await expect(service.getTokenDecimals(UNKNOWN, CHAIN)).resolves.toBe(8)
+
+		expect(getAssetDecimalsByAddress).toHaveBeenCalledWith(CHAIN, UNKNOWN)
+		expect(setTokenDecimals).toHaveBeenCalledWith(CHAIN, UNKNOWN, 8)
 	})
 
 	it("falls back to the configured decimals when the on-chain read fails", async () => {
 		const { service, getAssetDecimalsByAddress } = makeService({ registry: 6 })
 
-		// Regression: this used to return a hardcoded 18. `computeLegPolicyOutput`
-		// scales policyMaxOutput by 10 ** decimals, so 18-for-6 inflates the payout
-		// by 10^12 — and with the overfill clamp disabled nothing bounds it back to
-		// the user's requested output.
+		// Regression: this used to return a hardcoded 18. `decimals` scales every amount
+		// in the token's own units, so 18-for-6 inflates the computed payout by 10^12.
 		await expect(service.getTokenDecimals(USDC, CHAIN)).resolves.toBe(6)
 
 		expect(getAssetDecimalsByAddress).toHaveBeenCalledWith(CHAIN, USDC)
@@ -82,7 +111,7 @@ describe("ContractInteractionService.getTokenDecimals", () => {
 	it("throws when the read fails and the token is not in the registry", async () => {
 		const { service, getAssetDecimalsByAddress } = makeService({})
 
-		// Never guess: decimals scales policyMaxOutput by 10 ** decimals, so a wrong
+		// Never guess: decimals scales every amount in the token's own units, so a wrong
 		// value changes the fill size by orders of magnitude rather than degrading it.
 		// Callers on the fill path treat a throw as "skip this order".
 		await expect(service.getTokenDecimals(UNKNOWN, CHAIN)).rejects.toThrow(/Unable to determine decimals/)

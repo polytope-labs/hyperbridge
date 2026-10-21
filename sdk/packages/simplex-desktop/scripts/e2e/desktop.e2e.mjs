@@ -300,7 +300,6 @@ function operatorFixture(socketPath, options = {}) {
 		balances: Object.assign(new EventEmitter(), {
 			getSnapshot: () => ({ updatedAt: null, status: "loading", chains: [], issues: [] }),
 		}),
-		haltControls: [],
 		config,
 		stop: async () => {
 			if (options.stopBarrier) await options.stopBarrier

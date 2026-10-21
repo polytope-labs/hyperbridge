@@ -281,6 +281,221 @@ describe("IntentFiller bid retraction", () => {
 		}
 	})
 
+	describe("one retraction pass", () => {
+		it("closes only the rows it read, not one stored while its retraction was in flight", async () => {
+			const { filler, bidStorage, retractBid } = build([])
+			await bidStorage.store({ commitment: COMMITMENT, bid: OUR_BID, success: true })
+
+			let finish!: (result: BidSubmissionResult) => void
+			retractBid.mockImplementationOnce(
+				() =>
+					new Promise<BidSubmissionResult>((resolve) => {
+						finish = resolve
+					}),
+			)
+			;(filler as any).enqueueRetraction(COMMITMENT)
+			await vi.waitFor(() => expect(retractBid).toHaveBeenCalledTimes(1))
+
+			// A second bid lands on the order while the first one's retraction is out.
+			await bidStorage.store({ commitment: COMMITMENT, bid: OUR_OTHER_BID, success: true })
+			finish({ success: true, extrinsicHash: "0x01" as HexString })
+			await (filler as any).retractionQueue.onIdle()
+
+			const rows = await bidStorage.byCommitments([COMMITMENT])
+			expect(rows.find((row) => row.bid === OUR_BID)!.retracted).toBe(true)
+			// Never sent a retraction, so it must not be recorded as one: its deposit is still locked.
+			expect(rows.find((row) => row.bid === OUR_OTHER_BID)!.retracted).toBe(false)
+
+			// The next pass reaches it.
+			retractBid.mockResolvedValueOnce({ success: true, extrinsicHash: "0x02" as HexString })
+			;(filler as any).enqueueRetraction(COMMITMENT)
+			await (filler as any).retractionQueue.onIdle()
+			expect(retractBid).toHaveBeenLastCalledWith(COMMITMENT, OUR_OTHER_BID)
+			expect((await bidStorage.byCommitments([COMMITMENT])).every((row) => row.retracted)).toBe(true)
+		})
+
+		it("retracts only the named bids and leaves the others on the order standing", async () => {
+			const { filler, bidStorage, retractBid } = build([{ success: true, extrinsicHash: "0x01" as HexString }])
+			await bidStorage.store({ commitment: COMMITMENT, bid: OUR_BID, success: true })
+			await bidStorage.store({ commitment: COMMITMENT, bid: OUR_OTHER_BID, success: true })
+			;(filler as any).enqueueRetraction(COMMITMENT, { bids: [OUR_OTHER_BID] })
+			await (filler as any).retractionQueue.onIdle()
+
+			expect(retractBid).toHaveBeenCalledTimes(1)
+			expect(retractBid).toHaveBeenCalledWith(COMMITMENT, OUR_OTHER_BID)
+			const rows = await bidStorage.byCommitments([COMMITMENT])
+			expect(rows.find((row) => row.bid === OUR_BID)!.retracted).toBe(false)
+			expect(rows.find((row) => row.bid === OUR_OTHER_BID)!.retracted).toBe(true)
+		})
+
+		it("retracts only the named rows, and skips a pass whose rows are all retracted already", async () => {
+			const { filler, bidStorage, retractBid } = build([{ success: true, extrinsicHash: "0x01" as HexString }])
+			await bidStorage.store({ commitment: COMMITMENT, bid: OUR_BID, success: true })
+			await bidStorage.store({ commitment: COMMITMENT, bid: OUR_OTHER_BID, success: true })
+			const second = (await bidStorage.byCommitments([COMMITMENT])).find((row) => row.bid === OUR_OTHER_BID)!
+			;(filler as any).enqueueRetraction(COMMITMENT, { rows: [second.id] })
+			await (filler as any).retractionQueue.onIdle()
+			;(filler as any).enqueueRetraction(COMMITMENT, { rows: [second.id] })
+			await (filler as any).retractionQueue.onIdle()
+
+			expect(retractBid).toHaveBeenCalledTimes(1)
+			expect(retractBid).toHaveBeenCalledWith(COMMITMENT, OUR_OTHER_BID)
+			const rows = await bidStorage.byCommitments([COMMITMENT])
+			expect(rows.find((row) => row.bid === OUR_BID)!.retracted).toBe(false)
+		})
+
+		it("closes the bid that retracted and flags the one that failed dead, by row", async () => {
+			const { filler, bidStorage, retractBid } = build([
+				{ success: true, extrinsicHash: "0x01" as HexString },
+				{ success: false, error: "Transaction failed after 3 attempts" },
+			])
+			await bidStorage.store({ commitment: COMMITMENT, bid: OUR_BID, success: true })
+			await bidStorage.store({ commitment: COMMITMENT, bid: OUR_OTHER_BID, success: true })
+			// Another limit order's bid on the same swap order, outside the pass.
+			await bidStorage.store({ commitment: COMMITMENT, bid: `0x${"b3".repeat(32)}`, success: true })
+			const targeted = (await bidStorage.byCommitments([COMMITMENT]))
+				.filter((row) => row.bid === OUR_BID || row.bid === OUR_OTHER_BID)
+				.map((row) => row.id)
+			;(filler as any).enqueueRetraction(COMMITMENT, { rows: targeted })
+			await (filler as any).retractionQueue.onIdle()
+
+			expect(retractBid).toHaveBeenCalledTimes(2)
+			const rows = await bidStorage.byCommitments([COMMITMENT])
+			const retracted = rows.filter((row) => row.retracted)
+			expect(retracted).toHaveLength(1)
+			expect(retracted[0].bid).toBe((retractBid.mock.calls[0] as unknown[])[1])
+			expect(retracted[0].retractExtrinsicHash).toBe("0x01")
+			// Only the bid that failed is flagged, so the next sweep retries it and nothing else.
+			const dead = rows.filter((row) => row.dead)
+			expect(dead.map((row) => row.bid)).toEqual([(retractBid.mock.calls[1] as unknown[])[1]])
+			expect((await bidStorage.expiredUnretracted(HOUR_MS)).map((row) => row.id)).toEqual(dead.map((row) => row.id))
+		})
+
+		it("stops at a pooled retraction and leaves the rest of the pass open", async () => {
+			const { filler, bidStorage, retractBid } = build([
+				{ success: false, pending: true, error: "Transaction timed out while in the transaction pool" },
+			])
+			await bidStorage.store({ commitment: COMMITMENT, bid: OUR_BID, success: true })
+			await bidStorage.store({ commitment: COMMITMENT, bid: OUR_OTHER_BID, success: true })
+			;(filler as any).enqueueRetraction(COMMITMENT)
+			await (filler as any).retractionQueue.onIdle()
+
+			expect(retractBid).toHaveBeenCalledTimes(1)
+			const rows = await bidStorage.byCommitments([COMMITMENT])
+			expect(rows.every((row) => !row.retracted && row.dead)).toBe(true)
+		})
+
+		it("closes a legacy row with no identifier alongside the bids it retracts", async () => {
+			const { filler, bidStorage, retractBid } = build([{ success: true, extrinsicHash: "0x01" as HexString }])
+			await bidStorage.store({ commitment: COMMITMENT, success: true })
+			await bidStorage.store({ commitment: COMMITMENT, bid: OUR_BID, success: true })
+			;(filler as any).enqueueRetraction(COMMITMENT)
+			await (filler as any).retractionQueue.onIdle()
+
+			expect(retractBid).toHaveBeenCalledTimes(1)
+			expect((await bidStorage.byCommitments([COMMITMENT])).every((row) => row.retracted)).toBe(true)
+		})
+
+		it("retracts the bids still standing when the newest bid on the order was retracted on its own", async () => {
+			const { filler, bidStorage, retractBid } = build([
+				{ success: true, extrinsicHash: "0x01" as HexString },
+				{ success: true, extrinsicHash: "0x02" as HexString },
+			])
+			await bidStorage.store({ commitment: COMMITMENT, bid: OUR_BID, success: true })
+			await bidStorage.store({ commitment: COMMITMENT, bid: OUR_OTHER_BID, success: true })
+			;(filler as any).enqueueRetraction(COMMITMENT, { bids: [OUR_OTHER_BID] })
+			await (filler as any).retractionQueue.onIdle()
+
+			await orderFilled(filler, COMMITMENT)
+
+			expect(retractBid).toHaveBeenLastCalledWith(COMMITMENT, OUR_BID)
+			expect((await bidStorage.byCommitments([COMMITMENT])).every((row) => row.retracted)).toBe(true)
+		})
+
+		it("sweeps only the due rows of a commitment, not a fresh bid beside them", async () => {
+			const { filler, bidStorage, retractBid } = build([{ success: true, extrinsicHash: "0x01" as HexString }])
+			await bidStorage.store({ commitment: COMMITMENT, bid: OUR_BID, success: true })
+			await bidStorage.store({ commitment: COMMITMENT, bid: OUR_OTHER_BID, success: true })
+			const due = (await bidStorage.byCommitments([COMMITMENT])).find((row) => row.bid === OUR_BID)!
+			await bidStorage.markDead(COMMITMENT, [due.id])
+
+			expect(await (filler as any).sweepExpiredBids(HOUR_MS)).toBe(1)
+			await (filler as any).retractionQueue.onIdle()
+
+			expect(retractBid).toHaveBeenCalledTimes(1)
+			expect(retractBid).toHaveBeenCalledWith(COMMITMENT, OUR_BID)
+			const rows = await bidStorage.byCommitments([COMMITMENT])
+			expect(rows.find((row) => row.bid === OUR_OTHER_BID)!.retracted).toBe(false)
+		})
+
+		it("returns early when Hyperbridge is already disconnected", async () => {
+			const { filler, bidStorage, retractBid } = build([])
+			await bidStorage.store({ commitment: COMMITMENT, bid: OUR_BID, success: true })
+			;(filler as any).hyperbridge = undefined
+			;(filler as any).enqueueRetraction(COMMITMENT)
+			await (filler as any).retractionQueue.onIdle()
+
+			expect(retractBid).not.toHaveBeenCalled()
+			expect((await bidStorage.byCommitment(COMMITMENT))!.retracted).toBe(false)
+		})
+	})
+
+	describe("stop()", () => {
+		it("drains a queued retraction before it disconnects from Hyperbridge", async () => {
+			const { filler, bidStorage, retractBid } = build([])
+			await bidStorage.store({ commitment: COMMITMENT, bid: OUR_BID, success: true })
+			const order: string[] = []
+			let finish!: (result: BidSubmissionResult) => void
+			retractBid.mockImplementationOnce(
+				() =>
+					new Promise<BidSubmissionResult>((resolve) => {
+						finish = (result) => {
+							order.push("retracted")
+							resolve(result)
+						}
+					}),
+			)
+			;(filler as any).hyperbridgeApi = { disconnect: vi.fn(async () => order.push("disconnected")) }
+			;(filler as any).enqueueRetraction(COMMITMENT)
+			const stopped = filler.stop()
+			await vi.waitFor(() => expect(retractBid).toHaveBeenCalledTimes(1))
+			expect(order).toEqual([])
+
+			finish({ success: true, extrinsicHash: "0x01" as HexString })
+			await stopped
+
+			expect(order).toEqual(["retracted", "disconnected"])
+			expect((await bidStorage.byCommitment(COMMITMENT))!.retracted).toBe(true)
+		})
+
+		it("disconnects anyway once a stuck retraction outlasts the drain timeout", async () => {
+			vi.useFakeTimers()
+			try {
+				const { filler, bidStorage, retractBid } = build([])
+				await bidStorage.store({ commitment: COMMITMENT, bid: OUR_BID, success: true })
+				retractBid.mockImplementationOnce(() => new Promise<BidSubmissionResult>(() => {}))
+				const disconnect = vi.fn(async () => {})
+				;(filler as any).hyperbridgeApi = { disconnect }
+				;(filler as any).enqueueRetraction(COMMITMENT)
+				let stopped = false
+				const stop = filler.stop().then(() => {
+					stopped = true
+				})
+				await vi.advanceTimersByTimeAsync(29_000)
+				expect(stopped).toBe(false)
+				expect(disconnect).not.toHaveBeenCalled()
+
+				await vi.advanceTimersByTimeAsync(1_000)
+				await stop
+				expect(disconnect).toHaveBeenCalledOnce()
+				// Left for the next run's sweep, not marked as if it had been retracted.
+				expect((await bidStorage.byCommitment(COMMITMENT))!.retracted).toBe(false)
+			} finally {
+				vi.useRealTimers()
+			}
+		})
+	})
+
 	describe("a rival's fill", () => {
 		async function observe(filler: IntentFiller, complete: boolean): Promise<void> {
 			;(filler as any).monitor.emit("orderFillObserved", {

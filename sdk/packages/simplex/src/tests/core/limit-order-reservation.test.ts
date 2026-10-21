@@ -5,7 +5,7 @@ import { tmpdir } from "os"
 import { join } from "path"
 import type { BidSubmissionResult, HexString } from "@hyperbridge/sdk"
 import { IntentFiller } from "@/core/filler"
-import { MemoryDataStore } from "@/data/memory"
+import { MemoryDataStore, sqliteDatetime } from "@/data/memory"
 import { SqliteDataStore } from "@/data/sqlite"
 import type { BidPricing, BidStore } from "@/data/types"
 import { budgetIdFor } from "@/orderbook/amounts"
@@ -64,6 +64,11 @@ async function build(options: { bids?: BidStore; retract?: BidSubmissionResult }
 		return spent.get(budgetId) ?? 0n
 	}
 	const syncToChain = vi.spyOn(service, "syncToChain")
+	// The fill's block, read for its time only when a retracted bid is a candidate. Rejects
+	// unless a test sets a time, which is the arrival-time fallback.
+	const getBlock = vi.fn(async (_args: { blockNumber: bigint }): Promise<{ timestamp: bigint }> => {
+		throw new Error("block not available")
+	})
 
 	const retractBid = vi.fn(async (): Promise<BidSubmissionResult> => options.retract ?? { success: true })
 	const filler = new IntentFiller(
@@ -73,10 +78,11 @@ async function build(options: { bids?: BidStore; retract?: BidSubmissionResult }
 		{
 			getHyperbridgeWsUrl: () => undefined,
 			getSubstratePrivateKey: () => undefined,
+			getBidValiditySeconds: () => 300,
 			// A paymaster on the chain, so the fill path skips the EntryPoint top-up.
 			getSimplexPaymasterAddress: () => "0x0000000000000000000000000000000000000001",
 		} as any,
-		{} as any,
+		{ getPublicClient: () => ({ getBlock }) } as any,
 		{} as any,
 		{ address: OUR_ADDRESS } as any,
 		{ orders: stubOrderScanner() },
@@ -105,6 +111,8 @@ async function build(options: { bids?: BidStore; retract?: BidSubmissionResult }
 		complete: boolean,
 		transactionHash?: string,
 		logIndex?: number,
+		/** When the scanner reported the fill, if not when it is settled. */
+		filledAtMs?: number,
 	) => {
 		await filler.handleOrderFilledOnChain(
 			COMMITMENT,
@@ -116,6 +124,7 @@ async function build(options: { bids?: BidStore; retract?: BidSubmissionResult }
 			transactionHash,
 			logIndex,
 			FILL_BLOCK,
+			filledAtMs,
 		)
 		await filler.retractionQueue.onIdle()
 	}
@@ -125,7 +134,7 @@ async function build(options: { bids?: BidStore; retract?: BidSubmissionResult }
 		(await limitOrders.fills(id)).map((row) => [row.commitment, row.bid, row.amount, row.transactionHash])
 	const logIndexes = async (id: string) => (await limitOrders.fills(id)).map((row) => row.logIndex)
 
-	return { filler, bids, limitOrders, client, chain, syncToChain, retractBid, bid, spend, fill, remaining, recorded, logIndexes }
+	return { filler, bids, limitOrders, client, chain, syncToChain, getBlock, retractBid, bid, spend, fill, remaining, recorded, logIndexes }
 }
 
 /** 1,000 out for 100 in on the first order, 900 out for 100 in on the second: rates 10 and 9. */
@@ -436,5 +445,303 @@ describe("a bid placed before the upgrade", () => {
 		} finally {
 			await data.close()
 		}
+	})
+})
+
+describe("a limit order a fill leaves closed", () => {
+	const ELSEWHERE = "0x5555555555555555555555555555555555555555555555555555555555555555" as HexString
+	const THIRD_BID = `0x${"b3".repeat(32)}`
+	const retracted = (ctx: Awaited<ReturnType<typeof build>>) =>
+		ctx.retractBid.mock.calls.map((call) => (call as unknown[]).slice(0, 2))
+
+	/** The first order priced a bid here and one on another swap order; the second priced a bid here too. */
+	async function withSiblings() {
+		const ctx = await build()
+		await ctx.bid({ limitOrderId: LIMIT_ORDER, payout: (3000n * ONE).toString(), take: "100" }, FIRST_BID)
+		await ctx.bid({ limitOrderId: SECOND_ORDER, payout: (900n * ONE).toString(), take: "100" }, SECOND_BID)
+		await ctx.bid({ limitOrderId: LIMIT_ORDER, payout: (3000n * ONE).toString(), take: "100" }, THIRD_BID, ELSEWHERE)
+		return ctx
+	}
+
+	it("retracts its live bids on other swap orders, and no other limit order's", async () => {
+		const ctx = await withSiblings()
+		ctx.spend(LIMIT_ORDER, 3000n)
+
+		// A partial fill that takes the first order's whole budget: it closes.
+		await ctx.fill(3000n * ONE, 100n, false, "0xfill")
+
+		expect((await ctx.limitOrders.get(LIMIT_ORDER))!.status).toBe("filled")
+		expect(retracted(ctx)).toContainEqual([ELSEWHERE, THIRD_BID])
+		// The second order is still open, so its bid stands.
+		expect(retracted(ctx)).not.toContainEqual([COMMITMENT, SECOND_BID])
+		const rows = await ctx.bids.byCommitments([COMMITMENT, ELSEWHERE])
+		expect(rows.find((row) => row.bid === THIRD_BID)!.retracted).toBe(true)
+		expect(rows.find((row) => row.bid === SECOND_BID)!.retracted).toBe(false)
+	})
+
+	it("retracts nothing while the order it left open can still pay", async () => {
+		const ctx = await withSiblings()
+		ctx.spend(LIMIT_ORDER, 1000n)
+
+		await ctx.fill(1000n * ONE, 100n, false, "0xfill")
+
+		expect((await ctx.limitOrders.get(LIMIT_ORDER))!.status).toBe("open")
+		expect(ctx.retractBid).not.toHaveBeenCalled()
+		expect((await ctx.bids.byCommitments([COMMITMENT, ELSEWHERE])).every((row) => !row.retracted)).toBe(true)
+	})
+
+	it("settles on the bid that executed even though retracting it finds nothing on chain", async () => {
+		// The pallet answers BidNotFound for a bid that is already gone; that is terminal and
+		// leaves the fill on record.
+		const ctx = await build({ retract: { success: false, error: "Dispatch error: intentsCoprocessor::BidNotFound" } })
+		await ctx.bid({ limitOrderId: LIMIT_ORDER, payout: (3000n * ONE).toString(), take: "100" }, FIRST_BID)
+		ctx.spend(LIMIT_ORDER, 3000n)
+
+		await ctx.fill(3000n * ONE, 100n, false, "0xfill")
+
+		expect(await ctx.recorded(LIMIT_ORDER)).toEqual([[COMMITMENT, FIRST_BID, (3000n * ONE).toString(), "0xfill"]])
+		expect((await ctx.bids.byCommitments([COMMITMENT])).every((row) => row.retracted && !row.dead)).toBe(true)
+	})
+})
+
+describe("a retracted bid that still executes", () => {
+	it("is settled by provenance and the order is brought to the chain's tally", async () => {
+		// Retraction takes the bid out of discovery but cannot stop a placer that already
+		// fetched it, which executes until its `validUntil`.
+		const ctx = await build()
+		await ctx.bid({ limitOrderId: LIMIT_ORDER, payout: (1000n * ONE).toString(), take: "100" })
+		await ctx.filler.retractBidsForLimitOrder(LIMIT_ORDER)
+		await ctx.filler.retractionQueue.onIdle()
+		expect((await ctx.bids.byCommitment(COMMITMENT))!.retracted).toBe(true)
+		ctx.spend(LIMIT_ORDER, 1000n)
+
+		await ctx.fill(1000n * ONE, 100n, false, "0xlate")
+
+		expect(await ctx.recorded(LIMIT_ORDER)).toEqual([[COMMITMENT, FIRST_BID, (1000n * ONE).toString(), "0xlate"]])
+		expect(ctx.syncToChain).toHaveBeenCalledWith(LIMIT_ORDER, FILL_BLOCK)
+		expect(await ctx.remaining(LIMIT_ORDER)).toBe(2000n * ONE)
+	})
+})
+
+describe("attributing a fill when some bids are retracted", () => {
+	const retract = async (ctx: Awaited<ReturnType<typeof build>>, bid: string) => {
+		const row = (await ctx.bids.byCommitments([COMMITMENT])).find((candidate) => candidate.bid === bid)!
+		await ctx.bids.markRetracted(COMMITMENT, null, [row.id])
+		return row
+	}
+	/** Moves a stored row back in time; the memory store's rows are the only handle a test has. */
+	const backdate = (ctx: Awaited<ReturnType<typeof build>>, id: number, ageMs: number) => {
+		const row = ((ctx.bids as any).rows as Array<{ id: number; createdAt: string }>).find((candidate) => candidate.id === id)!
+		row.createdAt = sqliteDatetime(new Date(Date.now() - ageMs))
+	}
+
+	it("prefers the live bid that executed over a retracted bid at a better rate", async () => {
+		// X (first order, rate 10) was retracted when its order was cancelled; Y (second
+		// order, rate 9) is the bid a placer executed.
+		const ctx = await twoLevels()
+		await retract(ctx, FIRST_BID)
+		ctx.spend(SECOND_ORDER, 900n)
+
+		await ctx.fill(900n * ONE, 100n, false, "0xfill")
+
+		expect(await ctx.recorded(LIMIT_ORDER)).toEqual([])
+		expect(await ctx.recorded(SECOND_ORDER)).toEqual([[COMMITMENT, SECOND_BID, (900n * ONE).toString(), "0xfill"]])
+	})
+
+	it("still records the fill of a retracted bid that was placed within its validity window", async () => {
+		const ctx = await twoLevels()
+		await retract(ctx, FIRST_BID)
+		await retract(ctx, SECOND_BID)
+		ctx.spend(LIMIT_ORDER, 1000n)
+
+		await ctx.fill(1000n * ONE, 100n, false, "0xfill")
+
+		expect(await ctx.recorded(LIMIT_ORDER)).toEqual([[COMMITMENT, FIRST_BID, (1000n * ONE).toString(), "0xfill"]])
+	})
+
+	it("attributes by the escrow released: a retracted bid that covers it beats a live bid that cannot", async () => {
+		// RB (second order, take 40) is live, RA (first order, take 100) was retracted, and the
+		// fill released 100: only RA's take covers it, so RB cannot have been the bid that executed.
+		const ctx = await build()
+		await ctx.bid({ limitOrderId: LIMIT_ORDER, payout: (1000n * ONE).toString(), take: "100" }, FIRST_BID)
+		await ctx.bid({ limitOrderId: SECOND_ORDER, payout: (900n * ONE).toString(), take: "40" }, SECOND_BID)
+		await retract(ctx, FIRST_BID)
+		ctx.spend(LIMIT_ORDER, 1000n)
+
+		await ctx.fill(1000n * ONE, 100n, false, "0xfill")
+
+		expect(await ctx.recorded(LIMIT_ORDER)).toEqual([[COMMITMENT, FIRST_BID, (1000n * ONE).toString(), "0xfill"]])
+		expect(await ctx.recorded(SECOND_ORDER)).toEqual([])
+	})
+
+	it("still prefers a live bid whose take covers the escrow over a retracted one that also does", async () => {
+		const ctx = await build()
+		await ctx.bid({ limitOrderId: LIMIT_ORDER, payout: (1000n * ONE).toString(), take: "100" }, FIRST_BID)
+		await ctx.bid({ limitOrderId: SECOND_ORDER, payout: (900n * ONE).toString(), take: "100" }, SECOND_BID)
+		await retract(ctx, FIRST_BID)
+		ctx.spend(SECOND_ORDER, 900n)
+
+		await ctx.fill(900n * ONE, 100n, false, "0xfill")
+
+		expect(await ctx.recorded(LIMIT_ORDER)).toEqual([])
+		expect(await ctx.recorded(SECOND_ORDER)).toEqual([[COMMITMENT, SECOND_BID, (900n * ONE).toString(), "0xfill"]])
+	})
+
+	it("falls back to the live bid's payout when no bid's take covers the escrow", async () => {
+		// Neither take reaches the 200 released, so there is no escrow evidence and the
+		// payout that matches the delivery decides, among the live bids.
+		const ctx = await build()
+		await ctx.bid({ limitOrderId: LIMIT_ORDER, payout: (1000n * ONE).toString(), take: "100" }, FIRST_BID)
+		await ctx.bid({ limitOrderId: SECOND_ORDER, payout: (900n * ONE).toString(), take: "100" }, SECOND_BID)
+		await retract(ctx, FIRST_BID)
+		ctx.spend(SECOND_ORDER, 900n)
+
+		await ctx.fill(900n * ONE, 200n, false, "0xfill")
+
+		expect(await ctx.recorded(SECOND_ORDER)).toEqual([[COMMITMENT, SECOND_BID, (900n * ONE).toString(), "0xfill"]])
+	})
+
+	it("takes the time the fill was seen from the scanner's event, not from the settlement queue", async () => {
+		const ctx = await build()
+		const handled = vi.spyOn(ctx.filler, "handleOrderFilledOnChain").mockResolvedValue(undefined)
+		let release!: () => void
+		ctx.filler.settlementQueue.add(() => new Promise<void>((resolve) => (release = resolve)))
+
+		const before = Date.now()
+		ctx.filler.monitor.emit("orderFilledOnChain", {
+			commitment: COMMITMENT,
+			filler: OUR_ADDRESS,
+			chainId: 8453,
+			outputs: [],
+			inputs: [],
+			complete: false,
+			blockNumber: FILL_BLOCK,
+		})
+		await new Promise((resolve) => setTimeout(resolve, 20))
+		release()
+		await ctx.filler.settlementQueue.onIdle()
+
+		const seenAtMs = handled.mock.calls[0][9] as number
+		expect(seenAtMs).toBeGreaterThanOrEqual(before)
+		// Taken when the event arrived, before the queue let the settlement start.
+		expect(seenAtMs).toBeLessThan(Date.now() - 15)
+	})
+
+	it("counts a retracted bid's window back from when the fill happened, not from its settlement", async () => {
+		const ctx = await build()
+		await ctx.bid({ limitOrderId: LIMIT_ORDER, payout: (1000n * ONE).toString(), take: "100" }, FIRST_BID)
+		const row = await retract(ctx, FIRST_BID)
+		// The window is 450 s. The bid is 500 s old when settled, but the fill was seen 100 s
+		// before that, when the bid was 400 s old and could still execute.
+		backdate(ctx, row.id, 500 * 1000)
+		ctx.spend(LIMIT_ORDER, 1000n)
+
+		await ctx.fill(1000n * ONE, 100n, false, "0xfill", undefined, Date.now() - 100 * 1000)
+
+		expect(await ctx.recorded(LIMIT_ORDER)).toEqual([[COMMITMENT, FIRST_BID, (1000n * ONE).toString(), "0xfill"]])
+	})
+
+	it("passes over a retracted bid that was already outside its window when the fill happened", async () => {
+		const ctx = await build()
+		await ctx.bid({ limitOrderId: LIMIT_ORDER, payout: (1000n * ONE).toString(), take: "100" }, FIRST_BID)
+		const row = await retract(ctx, FIRST_BID)
+		backdate(ctx, row.id, 600 * 1000)
+		ctx.spend(LIMIT_ORDER, 1000n)
+
+		await ctx.fill(1000n * ONE, 100n, false, "0xfill", undefined, Date.now() - 100 * 1000)
+
+		expect(await ctx.recorded(LIMIT_ORDER)).toEqual([])
+	})
+
+	it("counts the window back from the fill's block time when the fill is replayed long after it landed", async () => {
+		const ctx = await build()
+		await ctx.bid({ limitOrderId: LIMIT_ORDER, payout: (1000n * ONE).toString(), take: "100" }, FIRST_BID)
+		const row = await retract(ctx, FIRST_BID)
+		// The window is 450 s. The bid is 600 s old, so measured from the arrival of the replayed
+		// event it is outside. The fill landed 300 s ago, when the bid was 300 s old.
+		backdate(ctx, row.id, 600 * 1000)
+		ctx.getBlock.mockResolvedValue({ timestamp: BigInt(Math.floor(Date.now() / 1000) - 300) })
+		ctx.spend(LIMIT_ORDER, 1000n)
+
+		await ctx.fill(1000n * ONE, 100n, false, "0xreplay")
+
+		expect(ctx.getBlock).toHaveBeenCalledWith({ blockNumber: FILL_BLOCK })
+		expect(await ctx.recorded(LIMIT_ORDER)).toEqual([[COMMITMENT, FIRST_BID, (1000n * ONE).toString(), "0xreplay"]])
+	})
+
+	it("still passes over a retracted bid that was outside its window at the fill's block time", async () => {
+		const ctx = await build()
+		await ctx.bid({ limitOrderId: LIMIT_ORDER, payout: (1000n * ONE).toString(), take: "100" }, FIRST_BID)
+		const row = await retract(ctx, FIRST_BID)
+		backdate(ctx, row.id, 600 * 1000)
+		// The fill landed 100 s ago, when the bid was 500 s old.
+		ctx.getBlock.mockResolvedValue({ timestamp: BigInt(Math.floor(Date.now() / 1000) - 100) })
+		ctx.spend(LIMIT_ORDER, 1000n)
+
+		await ctx.fill(1000n * ONE, 100n, false, "0xreplay")
+
+		expect(await ctx.recorded(LIMIT_ORDER)).toEqual([])
+	})
+
+	it("reads no block when no retracted bid is a candidate", async () => {
+		const ctx = await build()
+		await ctx.bid({ limitOrderId: LIMIT_ORDER, payout: (1000n * ONE).toString(), take: "100" }, FIRST_BID)
+		ctx.spend(LIMIT_ORDER, 1000n)
+
+		await ctx.fill(1000n * ONE, 100n, false, "0xlive")
+
+		expect(ctx.getBlock).not.toHaveBeenCalled()
+		expect(await ctx.recorded(LIMIT_ORDER)).toEqual([[COMMITMENT, FIRST_BID, (1000n * ONE).toString(), "0xlive"]])
+	})
+
+	it("reads no block for a retracted bid that is already recorded against a fill", async () => {
+		const ctx = await build()
+		await ctx.bid({ limitOrderId: LIMIT_ORDER, payout: (1000n * ONE).toString(), take: "100" }, FIRST_BID)
+		await retract(ctx, FIRST_BID)
+		ctx.spend(LIMIT_ORDER, 1000n)
+		await ctx.fill(1000n * ONE, 100n, false, "0xfirst", 0)
+		ctx.getBlock.mockClear()
+
+		// A second fill on the commitment: the only bid has executed, so it is no candidate.
+		await ctx.fill(500n * ONE, 50n, false, "0xsecond", 1)
+
+		expect(ctx.getBlock).not.toHaveBeenCalled()
+	})
+
+	it("uses the arrival time when the fill's block cannot be read", async () => {
+		const ctx = await build()
+		await ctx.bid({ limitOrderId: LIMIT_ORDER, payout: (1000n * ONE).toString(), take: "100" }, FIRST_BID)
+		const row = await retract(ctx, FIRST_BID)
+		// 500 s old, and the fill arrived 100 s ago: 400 s old then, inside the 450 s window.
+		backdate(ctx, row.id, 500 * 1000)
+		ctx.spend(LIMIT_ORDER, 1000n)
+
+		await ctx.fill(1000n * ONE, 100n, false, "0xfill", undefined, Date.now() - 100 * 1000)
+
+		expect(ctx.getBlock).toHaveBeenCalledTimes(1)
+		expect(await ctx.recorded(LIMIT_ORDER)).toEqual([[COMMITMENT, FIRST_BID, (1000n * ONE).toString(), "0xfill"]])
+	})
+
+	it("uses the arrival time when the fill carries no block", async () => {
+		const ctx = await build()
+		expect(await ctx.filler.fillTimeMs(8453, undefined, 123)).toBe(123)
+		// A scanner that could not tell reports 0n, and a read of block 0 would only fail.
+		expect(await ctx.filler.fillTimeMs(8453, 0n, 123)).toBe(123)
+		expect(ctx.getBlock).not.toHaveBeenCalled()
+	})
+
+	it("does not attribute a fill to a retracted bid placed longer ago than its validity window", async () => {
+		const ctx = await build()
+		await ctx.bid({ limitOrderId: LIMIT_ORDER, payout: (1000n * ONE).toString(), take: "100" }, FIRST_BID)
+		const row = await retract(ctx, FIRST_BID)
+		// 300 s + the 30 s pad + a 120 s margin is 450 s; this one is ten minutes old.
+		backdate(ctx, row.id, 10 * 60 * 1000)
+		ctx.spend(LIMIT_ORDER, 1000n)
+
+		await ctx.fill(1000n * ONE, 100n, false, "0xfill")
+
+		expect(await ctx.recorded(LIMIT_ORDER)).toEqual([])
+		// Still synced: the chain, not the event, says what the order has left.
+		expect(await ctx.remaining(LIMIT_ORDER)).toBe(2000n * ONE)
 	})
 })

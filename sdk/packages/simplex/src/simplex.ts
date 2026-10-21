@@ -350,6 +350,10 @@ export class LimitOrderController {
 
 	async cancel(id: string): Promise<CancelledLimitOrder> {
 		const cancelled = await this.service.cancel(id)
+		// The cancel withdraws the price from the book, but bids it already priced would
+		// still pay out at it. Retracting them never fails the cancel: errors are logged,
+		// and the stale-bid sweep is the backstop.
+		await this.runtime.intentFiller.retractBidsForLimitOrder(id)
 		this.emit("limit-order:cancelled", { order: cancelled.order })
 		return cancelled
 	}
@@ -941,8 +945,16 @@ export class Simplex extends EventEmitter {
 		this.runtime.limitOrders?.listen((event) => {
 			if (event.kind === "resized") {
 				this.emit("limit-order:resized", { order: event.order, delivered: event.delivered.toString() })
-			} else {
+			} else if (event.kind === "filled") {
 				this.emit("limit-order:filled", { order: event.order })
+				// A fill settled on the filler also retracts, but a close that came from the
+				// tally reconciliation did not pass through settlement. The pass is
+				// idempotent: its snapshot skips rows that are already retracted.
+				void this.runtime.intentFiller.retractBidsForLimitOrder(event.order.id)
+			} else if (event.kind === "expired" || event.kind === "rejected") {
+				// The order is off the book, but bids it priced still pay out at its price
+				// until they are retracted. Never rejects; the sweep is the backstop.
+				void this.runtime.intentFiller.retractBidsForLimitOrder(event.order.id)
 			}
 		})
 	}

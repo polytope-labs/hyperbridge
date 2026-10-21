@@ -107,7 +107,9 @@ export const EXTRA_LEVELS = {
  * Each scenario runs against a freshly posted book: the standing orders, plus the extra
  * solver 1 levels it names. `minFills` is the fewest fill transactions it must take. A scenario
  * with `check: "limit"` or `check: "refusal"` must also pass the checks of the on-chain limit in
- * e2e/budget.mjs.
+ * e2e/budget.mjs. One with `noBridge` runs that solver (by index) on a Hyperbridge account holding
+ * no BRIDGE, so its bids can only reach the orderbook; `check: "orderbook"` then requires the
+ * order to be filled by that solver from a bid the orderbook served and Hyperbridge never held.
  *
  * `mixedPairs` scenarios put two pairs in one order, which #1311 forbids. They pass only against
  * a gateway without that rule, so they run only when named.
@@ -189,6 +191,18 @@ export const SCENARIOS = {
 	// account, which must have tallied the payout and must refuse, in simulation, one past its size.
 	"onchain-limit": {
 		check: "limit",
+		user: 0,
+		source: "EVM-97",
+		dest: "EVM-97",
+		legs: [{ tokenIn: "USDC", amountIn: "0.5", tokenOut: "cNGN", minOut: "778.5" }],
+		minFills: 1,
+	},
+	// The `same-chain` swap with solver 1, the best priced, holding no BRIDGE: its bid cannot reach
+	// Hyperbridge and goes to the orderbook alone, where the SDK reads it beside the others' bids
+	// and executes it first. The other two solvers bid through Hyperbridge as usual.
+	"orderbook-only-bid": {
+		check: "orderbook",
+		noBridge: 0,
 		user: 0,
 		source: "EVM-97",
 		dest: "EVM-97",

@@ -65,3 +65,11 @@ Hyperbridge copy wins a tie since it carries the deposit. One source failing lea
 bids; both failing throws. `FillerBid.venue` is `"orderbook"` for a bid read there (its `filler`
 is the solver's address, `deposit` is 0). `IntentGateway.executeOrder` no longer requires a
 coprocessor, and `withOrderbook` now also redirects where bids are read from.
+
+## End to end
+
+The testnet swaps run gains `orderbook-only-bid`: the `same-chain` swap with solver 1 restarted on
+an unfunded Hyperbridge account, so its bid can only reach the orderbook. The swap worker reads
+the SDK's bids from the orderbook under test and records which solvers each venue served; the
+scenario passes only when solver 1's bid was on the orderbook, not on Hyperbridge, and filled the
+order. See [the e2e note](2026-09-22-testnet-swap-e2e.md).

@@ -36,22 +36,30 @@ export const BRIDGE_BALANCE_TTL_MS = 30_000
  *
  * `place_bid` reserves `StorageDepositFee` and the extrinsic pays its fee out of the free
  * balance, which must also stay above the existential deposit. A filler without that much
- * cannot bid on Hyperbridge at all: the extrinsic fails with `InsufficientBalance` or is
- * refused at the pool for its fee, and either way pays nothing and places nothing. So the
- * balance is read before each bid and, when it falls short, the bid goes to the orderbook alone.
+ * cannot bid on Hyperbridge: with nothing for the fee the extrinsic is refused at the pool,
+ * which places nothing and costs nothing, and with the fee but not the deposit it is included,
+ * fails with `InsufficientBalance`, and pays the fee for nothing (`place_bid` is not `Pays::No`).
+ * So the balance is read before each bid and, when it falls short, the bid goes to the orderbook
+ * alone.
  *
  * The reading is cached for {@link BRIDGE_BALANCE_TTL_MS} and lowered by one bid's cost after
  * each placement that reached Hyperbridge, so a burst of bids does not overrun a balance the
  * next read has not caught up with. A placement Hyperbridge refuses for want of balance
  * zeroes the reading until the next read. The read is over the coprocessor's query API; a read
  * that fails leaves the last reading in place, or, with none, lets the bid through to
- * Hyperbridge, whose own refusal costs nothing.
+ * Hyperbridge, and is not tried again before the TTL, so a dead endpoint costs one wait per
+ * TTL rather than one per bid.
+ *
+ * The gate is long-lived, one per filler, so it is also where a change of answer is logged:
+ * once at `warn` when bids start going to the orderbook alone, once at `info` when they go to
+ * Hyperbridge again.
  */
 export class BridgeBalanceGate {
 	private free?: bigint
 	private readAt = 0
 	private cost?: bigint
 	private read?: Promise<void>
+	private hadBalance?: boolean
 
 	constructor(
 		private readonly hyperbridge: IntentsCoprocessor,
@@ -61,14 +69,23 @@ export class BridgeBalanceGate {
 
 	/** Whether the account can afford one more bid on Hyperbridge. */
 	async canPlaceBid(): Promise<boolean> {
-		if (this.free === undefined || this.now() - this.readAt > BRIDGE_BALANCE_TTL_MS) {
+		if (this.now() - this.readAt > BRIDGE_BALANCE_TTL_MS) {
 			this.read ??= this.refresh().finally(() => {
 				this.read = undefined
 			})
 			await this.read
 		}
-		if (this.free === undefined || this.cost === undefined) return true
-		return this.free >= this.cost
+		const can = this.free === undefined || this.cost === undefined || this.free >= this.cost
+		if (!can && this.hadBalance !== false) {
+			this.logger.warn(
+				{ free: this.free?.toString(), cost: this.cost?.toString() },
+				"No BRIDGE for a bid deposit; bids go to the orderbook alone until the balance is topped up",
+			)
+		} else if (can && this.hadBalance === false) {
+			this.logger.info("BRIDGE balance restored; bids go to Hyperbridge and the orderbook again")
+		}
+		this.hadBalance = can
+		return can
 	}
 
 	/**
@@ -93,16 +110,21 @@ export class BridgeBalanceGate {
 	}
 
 	private async refresh(): Promise<void> {
+		// Whatever the read says, it stands for the TTL: a dead endpoint is waited out once, not per bid.
+		this.readAt = this.now()
 		try {
 			const api = await this.hyperbridge.queryApi()
 			const address = this.hyperbridge.getKeyPair().address
-			// biome-ignore lint/suspicious/noExplicitAny: polkadot-js codec
 			const account = (await api.query.system.account(address)) as any
 			this.free = BigInt(account.data.free.toString())
-			this.readAt = this.now()
 			if (this.cost === undefined) this.cost = await this.bidCost(api)
 		} catch (err) {
-			this.logger.warn({ err }, "Could not read the BRIDGE balance; bids go to Hyperbridge as usual")
+			this.logger.warn(
+				{ err },
+				this.free === undefined
+					? "Could not read the BRIDGE balance; bids go to Hyperbridge as usual"
+					: "Could not read the BRIDGE balance; keeping the last reading",
+			)
 		}
 	}
 
@@ -111,7 +133,6 @@ export class BridgeBalanceGate {
 	 * current value, or its constant when none has been set), the existential deposit the free
 	 * balance must keep, and the extrinsic's fee as estimated for a representative `place_bid`.
 	 */
-	// biome-ignore lint/suspicious/noExplicitAny: polkadot-js api
 	private async bidCost(api: any): Promise<bigint> {
 		const stored = BigInt((await api.query.intentsCoprocessor.storageDepositFee()).toString())
 		const deposit = stored > 0n ? stored : BigInt(api.consts.intentsCoprocessor.storageDepositFee.toString())
@@ -130,24 +151,27 @@ export class BridgeBalanceGate {
 	}
 }
 
-/** Hyperbridge's answer when the account cannot pay for the bid, as the SDK renders it. */
+/**
+ * Hyperbridge's answer when the account cannot pay for the bid, as the SDK renders it: the pool's
+ * fee refusal, or the pallet's `InsufficientBalance` on the deposit. Substrate's generic 1010 code
+ * is not matched, since a stale nonce or a bad signature carries it too.
+ */
 function wantsBalance(result: BidSubmissionResult): boolean {
 	return (
 		!result.success &&
 		!result.pending &&
-		/InsufficientBalance|Inability to pay some fees|FundsUnavailable|1010/.test(result.error ?? "")
+		/Inability to pay some fees|InsufficientBalance|FundsUnavailable/.test(result.error ?? "")
 	)
 }
 
 /**
- * The venues a bid goes to: Hyperbridge when the filler holds BRIDGE for the deposit, and the
- * HyperFX orderbook always. The two are posted side by side, since Hyperbridge waits for its
- * extrinsic to land and the orderbook answers at once. One venue's failure is not the other's:
- * each answer is returned on its own, and the caller decides what the bid is worth from them.
+ * The venues a bid goes to: the HyperFX orderbook always, and Hyperbridge when the filler holds
+ * BRIDGE for the deposit. The orderbook post goes out first and does not wait on the balance
+ * read, which can take a dead query endpoint's whole timeout; Hyperbridge's own submission waits
+ * for its extrinsic to land. One venue's failure is not the other's: each answer is returned on
+ * its own, and the caller decides what the bid is worth from them.
  */
 export class BidVenues implements BidPlacer {
-	private hadBalance?: boolean
-
 	constructor(
 		private readonly venues: {
 			hyperbridge?: IntentsCoprocessor
@@ -160,20 +184,11 @@ export class BidVenues implements BidPlacer {
 
 	async place(commitment: HexString, userOp: HexString, bid: HexString): Promise<BidPlacement> {
 		const { hyperbridge, orderbook, bridgeBalance } = this.venues
+		const onOrderbookPending = orderbook ? this.postToOrderbook(commitment, userOp) : undefined
 		const toHyperbridge = hyperbridge !== undefined && (bridgeBalance === undefined || (await bridgeBalance.canPlaceBid()))
-		if (hyperbridge && !toHyperbridge && this.hadBalance !== false) {
-			this.logger.warn(
-				{ free: bridgeBalance?.freeBalance?.toString() },
-				"No BRIDGE for a bid deposit; bids go to the orderbook alone until the balance is topped up",
-			)
-		} else if (toHyperbridge && this.hadBalance === false) {
-			this.logger.info("BRIDGE balance restored; bids go to Hyperbridge and the orderbook again")
-		}
-		if (hyperbridge) this.hadBalance = toHyperbridge
-
 		const [onHyperbridge, onOrderbook] = await Promise.all([
 			toHyperbridge ? hyperbridge.submitBid(commitment, userOp, bid) : undefined,
-			orderbook ? this.postToOrderbook(commitment, userOp) : undefined,
+			onOrderbookPending,
 		])
 		if (onHyperbridge && bridgeBalance) {
 			if (onHyperbridge.success || onHyperbridge.pending) bridgeBalance.spent()

@@ -107,9 +107,11 @@ export const EXTRA_LEVELS = {
  * Each scenario runs against a freshly posted book: the standing orders, plus the extra
  * solver 1 levels it names. `minFills` is the fewest fill transactions it must take. A scenario
  * with `check: "limit"` or `check: "refusal"` must also pass the checks of the on-chain limit in
- * e2e/budget.mjs. One with `noBridge` runs that solver (by index) on a Hyperbridge account holding
- * no BRIDGE, so its bids can only reach the orderbook; `check: "orderbook"` then requires the
- * order to be filled by that solver from a bid the orderbook served and Hyperbridge never held.
+ * e2e/budget.mjs. One with `noKey` runs that solver (by index) with no Hyperbridge key at all, so
+ * its bids can only reach the orderbook; `check: "orderbook"` then requires the order to be filled
+ * by that solver from a bid the orderbook served and Hyperbridge never held. One with
+ * `noCoprocessor` has the swapper's SDK run without an `IntentsCoprocessor`, reading bids from the
+ * orderbook alone; `check: "orderbook-read"` requires a fill from bids the orderbook served.
  *
  * `mixedPairs` scenarios put two pairs in one order, which #1311 forbids. They pass only against
  * a gateway without that rule, so they run only when named.
@@ -197,12 +199,23 @@ export const SCENARIOS = {
 		legs: [{ tokenIn: "USDC", amountIn: "0.5", tokenOut: "cNGN", minOut: "778.5" }],
 		minFills: 1,
 	},
-	// The `same-chain` swap with solver 1, the best priced, holding no BRIDGE: its bid cannot reach
-	// Hyperbridge and goes to the orderbook alone, where the SDK reads it beside the others' bids
-	// and executes it first. The other two solvers bid through Hyperbridge as usual.
+	// The `same-chain` swap with solver 1, the best priced, running with no Hyperbridge key: its
+	// bid goes to the orderbook alone, where the SDK reads it beside the others' bids and executes
+	// it first. The other two solvers bid through Hyperbridge as usual.
 	"orderbook-only-bid": {
 		check: "orderbook",
-		noBridge: 0,
+		noKey: 0,
+		user: 0,
+		source: "EVM-97",
+		dest: "EVM-97",
+		legs: [{ tokenIn: "USDC", amountIn: "0.5", tokenOut: "cNGN", minOut: "778.5" }],
+		minFills: 1,
+	},
+	// The `same-chain` swap with the swapper's SDK given no IntentsCoprocessor: it reads the bids
+	// from the orderbook alone and executes one of them.
+	"orderbook-only-swapper": {
+		check: "orderbook-read",
+		noCoprocessor: true,
 		user: 0,
 		source: "EVM-97",
 		dest: "EVM-97",

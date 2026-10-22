@@ -10,7 +10,7 @@ export const WHY = {
 	secretPhrase:
 		"A secret phrase is a BIP-39 mnemonic of 12 to 24 English words. The filler signs with the wallet at m/44'/60'/0'/0/0 unless you pick another account index. The phrase is written to the config file in plain text, protected only by the file's permissions, the same as a private key.",
 	substrateKey:
-		"Solver-selection orders are won by submitting signed bids to Hyperbridge. This Substrate account signs those bid extrinsics and must hold BRIDGE tokens for fees — the fees are claimed back automatically after fills.",
+		"Bids are posted to the HyperFX orderbook and, with this Substrate account, to Hyperbridge as well. The account signs the bid extrinsics and must hold BRIDGE tokens for their deposits and fees, claimed back after fills. Leave it empty to bid on the orderbook alone.",
 	hyperbridgeWs: "WebSocket endpoint of the Hyperbridge chain, used to submit and track solver bids.",
 	confirmations:
 		"Blocks to wait before filling a cross-chain order, scaled by order value — protects you from reorgs unwinding the deposit after you've paid out.",

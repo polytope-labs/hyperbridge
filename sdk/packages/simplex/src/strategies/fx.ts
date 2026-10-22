@@ -959,7 +959,13 @@ export class FXFiller implements FillerStrategy {
 			}
 		}
 
-		if (onHyperbridge) {
+		if (onHyperbridge && orderbookHoldsBid(onOrderbook)) {
+			// Live on the orderbook, so a swapper can still execute it; Hyperbridge's refusal is worth knowing, not an outage.
+			this.logger.warn(
+				{ commitment, error: onHyperbridge.error, pending: onHyperbridge.pending },
+				"Hyperbridge did not take the bid; the orderbook holds it",
+			)
+		} else if (onHyperbridge) {
 			this.logger.error(
 				{ commitment, error: onHyperbridge.error, pending: onHyperbridge.pending, orderbook: onOrderbook?.kind },
 				"Bid submission failed",

@@ -161,10 +161,11 @@ export class OrderExecutor {
 	 *
 	 * A solver posts its bid to both when it holds BRIDGE for the Hyperbridge deposit and to the
 	 * orderbook alone when it does not, so neither source is the whole picture. The two are read
-	 * side by side and merged by solver and bid identifier (`keccak256` of the op's calldata, which
-	 * is how Hyperbridge files a solver's bids), the Hyperbridge copy winning a tie since it
-	 * carries the deposit. One source failing is not the read failing:
-	 * its bids are left out this round and the other's are returned; only both failing throws.
+	 * side by side and merged by the op's userOpHash, which is the op itself whatever identifier
+	 * a solver filed it under on Hyperbridge; the Hyperbridge copy wins a tie since it carries the
+	 * deposit. One source failing is not the read failing: its bids are left out this round and
+	 * the other's are returned; only both failing throws. An orderbook bid whose op does not
+	 * decode is left out on its own, not with the rest of the orderbook's.
 	 *
 	 * If a preferred solver is configured and the solver lock has not expired, only bids from
 	 * that solver are returned.
@@ -173,13 +174,15 @@ export class OrderExecutor {
 		commitment: HexString
 		solver?: { address: HexString; timeoutMs: number }
 		solverLockStartTime: number
+		/** The userOpHash of a bid's op, as `executeOrder` keys bids. */
+		userOpHashKey: (userOp: FillerBid["userOp"]) => string
 	}): Promise<FillerBid[]> {
-		const { commitment, solver, solverLockStartTime } = params
+		const { commitment, solver, solverLockStartTime, userOpHashKey } = params
 
 		const reads: Promise<FillerBid[]>[] = []
 		const intentsCoprocessor = this.ctx.intentsCoprocessor
 		if (intentsCoprocessor) reads.push(intentsCoprocessor.getBidsForOrder(commitment))
-		reads.push(this.orderbook().bids(commitment).then((bids) => bids.map(fillerBidOf)))
+		reads.push(this.orderbook().bids(commitment).then((bids) => bids.flatMap(fillerBidsOf)))
 
 		const settled = await Promise.allSettled(reads)
 		const failures = settled.filter((result): result is PromiseRejectedResult => result.status === "rejected")
@@ -194,7 +197,7 @@ export class OrderExecutor {
 		for (const result of settled) {
 			if (result.status !== "fulfilled") continue
 			for (const bid of result.value) {
-				const key = `${bid.userOp.sender.toLowerCase()}:${bid.bid.toLowerCase()}`
+				const key = userOpHashKey(bid.userOp)
 				const held = merged.get(key)
 				// Hyperbridge's copy carries the deposit; the orderbook's is the same op without it.
 				if (!held || (held.venue === "orderbook" && bid.venue !== "orderbook")) merged.set(key, bid)
@@ -466,7 +469,7 @@ export class OrderExecutor {
 			const auctionSeenBids = new Set<string>()
 			while (Date.now() < auctionEnd) {
 				try {
-					const bids = await this.fetchBids({ commitment, solver, solverLockStartTime })
+					const bids = await this.fetchBids({ commitment, solver, solverLockStartTime, userOpHashKey })
 					const newBids = bids.filter(
 						(bid) => isFreshBid(bid) && !auctionSeenBids.has(userOpHashKey(bid.userOp)),
 					)
@@ -496,7 +499,7 @@ export class OrderExecutor {
 					))
 					freshBids = final
 						? []
-						: (await this.fetchBids({ commitment, solver, solverLockStartTime })).filter(isFreshBid)
+						: (await this.fetchBids({ commitment, solver, solverLockStartTime, userOpHashKey })).filter(isFreshBid)
 				} catch {
 					await sleep(pollIntervalMs)
 					continue
@@ -579,10 +582,16 @@ function servesOpenLeg(bid: Bid, remainingAssets: TokenInfo[]): boolean {
 }
 
 /**
- * An orderbook bid in the shape Hyperbridge's bids take, so the two merge. The orderbook holds no
- * deposit and does not know the solver's Substrate account, so `filler` is the solver's address.
+ * An orderbook bid in the shape Hyperbridge's bids take, so the two merge, or nothing when its op
+ * does not decode. The orderbook holds no deposit and does not know the solver's Substrate account,
+ * so `filler` is the solver's address.
  */
-function fillerBidOf(bid: OrderbookBid): FillerBid {
-	const userOp = decodeUserOpScale(bid.userOp)
-	return { filler: bid.solver, bid: CryptoUtils.bidId(userOp.callData), userOp, deposit: 0n, venue: "orderbook" }
+function fillerBidsOf(bid: OrderbookBid): FillerBid[] {
+	try {
+		const userOp = decodeUserOpScale(bid.userOp)
+		return [{ filler: bid.solver, bid: CryptoUtils.bidId(userOp.callData), userOp, deposit: 0n, venue: "orderbook" }]
+	} catch (err) {
+		console.warn(`[OrderExecutor] Skipping an orderbook bid from ${bid.solver} whose op does not decode:`, err)
+		return []
+	}
 }

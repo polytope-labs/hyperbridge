@@ -169,19 +169,24 @@ for (const backend of backends) {
 			expect((await bids.byCommitment(OTHER))!.bid).toBeNull()
 		})
 
-		it("counts bids by state", async () => {
+		it("counts bids by state, with a bid the orderbook alone holds as placed", async () => {
 			const bids = backend.create()
 			await bids.store({ commitment: COMMITMENT, success: true })
 			await bids.store({ commitment: OTHER, success: false, error: "nope" })
+			// No BRIDGE for the deposit, but the orderbook took it: a swapper can execute it.
+			await bids.store({ commitment: THIRD, success: false, onOrderbook: true, error: "InsufficientBalance" })
 			await bids.markRetracted(COMMITMENT, null)
 
 			expect(await bids.stats()).toEqual({
-				total: 2,
-				successful: 1,
+				total: 3,
+				successful: 2,
 				failed: 1,
 				retracted: 1,
+				// The orderbook holds no deposit, so there is nothing to reclaim from it.
 				pendingRetraction: 0,
 			})
+			expect((await bids.failed()).map((bid) => bid.commitment)).toEqual([OTHER])
+			expect((await bids.unretractedReclaimable()).map((bid) => bid.commitment)).toEqual([])
 		})
 
 		it("finds the bids a limit order priced, newest first", async () => {

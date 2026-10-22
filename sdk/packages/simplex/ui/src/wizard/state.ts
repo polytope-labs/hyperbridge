@@ -214,8 +214,10 @@ export function assembleConfig(state: WizardState, defaults: SetupDefaults): Fil
 			// The form collects plain strings; the config type wants the signer union / hex addresses.
 			signer: signer as FillerConfig["simplex"]["signer"],
 			maxConcurrentOrders: defaults.maxConcurrentOrders,
-			substratePrivateKey: state.substrateKey.trim(),
-			hyperbridgeWsUrl: state.hyperbridgeWsUrl.trim(),
+			// Omitted without a key: the solver then bids on the orderbook alone.
+			...(state.substrateKey.trim()
+				? { substratePrivateKey: state.substrateKey.trim(), hyperbridgeWsUrl: state.hyperbridgeWsUrl.trim() }
+				: {}),
 		},
 		orderbook: { url: state.orderbook?.url ?? DEFAULT_ORDERBOOK_URLS.mainnet },
 		chains: chains.map((c) => ({ rpcUrls: c.rpcUrls.map((u) => u.trim()).filter(Boolean) })),

@@ -173,9 +173,12 @@ async function operatorContextFrom(
 	writeConfigFile?: (path: string, content: string) => void,
 ): Promise<OperatorContext> {
 	const runtime = simplex.internals
-	const substrateAddress = await deriveSubstrateKeyPair(runtime.config.simplex.substratePrivateKey)
-		.then((pair) => pair.address)
-		.catch(() => undefined)
+	const substrateKey = runtime.config.simplex.substratePrivateKey
+	const substrateAddress = substrateKey
+		? await deriveSubstrateKeyPair(substrateKey)
+				.then((pair) => pair.address)
+				.catch(() => undefined)
+		: undefined
 	return {
 		addresses: { evm: runtime.fillerAddress, substrate: substrateAddress },
 		filler: runtime.intentFiller,

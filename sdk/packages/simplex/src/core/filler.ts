@@ -532,7 +532,9 @@ export class IntentFiller {
 	 * look configured while silently declining every order on it.
 	 */
 	private async setupSolverSelection(chains: string[], { requireAll }: { requireAll: boolean }): Promise<void> {
-		if (chains.length === 0 || !this.hyperbridge) return
+		// Not gated on a Hyperbridge connection: a solver bidding on the orderbook alone still
+		// fills from its SolverAccount, which has to be delegated and funded at the EntryPoint.
+		if (chains.length === 0) return
 
 		const delegationService = this.delegation()
 		this.logger.info({ chains }, "Setting up EIP-7702 delegation on chains with solver selection")

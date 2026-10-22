@@ -89,8 +89,13 @@ export interface FillerTomlConfig {
 		queue?: QueueConfig
 		logging?: string
 		watchOnly?: boolean | Record<string, boolean>
-		substratePrivateKey: string
-		hyperbridgeWsUrl: string
+		/**
+		 * The Hyperbridge account that signs bid extrinsics and holds BRIDGE for their deposits.
+		 * Optional: without it the solver bids on the HyperFX orderbook alone.
+		 */
+		substratePrivateKey?: string
+		/** The Hyperbridge WebSocket endpoint bids go to. Required when a key is set. */
+		hyperbridgeWsUrl?: string
 		/**
 		 * Hyperbridge indexer GraphQL endpoint, used to backfill order details on
 		 * activity rows recorded before they were captured. Defaults per network
@@ -308,12 +313,9 @@ export function validateConfig(config: FillerTomlConfig, cliWatchOnly = false): 
 	// (otherwise the flag's own config would still trip the checks it exempts).
 	const allChainsWatchOnly = cliWatchOnly || config.simplex?.watchOnly === true
 
-	if (!config.simplex?.substratePrivateKey) {
-		throw new Error("simplex.substratePrivateKey is required")
-	}
-
-	if (!config.simplex?.hyperbridgeWsUrl) {
-		throw new Error("simplex.hyperbridgeWsUrl is required")
+	// A solver without a Hyperbridge key bids on the orderbook alone; with one it needs somewhere to send bids.
+	if (config.simplex?.substratePrivateKey && !config.simplex.hyperbridgeWsUrl) {
+		throw new Error("simplex.hyperbridgeWsUrl is required when simplex.substratePrivateKey is set")
 	}
 
 	if (!config.chains || config.chains.length === 0) {

@@ -5,10 +5,19 @@ import type { Prefill, WizardState } from "../state"
 
 export async function stepHyperbridge(state: WizardState, prefill?: Prefill): Promise<void> {
 	why(WHY.substrateKey)
-	state.substratePrivateKey = await askSecret(
-		"Substrate private key (hex seed or mnemonic phrase)",
+	const key = await askSecret(
+		"Substrate private key (hex seed or mnemonic phrase; leave empty to bid on the orderbook alone)",
 		prefill?.config.simplex.substratePrivateKey || undefined,
+		undefined,
+		{ optional: true },
 	)
+	// Without a key there is nowhere to send Hyperbridge bids, so neither field is written.
+	if (!key) {
+		state.substratePrivateKey = undefined
+		state.hyperbridgeWsUrl = undefined
+		return
+	}
+	state.substratePrivateKey = key
 
 	why(WHY.hyperbridgeWs)
 	state.hyperbridgeWsUrl = await askUrl("Hyperbridge WebSocket URL", {

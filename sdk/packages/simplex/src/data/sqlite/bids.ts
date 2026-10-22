@@ -255,8 +255,8 @@ export class SqliteBidStore implements BidStore {
 			.prepare(`
 				SELECT
 					COUNT(*) as total,
-					SUM(CASE WHEN success = 1 THEN 1 ELSE 0 END) as successful,
-					SUM(CASE WHEN success = 0 THEN 1 ELSE 0 END) as failed,
+					SUM(CASE WHEN success = 1 OR on_orderbook = 1 THEN 1 ELSE 0 END) as successful,
+					SUM(CASE WHEN success = 0 AND on_orderbook = 0 THEN 1 ELSE 0 END) as failed,
 					SUM(CASE WHEN retracted = 1 THEN 1 ELSE 0 END) as retracted,
 					SUM(CASE WHEN (success = 1 OR pending = 1) AND retracted = 0 THEN 1 ELSE 0 END) as pendingRetraction
 				FROM bids
@@ -274,7 +274,7 @@ export class SqliteBidStore implements BidStore {
 
 	async failed(limit = 100): Promise<StoredBid[]> {
 		const rows = this.db
-			.prepare(`SELECT ${BID_COLUMNS} FROM bids WHERE success = 0 ORDER BY created_at DESC LIMIT ?`)
+			.prepare(`SELECT ${BID_COLUMNS} FROM bids WHERE success = 0 AND on_orderbook = 0 ORDER BY created_at DESC LIMIT ?`)
 			.all(limit)
 		// biome-ignore lint/suspicious/noExplicitAny: raw sqlite row
 		return (rows as any[]).map((row) => this.toStoredBid(row))

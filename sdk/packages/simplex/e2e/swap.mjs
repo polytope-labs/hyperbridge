@@ -64,11 +64,13 @@ async function main() {
 
 	const sourceChain = EvmChain.fromParams({ chainId: src.id, host: HOST, rpcUrl: src.rpc })
 	const destChain = s.source === s.dest ? sourceChain : EvmChain.fromParams({ chainId: dst.id, host: HOST, rpcUrl: dst.rpc })
+	// Connected for the venue reads below even when the SDK under test is given no coprocessor.
 	const coprocessor = await IntentsCoprocessor.connect(env.hyperbridge)
 	// The SDK reads bids from Hyperbridge and from the orderbook the solvers post to; by default
-	// it would read the network's public deployment, which need not be the one under test.
+	// it would read the network's public deployment, which need not be the one under test. A
+	// `noCoprocessor` scenario leaves the SDK the orderbook alone to read from.
 	const orderbook = new HyperFxOrderbook(env.orderbook)
-	const gateway = (await IntentGateway.create(sourceChain, destChain, coprocessor)).withOrderbook(orderbook)
+	const gateway = (await IntentGateway.create(sourceChain, destChain, s.noCoprocessor ? undefined : coprocessor)).withOrderbook(orderbook)
 
 	/**
 	 * Which solvers' bids each venue serves on the order, lower-cased senders. A solver with

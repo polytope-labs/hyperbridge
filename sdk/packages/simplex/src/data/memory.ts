@@ -51,6 +51,11 @@ function reclaimable(row: StoredBid): boolean {
 	return row.success || row.pending
 }
 
+/** A bid some venue took: Hyperbridge, or the orderbook. */
+function placed(row: StoredBid): boolean {
+	return row.success || row.onOrderbook
+}
+
 function capLimit(limit: number): number {
 	return Math.min(Math.max(limit, 1), MAX_LIMIT)
 }
@@ -163,7 +168,7 @@ class MemoryBidStore implements BidStore {
 
 	async failed(limit = 100): Promise<StoredBid[]> {
 		return this.rows
-			.filter((row) => !row.success)
+			.filter((row) => !placed(row))
 			.slice(-capLimit(limit))
 			.reverse()
 			.map((row) => ({ ...row }))
@@ -181,8 +186,8 @@ class MemoryBidStore implements BidStore {
 	async stats(): Promise<BidStats> {
 		return {
 			total: this.rows.length,
-			successful: this.rows.filter((row) => row.success).length,
-			failed: this.rows.filter((row) => !row.success).length,
+			successful: this.rows.filter(placed).length,
+			failed: this.rows.filter((row) => !placed(row)).length,
 			retracted: this.rows.filter((row) => row.retracted).length,
 			pendingRetraction: this.rows.filter((row) => reclaimable(row) && !row.retracted).length,
 		}

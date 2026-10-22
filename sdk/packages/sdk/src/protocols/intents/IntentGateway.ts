@@ -144,7 +144,9 @@ export class IntentGateway {
 	 *
 	 * @param source - Source chain client.
 	 * @param dest - Destination chain client.
-	 * @param intentsCoprocessor - Optional coprocessor, read for bids beside the HyperFX orderbook.
+	 * @param intentsCoprocessor - Optional. Bids are read from the HyperFX orderbook; with a coprocessor
+	 *   they are read from Hyperbridge as well and merged. When omitted, bids are read from the
+	 *   orderbook alone.
 	 */
 	private constructor(
 		source: IEvmChain,
@@ -206,7 +208,9 @@ export class IntentGateway {
 	 *
 	 * @param source - Source chain for order placement
 	 * @param dest - Destination chain for order fulfillment
-	 * @param intentsCoprocessor - Optional coprocessor, read for bids beside the HyperFX orderbook
+	 * @param intentsCoprocessor - Optional. Bids are read from the HyperFX orderbook; with a coprocessor
+	 *   they are read from Hyperbridge as well and merged. When omitted, bids are read from the
+	 *   orderbook alone.
 	 * @param options - Optional settings; see {@link IntentGatewayOptions}
 	 * @returns Initialized IntentGateway instance
 	 */

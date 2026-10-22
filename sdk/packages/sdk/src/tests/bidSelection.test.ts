@@ -503,16 +503,23 @@ describe("Order execution bid-selection integration", () => {
 		async function readBids(ctx: unknown, orderbook: () => HyperFxOrderbook): Promise<FillerBid[]> {
 			const executor = new OrderExecutor(ctx as never, new BidManager(ctx as never, {} as never), orderbook)
 			const { fetchBids } = executor as unknown as {
-				fetchBids(params: { commitment: HexString; solverLockStartTime: number }): Promise<FillerBid[]>
+				fetchBids(params: {
+					commitment: HexString
+					solverLockStartTime: number
+					userOpHashKey: (userOp: PackedUserOperation) => string
+				}): Promise<FillerBid[]>
 			}
-			return fetchBids.call(executor, { commitment: COMMITMENT, solverLockStartTime: Date.now() })
+			return fetchBids.call(executor, { commitment: COMMITMENT, solverLockStartTime: Date.now(), userOpHashKey })
 		}
+
+		/** Stands in for the EntryPoint's userOpHash: the op itself, whatever identifier it was filed under. */
+		const userOpHashKey = (userOp: PackedUserOperation) => `${userOp.sender}:${userOp.callData}:${userOp.nonce}`
 
 		function hyperbridgeBid(userOp: PackedUserOperation, deposit = 10n): FillerBid {
 			return { filler: "5Hyperbridge", bid: CryptoUtils.bidId(userOp.callData), userOp, deposit }
 		}
 
-		it("reads both sources and merges a bid posted to both under its identifier, keeping the deposit", async () => {
+		it("reads both sources and merges a bid posted to both by its op, keeping the deposit", async () => {
 			const shared = { ...makeUserOp(SOLVER_ONE), callData: "0xaaaa" as HexString }
 			const orderbookOnly = { ...makeUserOp(SOLVER_TWO), callData: "0xbbbb" as HexString }
 			const ctx = makeContext({
@@ -533,6 +540,36 @@ describe("Order execution bid-selection integration", () => {
 			// The orderbook's own: decoded from the SCALE op it served, with the solver's address for want of a Substrate account.
 			expect(bids[1]).toMatchObject({ filler: SOLVER_TWO, deposit: 0n, venue: "orderbook" })
 			expect(bids[1].userOp).toEqual(orderbookOnly)
+		})
+
+		it("merges a bid a solver filed on Hyperbridge under another identifier, since the op is the same", async () => {
+			const op = makeUserOp(SOLVER_ONE)
+			const ctx = makeContext({
+				getBidsForOrder: async () => [{ ...hyperbridgeBid(op), bid: `0x${"77".repeat(32)}` as HexString }],
+				readContract: gatewayReads({}),
+				getBlockNumber: async () => 0n,
+			})
+
+			const bids = await readBids(ctx, orderbookWith([orderbookBid(op)]))
+
+			expect(bids).toHaveLength(1)
+			expect(bids[0]).toMatchObject({ bid: `0x${"77".repeat(32)}`, deposit: 10n })
+		})
+
+		it("leaves out an orderbook bid whose op does not decode, and keeps the rest", async () => {
+			const op = makeUserOp(SOLVER_ONE)
+			const ctx = makeContext({ readContract: gatewayReads({}), getBlockNumber: async () => 0n })
+			const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined)
+			try {
+				const bids = await readBids(
+					ctx,
+					orderbookWith([{ ...orderbookBid(op), userOp: "0x00" as HexString }, orderbookBid(op)]),
+				)
+				expect(bids).toHaveLength(1)
+				expect(bids[0].userOp).toEqual(op)
+			} finally {
+				warn.mockRestore()
+			}
 		})
 
 		it("reads the orderbook alone when no coprocessor is configured", async () => {

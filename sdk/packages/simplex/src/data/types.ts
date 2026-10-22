@@ -116,7 +116,9 @@ export interface BidInsert {
 
 export interface BidStats {
 	total: number
+	/** Bids a venue took: Hyperbridge, or the orderbook alone. */
 	successful: number
+	/** Bids no venue took. */
 	failed: number
 	retracted: number
 	/** Deposits still locked: successful or pending, and not yet retracted. */
@@ -178,7 +180,7 @@ export interface BidStore {
 	byLimitOrder(limitOrderId: string, limit?: number): Promise<StoredBid[]>
 	/** Newest first. Implementations should cap `limit` at a few hundred. */
 	recent(limit?: number): Promise<StoredBid[]>
-	/** Failed bids, newest first — for debugging. */
+	/** Bids no venue took (neither Hyperbridge nor the orderbook), newest first — for debugging. */
 	failed(limit?: number): Promise<StoredBid[]>
 	byDateRange(from: Date, to: Date): Promise<StoredBid[]>
 	stats(): Promise<BidStats>

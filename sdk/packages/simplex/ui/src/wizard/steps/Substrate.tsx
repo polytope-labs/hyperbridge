@@ -109,7 +109,7 @@ export function StepSubstrate({ state, setState }: StepProps) {
 					aria-labelledby="existing-account-title"
 				>
 					<h3 id="existing-account-title">Existing account</h3>
-					<p>Import the account you already use for Hyperbridge.</p>
+					<p>Import the account you already use for Hyperbridge. Leave both empty to bid on the orderbook alone.</p>
 					<Field
 						label="Recovery phrase or hex seed"
 						type="password"

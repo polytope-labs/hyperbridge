@@ -70,7 +70,7 @@ describe("BidVenues", () => {
 		expect(gate.spent).toHaveBeenCalledOnce()
 	})
 
-	it("posts to the orderbook alone when the account holds no BRIDGE, and says so once", async () => {
+	it("posts to the orderbook alone when the account holds no BRIDGE", async () => {
 		const { venues, submitBid, postBid, gate } = venuesWith({ canPlaceBid: false })
 
 		expect(await venues.place(COMMITMENT, USER_OP, BID)).toEqual({ orderbook: ACCEPTED })
@@ -79,8 +79,29 @@ describe("BidVenues", () => {
 		expect(submitBid).not.toHaveBeenCalled()
 		expect(postBid).toHaveBeenCalledTimes(2)
 		expect(gate.spent).not.toHaveBeenCalled()
-		expect(logger.warn).toHaveBeenCalledTimes(1)
-		expect(logger.warn.mock.calls[0][1]).toMatch(/orderbook alone/)
+	})
+
+	it("posts to the orderbook before the balance read answers, so a slow endpoint holds up Hyperbridge alone", async () => {
+		let answer: (can: boolean) => void = () => undefined
+		const gate = {
+			canPlaceBid: () => new Promise<boolean>((resolve) => (answer = resolve)),
+			spent: vi.fn(),
+			exhausted: vi.fn(),
+		}
+		const postBid = vi.fn(async () => ACCEPTED)
+		const submitBid = vi.fn(async () => LANDED)
+		const venues = new BidVenues(
+			{ hyperbridge: { submitBid } as never, orderbook: { submitBid: postBid } as never, bridgeBalance: gate as never },
+			logger as never,
+		)
+
+		const placing = venues.place(COMMITMENT, USER_OP, BID)
+		await new Promise((resolve) => setImmediate(resolve))
+		expect(postBid).toHaveBeenCalledOnce()
+		expect(submitBid).not.toHaveBeenCalled()
+
+		answer(true)
+		expect(await placing).toEqual({ hyperbridge: LANDED, orderbook: ACCEPTED })
 	})
 
 	it("zeroes the balance reading when Hyperbridge refuses the bid for want of BRIDGE", async () => {
@@ -125,13 +146,20 @@ describe("BidVenues", () => {
 		expect((await venues.place(COMMITMENT, USER_OP, BID)).orderbook).toBe(rejected)
 	})
 
-	it("without a Hyperbridge connection posts to the orderbook alone, without a word about balance", async () => {
-		const warnings = logger.warn.mock.calls.length
+	it("without a Hyperbridge connection posts to the orderbook alone", async () => {
 		const postBid = vi.fn(async () => ACCEPTED)
 		const venues = new BidVenues({ orderbook: { submitBid: postBid } as never }, logger as never)
 
 		expect(await venues.place(COMMITMENT, USER_OP, BID)).toEqual({ orderbook: ACCEPTED })
-		expect(logger.warn.mock.calls.length).toBe(warnings)
+	})
+
+	it("does not take a stale nonce for an empty balance", async () => {
+		const outdated: BidSubmissionResult = { success: false, error: "1010: Invalid Transaction: Transaction is outdated" }
+		const { venues, gate } = venuesWith({ hyperbridge: outdated })
+
+		await venues.place(COMMITMENT, USER_OP, BID)
+
+		expect(gate.exhausted).not.toHaveBeenCalled()
 	})
 })
 
@@ -206,9 +234,39 @@ describe("BridgeBalanceGate", () => {
 		expect(await gate.canPlaceBid()).toBe(true)
 	})
 
-	it("lets bids through to Hyperbridge when the balance cannot be read", async () => {
-		const { hyperbridge } = hyperbridgeWith({ free: 0n, failReads: true })
-		expect(await new BridgeBalanceGate(hyperbridge, logger as never).canPlaceBid()).toBe(true)
+	it("lets bids through to Hyperbridge when the balance cannot be read, and reads again only after the TTL", async () => {
+		let now = 1_000_000
+		const { hyperbridge, reads } = hyperbridgeWith({ free: 0n, failReads: true })
+		const gate = new BridgeBalanceGate(hyperbridge, logger as never, () => now)
+
+		expect(await gate.canPlaceBid()).toBe(true)
+		expect(await gate.canPlaceBid()).toBe(true)
+		expect(reads.account).toBe(1)
+
+		now += BRIDGE_BALANCE_TTL_MS + 1
+		expect(await gate.canPlaceBid()).toBe(true)
+		expect(reads.account).toBe(2)
+	})
+
+	it("says once that bids go to the orderbook alone, and once when the balance is back", async () => {
+		const state = { free: 0n }
+		let now = 1_000_000
+		const { hyperbridge } = hyperbridgeWith(state)
+		const log = { trace: vi.fn(), debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn(), fatal: vi.fn() }
+		const gate = new BridgeBalanceGate(hyperbridge, log as never, () => now)
+
+		expect(await gate.canPlaceBid()).toBe(false)
+		expect(await gate.canPlaceBid()).toBe(false)
+		expect(log.warn).toHaveBeenCalledTimes(1)
+		expect(log.warn.mock.calls[0][1]).toMatch(/orderbook alone/)
+
+		state.free = COST * 10n
+		now += BRIDGE_BALANCE_TTL_MS + 1
+		expect(await gate.canPlaceBid()).toBe(true)
+		expect(await gate.canPlaceBid()).toBe(true)
+		expect(log.info).toHaveBeenCalledTimes(1)
+		expect(log.info.mock.calls[0][0]).toMatch(/restored/)
+		expect(log.warn).toHaveBeenCalledTimes(1)
 	})
 
 	it("reads once for concurrent bids", async () => {

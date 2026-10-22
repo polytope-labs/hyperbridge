@@ -64,10 +64,10 @@ export function signerRequirements(state: WizardState): string[] {
 	return fields.filter(([, value]) => !value.trim()).map(([label]) => `Enter the Turnkey ${label.toLowerCase()}.`)
 }
 
+/** The Hyperbridge account is optional: without one the solver bids on the orderbook alone. With one, bids need an endpoint. */
 function substrateRequirements(state: WizardState): string[] {
 	const issues: string[] = []
-	if (!state.substrateKey.trim()) issues.push("Generate an account or enter an existing recovery phrase or hex seed.")
-	if (!state.hyperbridgeWsUrl.trim().startsWith("ws")) {
+	if (state.substrateKey.trim() && !state.hyperbridgeWsUrl.trim().startsWith("ws")) {
 		issues.push("Enter a Hyperbridge WebSocket URL beginning with ws:// or wss://.")
 	}
 	return issues

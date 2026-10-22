@@ -1,12 +1,11 @@
 import type { FillResult, FillerStrategy } from "@/strategies/base"
+import { type BidPlacer, orderbookHoldsBid } from "@/core/bid-venues"
 import {
 	type Order,
-	type ExecutionResult,
 	type HexString,
 	bytes32ToBytes20,
 	type ERC7821Call,
 	type TokenInfo,
-	type IntentsCoprocessor,
 	ADDRESS_ZERO,
 } from "@hyperbridge/sdk"
 import type { ChainClientManager, ContractInteractionService } from "@/services"
@@ -883,25 +882,25 @@ export class FXFiller implements FillerStrategy {
 	}
 
 	/**
-	 * Executes an order by submitting a bid via the IntentsCoprocessor.
+	 * Executes an order by placing a bid through the filler's venues.
 	 *
 	 * Assumes that `calculateProfitability` has already been called for the
 	 * given order so that filler outputs are cached in `contractService`.
 	 * This method only orchestrates the bid construction and submission; the
 	 * actual token movements are handled on-chain by the IntentGateway.
 	 */
-	async executeOrder(order: Order, intentsCoprocessor?: IntentsCoprocessor): Promise<ExecutionResult> {
+	async executeOrder(order: Order, bids?: BidPlacer): Promise<FillResult> {
 		const startTime = Date.now()
 
 		try {
-			if (!intentsCoprocessor) {
+			if (!bids) {
 				return {
 					success: false,
-					error: "FXFiller requires the UserOp/Hyperbridge path (intentsCoprocessor must be provided)",
+					error: "FXFiller requires the UserOp path (the filler's bid venues must be provided)",
 				}
 			}
 
-			return await this.submitBid(order, startTime, intentsCoprocessor)
+			return await this.submitBid(order, startTime, bids)
 		} catch (error) {
 			this.logger.error({ err: error }, "Error executing FX swap order")
 			return {
@@ -916,17 +915,14 @@ export class FXFiller implements FillerStrategy {
 	// =========================================================================
 
 	/**
-	 * Prepares and submits a bid UserOp to Hyperbridge for the given order.
+	 * Prepares the bid UserOp for the given order and places it through the filler's venues.
 	 *
 	 * Uses the filler outputs previously cached by `calculateProfitability`.
 	 * Approval bundling and UserOp construction are handled by
-	 * `ContractInteractionService.prepareBidUserOp`.
+	 * `ContractInteractionService.prepareBidUserOp`. The result's `success`, `txHash`,
+	 * `pending` and `error` are Hyperbridge's answer; `orderbook` is the orderbook's.
 	 */
-	private async submitBid(
-		order: Order,
-		startTime: number,
-		intentsCoprocessor: IntentsCoprocessor,
-	): Promise<FillResult> {
+	private async submitBid(order: Order, startTime: number, bids: BidPlacer): Promise<FillResult> {
 		const entryPointAddress = this.configService.getEntryPointAddress(order.destination)
 		if (!entryPointAddress) {
 			return {
@@ -944,31 +940,53 @@ export class FXFiller implements FillerStrategy {
 			solverAccountAddress,
 		)
 
-		const bidResult = await intentsCoprocessor.submitBid(commitment, userOp, bid)
+		const placed = await bids.place(commitment, userOp, bid)
+		const onHyperbridge = placed.hyperbridge
+		const onOrderbook = placed.orderbook
 
-		const endTime = Date.now()
-		if (bidResult.success) {
-			this.logger.info({ commitment }, "Bid submitted successfully")
+		const processingTimeMs = Date.now() - startTime
+		const venue = onOrderbook ? { orderbook: onOrderbook } : {}
+		if (onHyperbridge?.success) {
+			this.logger.info({ commitment, orderbook: onOrderbook?.kind }, "Bid submitted successfully")
 			return {
 				success: true,
-				txHash: bidResult.extrinsicHash,
+				txHash: onHyperbridge.extrinsicHash,
 				strategyUsed: this.name,
-				processingTimeMs: endTime - startTime,
+				processingTimeMs,
 				commitment,
 				bid,
+				...venue,
 			}
 		}
 
-		this.logger.error({ commitment, error: bidResult.error, pending: bidResult.pending }, "Bid submission failed")
+		if (onHyperbridge && orderbookHoldsBid(onOrderbook)) {
+			// Live on the orderbook, so a swapper can still execute it; Hyperbridge's refusal is worth knowing, not an outage.
+			this.logger.warn(
+				{ commitment, error: onHyperbridge.error, pending: onHyperbridge.pending },
+				"Hyperbridge did not take the bid; the orderbook holds it",
+			)
+		} else if (onHyperbridge) {
+			this.logger.error(
+				{ commitment, error: onHyperbridge.error, pending: onHyperbridge.pending, orderbook: onOrderbook?.kind },
+				"Bid submission failed",
+			)
+		} else if (orderbookHoldsBid(onOrderbook)) {
+			this.logger.info({ commitment }, "Bid posted to the orderbook")
+		} else {
+			this.logger.error({ commitment, orderbook: onOrderbook }, "Bid reached no venue")
+		}
 		// `pending` and the hash ride along: a pooled extrinsic that later lands
 		// reserves a deposit, so the sweep must be able to find and trace it.
 		return {
 			success: false,
-			pending: bidResult.pending === true,
-			txHash: bidResult.extrinsicHash,
-			error: bidResult.error,
+			pending: onHyperbridge?.pending === true,
+			txHash: onHyperbridge?.extrinsicHash,
+			error: onHyperbridge?.error,
+			strategyUsed: this.name,
+			processingTimeMs,
 			commitment,
 			bid,
+			...venue,
 		}
 	}
 

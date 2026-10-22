@@ -476,6 +476,8 @@ export class IntentsCoprocessor {
 		// The nonce this submission goes out under, and the one every later attempt replaces at.
 		let nonce: number | undefined = initialNonce
 		let stalled: SubmissionOutcome | undefined
+		/** What the last attempt said, so a caller can tell a fee refusal from a bad nonce. */
+		let lastError: string | undefined
 
 		while (attempt < maxRetries) {
 			const currentTip = BASE_TIP * BigInt(2 ** attempt) // Double tip on each retry
@@ -483,6 +485,7 @@ export class IntentsCoprocessor {
 
 			try {
 				const result = await this.sendWithTimeout(extrinsic, keyPair, currentTip, timeoutMs, nonce)
+				if (result.error) lastError = result.error
 				// Reached the pool under this nonce: the next submission must clear it, whether it
 				// lands, stalls there, or bounced off a copy of itself already pooled.
 				if (nonce !== undefined && (result.success || result.pending || result.stalled)) {
@@ -521,7 +524,7 @@ export class IntentsCoprocessor {
 		return (
 			stalled ?? {
 				success: false,
-				error: `Transaction failed after ${maxRetries} attempts`,
+				error: `Transaction failed after ${maxRetries} attempts${lastError ? `: ${lastError}` : ""}`,
 			}
 		)
 	}

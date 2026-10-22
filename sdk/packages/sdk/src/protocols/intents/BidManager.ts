@@ -213,9 +213,6 @@ export class BidManager {
 		if (!this.ctx.bundlerUrl) {
 			throw new Error("Bundler URL not configured")
 		}
-		if (!this.ctx.intentsCoprocessor) {
-			throw new Error("IntentsCoprocessor required")
-		}
 
 		const sortedBids = await this.sortBids(order, bids)
 		console.log(`[BidManager] ${sortedBids.length}/${bids.length} bid(s) passed validation and sorting`)

@@ -413,13 +413,17 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 	// that reached here has one. Checked rather than asserted: boot is also entered
 	// from the setup API, and a filler with no orderbook has nothing to price from.
 	if (!config.orderbook) throw new Error("an [orderbook] section is required")
+	const orderbookClient = new OrderbookClient(
+		config.orderbook.url,
+		config.orderbook.requestTimeoutMs ?? DEFAULT_ORDERBOOK_TIMEOUT_MS,
+		options.loggers,
+	)
+	// Every bid is posted to the orderbook too, and to it alone when the account holds no
+	// BRIDGE for the Hyperbridge deposit.
+	intentFiller.setOrderbook(orderbookClient)
 	const limitOrderService = new LimitOrderService(
 		options.data.limitOrders,
-		new OrderbookClient(
-			config.orderbook.url,
-			config.orderbook.requestTimeoutMs ?? DEFAULT_ORDERBOOK_TIMEOUT_MS,
-			options.loggers,
-		),
+		orderbookClient,
 		contractService,
 		configService,
 		assetRegistry,

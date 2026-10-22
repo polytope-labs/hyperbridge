@@ -219,8 +219,11 @@ export interface BidDto {
 	id: number
 	commitment: string
 	extrinsicHash: string | null
+	/** Hyperbridge took the bid. */
 	success: boolean
 	error: string | null
+	/** The HyperFX orderbook took the bid, which a swapper can execute whether or not Hyperbridge did. */
+	onOrderbook: boolean
 	/** SQLite-style "YYYY-MM-DD HH:MM:SS" in UTC. */
 	createdAt: string
 	retracted: boolean

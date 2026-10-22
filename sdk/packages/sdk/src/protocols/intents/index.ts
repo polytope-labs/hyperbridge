@@ -16,6 +16,7 @@ export type {
 	BuyAndSellRates,
 	IntentQuoteLeg,
 	PessimisticQuoteIntentResult,
+	OrderbookBid,
 	OrderbookBook,
 	OrderbookRate,
 	OrderbookRoute,

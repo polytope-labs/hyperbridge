@@ -53,16 +53,18 @@ describe("validateConfig", () => {
 		expect(() => validateConfig(config)).not.toThrow()
 	})
 
-	it("rejects a missing substratePrivateKey", () => {
+	// A solver without a Hyperbridge key bids on the orderbook alone.
+	it("accepts a config without a substratePrivateKey or hyperbridgeWsUrl", () => {
 		const config = minimalConfig()
-		config.simplex.substratePrivateKey = ""
-		expect(() => validateConfig(config)).toThrow(/substratePrivateKey is required/)
+		config.simplex.substratePrivateKey = undefined
+		config.simplex.hyperbridgeWsUrl = undefined
+		expect(() => validateConfig(config)).not.toThrow()
 	})
 
-	it("rejects a missing hyperbridgeWsUrl", () => {
+	it("rejects a hyperbridgeWsUrl missing while a substratePrivateKey is set", () => {
 		const config = minimalConfig()
 		config.simplex.hyperbridgeWsUrl = ""
-		expect(() => validateConfig(config)).toThrow(/hyperbridgeWsUrl is required/)
+		expect(() => validateConfig(config)).toThrow(/hyperbridgeWsUrl is required when simplex.substratePrivateKey is set/)
 	})
 
 	it("loads an older config that still carries [[pairs]]", () => {

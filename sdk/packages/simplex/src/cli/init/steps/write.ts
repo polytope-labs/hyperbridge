@@ -119,8 +119,9 @@ export function assembleConfig(state: WizardState): FillerConfigFile {
 			signer: state.signer,
 			maxConcurrentOrders: state.maxConcurrentOrders,
 			...(state.logging !== undefined ? { logging: state.logging } : {}),
-			substratePrivateKey: state.substratePrivateKey ?? "",
-			hyperbridgeWsUrl: state.hyperbridgeWsUrl ?? "",
+			// Omitted rather than written empty: a solver without a Hyperbridge key bids on the orderbook alone.
+			substratePrivateKey: state.substratePrivateKey || undefined,
+			hyperbridgeWsUrl: state.hyperbridgeWsUrl || undefined,
 			...(state.gasFeeBump ? { gasFeeBump: state.gasFeeBump } : { gasFeeBump: undefined }),
 		},
 		assets: Object.keys(assets).length > 0 ? assets : undefined,
@@ -165,8 +166,8 @@ function showSummary(state: WizardState, outputPath: string): void {
 		lines.push(`+ ${state.passthroughChains.length} unmanaged chain(s) kept from the previous config`)
 	}
 	lines.push(`Signer: ${state.signer?.type}`)
-	lines.push(`Substrate key: ${maskSecret(state.substratePrivateKey ?? "")}`)
-	lines.push(`Hyperbridge: ${state.hyperbridgeWsUrl}`)
+	lines.push(`Substrate key: ${state.substratePrivateKey ? maskSecret(state.substratePrivateKey) : "none (bids go to the orderbook alone)"}`)
+	lines.push(`Hyperbridge: ${state.hyperbridgeWsUrl ?? "none"}`)
 	lines.push(`Output: ${outputPath}`)
 	note(lines.join("\n"), "Summary")
 }

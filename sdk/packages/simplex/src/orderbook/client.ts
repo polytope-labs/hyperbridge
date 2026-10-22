@@ -10,10 +10,12 @@ import type {
 	OrderbookFilters,
 	OrderbookLevelOrder,
 	OrderbookLevelQuery,
+	PostedBid,
 	PostedOrder,
 	PostedOrderPage,
 	RejectionCode,
 	SolverStatus,
+	SubmitBidResult,
 	SubmitOrderResult,
 } from "./types"
 
@@ -82,6 +84,20 @@ const SUBMIT_ORDER_MUTATION = `
 	}
 `
 
+const POSTED_BID_FIELDS = "commitment leg side fillChain sourceChain price amountIn amountOut expiresAt"
+
+const SUBMIT_BID_MUTATION = `
+	mutation SubmitBid($userOp: Bytes!) {
+		submitBid(userOp: $userOp) {
+			__typename
+			... on BidAccepted { bid { ${POSTED_BID_FIELDS} } }
+			... on BidUnchanged { bid { ${POSTED_BID_FIELDS} } }
+			... on BidRejected { code message }
+			... on BidSubmissionFailed { failureCode: code message retryable }
+		}
+	}
+`
+
 const ORDER_QUERY = `
 	query OrderAt($solver: Address!, $commitment: Bytes!) {
 		order(solver: $solver, commitment: $commitment) { ${POSTED_ORDER_FIELDS} }
@@ -132,6 +148,7 @@ export const ORDERBOOK_DOCUMENTS = {
 	snapshot: SNAPSHOT_QUERY,
 	levelOrders: LEVEL_ORDERS_QUERY,
 	submitOrder: SUBMIT_ORDER_MUTATION,
+	submitBid: SUBMIT_BID_MUTATION,
 	heartbeat: HEARTBEAT_MUTATION,
 	myOrders: MY_ORDERS_QUERY,
 	cancelOrder: CANCEL_ORDER_MUTATION,
@@ -256,6 +273,35 @@ export class OrderbookClient {
 	}
 
 	/**
+	 * Posts a bid on a swapper's order: the signed fill UserOp, SCALE-encoded, exactly as it goes
+	 * to Hyperbridge. The orderbook verifies it as it does a limit order, except that it need not
+	 * be phantom and carries no TTL, and accepts it only from a solver holding an active limit
+	 * order on the leg's book filling on the order's destination (`NO_LIMIT_ORDER`). It serves
+	 * the bid under the order's commitment for `serverInfo.bidTtlSecs`; there is no withdrawing
+	 * it before then.
+	 */
+	async submitBid(userOp: HexString): Promise<SubmitBidResult> {
+		const { submitBid } = await this.request<{ submitBid: RawSubmitBid }>(SUBMIT_BID_MUTATION, { userOp })
+		switch (submitBid.__typename) {
+			case "BidAccepted":
+				return { kind: "accepted", bid: submitBid.bid! }
+			case "BidUnchanged":
+				return { kind: "unchanged", bid: submitBid.bid! }
+			case "BidRejected":
+				return { kind: "rejected", code: submitBid.code as RejectionCode, message: submitBid.message! }
+			case "BidSubmissionFailed":
+				return {
+					kind: "failed",
+					code: submitBid.failureCode!,
+					message: submitBid.message!,
+					retryable: submitBid.retryable ?? false,
+				}
+			default:
+				throw new OrderbookRequestError(`Unknown submitBid result ${submitBid.__typename}`)
+		}
+	}
+
+	/**
 	 * The entry this solver holds at `commitment`, or null when it holds none.
 	 *
 	 * What tells `ORDER_EXISTS` from `REPLAYED`: the first means a live entry is
@@ -369,6 +415,16 @@ interface RawSubmitOrder {
 	 * `OrderRejected.code` is a `RejectionCode`, and one selection set cannot ask
 	 * for two enums under one name.
 	 */
+	failureCode?: FailureCode
+	message?: string
+	retryable?: boolean
+}
+
+interface RawSubmitBid {
+	__typename: string
+	bid?: PostedBid
+	code?: string
+	/** `BidSubmissionFailed.code` under an alias, for the same reason as {@link RawSubmitOrder.failureCode}. */
 	failureCode?: FailureCode
 	message?: string
 	retryable?: boolean

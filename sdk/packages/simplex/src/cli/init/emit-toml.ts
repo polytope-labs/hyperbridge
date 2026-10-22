@@ -52,11 +52,16 @@ export function emitFillerToml(config: FillerConfigFile, options: EmitOptions = 
 		push("# Watch-only mode: monitor orders without filling. Boolean (global) or per-chain map.")
 		push(kv("watchOnly", config.simplex.watchOnly))
 	}
-	push("# Substrate account (hex seed or mnemonic) that signs bid extrinsics on Hyperbridge.")
-	push("# It must hold BRIDGE tokens for fees; fees are claimed back automatically after fills.")
-	push(kv("substratePrivateKey", config.simplex.substratePrivateKey))
-	push("# Hyperbridge WebSocket endpoint used to submit solver bids.")
-	push(kv("hyperbridgeWsUrl", config.simplex.hyperbridgeWsUrl))
+	if (config.simplex.substratePrivateKey !== undefined) {
+		push("# Substrate account (hex seed or mnemonic) that signs bid extrinsics on Hyperbridge.")
+		push("# It must hold BRIDGE tokens for deposits and fees; fees are claimed back after fills.")
+		push("# Without it, bids go to the HyperFX orderbook alone.")
+		push(kv("substratePrivateKey", config.simplex.substratePrivateKey))
+	}
+	if (config.simplex.hyperbridgeWsUrl !== undefined) {
+		push("# Hyperbridge WebSocket endpoint used to submit solver bids.")
+		push(kv("hyperbridgeWsUrl", config.simplex.hyperbridgeWsUrl))
+	}
 	if (config.simplex.indexerUrl) push(kv("indexerUrl", config.simplex.indexerUrl))
 	if (config.simplex.blockScanIntervalSeconds !== undefined) {
 		push("# Seconds between block scans per chain. Default 3, minimum 0.1.")

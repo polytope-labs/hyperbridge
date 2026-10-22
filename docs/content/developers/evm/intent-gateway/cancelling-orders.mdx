@@ -120,7 +120,6 @@ Protocol fees are held until the order settles. `DustCollected` reports only the
 ```typescript lineNumbers title="setup.ts" icon="typescript"
 import {
   EvmChain,
-  IntentsCoprocessor,
   IntentGateway,
   IsmpClient,
   SubstrateChain,
@@ -144,9 +143,9 @@ const hyperbridge = await SubstrateChain.connect({
   hasher: "Keccak",
 })
 
-const coprocessor = await IntentsCoprocessor.connect("wss://nexus.rpc.polytope.technology")
+// Bids are read from the HyperFX orderbook; pass an IntentsCoprocessor as the third argument to read Hyperbridge's as well.
 const queryClient = createQueryClient({ url: "https://nexus.indexer.polytope.technology" })
-const intentGateway = (await IntentGateway.create(sourceChain, destChain, coprocessor)).withQueryClient(queryClient)
+const intentGateway = (await IntentGateway.create(sourceChain, destChain)).withQueryClient(queryClient)
 const indexerClient = new IsmpClient({ queryClient, source: sourceChain, dest: destChain, hyperbridge })
 
 const account       = privateKeyToAccount("0xYOUR_PRIVATE_KEY")
@@ -199,7 +198,7 @@ async function cancelExpiredSameChain(order: Order) {
   ) {
     throw new Error("Gateway and keeper wallet must target the order's same chain")
   }
-  const sameChainGateway = await IntentGateway.create(sourceChain, sourceChain, coprocessor)
+  const sameChainGateway = await IntentGateway.create(sourceChain, sourceChain)
   const sameChainIndexer = new IsmpClient({
     queryClient,
     source: sourceChain,

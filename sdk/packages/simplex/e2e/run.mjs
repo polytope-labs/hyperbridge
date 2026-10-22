@@ -59,17 +59,23 @@ const solverKeys = [
 	{ key: env.solver3Key, substrate: env.solver3Substrate },
 ]
 
-function solverConfig(index) {
+/** Marks a solver run with no Hyperbridge key at all, so its bids reach the orderbook alone. */
+const NO_KEY = Symbol("no Hyperbridge key")
+
+/** @param substrate - The Hyperbridge key the solver bids with: its own, or {@link NO_KEY} for none. */
+function solverConfig(index, substrate = solverKeys[index].substrate) {
 	const q = JSON.stringify
+	const hyperbridge =
+		substrate === NO_KEY
+			? "# No Hyperbridge key: bids go to the orderbook alone.\n"
+			: `substratePrivateKey = ${q(substrate)}\nhyperbridgeWsUrl = ${q(env.hyperbridge)}\n`
 	return `[simplex]
 # The scenarios exercise partial-fill mechanics with testnet amounts below the production floor.
 minPartialFillUsd = 0
 maxConcurrentOrders = 5
 logging = "info"
 bidValiditySeconds = 600
-substratePrivateKey = ${q(solverKeys[index].substrate)}
-hyperbridgeWsUrl = ${q(env.hyperbridge)}
-
+${hyperbridge}
 [simplex.signer]
 type = "privateKey"
 key = ${q(solverKeys[index].key)}
@@ -113,43 +119,90 @@ async function api(port, method, route, body) {
 	return { status: response.status, ok: response.ok, json }
 }
 
+/** The running process of each solver, by index. */
 const processes = []
 
+function startSolver(index, substrate) {
+	const solver = SOLVERS[index]
+	const dir = path.join(workdir, solver.name)
+	fs.mkdirSync(path.join(dir, "data"), { recursive: true })
+	const config = path.join(dir, "config.toml")
+	fs.writeFileSync(config, solverConfig(index, substrate), { mode: 0o600 })
+	const out = fs.openSync(path.join(dir, "solver.log"), "a")
+	const child = spawn(
+		process.execPath,
+		[SIMPLEX, "run", "-c", config, "-d", path.join(dir, "data"), "--ui", `127.0.0.1:${solver.port}`, "--no-open", "--log-format", "json"],
+		{ stdio: ["ignore", out, out] },
+	)
+	child.on("exit", (code, signal) => log(`${solver.name} exited (${code ?? signal})`))
+	processes[index] = child
+	log(`${solver.name} started, pid ${child.pid}${substrate === NO_KEY ? " with no Hyperbridge key" : ""}`)
+}
+
 function startSolvers() {
-	SOLVERS.forEach((solver, index) => {
-		const dir = path.join(workdir, solver.name)
-		fs.mkdirSync(path.join(dir, "data"), { recursive: true })
-		const config = path.join(dir, "config.toml")
-		fs.writeFileSync(config, solverConfig(index), { mode: 0o600 })
-		const out = fs.openSync(path.join(dir, "solver.log"), "a")
-		const child = spawn(
-			process.execPath,
-			[SIMPLEX, "run", "-c", config, "-d", path.join(dir, "data"), "--ui", `127.0.0.1:${solver.port}`, "--no-open", "--log-format", "json"],
-			{ stdio: ["ignore", out, out] },
-		)
-		child.on("exit", (code, signal) => log(`${solver.name} exited (${code ?? signal})`))
-		processes.push(child)
-		log(`${solver.name} started, pid ${child.pid}`)
-	})
+	SOLVERS.forEach((_solver, index) => startSolver(index))
+}
+
+async function stopSolver(child) {
+	if (child.exitCode === null) child.kill("SIGTERM")
+	for (let i = 0; i < 20 && child.exitCode === null; i++) await pause(500)
+	if (child.exitCode === null) child.kill("SIGKILL")
 }
 
 async function stopSolvers() {
-	for (const child of processes) if (child.exitCode === null) child.kill("SIGTERM")
-	for (let i = 0; i < 20 && processes.some((child) => child.exitCode === null); i++) await pause(500)
-	for (const child of processes) if (child.exitCode === null) child.kill("SIGKILL")
+	await Promise.all(processes.map(stopSolver))
+}
+
+/**
+ * Stops one solver and starts it again on `substrate`: its own key when none is given, or none
+ * at all ({@link NO_KEY}). The data directory stays, so its limit orders are still its to
+ * withdraw when the book is reposted.
+ */
+async function restartSolver(index, substrate) {
+	await stopSolver(processes[index])
+	startSolver(index, substrate)
+	await waitSolver(SOLVERS[index])
+}
+
+async function waitSolver(solver) {
+	const until = Date.now() + 180_000
+	for (;;) {
+		const ready = await api(solver.port, "GET", "/api/limit-orders?status=open").catch(() => undefined)
+		if (ready?.ok) break
+		if (Date.now() > until) throw new Error(`${solver.name} never answered on port ${solver.port}`)
+		await pause(2_000)
+	}
+	log(`${solver.name} ready`)
 }
 
 async function waitReady() {
-	for (const solver of SOLVERS) {
-		const until = Date.now() + 180_000
-		for (;;) {
-			const ready = await api(solver.port, "GET", "/api/limit-orders?status=open").catch(() => undefined)
-			if (ready?.ok) break
-			if (Date.now() > until) throw new Error(`${solver.name} never answered on port ${solver.port}`)
-			await pause(2_000)
-		}
-		log(`${solver.name} ready`)
+	for (const solver of SOLVERS) await waitSolver(solver)
+}
+
+/**
+ * The checks of the orderbook scenarios. `check: "orderbook"`: the order was filled by the
+ * solver running with no Hyperbridge key, from a bid the orderbook served and Hyperbridge never
+ * held; a solver that still reached Hyperbridge, or whose bid the orderbook refused, fails it by
+ * name. `check: "orderbook-read"`: the swapper's SDK, given no coprocessor, filled from bids the
+ * orderbook served. Returns the reason it fails, or undefined.
+ */
+function orderbookChecks(scenario, result) {
+	const venues = result.venues
+	if (!venues) return "the bid venues were never read"
+	if (scenario.check === "orderbook-read") {
+		return venues.orderbook.length > 0 ? undefined : "the orderbook served no bids, yet the order was filled"
 	}
+	const solver = SOLVERS[scenario.noKey]
+	const address = SOLVER_ACCOUNTS[scenario.noKey].address.toLowerCase()
+	if (venues.hyperbridge.includes(address)) return `${solver.name} has no Hyperbridge key, yet Hyperbridge served its bid`
+	if (!venues.orderbook.includes(address)) {
+		return `the orderbook served no bid from ${solver.name}; it served ${venues.orderbook.length} from ${venues.orderbook.join(", ") || "nobody"}`
+	}
+	const filledBy = result.fills.map((fill) => fill.solver?.toLowerCase())
+	if (!filledBy.includes(address)) {
+		return `${solver.name}'s orderbook bid was not executed; the order was filled by ${filledBy.join(", ") || "nobody"}`
+	}
+	return undefined
 }
 
 async function liveOrders(solver) {
@@ -421,13 +474,14 @@ function report(results) {
 	const lines = [
 		"## Simplex testnet swaps",
 		"",
-		"| Scenario | Outcome | Fills | Bids offered | Fill transactions |",
-		"| --- | --- | --- | --- | --- |",
+		"| Scenario | Outcome | Fills | Bids offered | Bids on Hyperbridge / orderbook | Fill transactions |",
+		"| --- | --- | --- | --- | --- | --- |",
 	]
 	for (const r of results) {
 		const bids = r.bidRounds?.[0]?.length ?? 0
+		const venues = r.venues ? `${r.venues.hyperbridge.length} / ${r.venues.orderbook.length}` : ""
 		const txs = r.fills.map((fill) => `\`${fill.transactionHash}\``).join("<br>")
-		lines.push(`| ${r.scenario} | ${r.passed ? "✅" : "❌"} ${r.outcome}${r.reason ? ` (${r.reason})` : ""} | ${r.fills.length} | ${bids} | ${txs} |`)
+		lines.push(`| ${r.scenario} | ${r.passed ? "✅" : "❌"} ${r.outcome}${r.reason ? ` (${r.reason})` : ""} | ${r.fills.length} | ${bids} | ${venues} | ${txs} |`)
 	}
 	const text = redact(lines.join("\n"))
 	console.log(text)
@@ -447,15 +501,31 @@ async function main() {
 			log(`== ${name}`)
 			let result
 			try {
+				// A solver run with no Hyperbridge key for this scenario alone; its own key is back before the next.
+				if (scenario.noKey !== undefined) await restartSolver(scenario.noKey, NO_KEY)
 				await postBook(scenario.levels)
 				result = await runScenario(name)
 			} catch (error) {
 				result = { scenario: name, outcome: "ERROR", error: String(error?.message ?? error), fills: [] }
+			} finally {
+				if (scenario.noKey !== undefined) {
+					await restartSolver(scenario.noKey).catch((error) =>
+						log(`${SOLVERS[scenario.noKey].name} could not be restarted on its own key: ${error?.message ?? error}`),
+					)
+				}
 			}
 			result.scenario = name
 			result.passed = result.outcome === "FILLED" && result.fills.length >= scenario.minFills
 			if (result.outcome === "FILLED" && !result.passed) result.reason = `expected ${scenario.minFills}+ fills`
 			if (result.error) result.reason = result.error.slice(0, 200)
+			if ((scenario.check === "orderbook" || scenario.check === "orderbook-read") && result.passed) {
+				const failure = orderbookChecks(scenario, result)
+				if (failure) {
+					log(`${name}: ${failure}`)
+					result.passed = false
+					result.reason = failure
+				}
+			}
 			const breach = await checkBudgets({ clients, api, log }, scenario, result, book).catch((error) => {
 				const failure = `the limit checks could not run: ${String(error?.message ?? error).slice(0, 200)}`
 				if (scenario.check === "limit") return failure

@@ -183,6 +183,9 @@ export const REJECTION_CODES = [
 	"MISSING_DECLARATION",
 	"EMPTY_DECLARATION",
 	"UNSUPPORTED_SOURCE_CHAIN",
+	// A bid's alone: it is held to the solver's standing on the book, not to a TTL or a declaration.
+	"NO_LIMIT_ORDER",
+	"TOO_MANY_BIDS",
 ] as const
 
 export type RejectionCode = (typeof REJECTION_CODES)[number]
@@ -199,6 +202,35 @@ export type FailureCode = (typeof FAILURE_CODES)[number]
 export type SubmitOrderResult =
 	| { kind: "accepted"; order: PostedOrder; surfaced: boolean }
 	| { kind: "unchanged"; order: PostedOrder }
+	| { kind: "rejected"; code: RejectionCode; message: string }
+	| { kind: "failed"; code: FailureCode | "REQUEST_FAILED"; message: string; retryable: boolean }
+
+/**
+ * A bid on a swapper's order as the orderbook holds it, under the order's commitment. Amounts
+ * and the price are decimal strings at 1e18.
+ */
+export interface PostedBid {
+	commitment: HexString
+	/** Which of the order's legs the bid quotes, from 0. */
+	leg: number
+	side: "BID" | "ASK"
+	fillChain: string
+	sourceChain: string
+	/** The rate the bid signed, quote per 1 base, before the protocol fee. */
+	price: string
+	amountIn: string
+	amountOut: string
+	/** ISO-8601: when the orderbook stops serving the bid (`receivedAt` plus `serverInfo.bidTtlSecs`). */
+	expiresAt: string
+}
+
+/**
+ * The orderbook's answer to a bid. `unchanged` is the same op posted again while its bid is
+ * still live, which changed nothing; a bid is served until its TTL and cannot be withdrawn.
+ */
+export type SubmitBidResult =
+	| { kind: "accepted"; bid: PostedBid }
+	| { kind: "unchanged"; bid: PostedBid }
 	| { kind: "rejected"; code: RejectionCode; message: string }
 	| { kind: "failed"; code: FailureCode | "REQUEST_FAILED"; message: string; retryable: boolean }
 

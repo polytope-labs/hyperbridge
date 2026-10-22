@@ -19,6 +19,7 @@ const BID_COLUMNS = `
 	retracted_at as retractedAt,
 	retract_extrinsic_hash as retractExtrinsicHash,
 	dead,
+	on_orderbook as onOrderbook,
 	priced_by as pricedBy,
 	reservations
 `
@@ -88,6 +89,7 @@ export class SqliteBidStore implements BidStore {
 				retracted_at TEXT,
 				retract_extrinsic_hash TEXT,
 				dead INTEGER NOT NULL DEFAULT 0,
+				on_orderbook INTEGER NOT NULL DEFAULT 0,
 				-- Only read, as the provenance of a bid written before priced_by. Kept, and
 				-- never written, so a rollback to a build that still reads it finds the column.
 				reservations TEXT,
@@ -102,7 +104,7 @@ export class SqliteBidStore implements BidStore {
 
 		// Databases created before a column existed need it added in place.
 		const columns = columnNames(this.db, "bids")
-		for (const column of ["dead", "pending"] as const) {
+		for (const column of ["dead", "pending", "on_orderbook"] as const) {
 			if (columns.has(column)) continue
 			this.db.exec(`ALTER TABLE bids ADD COLUMN ${column} INTEGER NOT NULL DEFAULT 0`)
 			this.logger.info({ column }, "Migrated bid storage schema")
@@ -130,6 +132,7 @@ export class SqliteBidStore implements BidStore {
 			pending: Boolean(row.pending),
 			retracted: Boolean(row.retracted),
 			dead: Boolean(row.dead),
+			onOrderbook: Boolean(row.onOrderbook),
 			pricedBy: pricedBy(row),
 		}
 	}
@@ -137,8 +140,8 @@ export class SqliteBidStore implements BidStore {
 	async store(bid: BidInsert): Promise<void> {
 		const result = this.db
 			.prepare(`
-				INSERT INTO bids (commitment, bid, extrinsic_hash, block_hash, success, pending, error, priced_by)
-				VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+				INSERT INTO bids (commitment, bid, extrinsic_hash, block_hash, success, pending, error, on_orderbook, priced_by)
+				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 			`)
 			.run(
 				bid.commitment,
@@ -148,6 +151,7 @@ export class SqliteBidStore implements BidStore {
 				bid.success ? 1 : 0,
 				bid.pending ? 1 : 0,
 				bid.error || null,
+				bid.onOrderbook ? 1 : 0,
 				bid.pricedBy ? JSON.stringify(bid.pricedBy) : null,
 			)
 
@@ -251,8 +255,8 @@ export class SqliteBidStore implements BidStore {
 			.prepare(`
 				SELECT
 					COUNT(*) as total,
-					SUM(CASE WHEN success = 1 THEN 1 ELSE 0 END) as successful,
-					SUM(CASE WHEN success = 0 THEN 1 ELSE 0 END) as failed,
+					SUM(CASE WHEN success = 1 OR on_orderbook = 1 THEN 1 ELSE 0 END) as successful,
+					SUM(CASE WHEN success = 0 AND on_orderbook = 0 THEN 1 ELSE 0 END) as failed,
 					SUM(CASE WHEN retracted = 1 THEN 1 ELSE 0 END) as retracted,
 					SUM(CASE WHEN (success = 1 OR pending = 1) AND retracted = 0 THEN 1 ELSE 0 END) as pendingRetraction
 				FROM bids
@@ -270,7 +274,7 @@ export class SqliteBidStore implements BidStore {
 
 	async failed(limit = 100): Promise<StoredBid[]> {
 		const rows = this.db
-			.prepare(`SELECT ${BID_COLUMNS} FROM bids WHERE success = 0 ORDER BY created_at DESC LIMIT ?`)
+			.prepare(`SELECT ${BID_COLUMNS} FROM bids WHERE success = 0 AND on_orderbook = 0 ORDER BY created_at DESC LIMIT ?`)
 			.all(limit)
 		// biome-ignore lint/suspicious/noExplicitAny: raw sqlite row
 		return (rows as any[]).map((row) => this.toStoredBid(row))

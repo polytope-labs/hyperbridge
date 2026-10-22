@@ -4,7 +4,7 @@
 import fs from "node:fs"
 import { createPublicClient, createWalletClient, erc20Abi, formatUnits, http, keccak256, maxUint256, parseUnits, toHex } from "viem"
 import { privateKeyToAccount } from "viem/accounts"
-import { DEFAULT_GRAFFITI, EvmChain, IntentGateway, IntentsCoprocessor, bytes20ToBytes32 } from "@hyperbridge/sdk"
+import { DEFAULT_GRAFFITI, EvmChain, HyperFxOrderbook, IntentGateway, IntentsCoprocessor, bytes20ToBytes32 } from "@hyperbridge/sdk"
 import { FEE_TOKEN, GATEWAY, HOST, SCENARIOS, TOKENS, chains, readEnv } from "./env.mjs"
 import { refuseBest } from "./refusal.mjs"
 
@@ -64,8 +64,27 @@ async function main() {
 
 	const sourceChain = EvmChain.fromParams({ chainId: src.id, host: HOST, rpcUrl: src.rpc })
 	const destChain = s.source === s.dest ? sourceChain : EvmChain.fromParams({ chainId: dst.id, host: HOST, rpcUrl: dst.rpc })
+	// Connected for the venue reads below even when the SDK under test is given no coprocessor.
 	const coprocessor = await IntentsCoprocessor.connect(env.hyperbridge)
-	const gateway = await IntentGateway.create(sourceChain, destChain, coprocessor)
+	// The SDK reads bids from Hyperbridge and from the orderbook the solvers post to; by default
+	// it would read the network's public deployment, which need not be the one under test. A
+	// `noCoprocessor` scenario leaves the SDK the orderbook alone to read from.
+	const orderbook = new HyperFxOrderbook(env.orderbook)
+	const gateway = (await IntentGateway.create(sourceChain, destChain, s.noCoprocessor ? undefined : coprocessor)).withOrderbook(orderbook)
+
+	/**
+	 * Which solvers' bids each venue serves on the order, lower-cased senders. A solver with
+	 * BRIDGE bids on both; one without reaches the orderbook alone. Read whenever bids arrive,
+	 * since Hyperbridge's copy of a bid can land a few seconds after the orderbook's.
+	 */
+	const venues = { hyperbridge: new Set(), orderbook: new Set() }
+	async function readVenues(commitment) {
+		const [onHyperbridge, onOrderbook] = await Promise.allSettled([coprocessor.getBidsForOrder(commitment), orderbook.bids(commitment)])
+		if (onHyperbridge.status === "fulfilled") for (const bid of onHyperbridge.value) venues.hyperbridge.add(bid.userOp.sender.toLowerCase())
+		else log("venues-hyperbridge-unread", { error: String(onHyperbridge.reason?.message ?? onHyperbridge.reason) })
+		if (onOrderbook.status === "fulfilled") for (const bid of onOrderbook.value) venues.orderbook.add(bid.solver.toLowerCase())
+		else log("venues-orderbook-unread", { error: String(onOrderbook.reason?.message ?? onOrderbook.reason) })
+	}
 
 	const beneficiary = bytes20ToBytes32(user.address)
 	const order = {
@@ -131,6 +150,8 @@ async function main() {
 				result.bidRounds.push(
 					update.bids.map((bid) => ({ solver: bid.solverAddress, outputs: bid.outputs.map((output) => output.amount) })),
 				)
+				await readVenues(update.commitment)
+				log("venues", { hyperbridge: [...venues.hyperbridge], orderbook: [...venues.orderbook] })
 				// Once, on the first round: the SDK picks a bid only when the stream is resumed.
 				if (s.check === "refusal" && !result.refusal) {
 					result.refusal = await refuseBest({
@@ -167,6 +188,7 @@ async function main() {
 		received[`${s.dest}:${symbol}`] = formatUnits(balance, token.decimals)
 	}
 	result.balancesAfter = received
+	result.venues = { hyperbridge: [...venues.hyperbridge], orderbook: [...venues.orderbook] }
 	log("result", result)
 	fs.writeFileSync(resultFile, json(result))
 	await coprocessor.disconnect().catch(() => {})

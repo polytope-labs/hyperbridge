@@ -233,8 +233,10 @@ async fn handle_notification(
 						source = %chain_b.name(),
 						dest = %chain_a.name(),
 						state_machine = %state_machine_update.state_machine_id.state_id,
+						retry_from = previous_height,
+						to = state_machine_update.latest_height,
 						?err,
-						"Error while handling state machine update",
+						"Error while handling state machine update, the range will be queried again on the next update",
 					);
 				}
 			},
@@ -273,100 +275,91 @@ async fn handle_update(
 	// Chain B's state machine has been updated to a new height on chain A
 	// We query all the events that have been emitted on chain B that can be submitted to
 	// chain A filter events list to contain only Request and Response events
-	let result = chain_b.query_ismp_events(*previous_height, state_machine_update.clone()).await;
+	//
+	// `previous_height` only moves past a range once its events were read and its messages
+	// built, so a failed event or proof query leaves the range to be queried again, and proven at
+	// the newer height, on the next update.
+	let events = chain_b
+		.query_ismp_events(*previous_height, state_machine_update.clone())
+		.await
+		.map_err(|err| anyhow!("Error querying events from source chain: {err:?}"))?;
 
-	let events = match result {
-		Ok(events) => {
-			if let Some(sender) = get_request_sender {
-				let get_requests = events
-					.clone()
-					.into_iter()
-					.filter_map(|e| match e {
-						Event::GetRequest(req) => Some(req),
-						_ => None,
-					})
-					.collect::<Vec<_>>();
-				if !get_requests.is_empty() {
-					// `try_send` so this inbound forwarder never blocks on a
-					// backed-up get-request consumer. On `Full`, the events
-					// are still emitted upstream and a future range query
-					// will pick them back up; warn so it surfaces.
-					if let Err(err) = sender.try_send((get_requests, state_machine_update.clone()))
-					{
-						tracing::warn!(
-							target: "messaging-inbound",
-							?err,
-							"get-request channel send failed",
-						);
-					}
-				}
-			}
-
-			events
-				.into_iter()
-				.filter(|ev| {
-					filter_events(&config, chain_a.state_machine_id().state_id, coprocessor, ev)
-				})
-				.collect::<Vec<_>>()
-		},
-		Err(err) => {
-			tracing::error!(
-				target: LOG_TARGET,
-				source = %chain_b.name(),
-				dest = %chain_a.name(),
-				?err,
-				"Error querying events from source chain",
-			);
-			Default::default()
-		},
-	};
+	let get_requests = events
+		.iter()
+		.filter_map(|event| match event {
+			Event::GetRequest(req) => Some(req.clone()),
+			_ => None,
+		})
+		.collect::<Vec<_>>();
+	let events = events
+		.into_iter()
+		.filter(|ev| filter_events(&config, chain_a.state_machine_id().state_id, coprocessor, ev))
+		.collect::<Vec<_>>();
 
 	let state_machine = state_machine_update.state_machine_id.state_id;
-	if events.is_empty() {
+	let (messages, unprofitable) = if events.is_empty() {
 		tracing::info!(
 			target: LOG_TARGET, "Skipping latest finalized height {} on {}, no new messages from {state_machine} in range {:?}",
 			state_machine_update.latest_height,
 			chain_a.name(),
 			*previous_height..=state_machine_update.latest_height
 		);
-		*previous_height = state_machine_update.latest_height;
-		return Ok(());
-	}
-	// Advance latest known height by relayer
-	*previous_height = state_machine_update.latest_height;
-	let log_events = events
-		.iter()
-		.chunk_by(|event| match event {
-			ismp::events::Event::PostRequest(req) => req.dest,
-			// A GetResponse is delivered back to the chain that made the request.
-			ismp::events::Event::GetResponse(res) => res.get.source,
-			event => {
-				unreachable!("Only application messages filtered; qed. Unexpected event: {event:?}")
-			},
-		})
-		.into_iter()
-		.fold(String::default(), |acc, (state_machine, items)| {
-			format!("{acc}{}->{}: {} messages, ", chain_b.name(), state_machine, items.count())
-		});
-	tracing::info!(target: LOG_TARGET, "{log_events}");
-	let state_machine_height = StateMachineHeight {
-		id: state_machine_update.state_machine_id,
-		height: state_machine_update.latest_height,
+		Default::default()
+	} else {
+		let log_events = events
+			.iter()
+			.chunk_by(|event| match event {
+				ismp::events::Event::PostRequest(req) => req.dest,
+				// A GetResponse is delivered back to the chain that made the request.
+				ismp::events::Event::GetResponse(res) => res.get.source,
+				event => {
+					unreachable!(
+						"Only application messages filtered; qed. Unexpected event: {event:?}"
+					)
+				},
+			})
+			.into_iter()
+			.fold(String::default(), |acc, (state_machine, items)| {
+				format!("{acc}{}->{}: {} messages, ", chain_b.name(), state_machine, items.count())
+			});
+		tracing::info!(target: LOG_TARGET, "{log_events}");
+		let state_machine_height = StateMachineHeight {
+			id: state_machine_update.state_machine_id,
+			height: state_machine_update.latest_height,
+		};
+
+		translate_events_to_messages(
+			chain_b.clone(),
+			chain_a.clone(),
+			events,
+			state_machine_height.clone(),
+			config.clone(),
+			coprocessor,
+			&client_map,
+			// Inbound pipeline doesn't batch a consensus message alongside — the
+			// dest's light client is advanced by a separate consensus task.
+			None,
+		)
+		.await?
 	};
 
-	let (messages, unprofitable) = translate_events_to_messages(
-		chain_b.clone(),
-		chain_a.clone(),
-		events,
-		state_machine_height.clone(),
-		config.clone(),
-		coprocessor,
-		&client_map,
-		// Inbound pipeline doesn't batch a consensus message alongside — the
-		// dest's light client is advanced by a separate consensus task.
-		None,
-	)
-	.await?;
+	// Advance latest known height by relayer
+	*previous_height = state_machine_update.latest_height;
+
+	if let Some(sender) = get_request_sender {
+		if !get_requests.is_empty() {
+			// `try_send` so this inbound forwarder never blocks on a backed-up get-request
+			// consumer. On `Full` the range's GET requests are dropped, as the range is not
+			// queried again; warn so it surfaces.
+			if let Err(err) = sender.try_send((get_requests, state_machine_update.clone())) {
+				tracing::warn!(
+					target: "messaging-inbound",
+					?err,
+					"get-request channel send failed",
+				);
+			}
+		}
+	}
 
 	if !messages.is_empty() {
 		tracing::info!(
@@ -628,4 +621,165 @@ pub async fn fee_accumulation<A: IsmpProvider + Clone + Clone + HyperbridgeClaim
 				}).await;
 	}
 	Ok::<_, anyhow::Error>(())
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+	use ismp::{messaging::Message, router::PostRequest};
+	use tesseract_primitives::mocks::MockHost;
+
+	const SOURCE: StateMachine = StateMachine::Evm(97);
+	const DEST: StateMachine = StateMachine::Evm(80002);
+	const COPROCESSOR: StateMachine = StateMachine::Kusama(4009);
+
+	/// Build a unique on-disk path for a test database.
+	fn temp_db_path() -> String {
+		let pid = std::process::id();
+		let nanos = std::time::SystemTime::now()
+			.duration_since(std::time::UNIX_EPOCH)
+			.map(|d| d.as_nanos())
+			.unwrap_or(0);
+		format!("/tmp/tesseract-messaging-test-{pid}-{nanos}.db")
+	}
+
+	fn post() -> PostRequest {
+		PostRequest {
+			source: SOURCE,
+			dest: DEST,
+			nonce: 1,
+			from: vec![1],
+			to: vec![2],
+			timeout_timestamp: 0,
+			body: vec![],
+		}
+	}
+
+	fn get() -> GetRequest {
+		GetRequest {
+			source: SOURCE,
+			dest: DEST,
+			nonce: 2,
+			from: vec![1],
+			keys: vec![vec![3]],
+			height: 10,
+			context: vec![],
+			timeout_timestamp: 0,
+		}
+	}
+
+	struct Handler {
+		chain_a: Arc<dyn IsmpProvider>,
+		chain_b: Arc<dyn IsmpProvider>,
+		tx_payment: Arc<TransactionPayment>,
+		get_request_sender: GetReqSender,
+	}
+
+	impl Handler {
+		async fn update(
+			&self,
+			latest_height: u64,
+			previous_height: &mut u64,
+		) -> anyhow::Result<()> {
+			let update = StateMachineUpdated {
+				state_machine_id: self.chain_b.state_machine_id(),
+				latest_height,
+			};
+			handle_update(
+				self.chain_a.clone(),
+				self.chain_b.clone(),
+				self.tx_payment.clone(),
+				update,
+				previous_height,
+				RelayerConfig::default(),
+				COPROCESSOR,
+				&HashMap::new(),
+				None,
+				Some(self.get_request_sender.clone()),
+			)
+			.await
+		}
+	}
+
+	/// A range whose proofs cannot be fetched is not skipped: `previous_height` stays put and
+	/// nothing is forwarded, so the next update queries the same range again, proves it at the
+	/// newer height and forwards its GET requests once.
+	#[tokio::test]
+	async fn a_range_is_handled_again_after_its_proof_query_fails() {
+		let (post, get) = (post(), get());
+		let chain_b = MockHost::new((), 0, SOURCE)
+			.with_events(vec![Event::PostRequest(post.clone()), Event::GetRequest(get.clone())])
+			.with_request_proof_fail();
+		let request_proof_ok = chain_b.request_proof_ok.clone();
+		let chain_a = MockHost::new((), 0, COPROCESSOR);
+		let submitted = chain_a.submitted.clone();
+
+		let path = temp_db_path();
+		let tx_payment = Arc::new(TransactionPayment::initialize(&path).await.unwrap());
+		let (get_request_sender, mut get_requests) = tokio::sync::mpsc::channel(8);
+		let chain_a: Arc<dyn IsmpProvider> = Arc::new(chain_a);
+		let chain_b: Arc<dyn IsmpProvider> = Arc::new(chain_b);
+
+		let mut previous_height = 100;
+		let handle = Handler { chain_a, chain_b, tx_payment, get_request_sender };
+
+		handle.update(200, &mut previous_height).await.unwrap_err();
+		assert_eq!(previous_height, 100);
+		assert!(submitted.lock().unwrap().is_empty());
+		assert!(get_requests.try_recv().is_err());
+
+		*request_proof_ok.lock().unwrap() = true;
+		handle.update(300, &mut previous_height).await.unwrap();
+
+		assert_eq!(previous_height, 300);
+		let submitted = submitted.lock().unwrap();
+		assert_eq!(submitted.len(), 1);
+		match submitted[0].as_slice() {
+			[Message::Request(msg)] => {
+				assert_eq!(msg.requests, vec![post]);
+				assert_eq!(msg.proof.height.height, 300);
+			},
+			messages => panic!("expected one request message, got {messages:?}"),
+		}
+		let (forwarded, update) = get_requests.try_recv().unwrap();
+		assert_eq!(forwarded, vec![get]);
+		assert_eq!(update.latest_height, 300);
+		assert!(get_requests.try_recv().is_err());
+
+		let _ = std::fs::remove_file(&path);
+		let _ = std::fs::remove_file(format!("{path}-journal"));
+	}
+
+	/// A range whose events cannot be read is not skipped: `previous_height` stays put, so the
+	/// next update reads the same range again.
+	#[tokio::test]
+	async fn a_range_is_handled_again_after_its_event_query_fails() {
+		let chain_b = MockHost::new((), 0, SOURCE)
+			.with_events(vec![Event::PostRequest(post()), Event::GetRequest(get())])
+			.with_query_events_fail();
+		let query_events_ok = chain_b.query_events_ok.clone();
+		let chain_a = MockHost::new((), 0, COPROCESSOR);
+		let submitted = chain_a.submitted.clone();
+
+		let path = temp_db_path();
+		let tx_payment = Arc::new(TransactionPayment::initialize(&path).await.unwrap());
+		let (get_request_sender, mut get_requests) = tokio::sync::mpsc::channel(8);
+		let chain_a: Arc<dyn IsmpProvider> = Arc::new(chain_a);
+		let chain_b: Arc<dyn IsmpProvider> = Arc::new(chain_b);
+
+		let mut previous_height = 100;
+		let handle = Handler { chain_a, chain_b, tx_payment, get_request_sender };
+
+		handle.update(200, &mut previous_height).await.unwrap_err();
+		assert_eq!(previous_height, 100);
+		assert!(submitted.lock().unwrap().is_empty());
+		assert!(get_requests.try_recv().is_err());
+
+		*query_events_ok.lock().unwrap() = true;
+		handle.update(300, &mut previous_height).await.unwrap();
+		assert_eq!(previous_height, 300);
+
+		let _ = std::fs::remove_file(&path);
+		let _ = std::fs::remove_file(format!("{path}-journal"));
+	}
 }

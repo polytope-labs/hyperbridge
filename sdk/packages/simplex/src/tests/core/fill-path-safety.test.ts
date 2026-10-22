@@ -46,7 +46,7 @@ function build(result: Record<string, unknown>, limitOrders?: LimitOrderStore) {
 		} as never,
 		{} as never,
 		// The fill path reads the match this order was priced against off the cache.
-		{ cacheService: { getMatchedLimitOrder: () => MATCH } } as never,
+		{ cacheService: { getMatchedLimitOrder: () => MATCH, pinOrder: () => () => {} } } as never,
 		{ address: OUR_ADDRESS } as never,
 		{ orders: stubOrderScanner([1]) },
 		undefined,
@@ -183,6 +183,7 @@ describe("every bid on one order", () => {
 			{
 				cacheService: {
 					getMatchedLimitOrder: () => [],
+					pinOrder: () => () => {},
 					getBidPlans: () => [plan(LIMIT_ORDER), plan(SECOND_ORDER)],
 					setFillerOutputs: () => {},
 					setPartialFill: () => {},

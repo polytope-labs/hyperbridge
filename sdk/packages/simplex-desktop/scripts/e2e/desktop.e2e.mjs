@@ -7,7 +7,7 @@ import { mkdtemp, readFile, readdir, readlink, realpath, rm, stat, writeFile } f
 import { request as httpRequest } from "node:http"
 import { tmpdir } from "node:os"
 import { dirname, join, resolve } from "node:path"
-import { fileURLToPath } from "node:url"
+import { fileURLToPath, pathToFileURL } from "node:url"
 import test from "node:test"
 import { promisify } from "node:util"
 import { _electron, chromium } from "playwright-core"
@@ -107,6 +107,7 @@ async function launchDesktop(userDataDir, options = {}) {
 	})
 	const page = await waitFor(() => electronApp.windows()[0], "the Simplex BrowserWindow", 120_000)
 	await page.waitForURL("simplex://local/**", { timeout: 120_000 })
+	page.setDefaultTimeout(30_000)
 	if (!options.locked) await unlockDesktop(page, { pending: options.pending })
 	return { electronApp, page }
 }
@@ -348,6 +349,175 @@ function operatorFixture(socketPath, options = {}) {
 	}
 }
 
+test("renderer crashes recover without restarting the solver and repeated crashes require a retry", async (t) => {
+	const userDataDir = await temporaryUserData("renderer-recovery")
+	const socketPath = socketPathFor(userDataDir)
+	let electronApp
+	t.after(async () => cleanupDesktop(electronApp, userDataDir))
+	;({ electronApp } = await launchDesktop(userDataDir))
+	const before = await waitForHealth(socketPath, "init")
+	await electronApp.evaluate(
+		({ BrowserWindow }) =>
+			new Promise((resolve) => {
+				const contents = BrowserWindow.getAllWindows()[0].webContents
+				contents.once("did-finish-load", () => resolve())
+				contents.forcefullyCrashRenderer()
+			}),
+	)
+	assert.equal(
+		await electronApp.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].webContents.isCrashed()),
+		false,
+	)
+	assert.equal((await waitForHealth(socketPath, "init")).pid, before.pid)
+	for (const response of [0, 1]) {
+		await electronApp.evaluate(
+			({ BrowserWindow, dialog }, response) =>
+				new Promise((resolve) => {
+					const contents = BrowserWindow.getAllWindows()[0].webContents
+					const original = dialog.showMessageBox
+					if (response === 0) contents.once("did-finish-load", () => resolve())
+					dialog.showMessageBox = async () => {
+						dialog.showMessageBox = original
+						if (response === 1) resolve()
+						return { response, checkboxChecked: false }
+					}
+					contents.forcefullyCrashRenderer()
+				}),
+			response,
+		)
+		assert.equal(
+			await electronApp.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].webContents.isCrashed()),
+			response === 1,
+		)
+	}
+	await electronApp.evaluate(
+		({ BrowserWindow, Menu }) =>
+			new Promise((resolve) => {
+				BrowserWindow.getAllWindows()[0].webContents.once("did-finish-load", () => resolve())
+				Menu.getApplicationMenu().getMenuItemById("show-simplex").click()
+			}),
+	)
+	assert.equal((await waitForHealth(socketPath, "init")).pid, before.pid)
+	const files = await readdir(join(userDataDir, "diagnostics"))
+	const content = (
+		await Promise.all(files.map((file) => readFile(join(userDataDir, "diagnostics", file), "utf8")))
+	).join("")
+	assert.match(content, /Dashboard renderer exited/)
+})
+
+for (const scenario of ["native-crash", "rejection-before-crash-event", "navigation-failure"]) {
+	test(`initial navigation handles ${scenario} without misclassifying startup errors`, async (t) => {
+		const userDataDir = await temporaryUserData("startup-renderer")
+		t.after(() => cleanupDesktop(undefined, userDataDir))
+		const wrapper = join(userDataDir, "startup-fault.cjs")
+		const resultPath = join(userDataDir, "startup-result.json")
+		await writeFile(
+			wrapper,
+			`const { app, BrowserWindow, dialog, protocol } = require("electron");
+	const { writeFileSync } = require("node:fs");
+	const result = { injected: false, recovered: false, startupErrors: [] };
+	const scenario = ${JSON.stringify(scenario)};
+	let rejectNavigation;
+	if (scenario === "rejection-before-crash-event") {
+		const load = BrowserWindow.prototype.loadURL;
+		let initial = true;
+		BrowserWindow.prototype.loadURL = function (...args) {
+			const pending = load.apply(this, args);
+			if (!initial) return pending;
+			initial = false;
+			return Promise.race([pending, new Promise((_resolve, reject) => { rejectNavigation = reject; })]);
+		};
+	}
+	if (scenario === "navigation-failure") {
+		BrowserWindow.prototype.loadURL = async () => {
+			result.injected = true;
+			throw new Error("ERR_FAILED: injected navigation failure without a renderer crash");
+		};
+	}
+	const handle = protocol.handle.bind(protocol);
+	protocol.handle = (scheme, handler) => handle(scheme, async request => {
+		if (request.url === "simplex://local/" && !result.injected) {
+			result.injected = true;
+			setTimeout(() => {
+				const contents = BrowserWindow.getAllWindows()[0].webContents;
+				contents.forcefullyCrashRenderer();
+				rejectNavigation?.(new Error("ERR_FAILED: navigation rejected before renderer-exit callback"));
+			}, 10);
+			await new Promise(resolve => setTimeout(resolve, 250));
+		}
+		return handler(request);
+	});
+	dialog.showErrorBox = (title, message) => {
+		result.startupErrors.push({ title, message });
+	};
+	app.on("web-contents-created", (_event, contents) => {
+		if (scenario === "rejection-before-crash-event") {
+			const on = contents.on.bind(contents);
+			contents.on = (name, listener) => on(name, name === "render-process-gone"
+				? (...args) => setTimeout(() => listener(...args), 100)
+				: listener);
+		}
+		contents.on("did-finish-load", () => {
+			if (result.injected) { result.recovered = true; setImmediate(() => app.quit()); }
+		});
+	});
+	app.on("will-quit", () => {
+		writeFileSync(${JSON.stringify(resultPath)}, JSON.stringify(result));
+	});
+	setTimeout(() => app.quit(), 10_000).unref();
+	import(${JSON.stringify(pathToFileURL(join(packageRoot, "dist/bootstrap.js")).href)});
+	`,
+		)
+		const args = directElectronArguments(wrapper, userDataDir)
+		const { stdout, stderr } = await execFileAsync(electronExecutable, args, {
+			cwd: packageRoot,
+			timeout: 20_000,
+			env: { ...process.env, SIMPLEX_ERROR_REPORTING: "off" },
+		})
+		const result = JSON.parse(await readFile(resultPath, "utf8"))
+		if (scenario === "navigation-failure") {
+			assert.equal(result.injected, true)
+			assert.equal(result.recovered, false)
+			assert.equal(result.startupErrors.length, 1)
+			assert.equal(result.startupErrors[0].title, "Simplex could not start")
+			assert.match(result.startupErrors[0].message, /ERR_FAILED/)
+		} else {
+			assert.deepEqual(result, { injected: true, recovered: true, startupErrors: [] }, stdout + stderr)
+		}
+	})
+}
+
+test("password login remains available when OS storage never finishes its availability check", async (t) => {
+	const userDataDir = await temporaryUserData("storage-stall")
+	let electronApp
+	t.after(() => cleanupDesktop(electronApp, userDataDir))
+	const wrapper = join(userDataDir, "storage-stall.cjs")
+	await writeFile(
+		wrapper,
+		`const { safeStorage } = require("electron");
+globalThis.storageChecks = 0;
+safeStorage.isAsyncEncryptionAvailable = () => {
+	globalThis.storageChecks++;
+	return new Promise(() => {});
+};
+import(${JSON.stringify(pathToFileURL(join(packageRoot, "dist/bootstrap.js")).href)});
+`,
+	)
+	electronApp = await _electron.launch({
+		executablePath: electronExecutable,
+		args: desktopArguments(wrapper, userDataDir),
+		cwd: packageRoot,
+		env: { ...process.env, SIMPLEX_ERROR_REPORTING: "off" },
+	})
+	const page = await electronApp.firstWindow()
+	await page.locator("#desktop-password").waitFor({ timeout: 15_000 })
+	await unlockDesktop(page)
+	assert.equal(await electronApp.evaluate(() => globalThis.storageChecks), 1)
+	const credentials = JSON.parse(await readFile(join(userDataDir, "desktop-vault.json"), "utf8"))
+	assert.ok(credentials.wrappedKey)
+	assert.equal(credentials.deviceKey, undefined)
+})
+
 test("window close, app quit, hard crash, and second launch preserve one detached solver", async (t) => {
 	const userDataDir = await temporaryUserData("lifecycle")
 	const socketPath = socketPathFor(userDataDir)
@@ -360,9 +530,8 @@ test("window close, app quit, hard crash, and second launch preserve one detache
 	await assertNoTcpListener(daemonPid)
 	await waitFor(
 		async () =>
-			(await electronApp.evaluate(
-				({ Menu }) => Menu.getApplicationMenu()?.getMenuItemById("solver-status")?.label,
-			)) === "Solver: Setup required",
+			(await electronApp.evaluate(({ Menu }) => Menu.getApplicationMenu()?.getMenuItemById("solver-status")?.label)) ===
+			"Solver: Setup required",
 		"setup status in the native menu",
 	)
 	const nativeMenu = await electronApp.evaluate(({ Menu }) => {
@@ -436,6 +605,56 @@ test("window close, app quit, hard crash, and second launch preserve one detache
 	await waitForHealth(socketPath, "init")
 })
 
+for (const stopAction of ["stop-solver", "stop-and-quit"]) {
+	test(`password account survives repeated ${stopAction}, quit, reopen and unlock`, async (t) => {
+		const userDataDir = await temporaryUserData(`password-reopen-${stopAction}`)
+		const socketPath = socketPathFor(userDataDir)
+		let electronApp, page
+		t.after(async () => cleanupDesktop(electronApp, userDataDir))
+		;({ electronApp, page } = await launchDesktop(userDataDir))
+		await waitForHealth(socketPath, "init")
+		for (let cycle = 0; cycle < 5; cycle++) {
+			await waitFor(
+				() =>
+					electronApp.evaluate(({ Menu }, id) => Menu.getApplicationMenu()?.getMenuItemById(id)?.enabled, stopAction),
+				"the stop menu action to become available",
+			)
+			const exited = electronProcessExit(electronApp.process())
+			await electronApp
+				.evaluate(({ Menu }, id) => Menu.getApplicationMenu()?.getMenuItemById(id)?.click(), stopAction)
+				.catch((error) => {
+					if (stopAction !== "stop-and-quit") throw error
+				})
+			if (stopAction === "stop-solver") await quitElectron(electronApp)
+			await exited
+			electronApp = undefined
+			await waitForDaemonPids(userDataDir, 0)
+			;({ electronApp, page } = await launchDesktop(userDataDir, { locked: true }))
+			await electronApp.evaluate(({ app, BrowserWindow }) => {
+				globalThis.__passwordReopenFailures = []
+				app.on("render-process-gone", (_event, _contents, details) => globalThis.__passwordReopenFailures.push(details))
+				app.on("child-process-gone", (_event, details) => globalThis.__passwordReopenFailures.push(details))
+				for (const window of BrowserWindow.getAllWindows()) {
+					window.on("unresponsive", () => globalThis.__passwordReopenFailures.push("unresponsive"))
+				}
+			})
+			await usePasswordLogin(page)
+			assert.equal(await page.locator("#desktop-confirmation").count(), 0, "relaunch must retain the existing account")
+			assert.equal(await page.evaluate(async () => (await fetch("/api/status")).status), 423)
+			await unlockDesktop(page)
+			await waitForHealth(socketPath, "init")
+			await waitForDaemonPids(userDataDir)
+			assert.equal(await page.evaluate(async () => (await fetch("/api/status")).status), 200)
+			await delay(1000)
+			assert.deepEqual(
+				await electronApp.evaluate(() => globalThis.__passwordReopenFailures),
+				[],
+				`cycle ${cycle + 1} must not crash after password unlock`,
+			)
+		}
+	})
+}
+
 test("a login launch requires unlock before starting a solver and gates the API", async (t) => {
 	const userDataDir = await temporaryUserData("login")
 	const socketPath = socketPathFor(userDataDir)
@@ -508,14 +727,9 @@ test(
 				globalThis.__simplexPasskeyUrl = undefined
 			})
 			await page.getByRole("button", { name: button, exact: true }).click()
-			const url = await waitFor(
-				() => electronApp.evaluate(() => globalThis.__simplexPasskeyUrl),
-				"passkey browser URL",
-			)
+			const url = await waitFor(() => electronApp.evaluate(() => globalThis.__simplexPasskeyUrl), "passkey browser URL")
 			await browserPage.goto(url)
-			await browserPage
-				.getByRole("button", { name: cancel ? /^Cancel$/ : /^(Create|Unlock with) passkey$/ })
-				.click()
+			await browserPage.getByRole("button", { name: cancel ? /^Cancel$/ : /^(Create|Unlock with) passkey$/ }).click()
 			await browserPage
 				.getByRole("status")
 				.filter({ hasText: cancel ? "Cancelled" : "Simplex is continuing" })
@@ -868,9 +1082,8 @@ test("graceful stop keeps the socket lock and disables restart until draining fi
 	}, "the stopping health state")
 	await waitFor(
 		async () =>
-			(await electronApp.evaluate(
-				({ Menu }) => Menu.getApplicationMenu()?.getMenuItemById("solver-status")?.label,
-			)) === "Solver: Stopping…",
+			(await electronApp.evaluate(({ Menu }) => Menu.getApplicationMenu()?.getMenuItemById("solver-status")?.label)) ===
+			"Solver: Stopping…",
 		"the stopping native state",
 	)
 	assert.equal(
@@ -910,9 +1123,8 @@ test("the native shell reports a crashed solver, prevents sleep while active, an
 	;({ electronApp } = await launchDesktop(userDataDir))
 	await waitFor(
 		async () =>
-			(await electronApp.evaluate(
-				({ Menu }) => Menu.getApplicationMenu()?.getMenuItemById("solver-status")?.label,
-			)) === "Solver: Running",
+			(await electronApp.evaluate(({ Menu }) => Menu.getApplicationMenu()?.getMenuItemById("solver-status")?.label)) ===
+			"Solver: Running",
 		"running status in the native menu",
 	)
 	assert.equal(
@@ -923,9 +1135,8 @@ test("the native shell reports a crashed solver, prevents sleep while active, an
 	await electronApp.evaluate(({ Menu }) => Menu.getApplicationMenu()?.getMenuItemById("toggle-pause")?.click())
 	await waitFor(
 		async () =>
-			(await electronApp.evaluate(
-				({ Menu }) => Menu.getApplicationMenu()?.getMenuItemById("solver-status")?.label,
-			)) === "Solver: Paused",
+			(await electronApp.evaluate(({ Menu }) => Menu.getApplicationMenu()?.getMenuItemById("solver-status")?.label)) ===
+			"Solver: Paused",
 		"paused status in the native menu",
 	)
 	assert.equal(
@@ -935,18 +1146,16 @@ test("the native shell reports a crashed solver, prevents sleep while active, an
 	await electronApp.evaluate(({ Menu }) => Menu.getApplicationMenu()?.getMenuItemById("toggle-pause")?.click())
 	await waitFor(
 		async () =>
-			(await electronApp.evaluate(
-				({ Menu }) => Menu.getApplicationMenu()?.getMenuItemById("solver-status")?.label,
-			)) === "Solver: Running",
+			(await electronApp.evaluate(({ Menu }) => Menu.getApplicationMenu()?.getMenuItemById("solver-status")?.label)) ===
+			"Solver: Running",
 		"resumed status in the native menu",
 	)
 
 	await fixture.stop()
 	await waitFor(
 		async () =>
-			(await electronApp.evaluate(
-				({ Menu }) => Menu.getApplicationMenu()?.getMenuItemById("solver-status")?.label,
-			)) === "Solver: Stopped",
+			(await electronApp.evaluate(({ Menu }) => Menu.getApplicationMenu()?.getMenuItemById("solver-status")?.label)) ===
+			"Solver: Stopped",
 		"crashed solver status within one polling interval",
 		10_000,
 	)
@@ -1037,7 +1246,7 @@ test("the custom protocol reconnects Orders SSE and releases streams across 20 r
 		await page.reload()
 		await page.getByText("live", { exact: true }).waitFor({ timeout: 30_000 })
 	}
-	await waitFor(() => fixture.clientCount() === 1, "exactly one SSE stream after 20 reloads")
+	await waitFor(() => fixture.clientCount() === 1, "exactly one SSE stream after repeated reloads")
 })
 
 test("the renderer enforces CSP and opens only approved links outside Electron", async (t) => {
@@ -1144,10 +1353,7 @@ test("the renderer enforces CSP and opens only approved links outside Electron",
 		async () => (await electronApp.evaluate(() => globalThis.__simplexOpenedUrls ?? [])).length === 2,
 		"second approved external link",
 	)
-	assert.deepEqual(await electronApp.evaluate(() => globalThis.__simplexOpenedUrls), [
-		approvedLink,
-		secondApprovedLink,
-	])
+	assert.deepEqual(await electronApp.evaluate(() => globalThis.__simplexOpenedUrls), [approvedLink, secondApprovedLink])
 	await page.evaluate(() => {
 		window.location.href = "https://example.com/"
 	})

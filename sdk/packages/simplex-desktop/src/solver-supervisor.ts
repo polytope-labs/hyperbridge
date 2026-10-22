@@ -1,6 +1,6 @@
-import { request as httpRequest } from "node:http"
 import type { SolverWork } from "@hyperbridge/simplex"
 import { probeHealth } from "./daemon"
+import { socketRequest } from "./socket-request"
 
 export type SolverStatus =
 	| { state: "starting"; pid?: number }
@@ -12,44 +12,6 @@ export type SolverStatus =
 	| { state: "unreachable"; detail: string }
 
 export type SolverAction = "pause" | "resume" | "stop"
-
-const MAX_RESPONSE_BYTES = 64 * 1024
-
-function socketRequest(
-	socketPath: string,
-	path: string,
-	method: "GET" | "POST",
-	timeoutMs = 1_000,
-): Promise<{ status: number; body: string }> {
-	return new Promise((resolve, reject) => {
-		const request = httpRequest(
-			{
-				socketPath,
-				path,
-				method,
-				headers: method === "POST" ? { "X-Simplex-UI": "1" } : undefined,
-			},
-			(response) => {
-				const chunks: Buffer[] = []
-				let bytes = 0
-				response.on("data", (chunk: Buffer) => {
-					bytes += chunk.length
-					if (bytes > MAX_RESPONSE_BYTES) {
-						request.destroy(new Error(`Simplex ${path} response exceeded ${MAX_RESPONSE_BYTES} bytes`))
-						return
-					}
-					chunks.push(chunk)
-				})
-				response.on("end", () =>
-					resolve({ status: response.statusCode ?? 0, body: Buffer.concat(chunks).toString("utf8") }),
-				)
-			},
-		)
-		request.setTimeout(timeoutMs, () => request.destroy(new Error(`Simplex ${path} request timed out`)))
-		request.on("error", reject)
-		request.end()
-	})
-}
 
 /** The state the native shell displays, read only through the private socket. */
 export async function probeSolverStatus(socketPath: string): Promise<SolverStatus> {
@@ -156,7 +118,7 @@ export function shouldNotifySolverFailure(
 	if (intentionalStop) return false
 	return (
 		(previous.state === "setup" || previous.state === "running" || previous.state === "paused") &&
-		(next.state === "unreachable" || (next.state === "stopped" && next.detail === "stale"))
+		(next.state === "unreachable" || next.state === "stopped")
 	)
 }
 

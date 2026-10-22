@@ -1,6 +1,8 @@
 import { spawn, type ChildProcess, type SpawnOptions, type StdioOptions } from "node:child_process"
 import { closeSync, openSync, readdirSync } from "node:fs"
-import { request as httpRequest } from "node:http"
+import { pathToFileURL } from "node:url"
+import type { DiagnosticLog } from "./diagnostic-log"
+import { socketRequest } from "./socket-request"
 
 export type SimplexMode = "init" | "operator"
 export type HealthProbe =
@@ -11,58 +13,42 @@ export type HealthProbe =
 	| { state: "occupied"; detail: string }
 	| { state: "unavailable"; detail: string }
 
-export function probeHealth(socketPath: string, timeoutMs = 1_000): Promise<HealthProbe> {
-	return new Promise((resolve) => {
-		const request = httpRequest({ socketPath, path: "/health", method: "GET" }, (response) => {
-			let body = ""
-			response.setEncoding("utf8")
-			response.on("data", (chunk: string) => {
-				body += chunk
-			})
-			response.on("end", () => {
-				try {
-					const parsed = JSON.parse(body) as {
-						status?: unknown
-						mode?: unknown
-						pid?: unknown
-						configEncrypted?: unknown
-					}
-					const pidIsValid =
-						typeof parsed.pid === "number" && Number.isSafeInteger(parsed.pid) && parsed.pid > 0
-					if (
-						response.statusCode === 200 &&
-						(parsed.mode === "init" || parsed.mode === "operator") &&
-						(parsed.pid === undefined || pidIsValid)
-					) {
-						const identity: { mode: SimplexMode; pid?: number; configEncrypted?: boolean } = pidIsValid
-							? { mode: parsed.mode, pid: parsed.pid as number }
-							: { mode: parsed.mode }
-						if (parsed.configEncrypted === true) identity.configEncrypted = true
-						if (parsed.status === "ok") resolve({ state: "ready", ...identity })
-						else if (parsed.status === "starting") resolve({ state: "starting", ...identity })
-						else if (parsed.status === "stopping") resolve({ state: "stopping", ...identity })
-						else throw new Error("unrecognized health status")
-						return
-					}
-				} catch {
-					// A listener that is not Simplex is occupied, never stale.
-				}
-				resolve({
-					state: "occupied",
-					detail: `Unexpected /health response (${response.statusCode ?? "no status"})`,
-				})
-			})
-		})
-		request.setTimeout(timeoutMs, () =>
-			request.destroy(Object.assign(new Error("health probe timed out"), { code: "ETIMEDOUT" })),
-		)
-		request.on("error", (error: NodeJS.ErrnoException) => {
-			if (error.code === "ENOENT") resolve({ state: "spawnable", reason: "absent" })
-			else if (error.code === "ECONNREFUSED") resolve({ state: "spawnable", reason: "stale" })
-			else resolve({ state: "unavailable", detail: `${error.code ?? "ERROR"}: ${error.message}` })
-		})
-		request.end()
-	})
+export async function probeHealth(socketPath: string, timeoutMs = 1_000): Promise<HealthProbe> {
+	let response: { status: number; body: string }
+	try {
+		response = await socketRequest(socketPath, "/health", "GET", timeoutMs)
+	} catch (error) {
+		const failure = error as NodeJS.ErrnoException
+		if (failure.code === "ENOENT") return { state: "spawnable", reason: "absent" }
+		if (failure.code === "ECONNREFUSED") return { state: "spawnable", reason: "stale" }
+		return { state: "unavailable", detail: `${failure.code ?? "ERROR"}: ${failure.message}` }
+	}
+	try {
+		const parsed = JSON.parse(response.body) as {
+			status?: unknown
+			mode?: unknown
+			pid?: unknown
+			configEncrypted?: unknown
+		}
+		const pidIsValid = typeof parsed.pid === "number" && Number.isSafeInteger(parsed.pid) && parsed.pid > 0
+		if (
+			response.status === 200 &&
+			(parsed.mode === "init" || parsed.mode === "operator") &&
+			(parsed.pid === undefined || pidIsValid)
+		) {
+			const identity: { mode: SimplexMode; pid?: number; configEncrypted?: boolean } = {
+				mode: parsed.mode,
+				...(pidIsValid ? { pid: parsed.pid as number } : {}),
+				...(parsed.configEncrypted === true ? { configEncrypted: true } : {}),
+			}
+			if (parsed.status === "ok") return { state: "ready", ...identity }
+			if (parsed.status === "starting") return { state: "starting", ...identity }
+			if (parsed.status === "stopping") return { state: "stopping", ...identity }
+		}
+	} catch {
+		// A listener that is not Simplex is occupied, never stale.
+	}
+	return { state: "occupied", detail: `Unexpected /health response (${response.status})` }
 }
 
 export interface DaemonLaunch {
@@ -71,12 +57,15 @@ export interface DaemonLaunch {
 	socketPath: string
 	dataDir: string
 	configKey?: Buffer
+	diagnosticsPath?: string
+	diagnosticLog?: DiagnosticLog
 }
 
 export function daemonArgs(launch: DaemonLaunch): string[] {
 	return [
 		"--enable-source-maps",
 		"--disable-warning=ExperimentalWarning",
+		...(launch.diagnosticsPath ? ["--import", pathToFileURL(launch.diagnosticsPath).href] : []),
 		launch.solverPath,
 		"run",
 		"--ui-socket",
@@ -116,6 +105,10 @@ export function spawnDaemon(
 		}
 		const options: SpawnOptions = { detached: true, stdio, windowsHide: true }
 		const child = spawnImpl(launch.nodePath, daemonArgs(launch), options)
+		child.once("error", (error) => launch.diagnosticLog?.("solver-spawn", error))
+		child.once("exit", (code, signal) =>
+			launch.diagnosticLog?.("solver-exit", `pid=${child.pid ?? "unknown"} code=${code} signal=${signal}`),
+		)
 		if (launch.configKey) {
 			child.stdin?.on("error", () => {})
 			child.stdin?.end(launch.configKey)

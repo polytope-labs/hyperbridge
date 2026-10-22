@@ -94,6 +94,41 @@ function close(server: Server): Promise<void> {
 }
 
 describe("solver supervision", () => {
+	it.each(["/health", "/api/status"])(
+		"resumes polling after an interrupted %s response",
+		async (brokenPath) => {
+			const directory = mkdtempSync(join(tmpdir(), "simplex-interrupted-"))
+			const socketPath = socketPathFor(directory)
+			let interrupt = true
+			const server = createServer((request, response) => {
+				if (interrupt && request.url === brokenPath) {
+					response.writeHead(200, { "Content-Length": "1000" })
+					response.write("{", () => response.destroy())
+					return
+				}
+				response.end(
+					JSON.stringify(
+						request.url === "/health"
+							? { status: "ok", mode: "operator", pid: process.pid }
+							: { paused: false, version: "0.17.4" },
+					),
+				)
+			})
+			await listen(server, socketPath)
+			cleanups.push(async () => {
+				server.closeAllConnections()
+				await close(server)
+				rmSync(directory, { recursive: true, force: true })
+			})
+			const supervisor = new SolverSupervisor({ socketPath, onChange() {}, failureThreshold: 1 })
+			supervisor.setStatus({ state: "running" })
+			await expect(supervisor.pollNow()).resolves.toMatchObject({ state: "unreachable" })
+			interrupt = false
+			await expect(supervisor.pollNow()).resolves.toMatchObject({ state: "running", version: "0.17.4" })
+		},
+		2_000,
+	)
+
 	it("reads running and paused states through the private socket", async () => {
 		const server = await fixture()
 		expect(await probeSolverStatus(server.socketPath)).toEqual({
@@ -319,6 +354,9 @@ describe("solver supervision", () => {
 	it("notifies for crashes but not deliberate stops", () => {
 		expect(shouldNotifySolverFailure({ state: "running" }, { state: "stopped", detail: "stale" }, false)).toBe(true)
 		expect(shouldNotifySolverFailure({ state: "running" }, { state: "stopped", detail: "absent" }, false)).toBe(
+			true,
+		)
+		expect(shouldNotifySolverFailure({ state: "running" }, { state: "stopped", detail: "absent" }, true)).toBe(
 			false,
 		)
 		expect(shouldNotifySolverFailure({ state: "running" }, { state: "unreachable", detail: "crash" }, false)).toBe(

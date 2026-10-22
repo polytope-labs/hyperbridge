@@ -1,13 +1,22 @@
-# Tesseract re-queries an inbound range whose proofs failed, and an RPC endpoint's error no longer beats another's answer
+# Tesseract no longer drops an inbound range whose proofs failed, and an RPC endpoint's error no longer beats another's answer
 
-## Inbound ranges advance only once handled
+## Inbound ranges advance only once their events are read
 
 In `handle_update` (`tesseract/messaging/messaging/src/lib.rs`), `previous_height` advances only
-after the range's events are read and its messages are built. On an event or proof query error the
-next `StateMachineUpdated` queries the same range again and proves it at the newer height; the error
-log carries `retry_from`. GET requests of a range are forwarded once, when the range is handled. A
-range that keeps failing is queried again on every update (the error log shows `retry_from` and
-`to`), and the providers' `query_ismp_events` still log and skip an event chunk they cannot read.
+after the range's events were read. An event query error leaves the range to be read again on the
+next `StateMachineUpdated`; the error log shows `retry_from` and `to`. A proof failure instead parks
+the range's post requests: they are stored in the `UnprofitableMessages` table under the sink's
+state machine and the update moves on, so the next update joins them to its own proof query and they
+are proved at the newer height. That keeps the `eth_getLogs` range bounded, which matters on chains
+whose finality makes the range grow. The rows are deleted once the range they belong to is handled.
+Those rows are shared by every pipeline that delivers to the same sink, so a request is only joined
+to the proof query of the source chain it originates on.
+A `GetResponse` whose proof fails is not parked (it has no row to re-prove from), so that range is
+read again instead. GET requests of a range are forwarded once, when the range is handled.
+
+Event queries are chunked at `query_batch_size` (5,000 blocks by default) and a chunk that fails now
+fails the whole query instead of yielding an empty result, so a partial read can never be mistaken
+for "no events".
 
 ## Multi-URL EVM providers treat a JSON-RPC error as a failed endpoint
 

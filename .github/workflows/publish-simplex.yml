@@ -206,7 +206,7 @@ jobs:
             - name: Setup pnpm
               uses: pnpm/action-setup@v4
               with:
-                  version: "11"
+                  version: "11.0.0"
 
             # Straight from GitHub releases, not apt: the runners' default apt
             # mirror (azure.archive.ubuntu.com) has repeatedly hung apt-get

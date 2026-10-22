@@ -45,7 +45,7 @@ jobs:
             - name: Setup pnpm
               uses: pnpm/action-setup@v4
               with:
-                  version: 11
+                  version: 11.0.0
 
             - name: Install Foundry (anvil)
               uses: foundry-rs/foundry-toolchain@v1

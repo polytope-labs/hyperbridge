@@ -40,6 +40,10 @@ pub struct MockHost<C> {
 	pub request_receipts: Arc<Mutex<BTreeMap<H256, Vec<u8>>>>,
 	/// The timestamp returned by [`IsmpProvider::query_timestamp`].
 	pub timestamp: Arc<Mutex<Duration>>,
+	/// The events returned by [`IsmpProvider::query_ismp_events`].
+	pub events: Arc<Mutex<Vec<Event>>>,
+	/// When false, [`IsmpProvider::query_ismp_events`] returns an error.
+	pub query_events_ok: Arc<Mutex<bool>>,
 }
 
 impl<C> MockHost<C> {
@@ -55,6 +59,8 @@ impl<C> MockHost<C> {
 			consensus_state_id: Arc::new(Mutex::new(*b"Mock")),
 			request_receipts: Arc::new(Mutex::new(BTreeMap::new())),
 			timestamp: Arc::new(Mutex::new(Duration::from_secs(0))),
+			events: Arc::new(Mutex::new(Vec::new())),
+			query_events_ok: Arc::new(Mutex::new(true)),
 		}
 	}
 
@@ -65,6 +71,11 @@ impl<C> MockHost<C> {
 
 	pub fn with_request_proof_fail(self) -> Self {
 		*self.request_proof_ok.lock().unwrap() = false;
+		self
+	}
+
+	pub fn with_query_events_fail(self) -> Self {
+		*self.query_events_ok.lock().unwrap() = false;
 		self
 	}
 
@@ -91,6 +102,11 @@ impl<C> MockHost<C> {
 
 	pub fn with_timestamp(self, timestamp: Duration) -> Self {
 		*self.timestamp.lock().unwrap() = timestamp;
+		self
+	}
+
+	pub fn with_events(self, events: Vec<Event>) -> Self {
+		*self.events.lock().unwrap() = events;
 		self
 	}
 }
@@ -218,7 +234,11 @@ impl<C: Codec + Send + Sync> IsmpProvider for MockHost<C> {
 		_previous_height: u64,
 		_event: StateMachineUpdated,
 	) -> Result<Vec<Event>, Error> {
-		todo!()
+		if *self.query_events_ok.lock().unwrap() {
+			Ok(self.events.lock().unwrap().clone())
+		} else {
+			Err(anyhow!("mock: query events failure"))
+		}
 	}
 
 	fn name(&self) -> String {
@@ -356,6 +376,8 @@ impl<C: Send + Sync> Clone for MockHost<C> {
 			consensus_state_id: self.consensus_state_id.clone(),
 			request_receipts: self.request_receipts.clone(),
 			timestamp: self.timestamp.clone(),
+			events: self.events.clone(),
+			query_events_ok: self.query_events_ok.clone(),
 		}
 	}
 }

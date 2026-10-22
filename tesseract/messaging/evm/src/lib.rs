@@ -47,13 +47,11 @@ pub mod tx;
 
 pub type AlloyProvider = RootProvider;
 
-/// Create a RootProvider from multiple URLs with automatic failover,
-/// which uses alloy FallbackService when multiple URLs are provided.
+/// Create a RootProvider from multiple URLs with automatic failover. When multiple URLs are
+/// provided, every endpoint is asked and the first successful answer wins; a JSON-RPC error
+/// response counts as that endpoint failing (see [`transport::fallback_service`]).
 pub fn create_provider(urls: &[String]) -> Result<RootProvider, anyhow::Error> {
-	use alloy::{
-		rpc::client::RpcClient,
-		transports::{http::Http, layers::FallbackService},
-	};
+	use alloy::{rpc::client::RpcClient, transports::http::Http};
 
 	if urls.is_empty() {
 		return Err(anyhow::anyhow!("At least one RPC URL must be provided"));
@@ -66,8 +64,7 @@ pub fn create_provider(urls: &[String]) -> Result<RootProvider, anyhow::Error> {
 			.iter()
 			.map(|u| Ok(Http::new(u.parse()?)))
 			.collect::<Result<_, anyhow::Error>>()?;
-		let active_count = transports.len();
-		let service = FallbackService::new(transports, active_count);
+		let service = transport::fallback_service(transports);
 		let rpc_client = RpcClient::builder().transport(service, false);
 		Ok(RootProvider::new(rpc_client))
 	}
@@ -77,7 +74,7 @@ pub fn create_provider(urls: &[String]) -> Result<RootProvider, anyhow::Error> {
 /// quorum/byzantine check and must fan out across *distinct* transports.
 ///
 /// Unlike [`create_provider`], which merges multiple URLs into a single
-/// first-`Ok`-wins [`alloy::transports::layers::FallbackService`] transport,
+/// [`alloy::transports::layers::FallbackService`] transport (the first successful answer wins),
 /// this returns a separate provider per endpoint. A 2/3·N+1 quorum built on top
 /// of these therefore genuinely polls every configured backend independently,
 /// instead of collapsing N endpoints into a quorum-of-one where a single lagging
@@ -389,8 +386,7 @@ impl EvmClient {
 					Ok(alloy::transports::http::Http::with_client(http_client.clone(), url))
 				})
 				.collect::<Result<_, anyhow::Error>>()?;
-			let active_count = transports.len();
-			let service = alloy::transports::layers::FallbackService::new(transports, active_count);
+			let service = transport::fallback_service(transports);
 			match config.transport {
 				RpcTransport::Tron => {
 					use crate::transport::TronLayer;

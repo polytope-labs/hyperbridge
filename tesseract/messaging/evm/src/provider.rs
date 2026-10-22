@@ -303,6 +303,10 @@ impl IsmpProvider for EvmClient {
 		Ok(state_proof)
 	}
 
+	/// Events are queried in chunks of `query_batch_size` (5,000 blocks by default) because
+	/// providers bound the range a single `eth_getLogs` may cover. A chunk that fails fails the
+	/// whole query, so the caller re-reads the range instead of mistaking a partial read for
+	/// "no events".
 	async fn query_ismp_events(
 		&self,
 		previous_height: u64,
@@ -314,23 +318,18 @@ impl IsmpProvider for EvmClient {
 		}
 
 		let mut events = vec![];
-		let chunk_size = self.config.query_batch_size.unwrap_or(1_000_000_000);
+		let chunk_size = self.config.query_batch_size.unwrap_or(5_000);
 		let chunks = full_range.end().saturating_sub(*full_range.start()) / chunk_size;
 		for i in 0..=chunks {
 			let start = (i * chunk_size) + *full_range.start();
 			let end = if i == chunks { *full_range.end() } else { start + chunk_size - 1 };
-			let result = self.events(start, end).await;
-			match result {
-				Ok(batch) => events.extend(batch),
-				Err(err) => {
-					log::error!(
-						target: crate::LOG_TARGET, "Error while querying events in range {}..{} from {:?}: {err:?}",
-						start,
-						end,
-						self.state_machine
-					);
-				},
-			}
+			let batch = self.events(start, end).await.map_err(|err| {
+				anyhow!(
+					"Error while querying events in range {start}..{end} from {:?}: {err:?}",
+					self.state_machine
+				)
+			})?;
+			events.extend(batch);
 		}
 
 		Ok(events)

@@ -20,8 +20,11 @@
 //! request and strips the `type` and `accessList` fields that TRON's JSON-RPC
 //! proxy cannot parse.
 
-use alloy_json_rpc::{Request, RequestPacket, ResponsePacket, SerializedRequest};
-use alloy_transport::{TransportError, TransportErrorKind};
+use alloy::transports::layers::FallbackService;
+use alloy_json_rpc::{
+	Request, RequestPacket, Response, ResponsePacket, ResponsePayload, SerializedRequest,
+};
+use alloy_transport::{TransportError, TransportErrorKind, TransportFut};
 use serde::{Deserialize, Serialize};
 use std::{
 	future::Future,
@@ -107,6 +110,63 @@ where
 	}
 }
 
+/// Tower service that turns a JSON-RPC error response into a transport error.
+///
+/// A JSON-RPC error arrives as an HTTP 200, so the inner transport reports it as a success.
+/// [`FallbackService`] returns the first success it sees, so without this wrapper a fast error
+/// would beat a slower valid answer. A single-response error becomes
+/// [`TransportError::ErrorResp`], the error callers already get from an error body; any other
+/// packet, batches included, passes through unchanged.
+#[derive(Debug, Clone)]
+pub struct ErrorResponseAsFailure<S>(S);
+
+impl<S> Service<RequestPacket> for ErrorResponseAsFailure<S>
+where
+	S: Service<
+			RequestPacket,
+			Response = ResponsePacket,
+			Error = TransportError,
+			Future = TransportFut<'static>,
+		> + Send
+		+ 'static,
+{
+	type Response = ResponsePacket;
+	type Error = TransportError;
+	type Future = TransportFut<'static>;
+
+	fn poll_ready(&mut self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+		self.0.poll_ready(cx)
+	}
+
+	fn call(&mut self, req: RequestPacket) -> Self::Future {
+		let fut = self.0.call(req);
+		Box::pin(async move {
+			match fut.await? {
+				ResponsePacket::Single(Response {
+					payload: ResponsePayload::Failure(err), ..
+				}) => Err(TransportError::ErrorResp(err)),
+				packet => Ok(packet),
+			}
+		})
+	}
+}
+
+/// Builds a [`FallbackService`] over `transports` with every endpoint active.
+///
+/// Every endpoint is asked and the first successful answer wins. A JSON-RPC error from one
+/// endpoint does not end the race, so a pruned node's missing-state error cannot beat an archive
+/// node's proof; when every endpoint fails, the last error is returned. A request that one
+/// endpoint answers with a JSON-RPC error now waits for the other endpoints, so a reverting
+/// `eth_call` or `eth_estimateGas` returns at the slowest endpoint's latency. If another endpoint
+/// hangs, the request waits for it, up to the HTTP client's timeout, and may then return that
+/// endpoint's transport error rather than the JSON-RPC error.
+pub fn fallback_service<S: Clone>(
+	transports: Vec<S>,
+) -> FallbackService<ErrorResponseAsFailure<S>> {
+	let count = transports.len();
+	FallbackService::new(transports.into_iter().map(ErrorResponseAsFailure).collect(), count)
+}
+
 /// Strip `type` and `accessList` from the params of a single JSON-RPC request.
 /// Only processes methods that send transaction-like objects; all others pass through
 /// with zero overhead.
@@ -157,6 +217,7 @@ fn strip_request(req: SerializedRequest) -> Result<SerializedRequest, TransportE
 mod tests {
 	use super::*;
 	use serde_json::json;
+	use std::time::Duration;
 
 	fn make_serialized_request(
 		method: &'static str,
@@ -236,6 +297,82 @@ mod tests {
 		let obj = params[0].as_object().unwrap();
 		assert!(!obj.contains_key("input"));
 		assert_eq!(obj.get("data").unwrap(), "0x1234");
+	}
+
+	/// Answers every request with `payload` after `delay`.
+	#[derive(Clone)]
+	struct Endpoint {
+		delay: Duration,
+		payload: ResponsePayload,
+	}
+
+	impl Endpoint {
+		fn ok(delay: Duration) -> Self {
+			let value = serde_json::value::RawValue::from_string("\"0x1\"".into()).unwrap();
+			Self { delay, payload: ResponsePayload::Success(value) }
+		}
+
+		fn error(delay: Duration) -> Self {
+			let message = "historical state 0x1 is not available";
+			let err =
+				alloy_json_rpc::ErrorPayload { code: -32000, message: message.into(), data: None };
+			Self { delay, payload: ResponsePayload::Failure(err) }
+		}
+	}
+
+	impl Service<RequestPacket> for Endpoint {
+		type Response = ResponsePacket;
+		type Error = TransportError;
+		type Future = TransportFut<'static>;
+
+		fn poll_ready(&mut self, _: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+			Poll::Ready(Ok(()))
+		}
+
+		fn call(&mut self, _: RequestPacket) -> Self::Future {
+			let Self { delay, payload } = self.clone();
+			Box::pin(async move {
+				tokio::time::sleep(delay).await;
+				Ok(ResponsePacket::Single(Response { id: alloy_json_rpc::Id::Number(1), payload }))
+			})
+		}
+	}
+
+	async fn get_proof(endpoints: Vec<Endpoint>) -> Result<ResponsePacket, TransportError> {
+		let request = make_serialized_request("eth_getProof", json!([]));
+		fallback_service(endpoints).call(RequestPacket::Single(request)).await
+	}
+
+	#[tokio::test]
+	async fn a_fast_error_response_does_not_beat_a_slower_answer() {
+		let response = get_proof(vec![
+			Endpoint::error(Duration::ZERO),
+			Endpoint::ok(Duration::from_millis(50)),
+		])
+		.await
+		.unwrap();
+
+		let ResponsePacket::Single(Response { payload: ResponsePayload::Success(value), .. }) =
+			response
+		else {
+			panic!("expected a single successful response, got {response:?}");
+		};
+		assert_eq!(value.get(), "\"0x1\"");
+	}
+
+	#[tokio::test]
+	async fn every_endpoint_erroring_returns_the_error() {
+		let err = get_proof(vec![
+			Endpoint::error(Duration::ZERO),
+			Endpoint::error(Duration::from_millis(10)),
+		])
+		.await
+		.unwrap_err();
+
+		let TransportError::ErrorResp(payload) = err else {
+			panic!("expected a JSON-RPC error response, got {err:?}");
+		};
+		assert_eq!(payload.code, -32000);
 	}
 
 	#[test]

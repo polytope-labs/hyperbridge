@@ -45,15 +45,12 @@ jobs:
             - name: Setup pnpm
               uses: pnpm/action-setup@v4
               with:
-                  version: 11
+                  version: 11.0.0
 
             - name: Install Foundry (anvil)
               uses: foundry-rs/foundry-toolchain@v1
               with:
-                  # Pinned for the same reason as evm.yml: Foundry v1.8.0 probes `anvil_nodeInfo` to
-                  # work out an endpoint's network family, and providers answering it with HTTP 400
-                  # fail the fork outright. v1.7.1 is the last version known to fork cleanly here.
-                  version: v1.7.1
+                  version: stable
 
             - name: Install dependencies
               run: pnpm install

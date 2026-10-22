@@ -1205,6 +1205,18 @@ export class IntentFiller {
 					return
 				}
 
+				// The bids are signed from what the evaluation caches, after the confirmations it runs
+				// beside, so that lives as long as the confirmations take on the source chain on top of
+				// the cache's own lifetime. Entries keep the expiry they were written with, so the wait
+				// is released once the evaluation is over.
+				const releaseWait =
+					order.id && requiredConfirmations > 0
+						? this.contractService.cacheService.extendForConfirmations(
+								order.id,
+								await this.confirmationWaitMs(order.source, requiredConfirmations),
+							)
+						: undefined
+
 				// Run confirmation waiting and evaluation in parallel.
 				// The AbortController lets evaluateOrder cancel the confirmation
 				// loop early when the order turns out to be unprofitable.
@@ -1298,7 +1310,7 @@ export class IntentFiller {
 						if (!result) abortController.abort()
 						return result
 					}),
-				])
+				]).finally(() => releaseWait?.())
 				const confirmDurationSec = (Date.now() - confirmStartMs) / 1000
 				this.monitor.emit("orderTiming", {
 					orderId: order.id,
@@ -1455,6 +1467,20 @@ export class IntentFiller {
 	}
 
 	/**
+	 * How long `confirmations` take on `chain`, at the block time measured when simplex started.
+	 * Zero when there is no block time to be had: the order then keeps the cache's own lifetime,
+	 * and an evaluation that expires before its bids is redone.
+	 */
+	private async confirmationWaitMs(chain: string, confirmations: number): Promise<number> {
+		try {
+			return Math.ceil(confirmations * (await this.contractService.blockTimeSeconds(chain)) * 1000)
+		} catch (err) {
+			this.logger.warn({ chain, err }, "Could not read the block time to size the order's cache lifetime")
+			return 0
+		}
+	}
+
+	/**
 	 * The destination chain's latest block number, the clock `order.deadline` is read on.
 	 *
 	 * Null when the read fails. That is not an answer about the order, so evaluation goes
@@ -1524,11 +1550,11 @@ export class IntentFiller {
 			// The evaluation these bids were priced by stays alive until the last of them is
 			// sent: a slow submission would otherwise expire the gas estimate the rest sign.
 			unpin = order.id ? cache.pinOrder(order.id) : undefined
-			// The pin keeps only what is still live, and the confirmation wait or this queue can
-			// outlast the evaluation. Its gas estimate, the first thing it caches and what every
-			// bid signs, is then gone along with everything cached after it, so the order is
-			// evaluated again before any bid goes out: every bid on it is still priced by one
-			// evaluation, and a fresh one.
+			// The pin keeps only what is still live, and confirmations slower than the block time
+			// predicted, or this queue, can outlast the evaluation. Its gas estimate, the first thing
+			// it caches and what every bid signs, is then gone along with everything cached after it,
+			// so the order is evaluated again before any bid goes out: every bid on it is still
+			// priced by one evaluation, and a fresh one.
 			if (order.id && reevaluate && !cache.getGasEstimate(order.id)) {
 				this.logger.info({ orderId: order.id }, "Order evaluation expired before bidding, evaluating it again")
 				const evaluation = await reevaluate()

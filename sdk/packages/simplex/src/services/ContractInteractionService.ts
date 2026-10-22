@@ -1161,7 +1161,7 @@ export class ContractInteractionService {
 	 * Blocks that cannot be read fall back to the declared figure, then to
 	 * {@link FALLBACK_BLOCK_TIME_SECONDS}. That answer is not kept.
 	 */
-	private blockTimeSeconds(chain: string): Promise<number> {
+	blockTimeSeconds(chain: string): Promise<number> {
 		const known = this.blockTimes.get(chain)
 		if (known) return known
 

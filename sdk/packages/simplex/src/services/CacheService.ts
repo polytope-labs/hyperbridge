@@ -13,7 +13,7 @@ interface GasEstimateCache {
 	maxFeePerGas: string
 	maxPriorityFeePerGas: string
 	totalGasCostWei: string
-	timestamp: number
+	expiresAt: number
 }
 
 interface SwapCall {
@@ -25,7 +25,7 @@ interface SwapCall {
 interface SwapOperationsCache {
 	calls: SwapCall[]
 	totalGasEstimate: string
-	timestamp: number
+	expiresAt: number
 }
 
 interface FillerOutputCache {
@@ -45,7 +45,7 @@ interface FillerOutputsCache {
 	inputs?: FillerOutputCache[]
 	/** The budget of the limit order that priced `outputs`; absent when none did. */
 	budget?: BudgetCache
-	timestamp: number
+	expiresAt: number
 }
 
 export interface CachedPairClassification {
@@ -56,7 +56,7 @@ export interface CachedPairClassification {
 
 interface PairClassificationsCache {
 	pairs: CachedPairClassification[]
-	timestamp: number
+	expiresAt: number
 }
 
 interface FundingCallCache {
@@ -67,7 +67,7 @@ interface FundingCallCache {
 
 interface FundingPrependsCache {
 	calls: FundingCallCache[]
-	timestamp: number
+	expiresAt: number
 }
 
 /**
@@ -117,13 +117,13 @@ interface CacheData {
 	pairClassifications: Record<string, PairClassificationsCache>
 	fundingPrepends: Record<string, FundingPrependsCache>
 	/** The limit order an evaluation priced against, carried to the bid that draws on it. */
-	matchedLimitOrders: Record<string, { holds: { limitOrderId: string; payout: string }[]; timestamp: number }>
+	matchedLimitOrders: Record<string, { holds: { limitOrderId: string; payout: string }[]; expiresAt: number }>
 	/** The bids an evaluation decided on, one per limit order it matched. */
-	bidPlans: Record<string, { plans: BidPlanCache[]; timestamp: number }>
+	bidPlans: Record<string, { plans: BidPlanCache[]; expiresAt: number }>
 	/** Orders whose evaluation concluded in a deliberate partial fill. */
-	partialFills: Record<string, { partial: boolean; timestamp: number }>
+	partialFills: Record<string, { partial: boolean; expiresAt: number }>
 	/** Orders whose evaluation let a bid through without the fee check. */
-	feeChecksWaived: Record<string, { waived: boolean; timestamp: number }>
+	feeChecksWaived: Record<string, { waived: boolean; expiresAt: number }>
 	feeTokens: Record<string, { address: HexString; decimals: number }>
 	tokenDecimals: Record<string, Record<HexString, number>>
 	solverSelection: Record<string, boolean>
@@ -139,7 +139,9 @@ function budgetFromCache(budget: BudgetCache): LimitOrderBudget {
 
 export class CacheService {
 	private cacheData: CacheData
-	private readonly CACHE_EXPIRY_MS = 1 * 60 * 1000 // 1 minute
+	private readonly CACHE_EXPIRY_MS = 5 * 60 * 1000 // 5 minutes
+	/** How long each order's source confirmations take, for the orders still waiting for them. */
+	private readonly confirmationWaits = new Map<string, number>()
 	/** When each order's bid loop began, for the orders whose loop is still running. */
 	private readonly pins = new Map<string, number>()
 	private logger: Logger
@@ -163,13 +165,34 @@ export class CacheService {
 	}
 
 	/**
-	 * Whether an entry is still fresh. A pinned order's entries are aged as of the pin,
-	 * so what was fresh when its bid loop began stays fresh until the loop ends, and
+	 * Whether an entry is still live. A pinned order's entries are judged as of the pin,
+	 * so what was live when its bid loop began stays live until the loop ends, and
 	 * what had already expired stays expired.
 	 */
-	private isCacheValid(timestamp: number, orderId?: string): boolean {
-		const now = (orderId !== undefined ? this.pins.get(orderId) : undefined) ?? Date.now()
-		return now - timestamp < this.CACHE_EXPIRY_MS
+	private isCacheValid(expiresAt: number, orderId: string): boolean {
+		return (this.pins.get(orderId) ?? Date.now()) < expiresAt
+	}
+
+	/**
+	 * When an entry written now for the order expires: `CACHE_EXPIRY_MS` from now, plus the
+	 * time the order's source confirmations take while it waits for them.
+	 */
+	private expiresAt(orderId: string): number {
+		return Date.now() + this.CACHE_EXPIRY_MS + (this.confirmationWaits.get(orderId) ?? 0)
+	}
+
+	/**
+	 * Lets what is cached for the order outlive `CACHE_EXPIRY_MS` by `waitMs`, the time its
+	 * source confirmations take, and returns the release.
+	 *
+	 * An order is evaluated while it waits for its confirmations, and its bids are signed after
+	 * them from what the evaluation cached, so that has to outlast the wait. Each entry takes
+	 * its expiry when it is written: the release does not shorten what is already cached, it
+	 * only stops later entries from getting the extra time.
+	 */
+	extendForConfirmations(orderId: string, waitMs: number): () => void {
+		this.confirmationWaits.set(orderId, waitMs)
+		return () => this.confirmationWaits.delete(orderId)
 	}
 
 	/**
@@ -190,7 +213,7 @@ export class CacheService {
 	private cleanupStaleData(): void {
 		// Clean up gas estimates
 		const staleGasEstimateIds = Object.entries(this.cacheData.gasEstimates)
-			.filter(([orderId, data]) => !this.isCacheValid(data.timestamp, orderId))
+			.filter(([orderId, data]) => !this.isCacheValid(data.expiresAt, orderId))
 			.map(([orderId]) => orderId)
 
 		staleGasEstimateIds.forEach((orderId) => {
@@ -199,15 +222,15 @@ export class CacheService {
 
 		// Clean up matched limit orders
 		for (const [orderId, data] of Object.entries(this.cacheData.bidPlans)) {
-			if (!this.isCacheValid(data.timestamp, orderId)) delete this.cacheData.bidPlans[orderId]
+			if (!this.isCacheValid(data.expiresAt, orderId)) delete this.cacheData.bidPlans[orderId]
 		}
 		for (const [orderId, data] of Object.entries(this.cacheData.matchedLimitOrders)) {
-			if (!this.isCacheValid(data.timestamp, orderId)) delete this.cacheData.matchedLimitOrders[orderId]
+			if (!this.isCacheValid(data.expiresAt, orderId)) delete this.cacheData.matchedLimitOrders[orderId]
 		}
 
 		// Clean up swap operations
 		const staleSwapOperationIds = Object.entries(this.cacheData.swapOperations)
-			.filter(([orderId, data]) => !this.isCacheValid(data.timestamp, orderId))
+			.filter(([orderId, data]) => !this.isCacheValid(data.expiresAt, orderId))
 			.map(([orderId]) => orderId)
 
 		staleSwapOperationIds.forEach((orderId) => {
@@ -216,7 +239,7 @@ export class CacheService {
 
 		// Clean up filler outputs
 		const staleFillerOutputIds = Object.entries(this.cacheData.fillerOutputs)
-			.filter(([orderId, data]) => !this.isCacheValid(data.timestamp, orderId))
+			.filter(([orderId, data]) => !this.isCacheValid(data.expiresAt, orderId))
 			.map(([orderId]) => orderId)
 
 		staleFillerOutputIds.forEach((orderId) => {
@@ -225,7 +248,7 @@ export class CacheService {
 
 		// Clean up pair classifications
 		const stalePairIds = Object.entries(this.cacheData.pairClassifications)
-			.filter(([orderId, data]) => !this.isCacheValid(data.timestamp, orderId))
+			.filter(([orderId, data]) => !this.isCacheValid(data.expiresAt, orderId))
 			.map(([orderId]) => orderId)
 
 		stalePairIds.forEach((orderId) => {
@@ -233,17 +256,17 @@ export class CacheService {
 		})
 
 		const staleFundingIds = Object.entries(this.cacheData.fundingPrepends)
-			.filter(([orderId, data]) => !this.isCacheValid(data.timestamp, orderId))
+			.filter(([orderId, data]) => !this.isCacheValid(data.expiresAt, orderId))
 			.map(([orderId]) => orderId)
 
 		staleFundingIds.forEach((orderId) => {
 			delete this.cacheData.fundingPrepends[orderId]
 		})
 
-		// Swept on its own timestamps: most orders never set fundingPrepends, so
+		// Swept on its own expiries: most orders never set fundingPrepends, so
 		// piggybacking on that sweep left the common case growing without bound.
 		const stalePartialIds = Object.entries(this.cacheData.partialFills)
-			.filter(([orderId, data]) => !this.isCacheValid(data.timestamp, orderId))
+			.filter(([orderId, data]) => !this.isCacheValid(data.expiresAt, orderId))
 			.map(([orderId]) => orderId)
 
 		stalePartialIds.forEach((orderId) => {
@@ -251,7 +274,7 @@ export class CacheService {
 		})
 
 		const staleWaivedIds = Object.entries(this.cacheData.feeChecksWaived)
-			.filter(([orderId, data]) => !this.isCacheValid(data.timestamp, orderId))
+			.filter(([orderId, data]) => !this.isCacheValid(data.expiresAt, orderId))
 			.map(([orderId]) => orderId)
 
 		staleWaivedIds.forEach((orderId) => {
@@ -272,7 +295,7 @@ export class CacheService {
 	} | null {
 		try {
 			const cache = this.cacheData.gasEstimates[orderId]
-			if (cache && this.isCacheValid(cache.timestamp, orderId)) {
+			if (cache && this.isCacheValid(cache.expiresAt, orderId)) {
 				return {
 					totalCostInSourceFeeToken: BigInt(cache.totalCostInSourceFeeToken),
 					relayerFeeInSourceFeeToken: BigInt(cache.relayerFeeInSourceFeeToken ?? "0"),
@@ -319,7 +342,7 @@ export class CacheService {
 				maxFeePerGas: maxFeePerGas.toString(),
 				maxPriorityFeePerGas: maxPriorityFeePerGas.toString(),
 				totalGasCostWei: totalGasCostWei.toString(),
-				timestamp: Date.now(),
+				expiresAt: this.expiresAt(orderId),
 			}
 		} catch (error) {
 			this.logger.error({ err: error }, "Error setting gas estimate")
@@ -330,7 +353,7 @@ export class CacheService {
 	getSwapOperations(orderId: string): { calls: SwapCall[]; totalGasEstimate: bigint } | null {
 		try {
 			const cache = this.cacheData.swapOperations[orderId]
-			if (cache && this.isCacheValid(cache.timestamp, orderId)) {
+			if (cache && this.isCacheValid(cache.expiresAt, orderId)) {
 				return {
 					calls: cache.calls,
 					totalGasEstimate: BigInt(cache.totalGasEstimate),
@@ -349,7 +372,7 @@ export class CacheService {
 			this.cacheData.swapOperations[orderId] = {
 				calls,
 				totalGasEstimate: totalGasEstimate.toString(),
-				timestamp: Date.now(),
+				expiresAt: this.expiresAt(orderId),
 			}
 		} catch (error) {
 			this.logger.error({ err: error }, "Error setting swap operations")
@@ -360,7 +383,7 @@ export class CacheService {
 	getFillerOutputs(orderId: string): { token: HexString; amount: bigint }[] | null {
 		try {
 			const cache = this.cacheData.fillerOutputs[orderId]
-			if (cache && this.isCacheValid(cache.timestamp, orderId)) {
+			if (cache && this.isCacheValid(cache.expiresAt, orderId)) {
 				return cache.outputs.map((o) => ({
 					token: o.token,
 					amount: BigInt(o.amount),
@@ -377,7 +400,7 @@ export class CacheService {
 	getFillerInputs(orderId: string): { token: HexString; amount: bigint }[] | null {
 		try {
 			const cache = this.cacheData.fillerOutputs[orderId]
-			if (cache?.inputs && this.isCacheValid(cache.timestamp, orderId)) {
+			if (cache?.inputs && this.isCacheValid(cache.expiresAt, orderId)) {
 				return cache.inputs.map((o) => ({
 					token: o.token,
 					amount: BigInt(o.amount),
@@ -400,7 +423,7 @@ export class CacheService {
 	getBidBudget(orderId: string): LimitOrderBudget | null {
 		try {
 			const cache = this.cacheData.fillerOutputs[orderId]
-			if (cache?.budget && this.isCacheValid(cache.timestamp, orderId)) return budgetFromCache(cache.budget)
+			if (cache?.budget && this.isCacheValid(cache.expiresAt, orderId)) return budgetFromCache(cache.budget)
 			return null
 		} catch (error) {
 			this.logger.error({ err: error }, "Error getting bid budget")
@@ -426,7 +449,7 @@ export class CacheService {
 					amount: o.amount.toString(),
 				})),
 				...(budget ? { budget: budgetToCache(budget) } : {}),
-				timestamp: Date.now(),
+				expiresAt: this.expiresAt(orderId),
 			}
 		} catch (error) {
 			this.logger.error({ err: error }, "Error setting filler outputs")
@@ -444,7 +467,7 @@ export class CacheService {
 	getMatchedLimitOrder(orderId: string): { limitOrderId: string; payout: bigint }[] {
 		try {
 			const cache = this.cacheData.matchedLimitOrders[orderId]
-			if (cache && this.isCacheValid(cache.timestamp, orderId)) {
+			if (cache && this.isCacheValid(cache.expiresAt, orderId)) {
 				return cache.holds.map((hold) => ({ limitOrderId: hold.limitOrderId, payout: BigInt(hold.payout) }))
 			}
 			return []
@@ -457,7 +480,7 @@ export class CacheService {
 	getBidPlans(orderId: string): BidPlan[] {
 		try {
 			const cache = this.cacheData.bidPlans[orderId]
-			if (!cache || !this.isCacheValid(cache.timestamp, orderId)) return []
+			if (!cache || !this.isCacheValid(cache.expiresAt, orderId)) return []
 			return cache.plans.map((plan) => ({
 				limitOrderId: plan.limitOrderId,
 				leg: plan.leg ?? 0,
@@ -509,7 +532,7 @@ export class CacheService {
 					...(plan.inputDecimals !== undefined ? { inputDecimals: plan.inputDecimals } : {}),
 					...(plan.budget ? { budget: budgetToCache(plan.budget) } : {}),
 				})),
-				timestamp: Date.now(),
+				expiresAt: this.expiresAt(orderId),
 			}
 		} catch (error) {
 			this.logger.error({ err: error }, "Error setting bid plans")
@@ -526,7 +549,7 @@ export class CacheService {
 			this.cleanupStaleData()
 			this.cacheData.matchedLimitOrders[orderId] = {
 				holds: holds.map((hold) => ({ limitOrderId: hold.limitOrderId, payout: hold.payout.toString() })),
-				timestamp: Date.now(),
+				expiresAt: this.expiresAt(orderId),
 			}
 		} catch (error) {
 			this.logger.error({ err: error }, "Error setting matched limit order")
@@ -537,7 +560,7 @@ export class CacheService {
 	getPairClassifications(orderId: string): CachedPairClassification[] | null {
 		try {
 			const cache = this.cacheData.pairClassifications[orderId]
-			if (cache && this.isCacheValid(cache.timestamp, orderId)) {
+			if (cache && this.isCacheValid(cache.expiresAt, orderId)) {
 				return cache.pairs
 			}
 			return null
@@ -551,7 +574,7 @@ export class CacheService {
 		try {
 			this.cacheData.pairClassifications[orderId] = {
 				pairs,
-				timestamp: Date.now(),
+				expiresAt: this.expiresAt(orderId),
 			}
 		} catch (error) {
 			this.logger.error({ err: error }, "Error setting pair classifications")
@@ -562,7 +585,7 @@ export class CacheService {
 	getFundingPrepends(orderId: string): { calls: ERC7821Call[] } | null {
 		try {
 			const cache = this.cacheData.fundingPrepends[orderId]
-			if (cache && this.isCacheValid(cache.timestamp, orderId)) {
+			if (cache && this.isCacheValid(cache.expiresAt, orderId)) {
 				return {
 					calls: cache.calls.map((c) => ({
 						target: c.target as HexString,
@@ -587,7 +610,7 @@ export class CacheService {
 					value: c.value.toString(),
 					data: c.data,
 				})),
-				timestamp: Date.now(),
+				expiresAt: this.expiresAt(orderId),
 			}
 		} catch (error) {
 			this.logger.error({ err: error }, "Error setting funding prepends")
@@ -608,11 +631,11 @@ export class CacheService {
 	 */
 	isPartialFill(orderId: string): boolean {
 		const cache = this.cacheData.partialFills[orderId]
-		return cache !== undefined && this.isCacheValid(cache.timestamp, orderId) && cache.partial
+		return cache !== undefined && this.isCacheValid(cache.expiresAt, orderId) && cache.partial
 	}
 
 	setPartialFill(orderId: string, partial: boolean): void {
-		this.cacheData.partialFills[orderId] = { partial, timestamp: Date.now() }
+		this.cacheData.partialFills[orderId] = { partial, expiresAt: this.expiresAt(orderId) }
 	}
 
 	clearPartialFill(orderId: string): void {
@@ -629,11 +652,11 @@ export class CacheService {
 	 */
 	isFeeCheckWaived(orderId: string): boolean {
 		const cache = this.cacheData.feeChecksWaived[orderId]
-		return cache !== undefined && this.isCacheValid(cache.timestamp, orderId) && cache.waived
+		return cache !== undefined && this.isCacheValid(cache.expiresAt, orderId) && cache.waived
 	}
 
 	setFeeCheckWaived(orderId: string, waived: boolean): void {
-		this.cacheData.feeChecksWaived[orderId] = { waived, timestamp: Date.now() }
+		this.cacheData.feeChecksWaived[orderId] = { waived, expiresAt: this.expiresAt(orderId) }
 	}
 
 	clearFeeCheckWaived(orderId: string): void {

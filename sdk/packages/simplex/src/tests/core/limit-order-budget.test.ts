@@ -149,7 +149,7 @@ describe("a bid's limit order budget", () => {
 		expect(executed).toEqual([expect.objectContaining({ success: true })])
 		expect(cache.getBidBudget(ORDER.id)).toEqual(budget)
 
-		const later = Date.now() + 61_000
+		const later = Date.now() + (cache as any).CACHE_EXPIRY_MS + 1_000
 		vi.spyOn(Date, "now").mockReturnValue(later)
 
 		expect(cache.getFillerOutputs(ORDER.id)).toBeNull()

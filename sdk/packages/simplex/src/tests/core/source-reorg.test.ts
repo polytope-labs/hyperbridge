@@ -76,6 +76,8 @@ function build(options: { confirmationBlocks?: number; readContract?: ReadContra
 			getQuorumClient: () => quorumStub,
 		} as never,
 		{
+			cacheService: { extendForConfirmations: () => () => {} },
+			blockTimeSeconds: async () => 2,
 			getCache: () => ({ getSolverSelection: () => false }),
 			getInputUsdValue: async () => new Decimal(1000),
 		} as never,

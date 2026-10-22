@@ -1,8 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
+import { Decimal } from "decimal.js"
 import { bytes20ToBytes32, type HexString, type Order, type PackedUserOperation } from "@hyperbridge/sdk"
 import { IntentFiller } from "@/core/filler"
 import { MemoryDataStore } from "@/data/memory"
-import type { BidPlan } from "@/services/CacheService"
+import { CacheService, type BidPlan } from "@/services/CacheService"
 import { ContractInteractionService } from "@/services/ContractInteractionService"
 import { privateKeySigner } from "@/services/wallet"
 import { stubOrderScanner } from "../helpers/stub-scanner"
@@ -25,6 +26,8 @@ const ZERO = "0x0000000000000000000000000000000000000000" as HexString
 const CHAIN = "EVM-1"
 const LIMIT_ORDERS = ["limit-a", "limit-b", "limit-c"]
 const PAYOUTS = [1000n, 900n, 800n].map((whole) => whole * 10n ** 18n)
+/** What a later evaluation of the same order prices its bids at. */
+const REPRICED = [950n, 850n, 750n].map((whole) => whole * 10n ** 18n)
 
 const ORDER: Order = {
 	id: "0xorder",
@@ -59,7 +62,8 @@ function plan(limitOrderId: string, payout: bigint): BidPlan {
 
 /**
  * A filler over the real bid builder, whose submissions each take `clock.submissionMs`
- * of a clock the test owns. The order's evaluation is cached at the clock's start.
+ * of a clock the test owns. The order's evaluation is cached at the clock's start, and
+ * evaluating it again prices it at `reevaluations.payouts`, or passes on it when null.
  */
 async function build() {
 	const clock = { now: Date.now(), submissionMs: 0 }
@@ -101,13 +105,16 @@ async function build() {
 	}
 	;(contract as any).getIntentGateway = async () => helper
 
-	// What the evaluation leaves behind: the shared gas estimate and one plan per limit order.
+	// What an evaluation leaves behind: the shared gas estimate and one plan per limit order.
 	const cache = contract.cacheService
-	cache.setGasEstimate(ORDER.id!, 500n, 0n, 120n, 1_000_000n, 100_000n, 50_000n, 1n, 1n, 1n)
-	cache.setBidPlans(
-		ORDER.id!,
-		LIMIT_ORDERS.map((id, index) => plan(id, PAYOUTS[index])),
-	)
+	const evaluate = (payouts: bigint[]) => {
+		cache.setGasEstimate(ORDER.id!, 500n, 0n, 120n, 1_000_000n, 100_000n, 50_000n, 1n, 1n, 1n)
+		cache.setBidPlans(
+			ORDER.id!,
+			LIMIT_ORDERS.map((id, index) => plan(id, payouts[index])),
+		)
+	}
+	evaluate(PAYOUTS)
 
 	const strategy = {
 		name: "test",
@@ -152,23 +159,31 @@ async function build() {
 	)
 	const executed: { success: boolean }[] = []
 	filler.monitor.on("orderExecuted", (event: { success: boolean }) => executed.push(event))
+	const reevaluations = { count: 0, payouts: REPRICED as bigint[] | null }
+	const reevaluate = async () => {
+		reevaluations.count++
+		if (!reevaluations.payouts) return null
+		evaluate(reevaluations.payouts)
+		return { strategy, profitability: 1 }
+	}
 	const execute = async () => {
-		await (filler as any).executeOrder(ORDER, (filler as any).strategies[0], false, { toNumber: () => 1 }, 1)
+		await (filler as any).executeOrder(ORDER, strategy, false, { toNumber: () => 1 }, 1, reevaluate)
 		await (filler as any).chainQueues.get(1)?.onIdle()
 	}
 	const expiryMs: number = (cache as any).CACHE_EXPIRY_MS
-	return { clock, cache, signed, executed, execute, expiryMs }
+	return { clock, cache, signed, executed, execute, expiryMs, reevaluations }
 }
 
 describe("the bids on one order", () => {
 	afterEach(() => vi.restoreAllMocks())
 
 	it("all go out when each submission outlasts the evaluation cache", async () => {
-		const { clock, cache, signed, executed, execute, expiryMs } = await build()
+		const { clock, cache, signed, executed, execute, expiryMs, reevaluations } = await build()
 		clock.submissionMs = expiryMs + 1_000
 
 		await execute()
 
+		expect(reevaluations.count).toBe(0)
 		expect(signed).toEqual(PAYOUTS)
 		expect(executed).toEqual(PAYOUTS.map(() => expect.objectContaining({ success: true })))
 		// The evaluation is kept only for the loop: it expires as soon as the last bid is out.
@@ -176,14 +191,176 @@ describe("the bids on one order", () => {
 		expect(cache.getBidPlans(ORDER.id!)).toEqual([])
 	})
 
-	it("are not sent on an evaluation that expired before the first one started", async () => {
-		const { clock, signed, executed, execute, expiryMs } = await build()
-		// Waited in the chain's queue past the cache's expiry: the loop does not revive it.
+	it("are priced by a fresh evaluation when the first expired before they started", async () => {
+		const { clock, signed, executed, execute, expiryMs, reevaluations } = await build()
+		// The confirmation wait outlasted the cache, and so does each submission.
+		clock.now += expiryMs + 1_000
+		clock.submissionMs = expiryMs + 1_000
+
+		await execute()
+
+		expect(reevaluations.count).toBe(1)
+		expect(signed).toEqual(REPRICED)
+		expect(executed).toEqual(REPRICED.map(() => expect.objectContaining({ success: true })))
+	})
+
+	it("are not sent when the fresh evaluation passes on the order", async () => {
+		const { clock, signed, executed, execute, expiryMs, reevaluations } = await build()
+		reevaluations.payouts = null
 		clock.now += expiryMs + 1_000
 
 		await execute()
 
+		// Nor on the expired evaluation: the pin does not revive it.
+		expect(reevaluations.count).toBe(1)
 		expect(signed).toEqual([])
 		expect(executed).toEqual([])
+	})
+})
+
+/** Two confirmations, at a block time of 100 s: the cache's own lifetime plus 200 s. */
+const CONFIRMATIONS = 2
+const BLOCK_TIME_SECONDS = 100
+const CONFIRMATION_WAIT_MS = CONFIRMATIONS * BLOCK_TIME_SECONDS * 1000
+
+/**
+ * A cross-chain order through `handleNewOrder`, evaluated beside a confirmation wait whose
+ * last confirmation arrives `confirmedAfterMs` after the first read. Its strategy refuses
+ * to bid without a cached gas estimate, as `prepareBidUserOp` does.
+ */
+async function confirmedAfter(confirmedAfterMs: (expiryMs: number) => number) {
+	const clock = { now: Date.now() }
+	vi.spyOn(Date, "now").mockImplementation(() => clock.now)
+	const cache = new CacheService()
+	const expiryMs: number = (cache as any).CACHE_EXPIRY_MS
+	const crossChain = { ...ORDER, source: "EVM-137", destination: "EVM-8453" }
+	const SCANNED_BLOCK = `0x${"ab".repeat(32)}`
+
+	let evaluations = 0
+	const bids: string[] = []
+	const strategy = {
+		name: "test",
+		canFill: async () => true,
+		confirmationPolicy: { getConfirmationBlocks: () => CONFIRMATIONS },
+		calculateProfitability: async (order: Order) => {
+			evaluations++
+			cache.setGasEstimate(order.id!, 500n, 0n, 120n, 1_000_000n, 100_000n, 50_000n, 1n, 1n, 1n)
+			return 1
+		},
+		executeOrder: async (order: Order) => {
+			if (!cache.getGasEstimate(order.id!)) throw new Error("No cached gas estimate")
+			bids.push(order.id!)
+			return { success: true }
+		},
+	}
+	// One of the confirmations is there when first read; the last arrives on the next read.
+	let reads = 0
+	const getTransactionInclusion = vi.fn(async () => {
+		if (reads++ > 0) clock.now += confirmedAfterMs(expiryMs)
+		return { blockHash: SCANNED_BLOCK, blockNumber: 100n, confirmations: BigInt(reads > 1 ? CONFIRMATIONS : 1) }
+	})
+	const readContract = async () => 5n
+	const quorum = {
+		size: 1,
+		getTransactionInclusion,
+		readWithQuorum: async (_label: string, read: (client: unknown) => Promise<unknown>) => read({ readContract }),
+	}
+
+	const filler = new IntentFiller(
+		[{ chainId: 137 } as never, { chainId: 8453 } as never],
+		[strategy as never],
+		{ maxConcurrentOrders: 1 } as never,
+		{
+			loggers: undefined,
+			getHyperbridgeWsUrl: () => undefined,
+			getSubstratePrivateKey: () => undefined,
+			getConfiguredChainIds: () => [137, 8453],
+			isUserAllowed: () => true,
+			getIntentGatewayAddress: () => GATEWAY,
+		} as never,
+		{
+			getPublicClient: () => ({ readContract, getBlockNumber: async () => 100n }),
+			getQuorumClient: () => quorum,
+		} as never,
+		{
+			cacheService: cache,
+			blockTimeSeconds: async (chain: string) => {
+				expect(chain).toBe(crossChain.source)
+				return BLOCK_TIME_SECONDS
+			},
+			getCache: () => ({ getSolverSelection: () => false }),
+			getInputUsdValue: async () => new Decimal(1000),
+		} as never,
+		{ address: SOLVER } as never,
+		{ orders: stubOrderScanner([137, 8453]) },
+		undefined,
+		new MemoryDataStore().bids,
+	)
+
+	;(filler as any).handleNewOrder(crossChain, "0xtx", SCANNED_BLOCK)
+	await (filler as any).globalQueue.onIdle()
+	await (filler as any).chainQueues.get(8453)?.onIdle()
+
+	expect(getTransactionInclusion).toHaveBeenCalledTimes(2)
+	return { evaluations, bids, order: crossChain }
+}
+
+describe("an order waiting for its source confirmations", () => {
+	afterEach(() => vi.restoreAllMocks())
+
+	it("keeps its evaluation for as long as its confirmations take, on top of the cache's lifetime", async () => {
+		// Longer than the cache's own lifetime, within it once the confirmations are added.
+		const { evaluations, bids, order } = await confirmedAfter((expiryMs) => expiryMs + CONFIRMATION_WAIT_MS - 1_000)
+
+		expect(evaluations).toBe(1)
+		expect(bids).toEqual([order.id])
+	})
+
+	it("is evaluated again, and bid on, when its confirmations take longer than its block time predicts", async () => {
+		const { evaluations, bids, order } = await confirmedAfter((expiryMs) => expiryMs + CONFIRMATION_WAIT_MS + 1_000)
+
+		expect(evaluations).toBe(2)
+		expect(bids).toEqual([order.id])
+	})
+})
+
+describe("an order's cache lifetime", () => {
+	afterEach(() => vi.restoreAllMocks())
+
+	function cacheAt(clock: { now: number }) {
+		vi.spyOn(Date, "now").mockImplementation(() => clock.now)
+		const cache = new CacheService()
+		const estimate = () =>
+			cache.setGasEstimate(ORDER.id!, 500n, 0n, 120n, 1_000_000n, 100_000n, 50_000n, 1n, 1n, 1n)
+		return { cache, estimate, expiryMs: (cache as any).CACHE_EXPIRY_MS as number }
+	}
+
+	it("is the cache's own lifetime plus the confirmation wait, for what is written while it waits", async () => {
+		const clock = { now: Date.now() }
+		const { cache, estimate, expiryMs } = cacheAt(clock)
+		const release = cache.extendForConfirmations(ORDER.id!, CONFIRMATION_WAIT_MS)
+		estimate()
+		const writtenAt = clock.now
+
+		// Released before the entry expires: what was written while waiting keeps its expiry.
+		release()
+		clock.now = writtenAt + expiryMs + CONFIRMATION_WAIT_MS - 1
+		expect(cache.getGasEstimate(ORDER.id!)).not.toBeNull()
+		clock.now = writtenAt + expiryMs + CONFIRMATION_WAIT_MS
+		expect(cache.getGasEstimate(ORDER.id!)).toBeNull()
+	})
+
+	it("is the cache's own lifetime for what is written once the wait is released, and for other orders", async () => {
+		const clock = { now: Date.now() }
+		const { cache, estimate, expiryMs } = cacheAt(clock)
+		cache.extendForConfirmations("0xother", CONFIRMATION_WAIT_MS)
+		cache.extendForConfirmations(ORDER.id!, CONFIRMATION_WAIT_MS)()
+		estimate()
+		const writtenAt = clock.now
+
+		clock.now = writtenAt + expiryMs - 1
+		expect(cache.getGasEstimate(ORDER.id!)).not.toBeNull()
+		clock.now = writtenAt + expiryMs
+		expect(cache.getGasEstimate(ORDER.id!)).toBeNull()
 	})
 })

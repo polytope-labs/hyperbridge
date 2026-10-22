@@ -1,4 +1,4 @@
-# Tesseract sizes EVM delivery gas from a trace and parks what a mined batch did not deliver
+# Tesseract traces EVM deliveries with the chain's gas limit and parks what a mined batch did not deliver
 
 `EvmHost.dispatchIncoming` swallows a module callback that reverts, out of gas included, and the
 transaction still succeeds. So `eth_estimateGas`, which looks for the lowest limit at which the
@@ -27,6 +27,12 @@ outbound and retry paths park it. A request message comes back holding only its 
 requests, which the retry path proves again. A response message comes back whole when any of its
 responses is missing. Before, a mined batch reported nothing as unsuccessful.
 
-The per-message profitability traces in `estimate_gas_for_tx_requests` still run at the estimate
-plus 5%. On Erigon, traces carry a gas price, so a trace at the chain's gas limit can fail the
-sender's balance check; the estimate plus 5% is kept then.
+The per-message traces in `estimate_gas_for_tx_requests`, which decide whether a message is
+delivered at all, also run with the chain's gas limit. At the estimate plus 5% they failed a
+message that only needed more gas, so it was skipped and parked on every retry and never reached
+submission. BSC→Base request nonce 70 used 287,164 gas with calls nested eight deep, and ran out of
+gas in its trace at 304,586.
+
+On Erigon, traces carry a gas price, so the node can refuse a trace at the chain's gas limit for
+the sender's balance. The profitability trace then falls back to the estimate plus 5%, and
+`delivery_gas_limit` keeps the estimate plus 5%.

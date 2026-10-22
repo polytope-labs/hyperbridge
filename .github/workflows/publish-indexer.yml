@@ -94,12 +94,12 @@ jobs:
               "down": "./scripts/down.sh ./docker/\$ENV"
             },
             "dependencies": {
-              "dotenv": "^16.4.7",
-              "handlebars": "^4.7.8",
-              "rpc-websocket-client": "^1.1.4",
-              "tsx": "^4.19.4",
-              "viem": "^2.23.5",
-              "zod": "^3.25.32"
+              "dotenv": "16.6.1",
+              "handlebars": "4.7.9",
+              "rpc-websocket-client": "1.1.4",
+              "tsx": "4.21.0",
+              "viem": "2.47.6",
+              "zod": "3.25.76"
             }
           }
           PKGJSON

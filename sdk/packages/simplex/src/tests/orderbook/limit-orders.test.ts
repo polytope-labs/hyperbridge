@@ -3,6 +3,7 @@ import type { HexString } from "@hyperbridge/sdk"
 import { OrderbookRequestError } from "@/orderbook/client"
 import { initialOrderNonce, LimitOrderValidationError, type CreateLimitOrderRequest } from "@/orderbook/limit-orders"
 import type { CancelOrderResult } from "@/orderbook/types"
+import type { DelegationService } from "@/services/DelegationService"
 import {
 	CREATE_REQUEST as REQUEST,
 	LIMITS,
@@ -413,6 +414,89 @@ describe("a same-asset limit order", () => {
 
 		expect(await service.reconcile()).toEqual({ cancelled: 0, reposted: 0, underFunded: 0 })
 		expect(client.submitted).toEqual([])
+	})
+
+	it("is refused when the solver is not delegated, because it still prices bids", async () => {
+		// It is never posted, but it still prices swaps here and a bid from an undelegated
+		// EOA cannot execute — so it needs the same delegation check a posted order gets.
+		const { service } = makeService(fakeClient([]), undefined, {}, undefined, undefined, {
+			setupDelegation: async () => false,
+		} as unknown as DelegationService)
+
+		await expect(service.create(SAME)).rejects.toThrow(/not 7702-delegated on EVM-8453/)
+	})
+
+	it("is stored once the solver is delegated", async () => {
+		const client = fakeClient([])
+		const { service } = makeService(client, undefined, {}, undefined, undefined, {
+			setupDelegation: async () => true,
+		} as unknown as DelegationService)
+
+		const { result } = await service.create(SAME)
+
+		expect(result.kind).toBe("unposted")
+		expect(client.submitted).toEqual([])
+	})
+})
+
+describe("LimitOrderService.create under watch-only", () => {
+	const watchOnly = () => true
+	/** A same-asset order, which needs the delegation check only because it prices bids. */
+	const SAME: CreateLimitOrderRequest = { ...REQUEST, tokenOut: "USDC", amountIn: "1000", amountOut: "999" }
+
+	it("never delegates, and stores a same-asset order once the solver is already delegated", async () => {
+		const client = fakeClient([])
+		const setupDelegation = vi.fn(async () => true)
+		const { service } = makeService(
+			client,
+			undefined,
+			{},
+			undefined,
+			undefined,
+			{ isDelegated: async () => true, setupDelegation } as unknown as DelegationService,
+			watchOnly,
+		)
+
+		const { result } = await service.create(SAME)
+
+		expect(result.kind).toBe("unposted")
+		expect(setupDelegation).not.toHaveBeenCalled()
+	})
+
+	it("refuses with the watch-only wording, and never delegates, when the solver is not delegated", async () => {
+		const setupDelegation = vi.fn(async () => true)
+		const { service, store } = makeService(
+			fakeClient([]),
+			undefined,
+			{},
+			undefined,
+			undefined,
+			{ isDelegated: async () => false, setupDelegation } as unknown as DelegationService,
+			watchOnly,
+		)
+
+		await expect(service.create(SAME)).rejects.toThrow(/EVM-8453 is watch-only and the solver is not 7702-delegated/)
+		await expect(service.create(REQUEST)).rejects.toThrow(/watch-only/)
+
+		expect(setupDelegation).not.toHaveBeenCalled()
+		expect(await store.list()).toEqual([])
+	})
+
+	it("still delegates on a chain that is not watch-only", async () => {
+		const setupDelegation = vi.fn(async () => true)
+		const { service } = makeService(
+			fakeClient([]),
+			undefined,
+			{},
+			undefined,
+			undefined,
+			{ isDelegated: async () => false, setupDelegation } as unknown as DelegationService,
+			(chain) => chain !== "EVM-8453",
+		)
+
+		await service.create(SAME)
+
+		expect(setupDelegation).toHaveBeenCalledOnce()
 	})
 })
 

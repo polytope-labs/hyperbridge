@@ -524,6 +524,19 @@ export class UserOpSender {
 		return { txHash, success: receipt.success !== false }
 	}
 
+	/**
+	 * Whether the bundler still knows an op this filler submitted. Rundler's
+	 * `eth_getUserOperationByHash` checks its mempool and then the chain, so `false` is a definite
+	 * `null` answer: the op is neither pooled nor landed. Throws when the bundler could not be
+	 * asked or answered ambiguously, so a caller can tell "dropped" apart from "couldn't ask".
+	 */
+	async isUserOpKnown(chain: string, userOpHash: HexString): Promise<boolean> {
+		const bundlerUrl = this.configService.getBundlerUrl(chain)
+		if (!bundlerUrl) throw new Error(`No bundler is configured for ${chain}`)
+		const op = await this.sendBundlerRpc<unknown>(bundlerUrl, ETH_GET_USER_OPERATION_BY_HASH, [userOpHash])
+		return !!op
+	}
+
 	// ── Internals ────────────────────────────────────────────────────────
 
 	/**

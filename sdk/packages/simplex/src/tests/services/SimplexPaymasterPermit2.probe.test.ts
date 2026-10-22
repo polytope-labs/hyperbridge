@@ -114,10 +114,12 @@ describe.skipIf(skipSuite)("SimplexPaymaster PERMIT2 mode — live bundler probe
 			// eslint-disable-next-line no-console
 			console.log(`[probe] EOA=${address} token balance=${balance} delegated=${await ctx.delegation.isDelegated(CHAIN)}`)
 
-			const privates = ctx.delegation as unknown as { setupDelegationViaBundler: (chain: string) => Promise<boolean> }
-			const success = await privates.setupDelegationViaBundler(CHAIN)
-			if (!success && ctx.bundlerError()) throw ctx.bundlerError()
-			expect(success).toBe(true)
+			const privates = ctx.delegation as unknown as {
+				setupDelegationViaBundler: (chain: string) => Promise<"delegated" | "unavailable" | "pending" | "failed">
+			}
+			const outcome = await privates.setupDelegationViaBundler(CHAIN)
+			if (outcome !== "delegated" && ctx.bundlerError()) throw ctx.bundlerError()
+			expect(outcome).toBe("delegated")
 			expect(await ctx.delegation.isDelegated(CHAIN)).toBe(true)
 		},
 		180_000,

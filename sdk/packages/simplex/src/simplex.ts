@@ -466,6 +466,17 @@ export class ChainController {
 				)
 			}
 
+			// A watch-only run must not start filling on a chain added later either: the
+			// override (or a global TOML `watchOnly = true`) is what the operator asked
+			// for, and letting an explicit `watchOnly: false` through would put a chain to
+			// work mid-observe.
+			if (this.runtime.globalWatchOnly && chain.watchOnly === false) {
+				throw new Error(
+					`Chain ${chainId} cannot be added as filling: this solver runs watch-only ` +
+						"(--watch-only or simplex.watchOnly = true). Restart without it to fill.",
+				)
+			}
+
 			// A filler the operator put in watch-only must not start filling on a chain
 			// added later, and a signerless observer never fills at all.
 			// `chain.watchOnly` still wins when given explicitly (checked above).
@@ -507,7 +518,11 @@ export class ChainController {
 			this.runtime.resolvedChains.push(resolved)
 			config.chains = [...config.chains, { rpcUrls: chain.rpcUrls }]
 			if (Object.keys(confirmationPolicies).length > 0) config.confirmationPolicies = confirmationPolicies
-			this.syncWatchOnlyToConfig()
+			// Persist only what the operator asked for. `watchOnly` above also folds in the
+			// global override, which is transient: writing that would mark the chain
+			// watch-only for a later override-free run. Signerless stays, because such a boot
+			// needs every chain watch-only.
+			this.syncWatchOnlyToConfig({ chainId, watchOnly: chain.watchOnly ?? this.runtime.signerless })
 
 			await this.persist()
 			return this.list().find((row) => row.chainId === chainId)!
@@ -539,7 +554,7 @@ export class ChainController {
 			this.runtime.chainClientManager.invalidate(chainKey)
 			this.runtime.resolvedChains.splice(index, 1)
 			config.chains = config.chains.filter((_, i) => i !== index)
-			this.syncWatchOnlyToConfig()
+			this.syncWatchOnlyToConfig({ chainId, watchOnly: false })
 
 			await this.persist()
 		})
@@ -597,6 +612,15 @@ export class ChainController {
 					"Watch-only cannot be disabled: this solver was started without a signer. Restart with `signer` to fill.",
 				)
 			}
+			// A global watch-only (`--watch-only` or a TOML `simplex.watchOnly = true`) is the
+			// operator's decision for the whole run; clearing one chain's flag here would let
+			// it fill mid-observe.
+			if (!watchOnly && this.runtime.globalWatchOnly) {
+				throw new Error(
+					"Watch-only cannot be disabled: this solver runs watch-only (--watch-only or " +
+						"simplex.watchOnly = true). Restart without it to fill.",
+				)
+			}
 			if (!watchOnly) {
 				const chain = this.runtime.resolvedChains.find((resolved) => resolved.chainId === chainId)
 				if (chain) await assertBundlersServeEntryPoint([chain], this.runtime.configService)
@@ -606,7 +630,7 @@ export class ChainController {
 			// slips through in between.
 			if (!watchOnly) await this.runtime.intentFiller.guardDelegation(chainId)
 			this.runtime.intentFiller.setWatchOnly(chainId, watchOnly)
-			this.syncWatchOnlyToConfig()
+			this.syncWatchOnlyToConfig({ chainId, watchOnly })
 			await this.persist()
 		})
 	}
@@ -621,6 +645,15 @@ export class ChainController {
 			if (this.runtime.signerless) {
 				throw new Error(
 					"Fills cannot be enabled: this solver was started without a signer. Restart with `signer` to fill.",
+				)
+			}
+			// A watch-only run (`--watch-only` or a TOML `simplex.watchOnly = true`) delegates
+			// nothing: enabling fills here would clear the chain's in-memory flag and bid from
+			// an undelegated account.
+			if (this.runtime.globalWatchOnly) {
+				throw new Error(
+					"Fills cannot be enabled: this solver runs watch-only (--watch-only or " +
+						"simplex.watchOnly = true). Restart without it to fill.",
 				)
 			}
 			const chain = this.runtime.resolvedChains.find((resolved) => resolved.chainId === chainId)
@@ -641,21 +674,41 @@ export class ChainController {
 			await this.runtime.intentFiller.enableFills(chainId)
 			if (this.runtime.intentFiller.getWatchOnly()[chainId]) {
 				this.runtime.intentFiller.setWatchOnly(chainId, false)
-				this.syncWatchOnlyToConfig()
+				this.syncWatchOnlyToConfig({ chainId, watchOnly: false })
 				await this.persist()
 			}
 		})
 	}
 
-	/** A global boolean is left alone — expanding it per chain changes how the config validates. */
-	private syncWatchOnlyToConfig(): void {
+	/**
+	 * Writes watch-only edits back into the config. A global boolean is left alone —
+	 * expanding it per chain changes how the config validates.
+	 *
+	 * `changed` is the chain just added, removed or toggled, and its new value. It only
+	 * matters under the `--watch-only` override: there the in-memory snapshot marks every
+	 * chain, and writing it back would make one run permanent for every later run.
+	 * Instead only the edited chain is applied — its key deleted when it stops being
+	 * watch-only, kept as an explicit flag otherwise — so the override itself never lands
+	 * in the file and a later override-free run sees what it would have anyway.
+	 */
+	private syncWatchOnlyToConfig(changed?: { chainId: number; watchOnly: boolean }): void {
 		// Only a standing global `true` stays global; an explicit `false` expands, so a
 		// per-chain edit is actually written back instead of silently dropped.
 		if (this.runtime.config.simplex.watchOnly === true) return
-		// A transient start option is not config. Under the override every chain reads
-		// watch-only, and writing that snapshot back would make one `--watch-only` run
-		// permanent for every run after it.
-		if (this.runtime.globalWatchOnly && this.runtime.config.simplex.watchOnly === undefined) return
+
+		if (this.runtime.globalWatchOnly) {
+			if (!changed) return
+			const existing = this.runtime.config.simplex.watchOnly
+			const perChain: Record<string, boolean> =
+				typeof existing === "object" && existing !== null ? { ...existing } : {}
+			// Both spellings boot accepts, so a change does not leave a duplicate key behind.
+			delete perChain[String(changed.chainId)]
+			delete perChain[formatChainKey(changed.chainId)]
+			if (changed.watchOnly) perChain[String(changed.chainId)] = true
+			this.runtime.config.simplex.watchOnly = Object.keys(perChain).length > 0 ? perChain : undefined
+			return
+		}
+
 		const perChain = Object.entries(this.runtime.intentFiller.getWatchOnly())
 			.filter(([, value]) => value === true)
 			.map(([chainId]) => [chainId, true] as const)

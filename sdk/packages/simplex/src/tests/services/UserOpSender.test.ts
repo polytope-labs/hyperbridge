@@ -174,6 +174,34 @@ describe("UserOpSender EIP-7702 authorization ordering", () => {
 		expect(bundlerCalls.some((c) => c.method === "eth_sendUserOperation")).toBe(false)
 	})
 
+	it("returns null without submitting when the authorization factory throws", async () => {
+		// The delegation flow refuses to sign a bundler authorization while an EOA tx is in
+		// flight, and the fallback to native depends on that throw reading as "never
+		// submitted" (null) rather than an ambiguous submission.
+		vi.mocked(buildPaymasterAndData).mockResolvedValue({
+			paymasterAndData: permit2ModePaymasterAndData,
+			type: "simplex",
+			address: PAYMASTER,
+			token: TOKEN,
+		})
+		const sender = new UserOpSender(clientManager, configService, signer)
+
+		await expect(
+			sender.trySendSponsored({
+				chain: CHAIN,
+				callData: "0x" as HexString,
+				eip7702Auth: async () => {
+					throw new Error(
+						`The wallet has a transaction in flight on ${CHAIN}; the delegation is signed once it has landed`,
+					)
+				},
+				gas: GAS,
+			}),
+		).resolves.toBeNull()
+
+		expect(bundlerCalls.some((c) => c.method === "eth_sendUserOperation")).toBe(false)
+	})
+
 	it("returns null without signing an authorization when no paymaster is available", async () => {
 		vi.mocked(buildPaymasterAndData).mockResolvedValue({
 			paymasterAndData: "0x" as HexString,
@@ -366,6 +394,35 @@ describe("UserOpSender submitted but unconfirmed", () => {
 		await expect(lookup(configServiceFor(undefined as unknown as string))).rejects.toThrow(
 			`No bundler is configured for ${CHAIN}`,
 		)
+	})
+
+	describe("isUserOpKnown", () => {
+		const known = (service = configService) =>
+			new UserOpSender(clientManager, service, signer).isUserOpKnown(CHAIN, USER_OP_HASH)
+
+		it("is true when the bundler returns the op", async () => {
+			bundlerReplies.eth_getUserOperationByHash = { result: { userOpHash: USER_OP_HASH } }
+
+			await expect(known()).resolves.toBe(true)
+		})
+
+		it("is false on a definite null answer", async () => {
+			bundlerReplies.eth_getUserOperationByHash = { result: null }
+
+			await expect(known()).resolves.toBe(false)
+		})
+
+		it("throws instead of answering false when the bundler cannot be asked", async () => {
+			bundlerReplies.eth_getUserOperationByHash = { error: { message: "boom" } }
+
+			await expect(known()).rejects.toThrow("Bundler RPC error (eth_getUserOperationByHash): boom")
+		})
+
+		it("throws when no bundler is configured for the chain", async () => {
+			await expect(known(configServiceFor(undefined as unknown as string))).rejects.toThrow(
+				`No bundler is configured for ${CHAIN}`,
+			)
+		})
 	})
 })
 

@@ -17,7 +17,11 @@ const funded: ChainFunding = {
 	delegated: false,
 }
 
-function controllerFor({ signerless = false, watchOnly = {} as Record<number, boolean> } = {}) {
+function controllerFor({
+	signerless = false,
+	globalWatchOnly = false,
+	watchOnly = {} as Record<number, boolean>,
+} = {}) {
 	const intentFiller = {
 		enableFills: vi.fn(async () => {}),
 		guardDelegation: vi.fn(async () => {}),
@@ -26,7 +30,7 @@ function controllerFor({ signerless = false, watchOnly = {} as Record<number, bo
 	}
 	const runtime = {
 		signerless,
-		globalWatchOnly: false,
+		globalWatchOnly,
 		config: { simplex: {} },
 		configService: {},
 		fillerAddress: FILLER,
@@ -85,6 +89,20 @@ describe("ChainController.enableFills", () => {
 		const { controller, intentFiller } = controllerFor({ signerless: true })
 		await expect(controller.enableFills(56)).rejects.toThrow(/started without a signer/)
 		expect(intentFiller.enableFills).not.toHaveBeenCalled()
+	})
+
+	it("refuses to enable fills while watch-only is in force", async () => {
+		const { controller, intentFiller } = controllerFor({ globalWatchOnly: true })
+		await expect(controller.enableFills(56)).rejects.toThrow(/runs watch-only/)
+		expect(intentFiller.enableFills).not.toHaveBeenCalled()
+	})
+})
+
+describe("ChainController.setWatchOnly", () => {
+	it("refuses to clear watch-only while watch-only is in force", async () => {
+		const { controller, intentFiller } = controllerFor({ globalWatchOnly: true, watchOnly: { 56: true } })
+		await expect(controller.setWatchOnly(56, false)).rejects.toThrow(/runs watch-only/)
+		expect(intentFiller.setWatchOnly).not.toHaveBeenCalled()
 	})
 })
 

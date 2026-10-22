@@ -1,6 +1,14 @@
 import { describe, expect, it, vi } from "vitest"
-import { type AbiEvent, decodeAbiParameters, decodeFunctionData, encodeAbiParameters, encodeEventTopics, fromHex, toHex } from "viem"
-import { HyperFungibleTokenABI, IntentGatewayABI, type HexString } from "@hyperbridge/sdk"
+import { type AbiEvent, decodeAbiParameters, decodeFunctionData, encodeAbiParameters, encodeEventTopics, encodeFunctionData, fromHex, toHex } from "viem"
+import {
+	getRequestCommitment,
+	HyperFungibleTokenABI,
+	IntentGatewayABI,
+	transformOrderForContract,
+	type HexString,
+} from "@hyperbridge/sdk"
+import { ERC20_ABI } from "@/config/abis/ERC20"
+import { EVM_HOST } from "@/config/abis/EvmHost"
 import { MemoryDataStore } from "@/data/memory"
 import type { StoredBridgeTopUp } from "@/data/types"
 import {
@@ -143,6 +151,56 @@ function orderPlacedLog() {
 const FILL_TX = `0x${"88".repeat(32)}` as HexString
 const SOLVER = "0xce319986ca4D5d0893751a628D0db3Dc8fc91d62" as HexString
 const DELIVERY_COMMITMENT = `0x${"99".repeat(32)}` as HexString
+/** The source gateway the SDK's cancel calldata targets, and the source host's fee token. */
+const GATEWAY = "0x00000000000000000000000000000000000000ab" as HexString
+const FEE_TOKEN = "0x00000000000000000000000000000000000000cd" as HexString
+/** The relayer fee the SDK encodes into a cross-chain cancel's calldata. */
+const RELAYER_FEE = 310_000n
+const CANCEL_DATA = encodeFunctionData({
+	abi: IntentGatewayABI,
+	functionName: "cancelOrder",
+	args: [transformOrderForContract(ORDER as never), { relayerFee: RELAYER_FEE, height: 12_345n }],
+}) as HexString
+const APPROVE_DATA = encodeFunctionData({ abi: ERC20_ABI, functionName: "approve", args: [GATEWAY, RELAYER_FEE] })
+const APPROVE_ZERO_DATA = encodeFunctionData({ abi: ERC20_ABI, functionName: "approve", args: [GATEWAY, 0n] })
+
+/** The IntentGateway and host the test config returns for every chain. */
+const INTENT_GATEWAY = "0xAe041F7B0CB581876832830baeB6a2Aa2a3C9716" as HexString
+const HOST = "0x620128E2B19193d6Bd244a3AC8D3bBa0541B19c3" as HexString
+
+/** The commitment of the order the tests' records track. */
+const ORDER_COMMITMENT = `0x${"77".repeat(32)}` as HexString
+/** A cancel's `context` starts with the order's commitment (`abi.encode(commitment, user, ...)`). */
+const cancelContext = (commitment: HexString) => `${commitment}${"00".repeat(32)}` as HexString
+
+/** The GET request the source host dispatches for a cross-chain cancel, sent by the IntentGateway. */
+const CANCEL_GET_REQUEST = {
+	source: "EVM-8453",
+	dest: "EVM-56",
+	from: INTENT_GATEWAY.toLowerCase() as HexString,
+	keys: ["0x1234"],
+	height: 9_999n,
+	nonce: 3n,
+	timeoutTimestamp: 0n,
+	context: cancelContext(ORDER_COMMITMENT),
+} as const
+const GET_COMMITMENT = getRequestCommitment({ ...CANCEL_GET_REQUEST, keys: [...CANCEL_GET_REQUEST.keys] })
+
+/** The `GetRequestEvent` log in a cross-chain cancel's receipt. */
+function getRequestLog(
+	patch: { from?: HexString; address?: HexString; nonce?: bigint; context?: HexString } = {},
+) {
+	const event = EVM_HOST.find((item) => item.type === "event" && item.name === "GetRequestEvent") as AbiEvent
+	const args: Record<string, unknown> = { ...CANCEL_GET_REQUEST, fee: 0n, ...patch }
+	return {
+		address: patch.address ?? HOST,
+		topics: encodeEventTopics({ abi: [event], eventName: "GetRequestEvent" } as never),
+		data: encodeAbiParameters(
+			event.inputs,
+			event.inputs.map((input) => args[input.name!]),
+		),
+	}
+}
 
 /** The HyperFungibleToken `Sent` log a fill's output call emits. */
 function sentLog() {
@@ -187,6 +245,10 @@ function topUpWith(record: StoredBridgeTopUp, chain: { receipt?: { logs: unknown
 			getRpcUrl: () => "http://localhost:1",
 			getBundlerUrl: () => undefined,
 			getIntentGatewayAddress: () => "0xAe041F7B0CB581876832830baeB6a2Aa2a3C9716",
+			getUsdcAsset: () => FEE_TOKEN,
+			getUsdcDecimals: () => 6,
+			getUsdtAsset: () => "0x",
+			getUsdtDecimals: () => 6,
 		},
 		// Base is delegated; BSC still points at an older SolverAccount.
 		delegation: { isDelegated: async (chain: string) => chain === "EVM-8453" },
@@ -354,8 +416,15 @@ describe("BRIDGE top-up persistence", () => {
 
 	it("recovers an unfilled cross-chain order and claims the refund a relayer did not deliver", async () => {
 		const { topUp, data } = topUpWith(stored("unfilled", { commitment: `0x${"77".repeat(32)}` }))
+		// Every saved snapshot, to check what a restart could have found.
+		const snapshots: StoredBridgeTopUp[] = []
+		const set = data.state.set.bind(data.state)
+		data.state.set = async (state) => {
+			if (state.bridgeTopUp) snapshots.push(structuredClone(state.bridgeTopUp))
+			await set(state)
+		}
 		const handler = "0x0000000000000000000000000000000000000abc"
-		const sent: { target: string; data: string }[][] = []
+		const sent: { target: string; value: bigint; data: string }[][] = []
 		let refunded = false
 		const finalizedSeconds = Math.floor(Date.now() / 1000) - 600
 		const internals = topUp as unknown as {
@@ -366,11 +435,16 @@ describe("BRIDGE top-up persistence", () => {
 			"EVM-8453",
 			Promise.resolve({
 				isOrderRefunded: async () => refunded,
-				quoteCancelOrder: async () => ({ nativeValue: 5n, relayerFee: 0n }),
 				async *cancelOrder() {
 					yield { status: "DESTINATION_FINALIZED", proof: {} }
-					const cancelTx: string = yield { status: "AWAITING_CANCEL_TRANSACTION", to: "0xgateway", data: "0xcancel", value: 5n }
-					yield { status: "CANCEL_STARTED", receipt: { transactionHash: cancelTx } }
+					const cancelTx: string = yield {
+						status: "AWAITING_CANCEL_TRANSACTION",
+						to: GATEWAY,
+						data: CANCEL_DATA,
+						// A non-zero native quote the cancel must not forward: the host pulls the fee token.
+						value: 5n,
+					}
+					yield { status: "CANCEL_STARTED", receipt: { transactionHash: cancelTx, logs: [getRequestLog()] } }
 					yield { status: "SOURCE_FINALIZED", metadata: { transactionHash: "0xsf", timestamp: finalizedSeconds - 120 } }
 					yield { status: "HYPERBRIDGE_DELIVERED", metadata: { transactionHash: "0xhd", timestamp: finalizedSeconds - 60 } }
 					yield {
@@ -381,7 +455,7 @@ describe("BRIDGE top-up persistence", () => {
 			}),
 		)
 		;(internals.deps as unknown as Record<string, unknown>).tokenSender = {
-			submitCalls: async (_chain: string, calls: { target: string; data: string }[]) => {
+			submitCalls: async (_chain: string, calls: { target: string; value: bigint; data: string }[]) => {
 				sent.push(calls)
 				// The second batch is the claim; the escrow is refunded by it.
 				if (sent.length === 2) refunded = true
@@ -389,7 +463,11 @@ describe("BRIDGE top-up persistence", () => {
 			},
 		}
 		;(internals.deps.clientManager as unknown as Record<string, unknown>).getPublicClient = () => ({
-			readContract: async () => ({ handler }),
+			readContract: async ({ functionName }: { functionName: string }) => {
+				if (functionName === "feeToken") return FEE_TOKEN
+				if (functionName === "balanceOf") return 1_000_000n
+				return { handler }
+			},
 		})
 		const fetchSpy = vi
 			.spyOn(globalThis, "fetch")
@@ -408,10 +486,463 @@ describe("BRIDGE top-up persistence", () => {
 			["HYPERBRIDGE_FINALIZED", "0xhf"],
 			["FUNDS_CLAIMED", "0xclaimtx"],
 		])
-		// The cancel, then Hyperbridge's response submitted to the source host's handler.
-		expect(sent[0].at(-1)).toMatchObject({ target: "0xgateway", data: "0xcancel" })
+		// The cancel resets the allowance, approves the gateway for the fee, then calls it with no value; the native quote is dropped.
+		expect(sent[0]).toEqual([
+			{ target: FEE_TOKEN, value: 0n, data: APPROVE_ZERO_DATA },
+			{ target: FEE_TOKEN, value: 0n, data: APPROVE_DATA },
+			{ target: GATEWAY, value: 0n, data: CANCEL_DATA },
+		])
+		// Then Hyperbridge's response is submitted to the source host's handler.
 		expect(sent[1]).toEqual([{ target: handler, value: 0n, data: "0xresponse" }])
+		// The cancel's GET request is kept for rebuilding the claim.
+		expect(record.getCommitment).toBe(GET_COMMITMENT)
+		// The finalized step and its calldata reach the store together, never one without the other.
+		const finalized = snapshots.filter((snapshot) =>
+			snapshot.recoverySteps?.some((step) => step.step === "HYPERBRIDGE_FINALIZED"),
+		)
+		expect(finalized.length).toBeGreaterThan(0)
+		expect(finalized.every((snapshot) => snapshot.claimCalldata === "0xresponse")).toBe(true)
 		fetchSpy.mockRestore()
+	})
+
+	it("stops a reclaim that cannot pay the relayer fee in the fee token", async () => {
+		vi.useFakeTimers()
+		const fetchSpy = vi
+			.spyOn(globalThis, "fetch")
+			.mockImplementation(
+				async () => new Response(JSON.stringify({ data: { iOrderV3s: { nodes: [{ statusMetadata: { nodes: [] } }] } } })),
+			)
+		try {
+			const { topUp, data } = topUpWith(stored("unfilled", { commitment: `0x${"77".repeat(32)}` }))
+			const submitted: unknown[] = []
+			let cancelOrderCalls = 0
+			const internals = topUp as unknown as {
+				gateways: Map<string, Promise<unknown>>
+				deps: BridgeTopUpDeps
+			}
+			internals.gateways.set(
+				"EVM-8453",
+				Promise.resolve({
+					isOrderRefunded: async () => false,
+					async *cancelOrder() {
+						cancelOrderCalls += 1
+						yield { status: "DESTINATION_FINALIZED", proof: {} }
+						yield { status: "AWAITING_CANCEL_TRANSACTION", to: GATEWAY, data: CANCEL_DATA, value: 5n }
+					},
+				}),
+			)
+			;(internals.deps as unknown as Record<string, unknown>).tokenSender = {
+				submitCalls: async () => {
+					submitted.push(1)
+					return { txHash: "0xcanceltx", sponsored: true }
+				},
+			}
+			// The wallet holds 0.1 USDC; the cancel's relayer fee is 0.31.
+			;(internals.deps.clientManager as unknown as Record<string, unknown>).getPublicClient = () => ({
+				readContract: async ({ functionName }: { functionName: string }) => {
+					if (functionName === "feeToken") return FEE_TOKEN
+					if (functionName === "balanceOf") return 100_000n
+					return {}
+				},
+			})
+
+			await topUp.reclaim()
+			// A short wallet fails before anything is sent; the first retry is a minute out.
+			await vi.advanceTimersByTimeAsync(60_000)
+			let record = (await data.state.get()).bridgeTopUp!
+			expect(record.stage).toBe("reclaiming")
+			expect(record.error).toContain("Recovery is retrying")
+			expect(record.error).toContain("Not enough USDC on EVM-8453 to pay the cancel's relayer fee")
+
+			// Each retry waits twice as long as the last: 2, 4, 8 and 16 min after the first minute.
+			for (const minutes of [2, 4, 8]) {
+				await vi.advanceTimersByTimeAsync(minutes * 60_000 - 1)
+				expect((await data.state.get()).bridgeTopUp?.stage).toBe("reclaiming")
+				await vi.advanceTimersByTimeAsync(1)
+			}
+			// The sixth attempt comes 16 min after the fifth, not before.
+			const attemptsBeforeLast = cancelOrderCalls
+			await vi.advanceTimersByTimeAsync(15 * 60_000)
+			expect(cancelOrderCalls).toBe(attemptsBeforeLast)
+			await vi.advanceTimersByTimeAsync(60_000)
+			record = (await data.state.get()).bridgeTopUp!
+			expect(record.stage).toBe("unfilled")
+			expect(record.error).toContain("Recovery stopped after 6 failed attempts")
+			expect(record.error).toContain(
+				"Not enough USDC on EVM-8453 to pay the cancel's relayer fee: have 0.1, need 0.31",
+			)
+			expect(submitted).toHaveLength(0)
+			// The cap counted six attempts over 31 minutes; none ran without a scheduled retry.
+			expect(cancelOrderCalls).toBe(6)
+
+			// The cap stops the recovery: no retry is scheduled, so no further attempt runs.
+			await vi.advanceTimersByTimeAsync(600_000)
+			expect((await data.state.get()).bridgeTopUp?.stage).toBe("unfilled")
+			expect(cancelOrderCalls).toBe(6)
+
+			// An operator restart gets a fresh budget and resumes from the SDK's saved progress.
+			await topUp.reclaim()
+			await vi.waitFor(async () =>
+				expect((await data.state.get()).bridgeTopUp?.error).toContain("Recovery is retrying"),
+			)
+			expect((await data.state.get()).bridgeTopUp?.stage).toBe("reclaiming")
+		} finally {
+			vi.clearAllTimers()
+			fetchSpy.mockRestore()
+			vi.useRealTimers()
+		}
+	})
+
+	it("cancels a same-chain unfilled order in one call, with no relayer fee", async () => {
+		const { topUp, data } = topUpWith(stored("unfilled", { chain: "EVM-56", commitment: `0x${"77".repeat(32)}` }))
+		const cancelData = encodeFunctionData({
+			abi: IntentGatewayABI,
+			functionName: "cancelOrder",
+			args: [transformOrderForContract(ORDER as never), { relayerFee: 0n, height: 0n }],
+		}) as HexString
+		const sent: { target: string; value: bigint; data: string }[][] = []
+		let reads = 0
+		const internals = topUp as unknown as {
+			gateways: Map<string, Promise<unknown>>
+			deps: BridgeTopUpDeps
+		}
+		internals.gateways.set(
+			"EVM-56",
+			Promise.resolve({
+				isOrderRefunded: async () => false,
+				async *cancelOrder() {
+					const cancelTx: string = yield { status: "AWAITING_CANCEL_TRANSACTION", to: GATEWAY, data: cancelData, value: 0n }
+					yield { status: "CANCELLATION_COMPLETE", transactionHash: cancelTx }
+				},
+			}),
+		)
+		;(internals.deps as unknown as Record<string, unknown>).tokenSender = {
+			submitCalls: async (_chain: string, calls: { target: string; value: bigint; data: string }[]) => {
+				sent.push(calls)
+				return { txHash: "0xcanceltx", sponsored: true }
+			},
+		}
+		// A same-chain cancel pays no relayer fee, so it reads no fee token or balance.
+		;(internals.deps.clientManager as unknown as Record<string, unknown>).getPublicClient = () => ({
+			readContract: async ({ functionName }: { functionName: string }) => {
+				reads += 1
+				throw new Error(`unexpected read: ${functionName}`)
+			},
+		})
+		const fetchSpy = vi
+			.spyOn(globalThis, "fetch")
+			.mockImplementation(
+				async () => new Response(JSON.stringify({ data: { iOrderV3s: { nodes: [{ statusMetadata: { nodes: [] } }] } } })),
+			)
+
+		await topUp.reclaim()
+		await vi.waitFor(async () => expect((await data.state.get()).bridgeTopUp?.stage).toBe("reclaimed"))
+		expect(sent).toEqual([[{ target: GATEWAY, value: 0n, data: cancelData }]])
+		expect(reads).toBe(0)
+		fetchSpy.mockRestore()
+	})
+
+	it("does not cancel again once Hyperbridge finalized, only claims the refund", async () => {
+		const finalizedAt = Date.now() - 5 * 60_000
+		const claimCalldata = "0xresponse" as HexString
+		const { topUp, data } = topUpWith(
+			stored("unfilled", {
+				commitment: `0x${"77".repeat(32)}`,
+				reclaimTxHash: "0xcanceltx",
+				claimCalldata,
+				recoverySteps: [
+					{ step: "DESTINATION_FINALIZED", timestamp: finalizedAt - 900_000 },
+					{ step: "ORDER_CANCELED", txHash: "0xcanceltx", timestamp: finalizedAt - 700_000 },
+					{ step: "SOURCE_FINALIZED", txHash: "0xsf", timestamp: finalizedAt - 300_000 },
+					{ step: "HYPERBRIDGE_DELIVERED", txHash: "0xhd", timestamp: finalizedAt - 120_000 },
+					{ step: "HYPERBRIDGE_FINALIZED", txHash: "0xhf", timestamp: finalizedAt },
+				],
+			}),
+		)
+		const handler = "0x0000000000000000000000000000000000000abc"
+		const sent: { target: string; value: bigint; data: string }[][] = []
+		let cancelOrderCalls = 0
+		let refunded = false
+		const internals = topUp as unknown as {
+			gateways: Map<string, Promise<unknown>>
+			deps: BridgeTopUpDeps
+		}
+		internals.gateways.set(
+			"EVM-8453",
+			Promise.resolve({
+				isOrderRefunded: async () => refunded,
+				async *cancelOrder() {
+					cancelOrderCalls += 1
+					yield { status: "AWAITING_CANCEL_TRANSACTION", to: GATEWAY, data: CANCEL_DATA, value: 5n }
+				},
+			}),
+		)
+		;(internals.deps as unknown as Record<string, unknown>).tokenSender = {
+			submitCalls: async (_chain: string, calls: { target: string; value: bigint; data: string }[]) => {
+				sent.push(calls)
+				refunded = true
+				return { txHash: "0xclaimtx", sponsored: true }
+			},
+		}
+		;(internals.deps.clientManager as unknown as Record<string, unknown>).getPublicClient = () => ({
+			readContract: async ({ functionName }: { functionName: string }) => {
+				if (functionName === "hostParams") return { handler }
+				throw new Error(`unexpected read: ${functionName}`)
+			},
+		})
+		const fetchSpy = vi
+			.spyOn(globalThis, "fetch")
+			.mockImplementation(
+				async () => new Response(JSON.stringify({ data: { iOrderV3s: { nodes: [{ statusMetadata: { nodes: [] } }] } } })),
+			)
+
+		await topUp.reclaim()
+		await vi.waitFor(async () => expect((await data.state.get()).bridgeTopUp?.stage).toBe("reclaimed"))
+		// The cancel already went out; only Hyperbridge's response is claimed.
+		expect(sent).toEqual([[{ target: handler, value: 0n, data: claimCalldata }]])
+		expect(cancelOrderCalls).toBe(0)
+		fetchSpy.mockRestore()
+	})
+
+	/** An unfilled order whose Hyperbridge finalization is recorded, so only the refund claim is left. */
+	function finalizedRecovery(patch: Partial<StoredBridgeTopUp>) {
+		const finalizedAt = Date.now() - 5 * 60_000
+		const { topUp, data } = topUpWith(
+			stored("unfilled", {
+				commitment: `0x${"77".repeat(32)}`,
+				recoverySteps: [
+					{ step: "DESTINATION_FINALIZED", timestamp: finalizedAt - 900_000 },
+					{ step: "ORDER_CANCELED", txHash: "0xcanceltx", timestamp: finalizedAt - 700_000 },
+					{ step: "SOURCE_FINALIZED", txHash: "0xsf", timestamp: finalizedAt - 300_000 },
+					{ step: "HYPERBRIDGE_DELIVERED", txHash: "0xhd", timestamp: finalizedAt - 120_000 },
+					{ step: "HYPERBRIDGE_FINALIZED", txHash: "0xhf", timestamp: finalizedAt },
+				],
+				...patch,
+			}),
+		)
+		const handler = "0x0000000000000000000000000000000000000abc"
+		const internals = topUp as unknown as {
+			gateways: Map<string, Promise<unknown>>
+			deps: BridgeTopUpDeps
+			cancelClient: () => Promise<unknown>
+		}
+		const claims: { target: string; value: bigint; data: string }[] = []
+		const rebuilt: string[] = []
+		const state = { refunded: false, failClaims: 0, receiptLogs: [getRequestLog()] as unknown[] }
+		internals.gateways.set(
+			"EVM-8453",
+			Promise.resolve({
+				isOrderRefunded: async () => state.refunded,
+				async *cancelOrder() {
+					throw new Error("the cancel must not run again")
+				},
+			}),
+		)
+		;(internals.deps as unknown as Record<string, unknown>).tokenSender = {
+			submitCalls: async (_chain: string, calls: { target: string; value: bigint; data: string }[]) => {
+				claims.push(calls[0])
+				if (state.failClaims > 0) {
+					state.failClaims -= 1
+					throw new Error("Send tx reverted: StateCommitmentNotFound")
+				}
+				state.refunded = true
+				return { txHash: "0xclaimtx", sponsored: true }
+			},
+		}
+		;(internals.deps.clientManager as unknown as Record<string, unknown>).getPublicClient = () => ({
+			readContract: async () => ({ handler }),
+			getTransactionReceipt: async () => ({ transactionHash: "0xcanceltx", logs: state.receiptLogs }),
+		})
+		// The SDK's snapshot of the GET request, proven at whatever height Hyperbridge has now.
+		internals.cancelClient = async () => ({
+			queryGetRequestWithStatus: async (commitment: string) => {
+				rebuilt.push(commitment)
+				return {
+					statuses: [
+						{ status: "SOURCE_FINALIZED", metadata: {} },
+						{ status: "HYPERBRIDGE_FINALIZED", metadata: { calldata: `0xfresh${rebuilt.length}` } },
+					],
+				}
+			},
+		})
+		return { topUp, data, handler, claims, rebuilt, state }
+	}
+
+	it("rebuilds the refund claim when a claim reverts, instead of replaying the stale calldata", async () => {
+		vi.useFakeTimers()
+		const fetchSpy = vi
+			.spyOn(globalThis, "fetch")
+			.mockImplementation(
+				async () => new Response(JSON.stringify({ data: { iOrderV3s: { nodes: [{ statusMetadata: { nodes: [] } }] } } })),
+			)
+		try {
+			const { topUp, data, handler, claims, rebuilt, state } = finalizedRecovery({
+				getCommitment: GET_COMMITMENT,
+				claimCalldata: "0xstale",
+			})
+			state.failClaims = 1
+
+			await topUp.reclaim()
+			// The recorded bytes go out first; they revert, as when the host's Hyperbridge client moved on.
+			await vi.advanceTimersByTimeAsync(0)
+			expect(claims).toEqual([{ target: handler, value: 0n, data: "0xstale" }])
+			expect(rebuilt).toEqual([])
+			expect((await data.state.get()).bridgeTopUp?.claimCalldata).toBeUndefined()
+
+			// The retry asks the SDK for the response again and submits that.
+			await vi.advanceTimersByTimeAsync(60_000)
+			await vi.waitFor(async () => expect((await data.state.get()).bridgeTopUp?.stage).toBe("reclaimed"))
+			expect(rebuilt).toEqual([GET_COMMITMENT])
+			expect(claims.map((claim) => claim.data)).toEqual(["0xstale", "0xfresh1"])
+			expect((await data.state.get()).bridgeTopUp?.claimTxHash).toBe("0xclaimtx")
+		} finally {
+			vi.clearAllTimers()
+			fetchSpy.mockRestore()
+			vi.useRealTimers()
+		}
+	})
+
+	it("rebuilds a refund claim whose calldata was never saved, as after a restart", async () => {
+		const fetchSpy = vi
+			.spyOn(globalThis, "fetch")
+			.mockImplementation(
+				async () => new Response(JSON.stringify({ data: { iOrderV3s: { nodes: [{ statusMetadata: { nodes: [] } }] } } })),
+			)
+		try {
+			// Finalized is recorded, its calldata is not: a crash fell between the two writes.
+			const { topUp, data, handler, claims, rebuilt } = finalizedRecovery({ getCommitment: GET_COMMITMENT })
+
+			await topUp.current()
+			await topUp.reclaim()
+			await vi.waitFor(async () => expect((await data.state.get()).bridgeTopUp?.stage).toBe("reclaimed"))
+			expect(rebuilt).toEqual([GET_COMMITMENT])
+			expect(claims).toEqual([{ target: handler, value: 0n, data: "0xfresh1" }])
+			expect((await data.state.get()).bridgeTopUp?.claimCalldata).toBe("0xfresh1")
+		} finally {
+			fetchSpy.mockRestore()
+		}
+	})
+
+	it("reads the cancel's GET request back from its receipt when it was not recorded", async () => {
+		const fetchSpy = vi
+			.spyOn(globalThis, "fetch")
+			.mockImplementation(
+				async () => new Response(JSON.stringify({ data: { iOrderV3s: { nodes: [{ statusMetadata: { nodes: [] } }] } } })),
+			)
+		try {
+			const { topUp, data, rebuilt } = finalizedRecovery({})
+
+			await topUp.reclaim()
+			await vi.waitFor(async () => expect((await data.state.get()).bridgeTopUp?.stage).toBe("reclaimed"))
+			expect(rebuilt).toEqual([GET_COMMITMENT])
+			expect((await data.state.get()).bridgeTopUp?.getCommitment).toBe(GET_COMMITMENT)
+		} finally {
+			fetchSpy.mockRestore()
+		}
+	})
+
+	it("takes the IntentGateway's GET request from a bundle receipt, not another op's that comes first", async () => {
+		const fetchSpy = vi
+			.spyOn(globalThis, "fetch")
+			.mockImplementation(
+				async () => new Response(JSON.stringify({ data: { iOrderV3s: { nodes: [{ statusMetadata: { nodes: [] } }] } } })),
+			)
+		try {
+			const { topUp, data, rebuilt, state } = finalizedRecovery({})
+			state.receiptLogs = [
+				// Another sender's request through this host, then the gateway's from a contract that is not the host.
+				getRequestLog({ from: "0x00000000000000000000000000000000000000ee", nonce: 1n }),
+				getRequestLog({ address: "0x00000000000000000000000000000000000000dd", nonce: 2n }),
+				getRequestLog(),
+			]
+
+			await topUp.reclaim()
+			await vi.waitFor(async () => expect((await data.state.get()).bridgeTopUp?.stage).toBe("reclaimed"))
+			expect(rebuilt).toEqual([GET_COMMITMENT])
+			expect((await data.state.get()).bridgeTopUp?.getCommitment).toBe(GET_COMMITMENT)
+		} finally {
+			fetchSpy.mockRestore()
+		}
+	})
+
+	it("takes this order's cancel from a bundle where another order's cancel through the gateway comes first", async () => {
+		const fetchSpy = vi
+			.spyOn(globalThis, "fetch")
+			.mockImplementation(
+				async () => new Response(JSON.stringify({ data: { iOrderV3s: { nodes: [{ statusMetadata: { nodes: [] } }] } } })),
+			)
+		try {
+			const { topUp, data, rebuilt, state } = finalizedRecovery({})
+			state.receiptLogs = [
+				getRequestLog({ nonce: 1n, context: cancelContext(`0x${"55".repeat(32)}`) }),
+				getRequestLog(),
+			]
+
+			await topUp.reclaim()
+			await vi.waitFor(async () => expect((await data.state.get()).bridgeTopUp?.stage).toBe("reclaimed"))
+			expect(rebuilt).toEqual([GET_COMMITMENT])
+			expect((await data.state.get()).bridgeTopUp?.getCommitment).toBe(GET_COMMITMENT)
+		} finally {
+			fetchSpy.mockRestore()
+		}
+	})
+
+	it("fails to read the cancel's GET request when the receipt has none from the IntentGateway", async () => {
+		const { topUp } = finalizedRecovery({})
+		const internals = topUp as unknown as {
+			deps: BridgeTopUpDeps
+			cancelCommitment: (chain: string) => Promise<string>
+		}
+		;(internals.deps.clientManager as unknown as Record<string, unknown>).getPublicClient = () => ({
+			getTransactionReceipt: async () => ({
+				transactionHash: "0xcanceltx",
+				logs: [getRequestLog({ from: "0x00000000000000000000000000000000000000ee" })],
+			}),
+		})
+
+		await topUp.current()
+		await expect(internals.cancelCommitment("EVM-8453")).rejects.toThrow("dispatched no GET request")
+	})
+
+	it("does not burn the reclaim cap on an attempt that waited on finality", async () => {
+		vi.useFakeTimers()
+		const fetchSpy = vi
+			.spyOn(globalThis, "fetch")
+			.mockImplementation(
+				async () => new Response(JSON.stringify({ data: { iOrderV3s: { nodes: [{ statusMetadata: { nodes: [] } }] } } })),
+			)
+		try {
+			const { topUp, data } = topUpWith(stored("unfilled", { commitment: `0x${"77".repeat(32)}` }))
+			const internals = topUp as unknown as {
+				gateways: Map<string, Promise<unknown>>
+				deps: BridgeTopUpDeps
+				reclaimFailures: number
+			}
+			internals.gateways.set(
+				"EVM-8453",
+				Promise.resolve({
+					isOrderRefunded: async () => false,
+					async *cancelOrder() {
+						yield { status: "DESTINATION_FINALIZED", proof: {} }
+						// A status stream that stalls past the long-attempt threshold, then fails.
+						await new Promise((resolve) => setTimeout(resolve, 11 * 60_000))
+						throw new Error("status stream stalled")
+					},
+				}),
+			)
+
+			await topUp.reclaim()
+			// Seven attempts, each stalling 11 min then failing; a fast-failure cap would have stopped at five.
+			for (let i = 0; i < 7; i++) await vi.advanceTimersByTimeAsync(12 * 60_000)
+			const record = (await data.state.get()).bridgeTopUp!
+			expect(record.stage).toBe("reclaiming")
+			expect(record.error).toContain("Recovery is retrying")
+			expect(internals.reclaimFailures).toBe(1)
+		} finally {
+			vi.clearAllTimers()
+			fetchSpy.mockRestore()
+			vi.useRealTimers()
+		}
 	})
 
 	it("only reclaims an unfilled order", async () => {

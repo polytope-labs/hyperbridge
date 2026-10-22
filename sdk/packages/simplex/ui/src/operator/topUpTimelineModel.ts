@@ -353,6 +353,8 @@ export const RELAYER_DELIVERY_WAIT_MS = 3 * 60_000
  *
  * - Paid on BSC itself (same chain): Order Placed, then Claim Funds; cancelling refunds at once.
  * - Paid elsewhere, before recovery starts: the order's steps, with Order Expired.
+ * - Paid elsewhere, with a recovery that stopped: the steps it reached, the one it stopped at in
+ *   error with the reason and how to resume.
  * - Paid elsewhere, once recovering: BSC's expiry finality, the cancel, its finality on the
  *   paying chain, Hyperbridge verifying and finalizing it, and the refund.
  */
@@ -387,7 +389,11 @@ function recoverySteps(
 		return [{ ...placedStep, caption: "Order Placed", secondary: "Expired, refund available" }, ...offersSeen, claim]
 	}
 
-	if (topUp.stage === "unfilled") {
+	// A recovery that stopped keeps the steps it reached; only an order whose recovery never began is just expired.
+	// One that failed before recording any step (every first read timing out) is told apart by its error.
+	const stopped =
+		topUp.stage === "unfilled" && (!!topUp.recoverySteps?.length || !!topUp.error?.startsWith("Recovery stopped"))
+	if (topUp.stage === "unfilled" && !stopped) {
 		return [
 			placedStep,
 			offers,
@@ -428,7 +434,7 @@ function recoverySteps(
 	const finalizedAt = at("HYPERBRIDGE_FINALIZED")
 	const waitingForRelayer = finalizedAt !== undefined && now - finalizedAt < RELAYER_DELIVERY_WAIT_MS
 
-	return [
+	const steps: TimelineStep[] = [
 		{
 			key: "DESTINATION_FINALIZED",
 			level: 0,
@@ -499,4 +505,19 @@ function recoverySteps(
 			timed: false,
 		},
 	]
+	if (!stopped) return steps
+
+	// The step the recovery stopped at is the one that failed. The record's error leads with the attempt count, which the row does not need.
+	const reason = (topUp.error ?? "").replace(/^Recovery stopped after \d+ failed attempts: /, "")
+	return steps.map((step) =>
+		step.key === current
+			? {
+					...step,
+					status: "error",
+					secondary: `Recovery stopped${reason ? `: ${reason}` : ""} — Start recovery to resume`,
+					timed: false,
+					etaAt: undefined,
+				}
+			: step,
+	)
 }

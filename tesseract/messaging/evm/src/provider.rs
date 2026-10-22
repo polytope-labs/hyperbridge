@@ -859,6 +859,32 @@ fn any_frame_has_event(
 	false
 }
 
+/// `debug_traceCall` options for the call tracer: every nested frame, with its logs.
+pub(crate) fn call_tracer_options(
+) -> Result<alloy::rpc::types::trace::geth::GethDebugTracingCallOptions, Error> {
+	use alloy::rpc::types::trace::geth::{
+		CallConfig, GethDebugBuiltInTracerType, GethDebugTracerConfig, GethDebugTracerType,
+		GethDebugTracingCallOptions, GethDebugTracingOptions, GethDefaultTracingOptions,
+	};
+
+	let call_config = CallConfig { only_top_call: Some(false), with_log: Some(true) };
+	Ok(GethDebugTracingCallOptions {
+		tracing_options: GethDebugTracingOptions {
+			config: GethDefaultTracingOptions {
+				disable_storage: Some(true),
+				enable_memory: Some(false),
+				..Default::default()
+			},
+			tracer: Some(GethDebugTracerType::BuiltInTracer(
+				GethDebugBuiltInTracerType::CallTracer,
+			)),
+			tracer_config: GethDebugTracerConfig(serde_json::to_value(call_config)?),
+			..Default::default()
+		},
+		..Default::default()
+	})
+}
+
 /// Shared body of gas estimation for a pre-built `Vec<TransactionRequest>`
 /// + the matching `Vec<Message>`. Splits into `tracing_batch_size` chunks,
 /// fires `debug_traceCall` per entry, walks each trace to confirm the
@@ -879,32 +905,10 @@ async fn estimate_gas_for_tx_requests(
 	use crate::gas_oracle::is_orbit_chain;
 	use alloy::{
 		providers::ext::DebugApi,
-		rpc::types::{
-			trace::geth::{
-				CallConfig, GethDebugBuiltInTracerType, GethDebugTracerConfig, GethDebugTracerType,
-				GethDebugTracingCallOptions, GethDebugTracingOptions, GethDefaultTracingOptions,
-				GethTrace,
-			},
-			TransactionRequest,
-		},
+		rpc::types::{trace::geth::GethTrace, TransactionRequest},
 	};
 
-	let call_config = CallConfig { only_top_call: Some(false), with_log: Some(true) };
-	let debug_trace_call_options = GethDebugTracingCallOptions {
-		tracing_options: GethDebugTracingOptions {
-			config: GethDefaultTracingOptions {
-				disable_storage: Some(true),
-				enable_memory: Some(false),
-				..Default::default()
-			},
-			tracer: Some(GethDebugTracerType::BuiltInTracer(
-				GethDebugBuiltInTracerType::CallTracer,
-			)),
-			tracer_config: GethDebugTracerConfig(serde_json::to_value(call_config)?),
-			..Default::default()
-		},
-		..Default::default()
-	};
+	let debug_trace_call_options = call_tracer_options()?;
 
 	let handler = client_outer.handler().await?;
 	let handler_addr = Address::from_slice(&handler.0);

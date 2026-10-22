@@ -55,6 +55,8 @@ Fees can be paid in two ways:
 
 The `quote()` function returns the appropriate fee based on the `payInLzToken` flag.
 
+LayerZero requires `quote()` to be `view`, so it prices a native fee by reading the host's fee oracle in a static call. Some hosts' oracles price by simulating a swap, which a static call cannot do. That's the Uniswap V3 wrapper on Ethereum and Polygon, and the V4 wrapper on Arbitrum and Base. On those chains a native-fee `quote()` reverts, so OApps there should pay in the fee token. BSC's oracle is PancakeSwap's V2 router, which quotes natively.
+
 ### Relayer fees
 
 A per-destination relayer fee incentivizes Hyperbridge relayers to deliver messages. Defaults to $0.30 (computed from the fee token's decimals). The adapter owner can customize fees:

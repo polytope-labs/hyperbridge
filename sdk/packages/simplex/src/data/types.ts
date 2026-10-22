@@ -568,8 +568,59 @@ export interface StoredBridgeTopUp {
 	sessionPrivateKey?: HexString
 	commitment?: HexString
 	placeTxHash?: HexString
+	/**
+	 * The wallet nonce a native placement tx was sent with. Only the wallet's nonce moving past it
+	 * shows the tx can no longer be mined; a node that forgot the tx shows nothing.
+	 */
+	placeTxNonce?: number
+	/**
+	 * The placement UserOp the bundler accepted when its receipt never arrived. The batch may have
+	 * been mined, so the record stays pending and the op is looked up again; without it a restart
+	 * would declare that nothing was escrowed while the order could still be live.
+	 */
+	placeUserOpHash?: HexString
+	/** The EntryPoint `nonce` the op was signed with, as a decimal string (the record is JSON-persisted). */
+	placeUserOpNonce?: string
+	/** The EntryPoint `nonceKey` the op was signed with, as a decimal string. */
+	placeUserOpNonceKey?: string
+	/**
+	 * Whether a UserOp placement's paymaster attached a validity deadline (Permit2 mode). A
+	 * bootstrap op has none, so it can still land; without this a restart cannot tell them apart.
+	 */
+	placeUserOpExpires?: boolean
+	/**
+	 * When the placement batch was submitted, in ms. Dates a UserOp's permit window. Records from
+	 * before this was recorded are dated by `stageTimes.placing`, then `createdAt`; `updatedAt` is
+	 * rewritten by every save, so it never ages.
+	 */
+	placeSubmittedAt?: number
+	/**
+	 * The order's session-key address, matched against `OrderPlaced.session`. A placement receipt
+	 * can carry other users' placements (a UserOp is a bundle), so only the log naming this address
+	 * is this top-up's.
+	 */
+	placeSession?: HexString
+	/** Block the paying chain was at before the placement was submitted, as a decimal string; the scan starts here. */
+	placeFromBlock?: string
+	/**
+	 * The next block a recovery scan reads, as a decimal string. Saved after each chunk and trailing
+	 * the tip by the evidence margin; the next scan starts a margin below it, so a page a lagging
+	 * backend served empty is read again.
+	 */
+	placeScannedTo?: string
 	fillTxHash?: HexString
+	/**
+	 * The cancel's transaction. With no `reclaimSubmission` it is a cancel whose send was confirmed
+	 * (the only way it was ever written before submissions were kept), and is handed to the SDK as is.
+	 */
 	reclaimTxHash?: HexString
+	/**
+	 * The cancel as submitted, kept until the `ORDER_CANCELED` step is recorded. It is settled from
+	 * on-chain evidence before the SDK is handed a hash or a new cancel is sent: a duplicate
+	 * cross-chain cancel does not revert, it dispatches another GET request and pays the relayer fee
+	 * again. See {@link StoredSubmission}.
+	 */
+	reclaimSubmission?: StoredSubmission
 	/** The HyperFungibleToken request that carries the BRIDGE to Hyperbridge. */
 	deliveryCommitment?: HexString
 	/** The Hyperbridge extrinsic that delivered it, when this filler relayed it. */
@@ -593,6 +644,28 @@ export interface StoredBridgeTopUp {
 	/** The filler's own refund claim, when no relayer delivered it in time. */
 	claimTxHash?: HexString
 	error?: string
+}
+
+/**
+ * A submission as kept in the JSON state: bigints as decimal strings, plus the evidence window of
+ * the chain scan that settles it.
+ */
+export type StoredSubmission = (
+	| { kind: "tx"; txHash: HexString; nonce: number; submittedAt: number }
+	| {
+			kind: "userOp"
+			userOpHash: HexString
+			nonce: string
+			nonceKey: string
+			/** Whether the paymaster attached a validity deadline; see {@link StoredBridgeTopUp.placeUserOpExpires}. */
+			expires: boolean
+			submittedAt: number
+	  }
+) & {
+	/** The paying chain's height, read before the send, as a decimal string; the evidence scan starts a margin below it. */
+	fromBlock: string
+	/** The next block the scan reads, as a decimal string; see {@link StoredBridgeTopUp.placeScannedTo}. */
+	scannedTo?: string
 }
 
 export interface RecoveryStepRecord {

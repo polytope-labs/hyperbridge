@@ -887,10 +887,10 @@ pub(crate) fn call_tracer_options(
 
 /// Shared body of gas estimation for a pre-built `Vec<TransactionRequest>`
 /// + the matching `Vec<Message>`. Splits into `tracing_batch_size` chunks,
-/// fires `debug_traceCall` per entry, walks each trace to confirm the
-/// message's handled event is emitted (`PostRequestHandled` for post requests,
-/// `GetRequestHandled` for get responses), and computes the
-/// actual gas used (+ L2 calldata-fee padding).
+/// fires `debug_traceCall` per entry with the chain's gas limit, walks each
+/// trace to confirm the message's handled event is emitted
+/// (`PostRequestHandled` for post requests, `GetRequestHandled` for get
+/// responses), and computes the actual gas used (+ L2 calldata-fee padding).
 ///
 /// Called from both [`IsmpProvider::estimate_gas`] (one tx per message) and
 /// [`IsmpProvider::estimate_gas_batched`] (one `batchCall([prelude, msg])`
@@ -936,10 +936,28 @@ async fn estimate_gas_for_tx_requests(
 				let tx_req = tx_req.clone();
 				let _msg = _msg.clone();
 				tokio::spawn(async move {
-					let call_debug = client
+					// Traced with the chain's whole gas limit rather than the estimate the request
+					// carries: `EvmHost.dispatchIncoming` swallows a module that runs out of gas,
+					// so a trace at the estimate can fail a message that `submit` delivers once it
+					// sizes the gas. A node that refuses the larger limit (an Erigon node checks it
+					// against the sender's balance) is traced at the estimate instead.
+					let full = tx_req.clone().gas_limit(get_chain_gas_limit(client.state_machine));
+					let call_debug = match client
 						.client
-						.debug_trace_call(tx_req, BlockId::latest(), debug_trace_call_options)
-						.await;
+						.debug_trace_call(full, BlockId::latest(), debug_trace_call_options.clone())
+						.await
+					{
+						Ok(trace) => Ok(trace),
+						Err(_) =>
+							client
+								.client
+								.debug_trace_call(
+									tx_req,
+									BlockId::latest(),
+									debug_trace_call_options,
+								)
+								.await,
+					};
 
 					let mut gas_to_be_used = U256::zero();
 					let mut successful_execution = false;

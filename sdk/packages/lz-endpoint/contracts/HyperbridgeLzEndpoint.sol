@@ -37,6 +37,16 @@ import {ILayerZeroComposer} from "@layerzerolabs/lz-evm-protocol-v2/contracts/in
 import {SetConfigParam} from "@layerzerolabs/lz-evm-protocol-v2/contracts/interfaces/IMessageLibManager.sol";
 
 /**
+ * @dev The host's fee oracle, read in a static context. `HyperApp.quote` calls it with a
+ * state-changing `CALL`, which a `view` function cannot make.
+ */
+interface IUniswapV2RouterView {
+    function WETH() external view returns (address);
+
+    function getAmountsIn(uint256 amountOut, address[] calldata path) external view returns (uint256[] memory);
+}
+
+/**
  * @title HyperbridgeLzEndpoint
  * @author Polytope Labs (hello@polytope.technology)
  * @notice A LayerZero V2 endpoint adapter that routes messages through Hyperbridge's ISMP
@@ -341,8 +351,21 @@ contract HyperbridgeLzEndpoint is HyperApp, Ownable, Pausable, ILayerZeroEndpoin
         if (_params.payInLzToken) {
             return MessagingFee({nativeFee: 0, lzTokenFee: request.fee * 2});
         } else {
-            return MessagingFee({nativeFee: quote(request) * 2, lzTokenFee: 0});
+            return MessagingFee({nativeFee: _nativeFee(request.fee) * 2, lzTokenFee: 0});
         }
+    }
+
+    /**
+     * @dev The native amount the host's fee oracle wants for `feeTokenAmount`. LayerZero
+     * requires `quote` to be `view`, so this reverts on a host whose oracle prices by
+     * simulating a swap, such as a Uniswap V3 or V4 wrapper.
+     */
+    function _nativeFee(uint256 feeTokenAmount) private view returns (uint256) {
+        address router = IDispatcher(_host).uniswapV2Router();
+        address[] memory path = new address[](2);
+        path[0] = IUniswapV2RouterView(router).WETH();
+        path[1] = IDispatcher(_host).feeToken();
+        return IUniswapV2RouterView(router).getAmountsIn(feeTokenAmount, path)[0];
     }
 
     // ==================== ISMP Callbacks ====================

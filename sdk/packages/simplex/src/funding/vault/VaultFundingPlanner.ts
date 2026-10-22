@@ -529,7 +529,9 @@ export class VaultFundingPlanner implements FundingVenue {
 	 *
 	 * The sponsored path only falls back to native when the op was **never
 	 * submitted**; a submitted-but-unconfirmed op throws so a native resend can't
-	 * double-execute the batch (the caller's timer logs and retries next cycle).
+	 * double-execute the batch (the caller's timer logs and retries next cycle). So does a
+	 * `PendingOpOnNonceError`: an earlier op from this wallet still holds the nonce, which is
+	 * "not now", never a reason to send natively.
 	 */
 	private async submitBatch(
 		chain: string,

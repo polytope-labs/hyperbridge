@@ -3,6 +3,7 @@ import { encodeFunctionData, erc20Abi, maxUint256 } from "viem"
 import { encodeERC7821ExecuteBatch, type HexString } from "@hyperbridge/sdk"
 
 import { DelegationService } from "@/services/DelegationService"
+import { PendingOpOnNonceError } from "@/services/submission"
 import { resolvePendingPermit2Approval } from "@/services/paymaster/provider/simplex"
 import type { ChainClientManager } from "@/services/ChainClientManager"
 import type { FillerConfigService } from "@/services/FillerConfigService"
@@ -128,6 +129,17 @@ describe("setupDelegation ordering", () => {
 		const { service, sendTransaction } = build({ native: DIRECT_TX_COST })
 
 		expect(await service.setupDelegation(CHAIN)).toBe(true)
+
+		expect(trySendSponsored).toHaveBeenCalledOnce()
+		expect(sendTransaction).not.toHaveBeenCalled()
+	})
+
+	it("reports not-now, and sends no direct tx, while an earlier sponsored op holds the nonce", async () => {
+		vi.mocked(resolvePendingPermit2Approval).mockResolvedValue(null)
+		trySendSponsored.mockRejectedValue(new PendingOpOnNonceError("pending", CHAIN, 0n, 0n))
+		const { service, sendTransaction } = build({ native: DIRECT_TX_COST })
+
+		expect(await service.setupDelegation(CHAIN)).toBe(false)
 
 		expect(trySendSponsored).toHaveBeenCalledOnce()
 		expect(sendTransaction).not.toHaveBeenCalled()

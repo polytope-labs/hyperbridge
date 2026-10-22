@@ -6,6 +6,7 @@ import {
 import { EventEmitter } from "node:events"
 import type { SetupDeps } from "@/services/server/setup-api"
 import { ActivityRecorder } from "@/data/recorder"
+import { PendingOpOnNonceError, SubmittedUnconfirmedError } from "@/services/submission"
 import { MemoryDataStore } from "@/data/memory"
 import { LoggerContext, type LogLevel } from "@/services/Logger"
 import { LogStore } from "@/services/server/LogStore"
@@ -887,6 +888,131 @@ describe("UiServer (operator mode)", () => {
 		const failed = await fetch(`${base}/api/send`, { method: "POST", headers: CSRF, body: JSON.stringify(body) })
 		expect(failed.status).toBe(400)
 		expect((await failed.json()).error).toContain("Insufficient")
+	})
+
+	it("reports an unconfirmed operator send as pending and records no wallet-history row", async () => {
+		const userOpHash = ("0x" + "ab".repeat(32)) as `0x${string}`
+		const send = vi.fn().mockRejectedValue(
+			new SubmittedUnconfirmedError("unconfirmed", "EVM-8453", {
+				kind: "userOp",
+				userOpHash,
+				nonce: 0n,
+				nonceKey: 0n,
+				expires: true,
+				submittedAt: Date.now(),
+			}),
+		)
+		const { base } = await startServer({ send })
+		const body = {
+			chain: "EVM-8453",
+			token: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+			amount: "25",
+			to: "0x5b2c3e25243634732eE94525Ae98aEc404c82506",
+		}
+		const post = () => fetch(`${base}/api/send`, { method: "POST", headers: CSRF, body: JSON.stringify(body) })
+
+		const res = await post()
+		expect(res.status).toBe(202)
+		const payload = await res.json()
+		expect(payload).toMatchObject({ pending: true, sponsored: true, userOpHash })
+		expect(payload.message).toContain("not confirmed")
+		// A balance check cannot show an op still in the pool, so the message says it may land and to wait.
+		expect(payload.message).toContain("may still land")
+		// A sponsored send has no wallet-history row, so the message must not send the operator
+		// there; it names the UserOp hash to look up instead.
+		expect(payload.message).not.toContain("wallet history")
+		expect(payload.message).toContain(userOpHash)
+		expect(payload.message).toContain("look that UserOp up on the bundler")
+		expect(payload.message).toContain("recipient's balance")
+		expect(payload.message).not.toContain("explorer")
+		// A UserOp has no tx hash until it lands, so none is reported — and no history row is written.
+		expect(payload.txHash).toBeUndefined()
+		const history = await (await fetch(`${base}/api/wallet/history`)).json()
+		expect(history.txs).toHaveLength(0)
+
+		// Any other error stays a plain 400.
+		send.mockRejectedValueOnce(new Error("Insufficient token balance"))
+		const failed = await post()
+		expect(failed.status).toBe(400)
+		expect((await failed.json()).error).toContain("Insufficient")
+	})
+
+	it("says a send may have been submitted when the bundler could not be asked at all", async () => {
+		const userOpHash = ("0x" + "ab".repeat(32)) as `0x${string}`
+		const send = vi.fn().mockRejectedValue(
+			new SubmittedUnconfirmedError(
+				"lost",
+				"EVM-8453",
+				{ kind: "userOp", userOpHash, nonce: 0n, nonceKey: 0n, expires: true, submittedAt: Date.now() },
+				true,
+			),
+		)
+		const { base } = await startServer({ send })
+		const body = {
+			chain: "EVM-8453",
+			token: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+			amount: "25",
+			to: "0x5b2c3e25243634732eE94525Ae98aEc404c82506",
+		}
+
+		const res = await fetch(`${base}/api/send`, { method: "POST", headers: CSRF, body: JSON.stringify(body) })
+
+		expect(res.status).toBe(202)
+		const payload = await res.json()
+		expect(payload).toMatchObject({ pending: true, sponsored: true, userOpHash })
+		expect(payload.message).toContain("may have been submitted")
+		expect(payload.message).toContain(userOpHash)
+		expect(payload.message).not.toContain("wallet history")
+	})
+
+	it("answers a send refused by a pending earlier op with a wait message and no hash", async () => {
+		const send = vi.fn().mockRejectedValue(new PendingOpOnNonceError("pending", "EVM-8453", 3n, 0n))
+		const { base } = await startServer({ send })
+		const body = {
+			chain: "EVM-8453",
+			token: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+			amount: "25",
+			to: "0x5b2c3e25243634732eE94525Ae98aEc404c82506",
+		}
+
+		const res = await fetch(`${base}/api/send`, { method: "POST", headers: CSRF, body: JSON.stringify(body) })
+
+		expect(res.status).toBe(202)
+		const payload = await res.json()
+		expect(payload).toEqual({
+			pending: true,
+			sponsored: true,
+			message: "An earlier sponsored operation from this wallet is still pending; wait for it to land before sending again.",
+		})
+		const history = await (await fetch(`${base}/api/wallet/history`)).json()
+		expect(history.txs).toHaveLength(0)
+	})
+
+	it("reports an unconfirmed native send as pending with its tx hash and records it", async () => {
+		const txHash = ("0x" + "cd".repeat(32)) as `0x${string}`
+		const send = vi
+			.fn()
+			.mockRejectedValue(
+				new SubmittedUnconfirmedError("unconfirmed", "EVM-8453", { kind: "tx", txHash, nonce: 4, submittedAt: Date.now() }),
+			)
+		const { base } = await startServer({ send })
+
+		const body = {
+			chain: "EVM-8453",
+			token: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+			amount: "25",
+			to: "0x5b2c3e25243634732eE94525Ae98aEc404c82506",
+		}
+		const res = await fetch(`${base}/api/send`, { method: "POST", headers: CSRF, body: JSON.stringify(body) })
+
+		expect(res.status).toBe(202)
+		const payload = await res.json()
+		expect(payload).toMatchObject({ pending: true, sponsored: false, txHash })
+		// A native tx has a hash to check, so its message keeps the explorer wording.
+		expect(payload.message).toContain("explorer")
+		// The hash is known, so the send is recorded in the wallet history like a confirmed one.
+		const history = await (await fetch(`${base}/api/wallet/history`)).json()
+		expect(history.txs).toMatchObject([{ txHash, sponsored: false, kind: "send" }])
 	})
 
 	it("does not list vault shares among send token options", async () => {

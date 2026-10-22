@@ -8,6 +8,7 @@ import type { Signer } from "./wallet"
 import { hasPaymaster } from "./paymaster"
 import { resolvePendingPermit2Approval } from "./paymaster/provider/simplex"
 import { UserOpSender } from "./UserOpSender"
+import { PendingOpOnNonceError } from "./submission"
 
 /** EIP-7702 delegation indicator prefix */
 const DELEGATION_INDICATOR_PREFIX = "0xef0100"
@@ -316,6 +317,9 @@ export class DelegationService {
 			this.logger.warn({ chain }, "Sponsored delegation unavailable, falling back to direct tx")
 			return false
 		} catch (error) {
+			// An earlier op from this wallet holds the nonce and may still land; it is not an
+			// answer about this one, so the on-chain check below would only send us native.
+			if (error instanceof PendingOpOnNonceError) throw error
 			// The op may have been submitted but not yet confirmed — check on-chain status
 			// rather than blindly re-submitting via a direct tx.
 			this.logger.warn({ chain, error }, "Bundler delegation did not confirm, checking on-chain status")
@@ -455,7 +459,16 @@ export class DelegationService {
 		}
 
 		if (hasPaymaster(chain, this.configService)) {
-			const success = await this.setupDelegationViaBundler(chain, pendingApproval)
+			let success: boolean
+			try {
+				success = await this.setupDelegationViaBundler(chain, pendingApproval)
+			} catch (error) {
+				if (!(error instanceof PendingOpOnNonceError)) throw error
+				// Not now: the pending op may delegate the account, and a direct delegation tx
+				// would race it. The next attempt finds it landed or gone.
+				this.logger.warn({ chain, error }, "A sponsored op is still pending for this wallet; delegation will be retried")
+				return false
+			}
 			if (success) return true
 			this.logger.info({ chain }, "Falling back to direct delegation tx")
 		}

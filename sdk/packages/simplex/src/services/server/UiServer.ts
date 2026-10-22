@@ -40,6 +40,7 @@ import type { LimitOrderController } from "@/simplex"
 import type { BalanceProvider } from "../BalanceProvider"
 import type { BridgeTopUp, TopUpPayToken } from "../BridgeTopUp"
 import { getLogger, type LogLevel } from "../Logger"
+import { PendingOpOnNonceError, SubmittedUnconfirmedError } from "../submission"
 import { DEFAULT_TUNNEL_RELAY, parseRelayAddress, relayKey, type TunnelControls } from "../tunnel/TunnelService"
 import {
 	readBody,
@@ -2026,6 +2027,27 @@ export class UiServer {
 		if (!(Number(body.amount) > 0)) {
 			return sendJson(res, 400, { error: `Invalid amount: ${body.amount}` })
 		}
+		// Narrowed here, once, because the closure below loses the narrowing of `body`.
+		const { chain, token, amount, to } = { chain: body.chain, token: body.token, amount: body.amount, to: body.to }
+		const recordSend = async (txHash: string, sponsored: boolean) => {
+			const symbol =
+				(this.sendTokenOptions(op)[chain] ?? []).find(
+					(option) => option.address.toLowerCase() === token.toLowerCase(),
+				)?.symbol ?? token
+			try {
+				await op.activity.recordWalletTx({
+					kind: "send",
+					chainId: parseChainKey(chain),
+					token: symbol,
+					amount,
+					to,
+					txHash,
+					sponsored,
+				})
+			} catch (err) {
+				this.logger.warn({ err }, "Failed to record send in wallet history")
+			}
+		}
 		try {
 			const result = await op.send({
 				chain: body.chain,
@@ -2034,25 +2056,49 @@ export class UiServer {
 				to: body.to as `0x${string}`,
 			})
 			this.logger.warn({ ...body, ...result }, "Operator send submitted from the UI")
-			const symbol =
-				(this.sendTokenOptions(op)[body.chain] ?? []).find(
-					(option) => option.address.toLowerCase() === body.token!.toLowerCase(),
-				)?.symbol ?? body.token
-			try {
-				await op.activity.recordWalletTx({
-					kind: "send",
-					chainId: parseChainKey(body.chain),
-					token: symbol,
-					amount: body.amount,
-					to: body.to,
-					txHash: result.txHash,
-					sponsored: result.sponsored,
-				})
-			} catch (err) {
-				this.logger.warn({ err }, "Failed to record send in wallet history")
-			}
+			await recordSend(result.txHash, result.sponsored)
 			return sendJson(res, 200, result)
 		} catch (err) {
+			if (err instanceof PendingOpOnNonceError) {
+				// Nothing new was sent: the bundler holds an earlier op from this wallet on the
+				// nonce and refused this one. That op may still land, so this is pending rather
+				// than a failure, and the message tells the operator to wait instead of retrying.
+				this.logger.warn({ ...body }, "Operator send refused: an earlier sponsored op is still pending")
+				return sendJson(res, 202, {
+					pending: true,
+					sponsored: true,
+					message: "An earlier sponsored operation from this wallet is still pending; wait for it to land before sending again.",
+				})
+			}
+			if (err instanceof SubmittedUnconfirmedError) {
+				// The send was broadcast but not confirmed within its wait. Reporting this as a
+				// plain failure invites the operator to click again, which would submit a second
+				// send. Report it as pending with the hash to check instead.
+				const submission = err.submission
+				const sponsored = submission.kind === "userOp"
+				const hash = sponsored ? submission.userOpHash : submission.txHash
+				this.logger.warn({ ...body, sponsored, hash }, "Operator send submitted but not confirmed")
+				// A native tx has a hash from the moment the node accepted it, so it is recorded
+				// like a confirmed send. A sponsored UserOp has none until it lands (WalletTx.txHash
+				// is required), so it gets no row.
+				if (submission.kind === "tx") await recordSend(submission.txHash, false)
+				return sendJson(res, 202, {
+					pending: true,
+					sponsored,
+					...(sponsored ? { userOpHash: hash } : { txHash: hash }),
+					// A sponsored UserOp has no tx hash, so there is nothing to look up on the
+					// explorer and, as the comment above says, no wallet-history row to check. The
+					// evidence that exists is the UserOp hash, which the bundler can be asked about,
+					// and the balances once the op lands. A balance cannot show an op still in the
+					// pool, so the operator waits before looking. A native tx does have a hash, and
+					// its message says to check it before resending.
+					message: sponsored
+						? err.maybeSubmitted
+							? `The bundler did not answer, so the send may have been submitted as UserOp ${hash}. It may still land. Wait a few minutes, then look that UserOp up on the bundler or check the wallet's and the recipient's balance before resending it.`
+							: `The send was submitted to the bundler as UserOp ${hash} but is not confirmed yet. It may still land; wait a few minutes, then look that UserOp up on the bundler or check the wallet's and the recipient's balance before resending it.`
+						: "The send was submitted but is not confirmed yet. Do not resend it until it has been checked on the explorer.",
+				})
+			}
 			return sendJson(res, 400, { error: err instanceof Error ? err.message : String(err) })
 		}
 	}

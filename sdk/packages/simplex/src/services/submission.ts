@@ -15,9 +15,46 @@ export class SubmittedUnconfirmedError extends Error {
 		/** Source state machine id the batch was submitted on, e.g. "EVM-8453". */
 		readonly chain: string,
 		readonly submission: SubmittedUserOp | SubmittedTx,
+		/**
+		 * True when the batch is not known to have been submitted at all: the bundler's answer
+		 * was lost, no lookup found the op, and at least one lookup failed rather than answering
+		 * "unknown op". The calls may or may not be in its pool, so a report must say "may have
+		 * been submitted", not "was submitted".
+		 */
+		readonly maybeSubmitted = false,
 	) {
 		super(message)
 		this.name = "SubmittedUnconfirmedError"
+	}
+}
+
+/**
+ * The bundler refused a new op because an op from the same sender is already pending on that
+ * EntryPoint nonce ("replacement underpriced" or "already known"). Nothing new was submitted, but
+ * the earlier op may still land, so a caller must not read this as a rejection and send the same
+ * calls natively: that would pay for them twice. Retry once the earlier op has landed or expired.
+ *
+ * A PERMIT bootstrap op has no `validUntil`, so one that sits in the pool (rundler's
+ * `max_time_in_pool` is unset by default) refuses every key-0 sponsored op until rundler drops it.
+ * `blockingFees` shows what is in the way when rundler reports it.
+ */
+export class PendingOpOnNonceError extends Error {
+	constructor(
+		message: string,
+		/** Source state machine id the op was meant for, e.g. "EVM-8453". */
+		readonly chain: string,
+		/** The EntryPoint nonce and key the refused op was signed with. */
+		readonly nonce: bigint,
+		readonly nonceKey: bigint,
+		/**
+		 * The fees rundler reported for the op holding the nonce (`currentMaxFee`,
+		 * `currentMaxPriorityFee`, as the hex strings it sent). Absent when the refusal was
+		 * "already known", which carries none.
+		 */
+		readonly blockingFees?: { currentMaxFee?: string; currentMaxPriorityFee?: string },
+	) {
+		super(message)
+		this.name = "PendingOpOnNonceError"
 	}
 }
 

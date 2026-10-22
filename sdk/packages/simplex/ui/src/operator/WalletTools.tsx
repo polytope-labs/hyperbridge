@@ -293,6 +293,39 @@ function describeSweep(result: VaultSweepDto, chainLabel: (id: number | string) 
 	return { tone: "ok", text: "Nothing to sweep — no vault has a sweep threshold configured" }
 }
 
+/**
+ * The `/api/send` response. A confirmed send carries its tx hash; a submission that was
+ * broadcast but not confirmed comes back with `pending` and, for a sponsored UserOp, only its
+ * own hash — no tx hash exists until it lands.
+ */
+type SendResult =
+	| { pending?: false; txHash: string; redeemed: boolean }
+	| { pending: true; sponsored: boolean; txHash?: string; userOpHash?: string; message: string }
+
+function SendHash({ hash, explorerUrl }: { hash?: string; explorerUrl?: string }) {
+	if (!hash) return null
+	if (explorerUrl) {
+		return (
+			<a
+				className="operator-send-tx-link"
+				href={`${explorerUrl}/tx/${hash}`}
+				target="_blank"
+				rel="noreferrer"
+				title={hash}
+				aria-label={`Open transaction ${hash} on the block explorer in a new tab`}
+			>
+				<span className="mono">{hash.slice(0, 18)}…</span>
+				<ExternalLinkIcon aria-hidden="true" />
+			</a>
+		)
+	}
+	return (
+		<span className="mono" title={hash}>
+			{hash.slice(0, 18)}…
+		</span>
+	)
+}
+
 function SendCard(props: {
 	chains: number[]
 	chainLabel: (id: number | string) => string
@@ -305,10 +338,10 @@ function SendCard(props: {
 	const [customToken, setCustomToken] = useState("")
 	const [amount, setAmount] = useState("")
 	const [to, setTo] = useState("")
-	const [result, setResult] = useState<{ txHash: string; redeemed: boolean; explorerUrl?: string }>()
+	const [result, setResult] = useState<(SendResult & { explorerUrl?: string })>()
 	const [sending, setSending] = useState(false)
 	const [review, setReview] = useState<SendSummary>()
-	const { run: act, message, error } = useAction()
+	const { run: act, error } = useAction()
 
 	const selectedChain = chain ?? formatChainKey(props.chains[0] ?? "")
 	const selectedChainId = parseChainKey(selectedChain)
@@ -348,19 +381,22 @@ function SendCard(props: {
 		setSending(true)
 		return act(async () => {
 			try {
-				const res = await api.post<{ txHash: string; redeemed: boolean }>("/api/send", {
+				const res = await api.post<SendResult>("/api/send", {
 					chain: selectedChain,
 					token: tokenAddress,
 					amount: amount.trim(),
 					to: to.trim(),
 				})
 				setResult({ ...res, explorerUrl })
+				// Clear the amount whatever the outcome: a send that came back pending (202) must
+				// not be re-submitted by the next click. `act` gets no "Sent" label here because a
+				// pending response sets `result`, and the success line already renders from it.
 				setAmount("")
 				await props.onSent()
 			} finally {
 				setSending(false)
 			}
-		}, "Sent")
+		})
 	}
 
 	return (
@@ -419,29 +455,28 @@ function SendCard(props: {
 					</button>
 				</div>
 			</div>
-			{result && (
+			{result && !result.pending && (
 				<p className="hint">
 					✓ Sent{result.redeemed && " (topped up from the vault)"} — tx{" "}
-					{result.explorerUrl ? (
-						<a
-							className="operator-send-tx-link"
-							href={`${result.explorerUrl}/tx/${result.txHash}`}
-							target="_blank"
-							rel="noreferrer"
-							title={result.txHash}
-							aria-label={`Open transaction ${result.txHash} on the block explorer in a new tab`}
-						>
-							<span className="mono">{result.txHash.slice(0, 18)}…</span>
-							<ExternalLinkIcon aria-hidden="true" />
-						</a>
-					) : (
-						<span className="mono" title={result.txHash}>
-							{result.txHash.slice(0, 18)}…
-						</span>
+					<SendHash hash={result.txHash} explorerUrl={result.explorerUrl} />
+				</p>
+			)}
+			{result?.pending && (
+				// A pending send is not a success, and its message is worded by the server for the
+				// sponsored (no tx hash) or native case. The hash is shown only when there is one.
+				<p className="warning">
+					⚠ {result.message}
+					{(result.txHash ?? result.userOpHash) && (
+						<>
+							{" — "}
+							<SendHash
+								hash={result.txHash ?? result.userOpHash}
+								explorerUrl={result.txHash ? result.explorerUrl : undefined}
+							/>
+						</>
 					)}
 				</p>
 			)}
-			{message && !result && <p className="hint">✓ {message}</p>}
 			{error && <p className="error">{error}</p>}
 			{review && (
 				<SendConfirmDialog

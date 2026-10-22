@@ -1,9 +1,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest"
 import { toHex } from "viem"
-import { rundlerUserOperationFees, type HexString } from "@hyperbridge/sdk"
+import { CryptoUtils, rundlerUserOperationFees, type HexString } from "@hyperbridge/sdk"
 
-import { UserOpSender, type Eip7702Authorization } from "@/services/UserOpSender"
-import { SubmittedUnconfirmedError } from "@/services/submission"
+import { UserOpSender, type Eip7702Authorization, type SponsoredUserOpRequest } from "@/services/UserOpSender"
+import { PendingOpOnNonceError, SubmittedUnconfirmedError } from "@/services/submission"
 import { buildPaymasterAndData } from "@/services/paymaster"
 import { packPaymasterAndData, VERIFICATION_GAS_LIMIT_PERMIT2, POST_OP_GAS_LIMIT_SIMPLEX } from "@/services/paymaster/types"
 import type { ChainClientManager } from "@/services/ChainClientManager"
@@ -73,7 +73,7 @@ const permit2ModePaymasterAndData = packPaymasterAndData({
 	paymasterPostOpGasLimit: POST_OP_GAS_LIMIT_SIMPLEX,
 })
 
-let bundlerCalls: Array<{ method: string; params: unknown[] }>
+let bundlerCalls: Array<{ method: string; params: unknown[]; signal?: AbortSignal }>
 let bundlerReplies: Record<string, { result?: unknown; error?: unknown }>
 
 beforeEach(() => {
@@ -81,9 +81,9 @@ beforeEach(() => {
 	bundlerReplies = {}
 	vi.mocked(buildPaymasterAndData).mockReset()
 	vi.mocked(rundlerUserOperationFees).mockClear()
-	vi.stubGlobal("fetch", async (_url: unknown, init?: { body?: string }) => {
+	vi.stubGlobal("fetch", async (_url: unknown, init?: { body?: string; signal?: AbortSignal }) => {
 		const { method, params } = JSON.parse(init?.body ?? "{}") as { method: string; params: unknown[] }
-		bundlerCalls.push({ method, params })
+		bundlerCalls.push({ method, params, signal: init?.signal })
 		const reply = bundlerReplies[method]
 		if (reply) return { json: async () => ({ jsonrpc: "2.0", id: 1, ...reply }) }
 		let result: unknown
@@ -222,6 +222,10 @@ describe("UserOpSender gas price", () => {
 	const rundlerCalls = () => bundlerCalls.filter((c) => c.method.startsWith("rundler_")).map((c) => c.method)
 	const METHOD_NOT_FOUND = { error: { code: -32601, message: "Method not found" } }
 
+	afterEach(() => {
+		vi.useRealTimers()
+	})
+
 	it("prices a rundler bundler from the fees it suggests, raised by the bumps", async () => {
 		bundlerReplies.rundler_getUserOperationGasPrice = {
 			result: { suggested: { maxPriorityFeePerGas: toHex(2_000_000_000n), maxFeePerGas: toHex(5_000_000_000n) } },
@@ -245,6 +249,22 @@ describe("UserOpSender gas price", () => {
 
 		const fees = { maxPriorityFeePerGas: 32_400_000_000n, maxFeePerGas: 990_000_000n + 32_400_000_000n }
 		expect(sentFees()).toEqual([fees])
+	})
+
+	it("gives up on a bundler that never answers the fee lookup, before anything is sent", async () => {
+		vi.stubGlobal("fetch", (_url: unknown, init?: { body?: string }) => {
+			const { method } = JSON.parse(init?.body ?? "{}") as { method: string }
+			bundlerCalls.push({ method, params: [] })
+			return new Promise(() => {})
+		})
+		vi.useFakeTimers()
+
+		const promise = sponsorWith("http://hung-fees.test/bundler")
+		await vi.advanceTimersByTimeAsync(10_000)
+
+		// Never submitted, so the caller may fall back.
+		await expect(promise).resolves.toBeNull()
+		expect(bundlerCalls.map((c) => c.method)).toEqual(["rundler_getUserOperationGasPrice"])
 	})
 
 	it("keeps the chain estimate and stops asking when the bundler does not serve rundler fees", async () => {
@@ -346,5 +366,322 @@ describe("UserOpSender submitted but unconfirmed", () => {
 		await expect(lookup(configServiceFor(undefined as unknown as string))).rejects.toThrow(
 			`No bundler is configured for ${CHAIN}`,
 		)
+	})
+})
+
+/**
+ * A lost `eth_sendUserOperation` response must never be read as "never submitted": the op may
+ * have been accepted, and a native fallback would execute the same calls twice. These cover the
+ * three outcomes of that decision — rejected, unreachable, and ambiguous (recovered or not).
+ */
+describe("UserOpSender ambiguous send outcome", () => {
+	const HTML_PAGE = Symbol("html-page")
+	const USER_OP_HASH = `0x${"ab".repeat(32)}` as HexString
+
+	const sponsorWith = (bundlerUrl: string, extra?: Partial<SponsoredUserOpRequest>) => {
+		vi.mocked(buildPaymasterAndData).mockResolvedValue({
+			paymasterAndData: permit2ModePaymasterAndData,
+			type: "simplex",
+			address: PAYMASTER,
+			token: TOKEN,
+		})
+		const sender = new UserOpSender(clientManager, configServiceFor(bundlerUrl), signer)
+		return sender.trySendSponsored({ chain: CHAIN, callData: "0x" as HexString, gas: GAS, ...extra })
+	}
+
+	/**
+	 * A fetch that answers each method from `byMethod`. A method absent from the map is a
+	 * JSON-RPC "method not found"; `{ error }`/`{ result }` are returned with HTTP 200 unless a
+	 * numeric `status` rides along, an `Error` value is rejected (a connect-phase failure or an
+	 * abort), and `HTML_PAGE` returns a non-JSON 504 body.
+	 */
+	const stubBundler = (byMethod: Record<string, unknown>) => {
+		vi.stubGlobal("fetch", async (_url: unknown, init?: { body?: string; signal?: AbortSignal }) => {
+			const { method, params } = JSON.parse(init?.body ?? "{}") as { method: string; params: unknown[] }
+			bundlerCalls.push({ method, params, signal: init?.signal })
+			const reply = byMethod[method]
+			if (reply === undefined) {
+				return { status: 404, json: async () => ({ jsonrpc: "2.0", id: 1, error: { code: -32601 } }) }
+			}
+			if (reply === HTML_PAGE) {
+				return {
+					status: 504,
+					json: async () => {
+						throw new SyntaxError("Unexpected token '<'")
+					},
+				}
+			}
+			if (reply instanceof Error) throw reply
+			const { status, ...body } = reply as { status?: number } & object
+			return { status: status ?? 200, json: async () => ({ jsonrpc: "2.0", id: 1, ...body }) }
+		})
+	}
+
+	/** Skips `findSubmittedOp`'s 2 s / 5 s / 10 s waits without sleeping in real time. */
+	const drainLookups = async () => {
+		for (const delay of [2_000, 5_000, 10_000]) await vi.advanceTimersByTimeAsync(delay)
+	}
+
+	/** Rebuilds the signed packed op from the bundler form of it (an inverse of `prepareBundlerCall`). */
+	const packedFromBundler = (op: Record<string, string>) => ({
+		sender: op.sender as HexString,
+		nonce: BigInt(op.nonce),
+		initCode: "0x" as HexString,
+		callData: op.callData as HexString,
+		accountGasLimits: CryptoUtils.packGasLimits(BigInt(op.verificationGasLimit), BigInt(op.callGasLimit)),
+		preVerificationGas: BigInt(op.preVerificationGas),
+		gasFees: CryptoUtils.packGasFees(BigInt(op.maxPriorityFeePerGas), BigInt(op.maxFeePerGas)),
+		paymasterAndData: `0x${[
+			op.paymaster.slice(2),
+			BigInt(op.paymasterVerificationGasLimit).toString(16).padStart(32, "0"),
+			BigInt(op.paymasterPostOpGasLimit).toString(16).padStart(32, "0"),
+			op.paymasterData.slice(2),
+		].join("")}` as HexString,
+		signature: op.signature as HexString,
+	})
+
+	afterEach(() => {
+		vi.useRealTimers()
+	})
+
+	it("returns null when the bundler answers with a JSON-RPC error", async () => {
+		stubBundler({ eth_sendUserOperation: { error: { code: -32500, message: "userop rejected" } } })
+
+		await expect(sponsorWith("http://ambig-reject.test/bundler")).resolves.toBeNull()
+		expect(bundlerCalls.some((c) => c.method === "eth_getUserOperationByHash")).toBe(false)
+	})
+
+	it("throws PendingOpOnNonceError, not null, for a -32602 replacement-underpriced answer", async () => {
+		stubBundler({
+			eth_sendUserOperation: {
+				error: {
+					code: -32602,
+					message: "replacement underpriced",
+					data: { currentMaxPriorityFee: "0x3b9aca00", currentMaxFee: "0x77359400" },
+				},
+			},
+		})
+
+		const error = await sponsorWith("http://pending-replacement.test/bundler").catch((err) => err)
+
+		expect(error).toBeInstanceOf(PendingOpOnNonceError)
+		expect(error).toMatchObject({ chain: CHAIN, nonce: 0n, nonceKey: 0n })
+		// The fees of the op in the way travel with the error so an operator can see what blocks.
+		expect(error.blockingFees).toEqual({ currentMaxFee: "0x77359400", currentMaxPriorityFee: "0x3b9aca00" })
+		expect(error.message).toContain("0x77359400")
+		expect(bundlerCalls.some((c) => c.method === "eth_getUserOperationByHash")).toBe(false)
+	})
+
+	it("throws PendingOpOnNonceError for a -32602 whose data carries only one replacement field", async () => {
+		stubBundler({ eth_sendUserOperation: { error: { code: -32602, message: "bad", data: { currentMaxFee: "0x1" } } } })
+
+		await expect(sponsorWith("http://pending-data.test/bundler")).rejects.toBeInstanceOf(PendingOpOnNonceError)
+	})
+
+	it("throws PendingOpOnNonceError for a -32602 'already known' answer", async () => {
+		stubBundler({ eth_sendUserOperation: { error: { code: -32602, message: "already known" } } })
+
+		const error = await sponsorWith("http://pending-known.test/bundler").catch((err) => err)
+
+		expect(error).toBeInstanceOf(PendingOpOnNonceError)
+		// "already known" carries no fee data.
+		expect(error.blockingFees).toBeUndefined()
+	})
+
+	it("still returns null for a plain -32602 invalid-params rejection", async () => {
+		stubBundler({ eth_sendUserOperation: { error: { code: -32602, message: "invalid params: missing sender" } } })
+
+		await expect(sponsorWith("http://invalid-params.test/bundler")).resolves.toBeNull()
+		expect(bundlerCalls.some((c) => c.method === "eth_getUserOperationByHash")).toBe(false)
+	})
+
+	it("does not read 'already known' under another code as a pending op", async () => {
+		stubBundler({ eth_sendUserOperation: { error: { code: -32500, message: "already known" } } })
+
+		await expect(sponsorWith("http://known-other-code.test/bundler")).resolves.toBeNull()
+	})
+
+	it("returns null when the connection cannot be established (nothing was sent)", async () => {
+		const refused = Object.assign(new TypeError("fetch failed"), { cause: { code: "ECONNREFUSED" } })
+		stubBundler({ eth_sendUserOperation: refused })
+
+		await expect(sponsorWith("http://ambig-refused.test/bundler")).resolves.toBeNull()
+		expect(bundlerCalls.some((c) => c.method === "eth_getUserOperationByHash")).toBe(false)
+	})
+
+	it("a 504 HTML body, then a by-hash hit, then a receipt: resolves with the tx hash", async () => {
+		const txHash = `0x${"cd".repeat(32)}` as HexString
+		stubBundler({
+			eth_sendUserOperation: HTML_PAGE,
+			eth_getUserOperationByHash: { result: { userOpHash: USER_OP_HASH } },
+			eth_getUserOperationReceipt: { result: { success: true, receipt: { transactionHash: txHash } } },
+		})
+		vi.useFakeTimers()
+
+		const promise = sponsorWith("http://ambig-recovered.test/bundler")
+		await drainLookups()
+
+		await expect(promise).resolves.toMatchObject({ txHash })
+		expect(bundlerCalls.filter((c) => c.method === "eth_getUserOperationByHash")).toHaveLength(1)
+	})
+
+	it("a 504, then by-hash null on every attempt: returns null (never entered the pool)", async () => {
+		stubBundler({ eth_sendUserOperation: HTML_PAGE, eth_getUserOperationByHash: { result: null } })
+		vi.useFakeTimers()
+
+		const promise = sponsorWith("http://ambig-absent.test/bundler")
+		await drainLookups()
+
+		await expect(promise).resolves.toBeNull()
+		expect(bundlerCalls.filter((c) => c.method === "eth_getUserOperationByHash")).toHaveLength(3)
+	})
+
+	it("a timeout, then failing lookups too: throws SubmittedUnconfirmedError carrying the local hash", async () => {
+		const timeout = Object.assign(new Error("This operation was aborted"), { name: "TimeoutError" })
+		const reset = Object.assign(new Error("socket closed"), { cause: { code: "ECONNRESET" } })
+		stubBundler({ eth_sendUserOperation: timeout, eth_getUserOperationByHash: reset })
+		vi.useFakeTimers()
+
+		const promise = sponsorWith("http://ambig-unknown.test/bundler").catch((err) => err)
+		await drainLookups()
+		const error = await promise
+
+		expect(error).toBeInstanceOf(SubmittedUnconfirmedError)
+		// Nothing proves the op reached the bundler, so the report must say "may have".
+		expect(error.maybeSubmitted).toBe(true)
+		expect(error.message).toContain("the bundler's answer was lost and the op could not be looked up")
+		expect(error.submission).toMatchObject({ kind: "userOp", nonce: 0n, nonceKey: 0n, expires: true })
+		expect(error.submission.submittedAt).toBeTypeOf("number")
+
+		const [lookup] = bundlerCalls.filter((c) => c.method === "eth_getUserOperationByHash")[0].params as [HexString]
+		expect(error.submission.userOpHash).toBe(lookup)
+	})
+
+	it("the local hash is the EntryPoint hash of the op the bundler received", async () => {
+		const timeout = Object.assign(new Error("This operation was aborted"), { name: "TimeoutError" })
+		const reset = Object.assign(new Error("socket closed"), { cause: { code: "ECONNRESET" } })
+		stubBundler({ eth_sendUserOperation: timeout, eth_getUserOperationByHash: reset })
+		vi.useFakeTimers()
+
+		const promise = sponsorWith("http://ambig-hash.test/bundler").catch((err) => err)
+		await drainLookups()
+		const error = await promise
+
+		const [sentOp] = bundlerCalls.filter((c) => c.method === "eth_sendUserOperation")[0].params as [
+			Record<string, string>,
+		]
+		const expected = CryptoUtils.computeUserOpHash(packedFromBundler(sentOp), ENTRY_POINT, BigInt(CHAIN_ID))
+		expect(error.submission.userOpHash).toBe(expected)
+	})
+
+	it("recovers the hash of a 7702-auth op too, which does not change initCode", async () => {
+		const reset = Object.assign(new Error("socket closed"), { cause: { code: "ECONNRESET" } })
+		stubBundler({ eth_sendUserOperation: reset, eth_getUserOperationByHash: reset })
+		vi.useFakeTimers()
+
+		const promise = sponsorWith("http://ambig-auth.test/bundler", {
+			eip7702Auth: async () => ({
+				chainId: CHAIN_ID,
+				address: DELEGATE,
+				nonce: 1,
+				r: `0x${"22".repeat(32)}` as HexString,
+				s: `0x${"33".repeat(32)}` as HexString,
+				yParity: 0,
+			}),
+		}).catch((err) => err)
+		await drainLookups()
+		const error = await promise
+
+		const [sentOp] = bundlerCalls.filter((c) => c.method === "eth_sendUserOperation")[0].params as [
+			Record<string, string>,
+		]
+		// The authorization rides beside the op, not in it, so `initCode` stays 0x and the hash is
+		// computed from the op alone.
+		expect(sentOp.eip7702Auth).toBeDefined()
+		expect(error.submission.userOpHash).toBe(
+			CryptoUtils.computeUserOpHash(packedFromBundler(sentOp), ENTRY_POINT, BigInt(CHAIN_ID)),
+		)
+	})
+
+	it("bounds the send with an AbortSignal", async () => {
+		stubBundler({ eth_sendUserOperation: { error: { code: -32500, message: "rejected" } } })
+
+		await sponsorWith("http://ambig-signal.test/bundler")
+
+		const send = bundlerCalls.find((c) => c.method === "eth_sendUserOperation")!
+		expect(send.signal).toBeInstanceOf(AbortSignal)
+	})
+
+	it("treats a proxy's JSON 502 as ambiguous and looks the op up", async () => {
+		const txHash = `0x${"cd".repeat(32)}` as HexString
+		stubBundler({
+			eth_sendUserOperation: { status: 502, error: { code: 504, message: "upstream timed out" } },
+			eth_getUserOperationByHash: { result: { userOpHash: USER_OP_HASH } },
+			eth_getUserOperationReceipt: { result: { success: true, receipt: { transactionHash: txHash } } },
+		})
+		vi.useFakeTimers()
+
+		const promise = sponsorWith("http://ambig-502.test/bundler")
+		await drainLookups()
+
+		await expect(promise).resolves.toMatchObject({ txHash })
+		expect(bundlerCalls.filter((c) => c.method === "eth_getUserOperationByHash")).toHaveLength(1)
+	})
+
+	it("treats rundler's -32603 internal error as ambiguous and looks the op up", async () => {
+		stubBundler({
+			eth_sendUserOperation: { error: { code: -32603, message: "internal error" } },
+			eth_getUserOperationByHash: { result: null },
+		})
+		vi.useFakeTimers()
+
+		const promise = sponsorWith("http://ambig-32603.test/bundler")
+		await drainLookups()
+
+		await expect(promise).resolves.toBeNull()
+		expect(bundlerCalls.filter((c) => c.method === "eth_getUserOperationByHash")).toHaveLength(3)
+	})
+
+	it.each([
+		["-32602", -32602],
+		["-32500", -32500],
+	])("treats a 200 with %s as a definite rejection", async (_label, code) => {
+		stubBundler({ eth_sendUserOperation: { error: { code, message: "rejected" } } })
+
+		await expect(sponsorWith(`http://ambig-code-${code}.test/bundler`)).resolves.toBeNull()
+		expect(bundlerCalls.some((c) => c.method === "eth_getUserOperationByHash")).toBe(false)
+	})
+
+	it("a found op with no receipt by the deadline: throws SubmittedUnconfirmedError from the local hash", async () => {
+		const reset = Object.assign(new Error("socket closed"), { cause: { code: "ECONNRESET" } })
+		stubBundler({
+			eth_sendUserOperation: reset,
+			// The bundler answers that it holds the op, but the receipt never appears.
+			eth_getUserOperationByHash: { result: { userOpHash: USER_OP_HASH } },
+			eth_getUserOperationReceipt: { result: null },
+		})
+		vi.useFakeTimers()
+
+		const promise = sponsorWith("http://ambig-found-noreceipt.test/bundler").catch((err) => err)
+		await drainLookups()
+		await vi.advanceTimersByTimeAsync(95_000)
+		const error = await promise
+
+		expect(error).toBeInstanceOf(SubmittedUnconfirmedError)
+		// The bundler confirmed it holds the op, so this one is submitted, not "maybe".
+		expect(error.maybeSubmitted).toBe(false)
+		expect(error.chain).toBe(CHAIN)
+		const [sentOp] = bundlerCalls.filter((c) => c.method === "eth_sendUserOperation")[0].params as [
+			Record<string, string>,
+		]
+		// The local hash, not the different hash the by-hash reply carried.
+		expect(error.submission).toMatchObject({
+			kind: "userOp",
+			nonce: 0n,
+			nonceKey: 0n,
+			expires: true,
+			userOpHash: CryptoUtils.computeUserOpHash(packedFromBundler(sentOp), ENTRY_POINT, BigInt(CHAIN_ID)),
+		})
+		expect(error.submission.userOpHash).not.toBe(USER_OP_HASH)
 	})
 })

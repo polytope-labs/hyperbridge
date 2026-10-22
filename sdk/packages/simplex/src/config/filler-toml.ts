@@ -278,6 +278,50 @@ export function validateVaultToml(
 }
 
 /**
+ * The one check every way of setting rebalancing goes through: the TOML at boot, the library's
+ * `RebalanceController.set`, and the UI's PUT. With no `triggerPercentage` rebalancing is switched
+ * off (boot starts the service only when one is set), so base balances alone are inert and are not
+ * checked. Otherwise the threshold is `base × (1 − p)`: a trigger of 0 fires whenever a balance is
+ * at or below its base, 1 fires only at a zero balance, above 1 never fires, and NaN fails every
+ * comparison, so each would run away with rebalancing or quietly disable it. A string that parses
+ * to a finite number (`"0.5"`) is judged by the same rule, since the service coerces it. A negative or
+ * unparseable base would turn the threshold negative or NaN the same way. A base of `0` or `"0"` is
+ * finite and not negative, so it passes (`FillerConfigService.getBaseBalance` skips a bare 0 as not
+ * configured). Base balances are parsed with `parseFloat`, as `getBaseBalance` reads them.
+ */
+export function validateRebalancingConfig(rebalancing: RebalancingConfig): void {
+	const trigger: unknown = rebalancing.triggerPercentage
+	if (trigger === undefined) return
+	// A quoted number boots: the threshold is `base * (1 - p)`, which coerces a string, so it is
+	// judged by what it parses to.
+	const parsed = typeof trigger === "string" ? Number(trigger) : trigger
+	if (typeof parsed !== "number" || !Number.isFinite(parsed) || parsed <= 0 || parsed >= 1) {
+		throw new Error(
+			`rebalancing.triggerPercentage must be a number between 0 and 1 (exclusive); got ${describeValue(trigger)}`,
+		)
+	}
+	for (const asset of ["USDC", "USDT"] as const) {
+		for (const [chainId, amount] of Object.entries(rebalancing.baseBalances?.[asset] ?? {}) as [string, unknown][]) {
+			// A base balance is written as a string; parseFloat also takes a bare TOML number.
+			const parsed =
+				typeof amount === "string" || typeof amount === "number" ? Number.parseFloat(String(amount)) : Number.NaN
+			if (!Number.isFinite(parsed) || parsed < 0) {
+				throw new Error(
+					`rebalancing.baseBalances.${asset} for chain ${chainId} must be a number >= 0; got ${describeValue(amount)}`,
+				)
+			}
+		}
+	}
+}
+
+/** A config value as an error message should show it: its type when it is not a number. */
+function describeValue(value: unknown): string {
+	if (typeof value === "number") return String(value)
+	if (typeof value === "string") return `the string ${JSON.stringify(value)}`
+	return value === null ? "null" : typeof value
+}
+
+/**
  * Checked at the gate rather than at first use: a misconfigured orderbook means
  * every limit order the operator creates is refused, and a
  * TTL under the orderbook's own floor is refused one order at a time with a
@@ -385,6 +429,10 @@ export function validateConfig(config: FillerTomlConfig, cliWatchOnly = false): 
 
 	if (config.vault?.vaults?.length) {
 		validateVaultToml(config.vault.vaults)
+	}
+
+	if (config.rebalancing) {
+		validateRebalancingConfig(config.rebalancing)
 	}
 
 	// Simplex prices from the operator's limit orders and those live on the

@@ -6,7 +6,7 @@ This document defines how rebalancing should work for USDC and USDT balances acr
 
 - **Trigger percentage**
 
-    - A single global `triggerPercentage` \(p\), between 0 and 1.
+    - A single global `triggerPercentage` \(p\), strictly between 0 and 1. Every base balance must parse to a number >= 0. `validateRebalancingConfig` enforces both at boot, in `RebalanceController.set` and on `PUT /api/rebalancing`. Without a `triggerPercentage` rebalancing is off, and base balances are not checked.
     - Example: `0.5` means trigger when a balance falls to 50% of its base or lower.
 
 - **Per-chain, per-asset base balances**
@@ -124,8 +124,21 @@ Goal: satisfy all external deficits using the **fewest number of transfers**.
             - `USDT0` for USDT where supported on both chains.
             - Binance CEX as a fallback when needed.
 
-- Transfers for a given rebalance run may be executed in parallel
-  (e.g. with `Promise.all`), because they are independent.
+- Every transfer is sent from the one filler EOA, with no nonce manager, so two transfers that
+  send transactions on the same chain must not run at once. Each chain is a lane: a transfer
+  waits for the previous transfer on every chain it sends on, and transfers that share no chain
+  run in parallel.
+    - Every route sends from the source chain.
+    - CCTP also sends on the destination: BridgeKit's mint (`receiveMessage`) goes out from the
+      same EOA.
+    - USDT0 (delivered by LayerZero) and Binance CEX (withdrawn by Binance) send nothing from us
+      on the destination.
+    - A lane is held for the whole leg, not only while a transaction is being sent: for CCTP the
+      burn, the attestation wait and the mint; for Binance the deposit's credit and the
+      withdrawal; for USDT0 the wait for delivery. A slow leg delays every later leg that shares
+      one of its chains.
+    - Lanes serialise rebalance legs only. Other senders from the same EOA (fills, vault sweeps,
+      top-ups, operator sends) do not take them and still share the wallet's nonce.
 
 ### 7. Error Handling and Edge Cases
 

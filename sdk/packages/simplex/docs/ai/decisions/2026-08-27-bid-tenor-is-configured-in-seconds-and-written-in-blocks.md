@@ -16,7 +16,14 @@ viem's nominal `Chain.blockTime` is not enough on its own. It goes stale when a 
 and makes a block every 0.45s) and some chains declare none (BSC Chapel at 0.45s and Polygon Amoy at 1s, which fell to
 a 2s guess), and converting at too slow a block time ends the bid early: 600 configured seconds lasted about 142 on
 Chapel. Where a chain declares a figure, the faster of the two is used, so a stalled stretch inside the sample cannot
-shorten a bid either. Blocks that cannot be read fall back to the declared figure, then to 2s. That answer is not
+shorten a bid either. Because the figure is kept for the life of the process, a measurement below half the declared
+figure is discarded and logged, and the declared figure is used. This limits how far one endpoint serving bad timestamps
+can stretch every bid on that chain to twice its window, for as long as simplex runs, rather than ruling it out. A chain
+that declares none has no reference to judge a sample against, and holding it to a fraction of the 2s fallback would
+throw away the real measurement of a fast chain (BSC Chapel at 0.45s) and end its bids early, so it only gets a flat
+0.1s floor: a measurement is taken as measured above it and replaced by the 2s fallback below it. The half-of-declared
+bound does not apply to those chains (Pharos and Polkadot Hub are two more that declare none).
+Blocks that cannot be read fall back to the declared figure, then to 2s. That answer is not
 kept: a chain left unmeasured at startup, or added afterwards, is measured at its first bid.
 
 300 seconds is chosen to cover the quote-to-fill path and little more: cross-chain confirmation waits reach roughly

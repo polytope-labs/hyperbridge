@@ -1,6 +1,12 @@
 import { FXFiller } from "@/strategies/fx"
 import { AssetRegistry } from "@/config/asset-registry"
-import { bytes20ToBytes32, type HexString, type Order, type TokenInfo } from "@hyperbridge/sdk"
+import {
+	bytes20ToBytes32,
+	SUPPORTED_INTENTS_VERSION,
+	type HexString,
+	type Order,
+	type TokenInfo,
+} from "@hyperbridge/sdk"
 import { describe, it, expect, vi } from "vitest"
 import { parseUnits } from "viem"
 import type { LimitOrderStore } from "@/data/types"
@@ -20,6 +26,7 @@ const CHAIN = "EVM-97"
 const STABLE = "0x1111111111111111111111111111111111111111" as HexString
 const EXOTIC = "0x2222222222222222222222222222222222222222" as HexString
 const SOLVER = "0x3333333333333333333333333333333333333333" as HexString
+const GATEWAY = "0x4444444444444444444444444444444444444444" as HexString
 
 // 100 in; the order asks for 149,000 EXOTIC (rate 1490, below the limit order's
 // 1500), so what the operator offers strictly exceeds the ask.
@@ -37,6 +44,7 @@ const configService = {
 	// The partial-fill floor is a separate concern with its own suite; these
 	// payout-mechanics cases must bid whatever their small payouts size.
 	getMinPartialFillUsd: () => 0,
+	getIntentGatewayAddress: () => GATEWAY,
 } as any
 
 /**
@@ -97,13 +105,17 @@ function makeEvalContractService(
 	}
 }
 
-/** Public client stub: balances by lowercase token address, everything else static. */
-function makeClientManager(balances: Record<string, bigint>): any {
+/**
+ * Public client stub: balances by lowercase token address, everything else static. Every
+ * gateway reports `gatewayRelease` from `version()`, the current release unless a case says.
+ */
+function makeClientManager(balances: Record<string, bigint>, gatewayRelease = SUPPORTED_INTENTS_VERSION): any {
 	const client = {
 		chain: { blockTime: 2000 },
 		getBlock: async () => ({ number: 100n, timestamp: 1_000_000n }),
 		getBalance: async () => 0n,
-		readContract: async ({ address }: { address: string }) => balances[address.toLowerCase()] ?? 0n,
+		readContract: async ({ address, functionName }: { address: string; functionName: string }) =>
+			functionName === "version" && address === GATEWAY ? gatewayRelease : (balances[address.toLowerCase()] ?? 0n),
 	}
 	return { getPublicClient: () => client }
 }
@@ -121,6 +133,8 @@ async function makeFiller(options: {
 	logged?: { message: string; fields: Record<string, unknown> }[]
 	/** Funding venues the payout may withdraw a shortfall from. */
 	fundingVenues?: FundingVenue[]
+	/** The release every gateway reports. */
+	gatewayRelease?: bigint
 }): Promise<FXFiller> {
 	const record = (fields: Record<string, unknown>, message: string) => options.logged?.push({ message, fields })
 	const logger = { trace: record, debug: record, info: record, warn: record, error: record, fatal: record }
@@ -129,7 +143,7 @@ async function makeFiller(options: {
 	return new FXFiller(
 		signer,
 		options.logged ? { ...configService, loggers: { get: () => logger } } : configService,
-		makeClientManager(options.balances),
+		makeClientManager(options.balances, options.gatewayRelease),
 		options.contractService,
 		registry,
 		{
@@ -315,6 +329,28 @@ describe("FXFiller limit order payout", () => {
 
 		expect(contractService.outputs.get("payout-cross")![0].amount).toBe(parseUnits("60000", 18))
 		expect(contractService.partials.get("payout-cross")).toBe(true)
+	})
+
+	it("skips a cross-chain under-fill when the source gateway runs an older release", async () => {
+		// The under-fill is settled on the source by `RedeemEscrowPartial`; a release that does
+		// not handle it would leave the escrow unreleased after the payout went out.
+		const contractService = makeEvalContractService()
+		const logged: { message: string; fields: Record<string, unknown> }[] = []
+		const filler = await makeFiller({
+			contractService,
+			balances: { [EXOTIC.toLowerCase()]: parseUnits("1000000", 18) },
+			offering: "60000",
+			gatewayRelease: SUPPORTED_INTENTS_VERSION - 1n,
+			logged,
+		})
+
+		await filler.calculateProfitability(makeOrder("payout-cross-old", "EVM-1"))
+
+		expect(contractService.outputs.get("payout-cross-old")).toBeUndefined()
+		expect(contractService.plans.get("payout-cross-old") ?? []).toHaveLength(0)
+		expect(logged.map((line) => line.message)).toContain(
+			"Skipping a cross-chain partial fill: the source gateway's release could not be confirmed",
+		)
 	})
 
 	it("still fills fully when the wallet holds less than the offer but more than the ask", async () => {

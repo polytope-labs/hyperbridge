@@ -128,14 +128,39 @@ describe("bidValidUntilBlock", () => {
 	})
 
 	it("measures a chain that declares no block time", async () => {
-		// BSC Chapel at 0.45s and Polygon Amoy at 1s, neither with a declared figure.
-		await expect(service(undefined, 300, 0.45)).resolves.toBe(HEAD + 734n)
+		// Polygon Amoy at 1s and a slower chain at 1.5s, neither with a declared figure.
 		await expect(service(undefined, 300, 1)).resolves.toBe(HEAD + 330n)
+		await expect(service(undefined, 300, 1.5)).resolves.toBe(HEAD + 220n)
 	})
 
 	it("keeps the declared block time when the sample ran slower", async () => {
 		// A stall in the last 1,000 blocks must not shorten the bid once the chain recovers.
 		await expect(service(2000, 300, 3)).resolves.toBe(HEAD + 165n)
+	})
+
+	it("discards a measurement below half the declared block time", async () => {
+		// Ethereum declares 12s; a sample claiming 3.01s blocks would stretch a 330s window from
+		// 28 blocks to 110 (about 22 minutes). The declared figure stands: 28 blocks.
+		await expect(service(12000, 300, 1)).resolves.toBe(HEAD + 28n)
+		await expect(service(12000, 300, 3.01)).resolves.toBe(HEAD + 28n)
+		await expect(service(12000, 300, 5.9)).resolves.toBe(HEAD + 28n)
+		// Half the declared figure (6s against 12s) is still taken as a faster chain, so one RPC
+		// can stretch the window to twice its length and no further.
+		await expect(service(12000, 300, 6)).resolves.toBe(HEAD + 55n)
+	})
+
+	it("takes a fast chain that declares no block time as measured", async () => {
+		// BSC Chapel declares nothing and makes a block every 0.45s: 330s is 733.33 blocks, not 165.
+		await expect(service(undefined, 300, 0.45)).resolves.toBe(HEAD + 734n)
+		// At the floor it is taken as measured.
+		await expect(service(undefined, 300, 0.1)).resolves.toBe(HEAD + 3300n)
+	})
+
+	it("discards an implausibly fast measurement on a chain that declares no block time", async () => {
+		// 0.05s and 0.01s blocks fall under the flat 0.1s floor and are replaced by the 2s
+		// fallback: 0.01s would turn 330s into 33,000 blocks.
+		await expect(service(undefined, 300, 0.05)).resolves.toBe(HEAD + 165n)
+		await expect(service(undefined, 300, 0.01)).resolves.toBe(HEAD + 165n)
 	})
 
 	it("samples the last 1,000 blocks", async () => {
@@ -146,7 +171,7 @@ describe("bidValidUntilBlock", () => {
 	})
 
 	it("measures every configured chain when simplex starts, and not again at a bid", async () => {
-		const { svc, validUntil, getBlock } = setup(undefined, 300, 0.45, { chains: [97, 80002] })
+		const { svc, validUntil, getBlock } = setup(750, 300, 0.45, { chains: [97, 80002] })
 		await svc.initCache()
 		expect(getBlock).toHaveBeenCalledTimes(4)
 
@@ -159,7 +184,7 @@ describe("bidValidUntilBlock", () => {
 	it("keeps the startup figure for as long as simplex runs", async () => {
 		vi.useFakeTimers()
 		try {
-			const { svc, validUntil, getBlock } = setup(undefined, 300, 0.45, { chains: [97] })
+			const { svc, validUntil, getBlock } = setup(750, 300, 0.45, { chains: [97] })
 			await svc.initCache()
 
 			vi.advanceTimersByTime(7 * 24 * 60 * 60 * 1000)
@@ -172,7 +197,7 @@ describe("bidValidUntilBlock", () => {
 	})
 
 	it("measures a chain that was not there at startup once, at its first bid", async () => {
-		const { validUntil, getBlock } = setup(undefined, 300, 0.45)
+		const { validUntil, getBlock } = setup(750, 300, 0.45)
 		expect(getBlock).not.toHaveBeenCalled()
 
 		await expect(Promise.all([validUntil(), validUntil()])).resolves.toEqual([HEAD + 734n, HEAD + 734n])
@@ -182,7 +207,7 @@ describe("bidValidUntilBlock", () => {
 	})
 
 	it("measures each chain separately", async () => {
-		const { validUntil, getBlock } = setup(undefined, 300, 0.45)
+		const { validUntil, getBlock } = setup(750, 300, 0.45)
 
 		await validUntil("EVM-97")
 		await validUntil("EVM-80002")
@@ -199,7 +224,7 @@ describe("bidValidUntilBlock", () => {
 	})
 
 	it("measures at the first bid when the blocks could not be read at startup", async () => {
-		const { svc, validUntil, getBlock } = setup(undefined, 300, 0.45, { chains: [97], failedReads: 1 })
+		const { svc, validUntil, getBlock } = setup(750, 300, 0.45, { chains: [97], failedReads: 1 })
 		await svc.initCache()
 
 		await expect(validUntil("EVM-97")).resolves.toBe(HEAD + 734n)

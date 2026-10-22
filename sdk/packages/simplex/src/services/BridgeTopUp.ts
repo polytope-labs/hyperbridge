@@ -11,6 +11,7 @@ import {
 	HyperFungibleTokenABI,
 	IntentGateway,
 	IsmpClient,
+	orderCommitment,
 	SubstrateChain,
 	type ERC7821Call,
 	type HexString,
@@ -150,10 +151,8 @@ const DEFAULT_BLOCK_TIME_SECONDS = 0.25
 const NETWORK_TIMEOUT_MS = 30_000
 /** Rebuilding a refund response fetches Hyperbridge and consensus proofs, which takes longer than a read. */
 const REBUILD_CLAIM_TIMEOUT_MS = 120_000
-/** Public BSC endpoints serve logs over a few hundred blocks at a time; the search stays near the fill. */
+/** Public BSC endpoints serve logs over a few hundred blocks at a time, so a wide search is read in chunks. */
 const LOG_CHUNK_BLOCKS = 300n
-const FILL_SEARCH_BEFORE_MS = 3 * 60_000
-const FILL_SEARCH_AFTER_MS = 60_000
 const ORDER_FILLED_EVENT = IntentGatewayABI.find(
 	(item) => item.type === "event" && item.name === "OrderFilled",
 ) as AbiEvent
@@ -523,15 +522,8 @@ export class BridgeTopUp {
 
 		const { tokenAddress, decimals } = this.payToken(params.chain, params.token)
 		const amountIn = parseUnits(quote.amountIn, decimals)
-		const balance = await this.balanceOf(params.chain, tokenAddress)
-		if (balance < amountIn) {
-			const reserve = formatUnits(this.reserve(params.chain, tokenAddress), decimals)
-			throw new Error(
-				`Not enough ${params.token}: ${formatUnits(balance, decimals)} spendable after the ${reserve} ${params.token} kept for gas, need ${quote.amountIn}`,
-			)
-		}
-
 		const order = await this.buildOrder(params.chain, tokenAddress, amountIn, parseUnits(quote.bridgeOut, BRIDGE_DECIMALS))
+		await this.assertCanPay(params, order, tokenAddress, decimals)
 		// Checked again after the awaits above: two clicks must not place two orders.
 		if (this.record && isBridgeTopUpPending(this.record.stage)) {
 			throw new Error("A BRIDGE top-up is already pending")
@@ -552,6 +544,51 @@ export class BridgeTopUp {
 		await this.persist()
 		void this.place(order, tokenAddress)
 		return publicState(this.record)
+	}
+
+	/**
+	 * Throws unless the wallet covers the input and the solver fee, net of the paymaster reserve.
+	 * The order goes out with `fees: 0n` and the SDK prices the fee only as it places, in the
+	 * host's fee token, which the placement batch then approves alongside the input. A wallet that
+	 * covers the input alone would revert inside a sponsored op the paymaster still charges for.
+	 * The quote here is for this check only; the SDK still prices the fee it places.
+	 */
+	private async assertCanPay(
+		params: BridgeTopUpQuoteParams,
+		order: Order,
+		tokenAddress: HexString,
+		decimals: number,
+	): Promise<void> {
+		const gateway = await this.gateway(params.chain)
+		const { fees, feeToken } = await withTimeout(gateway.quoteOrderFees(order), "the order fee quote")
+		const amountIn = order.inputs[0].amount
+		const feeInPayToken = feeToken.toLowerCase() === tokenAddress.toLowerCase()
+		const need = feeInPayToken ? amountIn + fees : amountIn
+		const balance = await this.balanceOf(params.chain, tokenAddress)
+		if (balance < need) {
+			const reserve = formatUnits(this.reserve(params.chain, tokenAddress), decimals)
+			const breakdown =
+				feeInPayToken && fees > 0n
+					? ` (${formatUnits(amountIn, decimals)} plus a ${formatUnits(fees, decimals)} order fee)`
+					: ""
+			throw new Error(
+				`Not enough ${params.token}: ${formatUnits(balance, decimals)} spendable after the ${reserve} ${params.token} kept for gas, need ${formatUnits(need, decimals)}${breakdown}`,
+			)
+		}
+		if (feeInPayToken || fees === 0n) return
+
+		const client = this.deps.clientManager.getPublicClient(params.chain)
+		const [feeBalance, feeDecimals, feeSymbol] = await Promise.all([
+			this.balanceOf(params.chain, feeToken),
+			client.readContract({ abi: ERC20_ABI, address: feeToken, functionName: "decimals" }) as Promise<number>,
+			client.readContract({ abi: ERC20_ABI, address: feeToken, functionName: "symbol" }) as Promise<string>,
+		])
+		if (feeBalance < fees) {
+			const reserve = formatUnits(this.reserve(params.chain, feeToken), feeDecimals)
+			throw new Error(
+				`Not enough ${feeSymbol} for the order fee: ${formatUnits(feeBalance, feeDecimals)} spendable after the ${reserve} ${feeSymbol} kept for gas, need ${formatUnits(fees, feeDecimals)}`,
+			)
+		}
 	}
 
 	/** Cancels an unfilled order and refunds its escrowed input to the filler wallet. */
@@ -1047,7 +1084,11 @@ export class BridgeTopUp {
 		if (this.superseded()) return
 		const record = this.record!
 		const order = deserializeOrder(record.order)
-		if (await gateway.isOrderFilled(order)) {
+		// Not `gateway.isOrderFilled`: `_filled` is also set by a destination-side cancel, which anyone
+		// may send once the deadline has passed, e.g. while simplex was down. Read as a fill, it would
+		// leave the record in `delivering` for a fill that never comes. A failed read throws and
+		// `drive` retries it.
+		if (await this.filledByOther(order)) {
 			await this.update({ stage: "delivering" })
 			await this.deliver()
 			return
@@ -1141,9 +1182,13 @@ export class BridgeTopUp {
 			}))
 		if (statuses.length > 0) await this.update({ deliveryStatuses: statuses })
 
-		const delivered =
-			statuses.some((status) => status.status === "DESTINATION") ||
-			!!(await withTimeout(hyperbridge.queryRequestReceipt(record.deliveryCommitment!), "the request receipt"))
+		// Only Hyperbridge's own request receipt proves the BRIDGE arrived; the indexer's
+		// DESTINATION status is for the timeline, and an indexer that is wrong or ahead of the
+		// chain must not mark a top-up delivered.
+		const delivered = !!(await withTimeout(
+			hyperbridge.queryRequestReceipt(record.deliveryCommitment!),
+			"the request receipt",
+		))
 		if (delivered && record.stage !== "delivered") {
 			await this.update({ stage: "delivered", error: undefined })
 			// The balance moves only now. Refresh it before the sync returns, so the dashboard's
@@ -1230,7 +1275,14 @@ export class BridgeTopUp {
 	/**
 	 * The transaction that filled the order. The executor reports it only for a fill this
 	 * process selected, so it comes from the indexer, or, while the indexer has yet to reach
-	 * BSC's latest blocks, from the gateway's `OrderFilled` log around when the fill was seen.
+	 * BSC's latest blocks, from the gateway's `OrderFilled` log.
+	 *
+	 * The log is searched over the whole range a fill can be in, not around when it was seen: a
+	 * fill found late (another filler's, after a restart) landed any time before the deadline. The
+	 * range starts where the order became fillable, which placement fixed as the deadline less
+	 * {@link ORDER_WINDOW_SECONDS} of BSC blocks (less an evidence margin, since the block time
+	 * is measured now and the order was built at an earlier one), and ends at the deadline or the
+	 * head. A failed read throws, so the caller retries; it never reads as "no fill".
 	 */
 	private async findFill(): Promise<HexString | undefined> {
 		const record = this.record!
@@ -1239,20 +1291,16 @@ export class BridgeTopUp {
 			if (indexed.filler && !record.filler) await this.update({ filler: indexed.filler })
 			return indexed.transactionHash
 		}
-		const seenAt = record.events?.find((event) => event.status === "FILLED")?.timestamp ?? record.stageTimes?.delivering
-		if (!seenAt) return undefined
 
 		const client = this.bsc()
+		const { deadline } = deserializeOrder(record.order)
 		const [latest, blockTime] = await Promise.all([
-			withTimeout(client.getBlock(), "the latest BSC block"),
+			withTimeout(client.getBlockNumber(), "the latest BSC block"),
 			this.blockTimeSeconds(),
 		])
-		const blockAt = (ms: number) => latest.number - BigInt(Math.ceil((Number(latest.timestamp) - ms / 1000) / blockTime))
-		const from = blockAt(seenAt - FILL_SEARCH_BEFORE_MS)
-		const to = (() => {
-			const end = blockAt(seenAt + FILL_SEARCH_AFTER_MS)
-			return end < latest.number ? end : latest.number
-		})()
+		const windowBlocks = BigInt(Math.ceil(ORDER_WINDOW_SECONDS / blockTime))
+		const from = belowTip(deadline - windowBlocks, evidenceMarginBlocks(client))
+		const to = deadline < latest ? deadline : latest
 		return this.scanLogs<HexString>(from, to, async (fromBlock, toBlock) => {
 			const logs = await withTimeout(
 				client.getLogs({
@@ -1328,7 +1376,8 @@ export class BridgeTopUp {
 				})
 				void this.resumeDelivery()
 			} else if (statuses?.some((status) => status.status === "REFUNDED")) {
-				await this.update({ stage: "reclaimed" })
+				// The indexer only points at a refund; the source gateway has to confirm it.
+				await this.refunded(await this.gateway(record.chain), deserializeOrder(record.order))
 			}
 			return
 		}
@@ -1344,7 +1393,7 @@ export class BridgeTopUp {
 			// an order that already paid out.
 			if (record.stage === "unfilled") {
 				const fill = (await this.indexedOrder())?.find((status) => status.status === "FILLED")
-				if (fill || (await gateway.isOrderFilled(order).catch(() => false))) {
+				if (fill || (await this.filledByOther(order).catch(() => false))) {
 					await this.update({
 						stage: "delivering",
 						fillTxHash: fill?.transactionHash ?? record.fillTxHash,
@@ -1435,9 +1484,29 @@ export class BridgeTopUp {
 				await this.update({ stage: "unfilled", error: message })
 				return true
 			}
-			case "CANCELLED":
-				await this.update({ stage: "reclaimed" })
+			case "CANCELLED": {
+				// A cancel on BSC does not move the escrow: anyone may send it once the deadline has passed,
+				// and the source escrow is refunded only when that cancel's `RefundEscrow` is relayed. So
+				// `reclaimed` is recorded only when the source gateway shows the refund; until then the
+				// top-up is `unfilled`, where the reclaim recovers the escrow.
+				const id = this.record!.id
+				let settled: boolean
+				try {
+					settled = await this.refunded(await this.gateway(this.record!.chain), deserializeOrder(this.record!.order), true)
+				} catch (err) {
+					// Neither outcome is recorded from a read that failed. The executor reports the cancel
+					// again when tracking resumes.
+					const reason = err instanceof Error ? err.message : String(err)
+					this.logger.warn({ err, id }, "Could not verify the refund of a cancelled BRIDGE top-up order")
+					await this.update({ error: `The order was cancelled; its refund is unverified, retrying: ${reason}` })
+					this.scheduleRetry(id, () => void this.resumeOrder())
+					return true
+				}
+				if (!settled) {
+					await this.update({ stage: "unfilled", error: "The order was cancelled on BSC but its escrow is not refunded yet" })
+				}
 				return true
+			}
 			default:
 				return false
 		}
@@ -1782,13 +1851,42 @@ export class BridgeTopUp {
 	}
 
 	/**
-	 * Whether the escrow is back with the filler, from the source gateway or the indexer's
-	 * REFUNDED status; records the refund as the recovery's last step when it is.
+	 * Whether there is nothing left to reclaim: the escrow is back with the filler, as the source
+	 * gateway reports it, which is recorded as the recovery's last step. The indexer's REFUNDED
+	 * status only supplies that step's tx hash and time: it is not evidence on its own.
+	 * `isOrderRefunded` reads the escrow and is true for an empty one, including an order that was
+	 * never placed, so it only counts for a record whose placement was seen (`commitment`).
+	 *
+	 * An empty escrow is also what a fill leaves: `IntentsBase._withdraw` releases it for a redeem
+	 * too. So before calling it a refund the order's fill is checked on BSC ({@link filledByOther}),
+	 * and an order that filled moves to `delivering` instead (also true, since the reclaim has
+	 * nothing to do).
+	 *
+	 * An escrow read that fails reads as "not refunded" so the reclaim goes on to the cancel; a
+	 * caller that records an outcome from the answer passes `strict` to have it throw instead.
 	 */
-	private async refunded(gateway: IntentGateway, order: Order): Promise<boolean> {
-		const onChain = await withTimeout(gateway.isOrderRefunded(order), "the refund").catch(() => false)
+	private async refunded(gateway: IntentGateway, order: Order, strict = false): Promise<boolean> {
+		if (!this.record?.commitment) return false
 		const indexed = (await this.indexedOrder().catch(() => undefined))?.find((s) => s.status === "REFUNDED")
-		if (!onChain && !indexed) return false
+		let onChain: boolean
+		try {
+			onChain = await withTimeout(gateway.isOrderRefunded(order), "the refund")
+		} catch (err) {
+			// With the indexer reporting a refund the chain could not confirm, retry rather than go
+			// on as if nothing was refunded and send a cancel for an order that is already settled.
+			if (indexed || strict) throw err
+			return false
+		}
+		if (!onChain) return false
+		// A read that fails throws, so the escrow is never called refunded from an unverified read.
+		if (await this.filledByOther(order)) {
+			const id = this.record.id
+			await this.update({ stage: "delivering", error: undefined })
+			// Not run here: this can be inside the reclaim's own flow, where a second drive of the
+			// record is a no-op. The timer fires once that flow has returned.
+			this.scheduleRetry(id, () => void this.resumeDelivery(), 0)
+			return true
+		}
 		if (!this.hasRecoveryStep("FUNDS_CLAIMED")) {
 			await this.recordRecoveryStep(
 				"FUNDS_CLAIMED",
@@ -1798,6 +1896,31 @@ export class BridgeTopUp {
 		}
 		await this.update({ stage: "reclaimed", error: undefined })
 		return true
+	}
+
+	/**
+	 * Whether someone other than the order's creator took the order on BSC. The gateway's
+	 * `_filled[commitment]` cannot tell a fill from a refund by itself: a fill sets it to the
+	 * filler, but `IntentsBase._withdraw` sets it to the beneficiary on every finalising
+	 * withdrawal, and a destination-side cancel sets it to `order.user`. A same-chain top-up's own
+	 * cancel, or a third party's, therefore leaves it non-zero, so only an address that is not the
+	 * creator counts as a fill (`isOrderFilled` in the SDK would count both). A read that fails
+	 * throws: neither `reclaimed` nor `delivering` is recorded from a value that was not read.
+	 */
+	private async filledByOther(order: Order): Promise<boolean> {
+		const commitment = (order.id ?? orderCommitment(order)) as HexString
+		const filler = (await withTimeout(
+			this.bsc().readContract({
+				abi: INTENT_GATEWAY_V2_ABI,
+				address: this.deps.configService.getIntentGatewayAddress(BRIDGE_TOP_UP_CHAIN),
+				functionName: "_filled",
+				args: [commitment],
+			}),
+			"the fill",
+		)) as HexString
+		if (/^0x0{40}$/i.test(filler)) return false
+		// `order.user` is a bytes32; the address is its low 20 bytes.
+		return filler.toLowerCase() !== `0x${order.user.slice(-40)}`.toLowerCase()
 	}
 
 	private hasRecoveryStep(step: RecoveryStepRecord["step"]): boolean {

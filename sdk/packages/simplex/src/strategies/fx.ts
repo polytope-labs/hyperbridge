@@ -7,6 +7,7 @@ import {
 	type ERC7821Call,
 	type TokenInfo,
 	ADDRESS_ZERO,
+	assertGatewayRelease,
 } from "@hyperbridge/sdk"
 import type { ChainClientManager, ContractInteractionService } from "@/services"
 import type { FillerConfigService } from "@/services/FillerConfigService"
@@ -65,6 +66,8 @@ export class FXFiller implements FillerStrategy {
 	private registry: AssetRegistry
 	private signer: Signer
 	private logger: Logger
+	/** Source chains whose gateway reported the release a cross-chain partial fill needs. */
+	private readonly sourceReleaseChecked = new Set<string>()
 	confirmationPolicy?: { getConfirmationBlocks: (chainId: number, amountUsd: number) => number }
 	private fundingVenues: FundingVenue[]
 	/** The operator's resting orders: the only thing that prices a fill. */
@@ -328,15 +331,17 @@ export class FXFiller implements FillerStrategy {
 					// The prior-partial probe is a contract read, and most orders fill fully
 					// and never consult it — so it runs only once an under-fill is actually on
 					// the table, and at most once per evaluation.
-					let priorPartialChecked: boolean | undefined
-					const partialEligible = async (): Promise<boolean> => {
+					let noPriorPartial: boolean | undefined
+					const hasNoPriorPartial = async (): Promise<boolean> => {
 						if (!partialEligibleCheap) return false
-						if (priorPartialChecked === undefined) {
-							priorPartialChecked = !(await this.hasExistingPartialFill(order, destChain))
-						}
-						return priorPartialChecked
+						if (noPriorPartial === undefined) noPriorPartial = !(await this.hasExistingPartialFill(order, destChain))
+						return noPriorPartial
 					}
-
+					// A cross-chain partial also releases escrow on the source chain, so its
+					// gateway must confirm it can (`sourceReleasesPartially`; read once per chain).
+					const partialEligible = async (): Promise<boolean> =>
+						(await hasNoPriorPartial()) &&
+						(sourceChain === destChain || (await this.sourceReleasesPartially(order, sourceChain)))
 
 					let deadlineTimestamp: bigint | undefined
 					try {
@@ -410,12 +415,14 @@ export class FXFiller implements FillerStrategy {
 							? usdValueOf(usdFactors, outputSymbol, new Decimal(formatUnits(targetOutput, outputDecimals)))
 							: null
 					// The prior-partial probe is a contract read, so it runs only once the
-					// payout is already known to be below the floor, or not priced at all.
+					// payout is already known to be below the floor, or not priced at all. It
+					// is the only read this pass makes: the source gateway is checked by
+					// `partialEligible`, before a partial is bid on, not here.
 					if (
 						minPartialFillUsd > 0 &&
 						(partialFill || multiLeg) &&
 						(maxPayoutUsd === null || maxPayoutUsd.lt(minPartialFillUsd)) &&
-						(await partialEligible())
+						(await hasNoPriorPartial())
 					) {
 						const maxBidUsd = maxPayoutUsd ?? (await valueByInput(input.amount))
 						if (maxBidUsd === null) {
@@ -1011,6 +1018,30 @@ export class FXFiller implements FillerStrategy {
 			)
 			return true
 		}
+	}
+
+	/**
+	 * Whether the source chain's gateway runs the release this SDK requires. Only the destination
+	 * gateway's release is asserted when a fill is estimated, but a cross-chain under-fill is
+	 * settled on the source by `RedeemEscrowPartial`, which an older source gateway does not
+	 * handle: the fill would be paid out and its escrow never released. Only a supported release
+	 * is cached, so an upgraded gateway is picked up without a restart. A failed read, or a chain
+	 * with no gateway configured, counts as unsupported for this evaluation.
+	 */
+	private async sourceReleasesPartially(order: Order, chain: string): Promise<boolean> {
+		if (this.sourceReleaseChecked.has(chain)) return true
+		try {
+			const gateway = this.configService.getIntentGatewayAddress(chain)
+			await assertGatewayRelease(this.clientManager.getPublicClient(chain), gateway, chain)
+		} catch (err) {
+			this.logger.info(
+				{ orderId: order.id, sourceChain: chain, err },
+				"Skipping a cross-chain partial fill: the source gateway's release could not be confirmed",
+			)
+			return false
+		}
+		this.sourceReleaseChecked.add(chain)
+		return true
 	}
 
 	/**

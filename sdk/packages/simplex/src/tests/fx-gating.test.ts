@@ -1,7 +1,14 @@
 import { describe, it, expect } from "vitest"
 import { Decimal } from "decimal.js"
 import { parseUnits } from "viem"
-import { bytes20ToBytes32, ChainConfigService, type HexString, type Order, type TokenInfo } from "@hyperbridge/sdk"
+import {
+	bytes20ToBytes32,
+	ChainConfigService,
+	SUPPORTED_INTENTS_VERSION,
+	type HexString,
+	type Order,
+	type TokenInfo,
+} from "@hyperbridge/sdk"
 import { AssetRegistry, validateAssetDefinitions, type BuiltinAssetResolver } from "@/config/asset-registry"
 import { FXFiller } from "@/strategies/fx"
 import type { LimitOrderStore } from "@/data/types"
@@ -321,6 +328,7 @@ describe("FXFiller same-token markets (cross-chain only)", () => {
 describe("FXFiller profit gates (fees cover execution; spread independently positive)", () => {
 	const SRC = "EVM-1"
 	const DST = "EVM-8453"
+	const GATEWAY = "0x6666666666666666666666666666666666666666" as HexString
 	const cfg = {
 		getUsdcAsset: () => USDC,
 		getUsdtAsset: () => USDT,
@@ -332,6 +340,8 @@ describe("FXFiller profit gates (fees cover execution; spread independently posi
 		// consults these and must reserve nothing here — this suite asserts
 		// exact spread/fee arithmetic with no gas headroom held back.
 		getSimplexPaymasterAddress: () => undefined,
+		// A cross-chain partial confirms the source gateway's release before it is bid on.
+		getIntentGatewayAddress: () => GATEWAY,
 	} as any
 	const signer = { address: SOLVER } as any
 
@@ -392,8 +402,10 @@ describe("FXFiller profit gates (fees cover execution; spread independently posi
 			chain: { blockTime: 2000 },
 			getBlock: async () => ({ number: 100n, timestamp: 0n }),
 			getBalance: async () => 10n ** 30n,
-			readContract: async (params: { address: string }) =>
-				options?.balancesByToken?.[params.address.toLowerCase()] ?? 10n ** 30n, // balanceOf
+			readContract: async (params: { address: string; functionName?: string }) =>
+				params.address === GATEWAY && params.functionName === "version"
+					? SUPPORTED_INTENTS_VERSION
+					: (options?.balancesByToken?.[params.address.toLowerCase()] ?? 10n ** 30n), // balanceOf
 		}
 		const clientManager = { getPublicClient: () => destClient } as any
 		const config = {

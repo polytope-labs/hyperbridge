@@ -100,19 +100,19 @@ importers:
         specifier: latest
         version: 14.0.3(@polkadot/util@14.0.3)
       '@subql/common':
-        specifier: latest
+        specifier: 5.8.2
         version: 5.8.2
       '@subql/common-ethereum':
         specifier: 4.7.0
         version: 4.7.0(@ethersproject/abi@5.8.0)(@ethersproject/providers@5.8.0(bufferutil@4.1.0)(utf-8-validate@5.0.10))(bufferutil@4.1.0)(class-transformer@0.5.1)(class-validator@0.14.1)(ethers@5.8.0(bufferutil@4.1.0)(utf-8-validate@5.0.10))(typescript@6.0.3)(utf-8-validate@5.0.10)
       '@subql/types-core':
-        specifier: latest
+        specifier: 2.2.0
         version: 2.2.0
       '@subql/types-ethereum':
-        specifier: latest
+        specifier: 4.2.3
         version: 4.2.3(bufferutil@4.1.0)(utf-8-validate@5.0.10)
       '@subql/validator':
-        specifier: latest
+        specifier: 2.2.0
         version: 2.2.0(@chain-registry/v2-types@0.53.146)(@ethersproject/abi@5.8.0)(@ethersproject/providers@5.8.0(bufferutil@4.1.0)(utf-8-validate@5.0.10))(@near-js/crypto@2.5.1(@near-js/types@2.5.1)(@near-js/utils@2.5.1(@near-js/types@2.5.1)))(@near-js/transactions@2.5.1(@near-js/crypto@2.5.1(@near-js/types@2.5.1)(@near-js/utils@2.5.1(@near-js/types@2.5.1)))(@near-js/types@2.5.1)(@near-js/utils@2.5.1(@near-js/types@2.5.1)))(@near-js/types@2.5.1)(@near-js/utils@2.5.1(@near-js/types@2.5.1))(@polkadot/api@16.5.6(bufferutil@4.1.0)(utf-8-validate@5.0.10))(algosdk@2.11.0)(bufferutil@4.1.0)(class-transformer@0.5.1)(class-validator@0.14.1)(ejs@3.1.10)(encoding@0.1.13)(ethers@5.8.0(bufferutil@4.1.0)(utf-8-validate@5.0.10))(node-fetch@2.7.0(encoding@0.1.13))(typescript@6.0.3)(utf-8-validate@5.0.10)
       '@types/node-fetch':
         specifier: ^2.6.13
@@ -155,19 +155,19 @@ importers:
         specifier: 5.7.1-0
         version: 5.7.1-0(@types/node@22.19.17)(encoding@0.1.13)(pg@8.20.0)
       '@subql/node':
-        specifier: latest
+        specifier: 6.4.6
         version: 6.4.6(@types/react@19.2.17)(bufferutil@4.1.0)(class-transformer@0.5.1)(class-validator@0.14.1)(graphql@16.13.2)(pg@8.20.0)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(rxjs@7.8.2)(utf-8-validate@5.0.10)
       '@subql/node-core':
-        specifier: latest
+        specifier: 19.3.1
         version: 19.3.1(@nestjs/core@11.1.18)(@polkadot/api@16.5.6(bufferutil@4.1.0)(utf-8-validate@5.0.10))(@types/react@19.2.17)(class-transformer@0.5.1)(class-validator@0.14.1)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(reflect-metadata@0.2.2)(rxjs@7.8.2)
       '@subql/node-ethereum':
-        specifier: latest
+        specifier: 6.5.0
         version: 6.5.0(@ethersproject/abi@5.8.0)(@ethersproject/providers@5.8.0(bufferutil@4.1.0)(utf-8-validate@5.0.10))(@polkadot/api@16.5.6(bufferutil@4.1.0)(utf-8-validate@5.0.10))(@subql/utils@2.22.1(pg@8.20.0))(@types/react@19.2.17)(bufferutil@4.1.0)(class-transformer@0.5.1)(class-validator@0.14.1)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(rxjs@7.8.2)(typescript@6.0.3)(utf-8-validate@5.0.10)
       '@subql/testing':
-        specifier: latest
+        specifier: 2.3.1
         version: 2.3.1
       '@subql/types':
-        specifier: latest
+        specifier: 3.15.0
         version: 3.15.0(@polkadot/api@16.5.6(bufferutil@4.1.0)(utf-8-validate@5.0.10))
       '@types/handlebars':
         specifier: ^4.1.0

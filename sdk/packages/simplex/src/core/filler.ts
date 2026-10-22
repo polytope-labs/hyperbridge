@@ -1340,6 +1340,7 @@ export class IntentFiller {
 					solverSelectionActive,
 					inputUsdValue,
 					evaluationResult.profitability,
+					() => this.evaluateOrder(order, canFillCache),
 				)
 			} catch (error) {
 				this.logger.error({ orderId: order.id, err: error }, "Error processing order")
@@ -1501,6 +1502,7 @@ export class IntentFiller {
 		solverSelectionActive: boolean,
 		inputUsdValue: Decimal,
 		profitUsd: number,
+		reevaluate?: () => Promise<{ strategy: FillerStrategy; profitability: number } | null>,
 	): void {
 		// Get the chain-specific queue
 		const chainQueue = this.chainQueues.get(getChainId(order.destination)!)
@@ -1518,6 +1520,24 @@ export class IntentFiller {
 			const queueDurationSec = (Date.now() - queuedAtMs) / 1000
 			this.monitor.emit("orderTiming", { orderId: order.id, phase: "queue_wait", durationSec: queueDurationSec })
 
+			const cache = this.contractService.cacheService
+			// The evaluation these bids were priced by stays alive until the last of them is
+			// sent: a slow submission would otherwise expire the gas estimate the rest sign.
+			unpin = order.id ? cache.pinOrder(order.id) : undefined
+			// The pin keeps only what is still live, and the confirmation wait or this queue can
+			// outlast the evaluation. Its gas estimate, the first thing it caches and what every
+			// bid signs, is then gone along with everything cached after it, so the order is
+			// evaluated again before any bid goes out: every bid on it is still priced by one
+			// evaluation, and a fresh one.
+			if (order.id && reevaluate && !cache.getGasEstimate(order.id)) {
+				this.logger.info({ orderId: order.id }, "Order evaluation expired before bidding, evaluating it again")
+				const evaluation = await reevaluate()
+				// The evaluation reported why it passed on the order.
+				if (!evaluation) return
+				bestStrategy = evaluation.strategy
+				profitUsd = evaluation.profitability
+			}
+
 			this.logger.info(
 				{ orderId: order.id, strategy: bestStrategy.name, chain: order.destination },
 				"Executing order",
@@ -1529,10 +1549,6 @@ export class IntentFiller {
 			// limit-order priced it) still sends the one bid it always did. Nothing is
 			// held against the limit order: its on-chain budget refuses a fill past its
 			// cap, in the same calldata as the fill.
-			const cache = this.contractService.cacheService
-			// The evaluation these bids were priced by stays alive until the last of them is
-			// sent: a slow submission would otherwise expire the gas estimate the rest sign.
-			unpin = order.id ? cache.pinOrder(order.id) : undefined
 			const plans = this.limitOrders && order.id ? cache.getBidPlans(order.id) : []
 			let lastResult: FillResult | undefined
 			// Each bid's nonce key binds its own calldata, so every bid is the first

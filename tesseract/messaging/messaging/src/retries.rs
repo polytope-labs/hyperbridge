@@ -6,18 +6,18 @@ use std::{
 
 use futures::stream::FuturesOrdered;
 use ismp::{
-	consensus::StateMachineHeight,
+	consensus::{StateMachineHeight, StateMachineId},
 	host::StateMachine,
 	messaging::{hash_request, ConsensusMessage, Message, Proof, RequestMessage},
 	router::{PostRequest, Request},
 };
 use primitive_types::H256;
 use tesseract_primitives::{
-	config::RelayerConfig, ConsensusProofSource, Hasher, IsmpProvider, ProofKey, Query, TxResult,
-	BEEFY_CONSENSUS_STATE_ID,
+	config::RelayerConfig, ConsensusProofSource, Hasher, IsmpProvider, ProofKey, Query,
+	SimulationFailure, TxResult, BEEFY_CONSENSUS_STATE_ID,
 };
 use tokio_stream::StreamExt;
-use transaction_fees::TransactionPayment;
+use transaction_fees::{ParkedMessage, RetryState, TransactionPayment};
 
 use crate::{
 	events::{chunk_size, is_retry_module, return_successful_queries, was_delivered},
@@ -26,6 +26,15 @@ use crate::{
 
 /// How often a pass runs when the operator hasn't set `retry_frequency`.
 const DEFAULT_RETRY_FREQUENCY: Duration = Duration::from_secs(5 * 60);
+
+/// A parked message is retried at `retry_frequency` doubling per attempt, up to this.
+const MAX_BACKOFF: Duration = Duration::from_secs(60 * 60);
+
+/// A message parked this many times is dropped even if it has not aged out.
+const MAX_ATTEMPTS: u32 = 10;
+
+/// A message parked this long is dropped: the module is not going to accept it.
+const MAX_AGE: Duration = Duration::from_secs(24 * 60 * 60);
 
 /// Everything one destination's retry loop needs, assembled once by the caller.
 pub struct RetryContext {
@@ -48,14 +57,11 @@ pub struct RetryContext {
 /// The outbound fan-out parks requests addressed to the modules the operator
 /// listed in `retry_modules` whenever a batch is cancelled or fails to submit,
 /// and this loop drains them every `retry_frequency` seconds, five minutes when
-/// unset. Listing a module is what brings the loop up in the first place. Deliveries out of hyperbridge are the usual
-/// reason to list a module: they are gated to a whitelisted relayer, so a batch
-/// this relayer failed to submit is not going to be picked up by anyone else.
+/// unset. Listing a module is what brings the loop up in the first place. Deliveries out of
+/// hyperbridge are the usual reason to list a module: they are gated to a whitelisted relayer, so a
+/// batch this relayer failed to submit is not going to be picked up by anyone else.
 pub async fn retry_undelivered_messages(ctx: RetryContext) -> Result<(), anyhow::Error> {
-	let frequency = ctx
-		.config
-		.retry_frequency
-		.map_or(DEFAULT_RETRY_FREQUENCY, Duration::from_secs);
+	let frequency = ctx.config.retry_frequency.map_or(DEFAULT_RETRY_FREQUENCY, Duration::from_secs);
 	tracing::trace!(
 		target: crate::LOG_TARGET,
 		dest = %ctx.dest.name(),
@@ -80,22 +86,79 @@ pub async fn retry_undelivered_messages(ctx: RetryContext) -> Result<(), anyhow:
 /// One pass over everything parked for this destination.
 async fn retry_once(ctx: &RetryContext) -> Result<(), anyhow::Error> {
 	let dest_state_machine = ctx.dest.state_machine_id().state_id;
+	let frequency = ctx.config.retry_frequency.map_or(DEFAULT_RETRY_FREQUENCY, Duration::from_secs);
 	let parked = ctx.tx_payment.unprofitable_messages(&dest_state_machine).await?;
 	if parked.is_empty() {
 		return Ok(());
 	}
 
-	// Every row read here is dropped at the end of the pass; whatever is still
-	// worth another attempt is written back as a fresh row.
-	let rows = parked.iter().map(|(_, id)| *id).collect::<Vec<_>>();
+	let now = transaction_fees::unix_now();
+	// Every row that is retried or dropped here is deleted at the end of the
+	// pass; whatever is still worth another attempt is written back fresh.
+	let mut rows = vec![];
+	let mut due_messages = vec![];
+	// Re-parking needs the bookkeeping of the row a request came from, but
+	// `deliverable_requests` only deals in requests, so it is looked up again by
+	// commitment at the end of the pass.
+	let mut states: HashMap<H256, RetryState> = HashMap::new();
+
+	for ParkedMessage { message, state, id } in parked {
+		// Rows written before the backoff columns existed have no age.
+		let created_at = if state.created_at == 0 { now } else { state.created_at };
+		let state = RetryState { created_at, ..state };
+
+		match retry_is_due(state, now) {
+			RetryDue::Expired => {
+				if let Some(id) = id {
+					rows.push(id);
+				}
+				let commitments = match &message {
+					Message::Request(request) => request
+						.requests
+						.iter()
+						.map(|post| {
+							hex::encode(hash_request::<Hasher>(&Request::Post(post.clone())))
+						})
+						.collect::<Vec<_>>(),
+					_ => vec![],
+				};
+				tracing::warn!(
+					target: crate::LOG_TARGET,
+					dest = %ctx.dest.name(),
+					age = now.saturating_sub(created_at),
+					attempts = state.attempts,
+					?commitments,
+					"dropping parked message",
+				);
+			},
+			RetryDue::NotYet => {},
+			RetryDue::Due => {
+				if let Some(id) = id {
+					rows.push(id);
+				}
+				let Message::Request(request) = message else { continue };
+				for post in &request.requests {
+					let commitment = hash_request::<Hasher>(&Request::Post(post.clone()));
+					states.entry(commitment).or_insert(state);
+				}
+				due_messages.push(request);
+			},
+		}
+	}
+
+	if due_messages.is_empty() {
+		if !rows.is_empty() {
+			ctx.tx_payment.delete_unprofitable_messages(rows).await?;
+		}
+		return Ok(())
+	}
 
 	// A request can be parked more than once, on its own and inside a batch that
 	// failed later, and a batch carrying it twice reverts on the duplicate.
 	// Keying by commitment keeps one copy, at the lowest height it was seen,
 	// which is the one the destination is likeliest to already be past.
 	let mut requests: BTreeMap<H256, (PostRequest, u64)> = BTreeMap::new();
-	for (message, _) in parked {
-		let Message::Request(msg) = message else { continue };
+	for msg in due_messages {
 		let parked_at = msg.proof.height.height;
 		// Only requests addressed to a listed module are retried. Rows left by an
 		// older build, or by a config that has since dropped a module, are swept up
@@ -121,7 +184,9 @@ async fn retry_once(ctx: &RetryContext) -> Result<(), anyhow::Error> {
 	let dest_height =
 		ctx.dest.query_latest_height(ctx.hyperbridge.state_machine_id()).await? as u64;
 
-	let mut retriable = vec![];
+	// Each entry says whether this re-park was a failed delivery attempt, which
+	// is what counts toward the attempt and age caps.
+	let mut retriable: Vec<(Message, bool)> = vec![];
 	for (target, posts) in group_by_proof_height(deliverable, dest_height) {
 		let height = StateMachineHeight { id: ctx.hyperbridge.state_machine_id(), height: target };
 		let messages = single_request_messages(ctx, &posts, height).await?;
@@ -145,7 +210,7 @@ async fn retry_once(ctx: &RetryContext) -> Result<(), anyhow::Error> {
 						?err,
 						"No beefy proof for the parked height, leaving the rows for the next pass",
 					);
-					retriable.extend(messages);
+					retriable.extend(messages.into_iter().map(|message| (message, false)));
 					continue;
 				},
 			},
@@ -176,7 +241,11 @@ async fn retry_once(ctx: &RetryContext) -> Result<(), anyhow::Error> {
 			prelude.clone(),
 		)
 		.await?;
-		retriable.extend(profitability.retriable_messages);
+		retriable.extend(profitability.retriable_messages.into_iter().map(|retriable| {
+			let delivery_failed =
+				matches!(retriable.failure, Some(SimulationFailure::ModuleReverted { .. }));
+			(retriable.message, delivery_failed)
+		}));
 
 		let profitable = posts
 			.into_iter()
@@ -199,7 +268,7 @@ async fn retry_once(ctx: &RetryContext) -> Result<(), anyhow::Error> {
 			Ok(TxResult { receipts, unsuccessful, new_epochs: _ }) => {
 				record_deliveries(&ctx.tx_payment, &ctx.fee_acc_sender, receipts, ctx.coprocessor)
 					.await;
-				retriable.extend(unsuccessful);
+				retriable.extend(unsuccessful.into_iter().map(|message| (message, true)));
 			},
 			Err(err) => {
 				tracing::error!(
@@ -208,7 +277,7 @@ async fn retry_once(ctx: &RetryContext) -> Result<(), anyhow::Error> {
 					?err,
 					"Retry submission failed",
 				);
-				retriable.extend(outgoing);
+				retriable.extend(outgoing.into_iter().map(|message| (message, false)));
 			},
 		}
 	}
@@ -221,12 +290,86 @@ async fn retry_once(ctx: &RetryContext) -> Result<(), anyhow::Error> {
 			count = retriable.len(),
 			"Parking messages for the next retry",
 		);
-		ctx.tx_payment
-			.store_unprofitable_messages(retriable, dest_state_machine)
-			.await?;
+		let parked = retriable
+			.into_iter()
+			.filter_map(|(message, delivery_failed)| {
+				let Message::Request(request) = message else { return None };
+				let state = state_for_requests(&request, &states, now);
+				Some(ParkedMessage {
+					message: Message::Request(request),
+					state: next_retry_state(state, now, frequency, delivery_failed),
+					id: None,
+				})
+			})
+			.collect::<Vec<_>>();
+		ctx.tx_payment.store_unprofitable_messages(parked, dest_state_machine).await?;
 	}
 
 	Ok(())
+}
+
+/// Fold the bookkeeping of every row a message came from into one state.
+///
+/// A multi-request message can carry requests parked on different passes, so
+/// the most-tried request decides the attempt count and the oldest decides the
+/// age clock. Requests with no known row fall back to a fresh state.
+fn state_for_requests(
+	request: &RequestMessage,
+	states: &HashMap<H256, RetryState>,
+	now: u64,
+) -> RetryState {
+	let mut attempts = 0;
+	let mut created_at: Option<u64> = None;
+	for post in &request.requests {
+		let commitment = hash_request::<Hasher>(&Request::Post(post.clone()));
+		let Some(state) = states.get(&commitment) else { continue };
+		attempts = attempts.max(state.attempts);
+		created_at =
+			Some(created_at.map_or(state.created_at, |oldest| oldest.min(state.created_at)));
+	}
+
+	RetryState { attempts, created_at: created_at.unwrap_or(now), next_attempt_at: 0 }
+}
+
+/// What the retry loop should do with a parked row right now.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RetryDue {
+	/// Too old or tried too often; the module is not going to accept it.
+	Expired,
+	/// Backoff has not elapsed; leave the row alone.
+	NotYet,
+	/// Worth another attempt.
+	Due,
+}
+
+fn retry_is_due(state: RetryState, now: u64) -> RetryDue {
+	// A row that never had a failed delivery attempt is retried forever; the
+	// caps only apply to deliveries the module actually rejected.
+	if state.attempts >= MAX_ATTEMPTS ||
+		(state.attempts > 0 && now.saturating_sub(state.created_at) > MAX_AGE.as_secs())
+	{
+		RetryDue::Expired
+	} else if state.next_attempt_at > now {
+		RetryDue::NotYet
+	} else {
+		RetryDue::Due
+	}
+}
+
+/// Bookkeeping for a message that just failed another attempt. The delay
+/// starts at `retry_frequency` and doubles per failed delivery up to
+/// [`MAX_BACKOFF`]. Only a failed delivery counts toward the age clock.
+fn next_retry_state(
+	state: RetryState,
+	now: u64,
+	frequency: Duration,
+	delivery_failed: bool,
+) -> RetryState {
+	let attempts = if delivery_failed { state.attempts.saturating_add(1) } else { state.attempts };
+	let created_at = if delivery_failed && state.attempts == 0 { now } else { state.created_at };
+	let doublings = attempts.saturating_sub(1).min(31);
+	let delay = frequency.saturating_mul(1u32 << doublings).min(MAX_BACKOFF);
+	RetryState { attempts, created_at, next_attempt_at: now.saturating_add(delay.as_secs()) }
 }
 
 /// Bucket each request by the height its proof should be built at: the height the
@@ -384,6 +527,73 @@ mod tests {
 		assert_eq!(groups.len(), 2);
 	}
 
+	#[test]
+	fn first_counting_repark_uses_one_frequency() {
+		let frequency = Duration::from_secs(300);
+		let parked = RetryState { attempts: 0, created_at: 1_000, next_attempt_at: 0 };
+
+		let next = next_retry_state(parked, 2_000, frequency, true);
+
+		assert_eq!(next.attempts, 1);
+		assert_eq!(next.created_at, 2_000, "the age clock starts at the first failed delivery");
+		assert_eq!(next.next_attempt_at, 2_000 + 300);
+	}
+
+	#[test]
+	fn a_non_counting_repark_keeps_the_count_and_age() {
+		let frequency = Duration::from_secs(300);
+		let parked = RetryState { attempts: 2, created_at: 1_000, next_attempt_at: 0 };
+
+		let next = next_retry_state(parked, 2_000, frequency, false);
+
+		assert_eq!(next.attempts, 2);
+		assert_eq!(next.created_at, 1_000);
+		assert_eq!(next.next_attempt_at, 2_000 + 600);
+	}
+
+	#[test]
+	fn backoff_is_capped() {
+		let frequency = Duration::from_secs(300);
+		let parked = RetryState { attempts: 9, created_at: 1_000, next_attempt_at: 0 };
+
+		let next = next_retry_state(parked, 2_000, frequency, true);
+
+		assert_eq!(next.attempts, 10);
+		assert_eq!(next.next_attempt_at, 2_000 + MAX_BACKOFF.as_secs());
+	}
+
+	#[test]
+	fn too_many_attempts_expires_the_row() {
+		let state = RetryState { attempts: MAX_ATTEMPTS, created_at: 1_000, next_attempt_at: 0 };
+
+		assert_eq!(retry_is_due(state, 2_000), RetryDue::Expired);
+	}
+
+	#[test]
+	fn an_old_row_without_a_failed_delivery_is_still_due() {
+		let now = 1_000_000;
+		let state =
+			RetryState { attempts: 0, created_at: now - MAX_AGE.as_secs() - 1, next_attempt_at: 0 };
+
+		assert_eq!(retry_is_due(state, now), RetryDue::Due);
+	}
+
+	#[test]
+	fn an_old_row_with_a_failed_delivery_expires() {
+		let now = 1_000_000;
+		let state =
+			RetryState { attempts: 1, created_at: now - MAX_AGE.as_secs() - 1, next_attempt_at: 0 };
+
+		assert_eq!(retry_is_due(state, now), RetryDue::Expired);
+	}
+
+	#[test]
+	fn a_future_attempt_is_not_due() {
+		let state = RetryState { attempts: 1, created_at: 1_000, next_attempt_at: 2_001 };
+
+		assert_eq!(retry_is_due(state, 2_000), RetryDue::NotYet);
+	}
+
 	#[tokio::test]
 	async fn keeps_only_requests_the_destination_can_still_take() {
 		let pending = post(1, 0);
@@ -404,5 +614,84 @@ mod tests {
 		.unwrap();
 
 		assert_eq!(deliverable, vec![(pending, 10)]);
+	}
+
+	fn temp_db_path(test_name: &str) -> String {
+		let pid = std::process::id();
+		let nanos = std::time::SystemTime::now()
+			.duration_since(std::time::UNIX_EPOCH)
+			.map(|elapsed| elapsed.as_nanos())
+			.unwrap_or(0);
+		let path = format!("/tmp/tesseract-retries-test-{test_name}-{pid}-{nanos}.db");
+		let _ = std::fs::remove_file(&path);
+		path
+	}
+
+	fn parked(nonce: u64, state: RetryState) -> ParkedMessage {
+		ParkedMessage {
+			message: Message::Request(RequestMessage {
+				requests: vec![post(nonce, 0)],
+				proof: Proof {
+					height: StateMachineHeight {
+						id: StateMachineId {
+							state_id: HB,
+							consensus_state_id: BEEFY_CONSENSUS_STATE_ID,
+						},
+						height: 1,
+					},
+					proof: vec![],
+				},
+				signer: vec![],
+			}),
+			state,
+			id: None,
+		}
+	}
+
+	struct NoProof;
+
+	#[async_trait::async_trait]
+	impl ConsensusProofSource for NoProof {
+		async fn fetch(&self, _key: ProofKey) -> Result<Vec<u8>, anyhow::Error> {
+			Err(anyhow::anyhow!("no proof in this test"))
+		}
+	}
+
+	#[tokio::test]
+	async fn expired_rows_are_dropped_and_future_rows_are_left_alone() {
+		let path = temp_db_path("expiry");
+		let tx_payment = Arc::new(TransactionPayment::initialize(&path).await.unwrap());
+		let now = transaction_fees::unix_now();
+
+		let expired = parked(
+			1,
+			RetryState { attempts: MAX_ATTEMPTS, created_at: now - 10, next_attempt_at: 0 },
+		);
+		let not_yet =
+			parked(2, RetryState { attempts: 0, created_at: now, next_attempt_at: now + 10_000 });
+		tx_payment
+			.store_unprofitable_messages(vec![expired, not_yet], DEST)
+			.await
+			.unwrap();
+
+		let ctx = RetryContext {
+			dest: Arc::new(MockHost::new((), 0, DEST)),
+			hyperbridge: Arc::new(MockHost::new((), 0, HB)),
+			proof_source: Arc::new(NoProof),
+			client_map: HashMap::new(),
+			tx_payment: tx_payment.clone(),
+			config: RelayerConfig::default(),
+			coprocessor: HB,
+			fee_acc_sender: None,
+		};
+
+		retry_once(&ctx).await.unwrap();
+
+		let remaining = tx_payment.unprofitable_messages(&DEST).await.unwrap();
+		assert_eq!(remaining.len(), 1);
+		assert_eq!(remaining[0].state.attempts, 0);
+
+		let _ = std::fs::remove_file(&path);
+		let _ = std::fs::remove_file(format!("{path}-journal"));
 	}
 }

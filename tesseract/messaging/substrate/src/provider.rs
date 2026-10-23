@@ -433,10 +433,12 @@ where
 							DryRunResult::Success => Ok::<_, Error>(EstimateGasReturnParams {
 								execution_cost: Default::default(),
 								successful_execution: true,
+								failure: None,
 							}),
 							_ => Ok(EstimateGasReturnParams {
 								execution_cost: Default::default(),
 								successful_execution: false,
+								failure: None,
 							}),
 						}
 					})

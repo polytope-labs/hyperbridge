@@ -276,6 +276,7 @@ impl<C: Codec + Send + Sync> IsmpProvider for MockHost<C> {
 			.map(|_| EstimateGasReturnParams {
 				execution_cost: Cost::default(),
 				successful_execution: true,
+				failure: None,
 			})
 			.collect())
 	}

@@ -1801,6 +1801,228 @@ pub mod unprofitable_messages {
 			}
 		}
 	}
+	pub mod attempts {
+		use super::{
+			super::*, _prisma::*, OrderByParam, SetParam, UncheckedSetParam, UniqueWhereParam,
+			WhereParam, WithParam,
+		};
+		pub const NAME: &str = "attempts";
+		pub struct Set(pub i32);
+		impl From<Set> for SetParam {
+			fn from(Set(v): Set) -> Self {
+				Self::SetAttempts(v)
+			}
+		}
+		impl From<Set> for UncheckedSetParam {
+			fn from(Set(v): Set) -> Self {
+				Self::Attempts(v)
+			}
+		}
+		pub fn set<T: From<Set>>(value: i32) -> T {
+			Set(value).into()
+		}
+		pub fn order(direction: ::prisma_client_rust::Direction) -> OrderByParam {
+			OrderByParam::Attempts(direction)
+		}
+		pub fn equals(value: i32) -> WhereParam {
+			WhereParam::Attempts(_prisma::read_filters::IntFilter::Equals(value))
+		}
+		::prisma_client_rust::scalar_where_param_fns!(
+			_prisma::read_filters::IntFilter,
+			Attempts,
+			{
+				fn in_vec(_: Vec<i32>) -> InVec;
+				fn not_in_vec(_: Vec<i32>) -> NotInVec;
+				fn lt(_: i32) -> Lt;
+				fn lte(_: i32) -> Lte;
+				fn gt(_: i32) -> Gt;
+				fn gte(_: i32) -> Gte;
+				fn not(_: i32) -> Not;
+			}
+		);
+		pub fn increment(value: i32) -> SetParam {
+			SetParam::IncrementAttempts(value)
+		}
+		pub fn decrement(value: i32) -> SetParam {
+			SetParam::DecrementAttempts(value)
+		}
+		pub fn multiply(value: i32) -> SetParam {
+			SetParam::MultiplyAttempts(value)
+		}
+		pub fn divide(value: i32) -> SetParam {
+			SetParam::DivideAttempts(value)
+		}
+		pub struct Include;
+		impl Into<super::IncludeParam> for Include {
+			fn into(self) -> super::IncludeParam {
+				super::IncludeParam::Attempts(self)
+			}
+		}
+		impl Include {
+			pub fn to_selection(self) -> ::prisma_client_rust::Selection {
+				::prisma_client_rust::sel(NAME)
+			}
+		}
+		pub struct Select;
+		impl Into<super::SelectParam> for Select {
+			fn into(self) -> super::SelectParam {
+				super::SelectParam::Attempts(self)
+			}
+		}
+		impl Select {
+			pub fn to_selection(self) -> ::prisma_client_rust::Selection {
+				::prisma_client_rust::sel(NAME)
+			}
+		}
+	}
+	pub mod created_at {
+		use super::{
+			super::*, _prisma::*, OrderByParam, SetParam, UncheckedSetParam, UniqueWhereParam,
+			WhereParam, WithParam,
+		};
+		pub const NAME: &str = "created_at";
+		pub struct Set(pub i32);
+		impl From<Set> for SetParam {
+			fn from(Set(v): Set) -> Self {
+				Self::SetCreatedAt(v)
+			}
+		}
+		impl From<Set> for UncheckedSetParam {
+			fn from(Set(v): Set) -> Self {
+				Self::CreatedAt(v)
+			}
+		}
+		pub fn set<T: From<Set>>(value: i32) -> T {
+			Set(value).into()
+		}
+		pub fn order(direction: ::prisma_client_rust::Direction) -> OrderByParam {
+			OrderByParam::CreatedAt(direction)
+		}
+		pub fn equals(value: i32) -> WhereParam {
+			WhereParam::CreatedAt(_prisma::read_filters::IntFilter::Equals(value))
+		}
+		::prisma_client_rust::scalar_where_param_fns!(
+			_prisma::read_filters::IntFilter,
+			CreatedAt,
+			{
+				fn in_vec(_: Vec<i32>) -> InVec;
+				fn not_in_vec(_: Vec<i32>) -> NotInVec;
+				fn lt(_: i32) -> Lt;
+				fn lte(_: i32) -> Lte;
+				fn gt(_: i32) -> Gt;
+				fn gte(_: i32) -> Gte;
+				fn not(_: i32) -> Not;
+			}
+		);
+		pub fn increment(value: i32) -> SetParam {
+			SetParam::IncrementCreatedAt(value)
+		}
+		pub fn decrement(value: i32) -> SetParam {
+			SetParam::DecrementCreatedAt(value)
+		}
+		pub fn multiply(value: i32) -> SetParam {
+			SetParam::MultiplyCreatedAt(value)
+		}
+		pub fn divide(value: i32) -> SetParam {
+			SetParam::DivideCreatedAt(value)
+		}
+		pub struct Include;
+		impl Into<super::IncludeParam> for Include {
+			fn into(self) -> super::IncludeParam {
+				super::IncludeParam::CreatedAt(self)
+			}
+		}
+		impl Include {
+			pub fn to_selection(self) -> ::prisma_client_rust::Selection {
+				::prisma_client_rust::sel(NAME)
+			}
+		}
+		pub struct Select;
+		impl Into<super::SelectParam> for Select {
+			fn into(self) -> super::SelectParam {
+				super::SelectParam::CreatedAt(self)
+			}
+		}
+		impl Select {
+			pub fn to_selection(self) -> ::prisma_client_rust::Selection {
+				::prisma_client_rust::sel(NAME)
+			}
+		}
+	}
+	pub mod next_attempt_at {
+		use super::{
+			super::*, _prisma::*, OrderByParam, SetParam, UncheckedSetParam, UniqueWhereParam,
+			WhereParam, WithParam,
+		};
+		pub const NAME: &str = "next_attempt_at";
+		pub struct Set(pub i32);
+		impl From<Set> for SetParam {
+			fn from(Set(v): Set) -> Self {
+				Self::SetNextAttemptAt(v)
+			}
+		}
+		impl From<Set> for UncheckedSetParam {
+			fn from(Set(v): Set) -> Self {
+				Self::NextAttemptAt(v)
+			}
+		}
+		pub fn set<T: From<Set>>(value: i32) -> T {
+			Set(value).into()
+		}
+		pub fn order(direction: ::prisma_client_rust::Direction) -> OrderByParam {
+			OrderByParam::NextAttemptAt(direction)
+		}
+		pub fn equals(value: i32) -> WhereParam {
+			WhereParam::NextAttemptAt(_prisma::read_filters::IntFilter::Equals(value))
+		}
+		::prisma_client_rust::scalar_where_param_fns!(
+			_prisma::read_filters::IntFilter,
+			NextAttemptAt,
+			{
+				fn in_vec(_: Vec<i32>) -> InVec;
+				fn not_in_vec(_: Vec<i32>) -> NotInVec;
+				fn lt(_: i32) -> Lt;
+				fn lte(_: i32) -> Lte;
+				fn gt(_: i32) -> Gt;
+				fn gte(_: i32) -> Gte;
+				fn not(_: i32) -> Not;
+			}
+		);
+		pub fn increment(value: i32) -> SetParam {
+			SetParam::IncrementNextAttemptAt(value)
+		}
+		pub fn decrement(value: i32) -> SetParam {
+			SetParam::DecrementNextAttemptAt(value)
+		}
+		pub fn multiply(value: i32) -> SetParam {
+			SetParam::MultiplyNextAttemptAt(value)
+		}
+		pub fn divide(value: i32) -> SetParam {
+			SetParam::DivideNextAttemptAt(value)
+		}
+		pub struct Include;
+		impl Into<super::IncludeParam> for Include {
+			fn into(self) -> super::IncludeParam {
+				super::IncludeParam::NextAttemptAt(self)
+			}
+		}
+		impl Include {
+			pub fn to_selection(self) -> ::prisma_client_rust::Selection {
+				::prisma_client_rust::sel(NAME)
+			}
+		}
+		pub struct Select;
+		impl Into<super::SelectParam> for Select {
+			fn into(self) -> super::SelectParam {
+				super::SelectParam::NextAttemptAt(self)
+			}
+		}
+		impl Select {
+			pub fn to_selection(self) -> ::prisma_client_rust::Selection {
+				::prisma_client_rust::sel(NAME)
+			}
+		}
+	}
 	pub fn create(
 		dest: String,
 		encoded: Vec<u8>,
@@ -1816,12 +2038,15 @@ pub mod unprofitable_messages {
 		(dest, encoded, _params)
 	}
 	#[macro_export]
-	macro_rules ! _select_unprofitable_messages { ($ (($ ($ func_arg : ident : $ func_arg_ty : ty) , +) =>) ? $ module_name : ident { $ ($ field : ident $ (($ ($ filters : tt) +) $ (. $ arg : ident ($ ($ arg_params : tt) *)) *) ? $ (: $ selection_mode : ident { $ ($ selections : tt) + }) ?) + }) => { # [allow (warnings)] pub mod $ module_name { crate :: prisma :: unprofitable_messages :: select ! (@ definitions ; $ module_name ; $ ($ field $ (($ ($ filters) +) $ (. $ arg ($ ($ arg_params) *)) *) ? $ (: $ selection_mode { $ ($ selections) + }) ?) +) ; use super :: * ; pub struct Selection (Vec < :: prisma_client_rust :: Selection >) ; impl :: prisma_client_rust :: SelectType for Selection { type Data = Data ; type ModelData = crate :: prisma :: unprofitable_messages :: Data ; fn to_selections (self) -> Vec < :: prisma_client_rust :: Selection > { self . 0 } } pub fn select ($ ($ ($ func_arg : $ func_arg_ty) , +) ?) -> Selection { Selection ([crate :: prisma :: unprofitable_messages :: select ! (@ selections_to_params ; : select { $ ($ field $ (($ ($ filters) +) $ (. $ arg ($ ($ arg_params) *)) *) ? $ (: $ selection_mode { $ ($ selections) + }) ?) + }) . into_iter () . map (| p | p . to_selection ()) . collect :: < Vec < _ >> () ,] . into_iter () . flatten () . collect :: < Vec < _ >> ()) } } } ; ({ $ ($ field : ident $ (($ ($ filters : tt) +) $ (. $ arg : ident ($ ($ arg_params : tt) *)) *) ? $ (: $ selection_mode : ident { $ ($ selections : tt) + }) ?) + }) => { { crate :: prisma :: unprofitable_messages :: select ! (@ definitions ; ; $ ($ field $ (($ ($ filters) +) $ (. $ arg ($ ($ arg_params) *)) *) ? $ (: $ selection_mode { $ ($ selections) + }) ?) +) ; pub struct Selection (Vec < :: prisma_client_rust :: Selection >) ; impl :: prisma_client_rust :: SelectType for Selection { type Data = Data ; type ModelData = crate :: prisma :: unprofitable_messages :: Data ; fn to_selections (self) -> Vec < :: prisma_client_rust :: Selection > { self . 0 } } Selection ([crate :: prisma :: unprofitable_messages :: select ! (@ selections_to_params ; : select { $ ($ field $ (($ ($ filters) +) $ (. $ arg ($ ($ arg_params) *)) *) ? $ (: $ selection_mode { $ ($ selections) + }) ?) + }) . into_iter () . map (| p | p . to_selection ()) . collect :: < Vec < _ >> () ,] . into_iter () . flatten () . collect :: < Vec < _ >> ()) } } ; (@ definitions ; $ ($ module_name : ident) ? ; $ ($ field : ident $ (($ ($ filters : tt) +) $ (. $ arg : ident ($ ($ arg_params : tt) *)) *) ? $ (: $ selection_mode : ident { $ ($ selections : tt) + }) ?) +) => { # [allow (warnings)] enum Fields { id , dest , encoded } # [allow (warnings)] impl Fields { fn selections () { $ (let _ = Fields :: $ field ;) + } } # [allow (warnings)] # [derive (std :: fmt :: Debug , Clone)] pub struct Data { $ (pub $ field : crate :: prisma :: unprofitable_messages :: select ! (@ field_type ; $ field $ (: $ selection_mode { $ ($ selections) + }) ?) ,) + } impl :: serde :: Serialize for Data { fn serialize < S > (& self , serializer : S) -> Result < S :: Ok , S :: Error > where S : :: serde :: Serializer , { use :: serde :: ser :: SerializeStruct ; let mut state = serializer . serialize_struct ("Data" , [$ (stringify ! ($ field) ,) +] . len ()) ? ; $ (state . serialize_field (crate :: prisma :: unprofitable_messages :: $ field :: NAME , & self . $ field) ? ;) * state . end () } } impl < 'de > :: serde :: Deserialize < 'de > for Data { fn deserialize < D > (deserializer : D) -> Result < Self , D :: Error > where D : :: serde :: Deserializer < 'de > , { # [allow (warnings)] enum Field { $ ($ field) , + } impl < 'de > :: serde :: Deserialize < 'de > for Field { fn deserialize < D > (deserializer : D) -> Result < Field , D :: Error > where D : :: serde :: Deserializer < 'de > , { struct FieldVisitor ; impl < 'de > :: serde :: de :: Visitor < 'de > for FieldVisitor { type Value = Field ; fn expecting (& self , formatter : & mut :: std :: fmt :: Formatter) -> :: std :: fmt :: Result { formatter . write_str (& [$ (crate :: prisma :: unprofitable_messages :: $ field :: NAME) , + ,] . into_iter () . collect :: < Vec < _ >> () . join (", ")) } fn visit_str < E > (self , value : & str) -> Result < Field , E > where E : :: serde :: de :: Error , { match value { $ (crate :: prisma :: unprofitable_messages :: $ field :: NAME => Ok (Field :: $ field)) , * , _ => Err (:: serde :: de :: Error :: unknown_field (value , FIELDS)) } } } deserializer . deserialize_identifier (FieldVisitor) } } struct DataVisitor ; impl < 'de > :: serde :: de :: Visitor < 'de > for DataVisitor { type Value = Data ; fn expecting (& self , formatter : & mut std :: fmt :: Formatter) -> std :: fmt :: Result { formatter . write_str ("struct Data") } fn visit_map < V > (self , mut map : V) -> Result < Data , V :: Error > where V : :: serde :: de :: MapAccess < 'de > , { $ (let mut $ field = None ;) * while let Some (key) = map . next_key () ? { match key { $ (Field :: $ field => { if $ field . is_some () { return Err (:: serde :: de :: Error :: duplicate_field (crate :: prisma :: unprofitable_messages :: $ field :: NAME)) ; } $ field = Some (map . next_value () ?) ; }) * } } $ (let $ field = $ field . ok_or_else (|| serde :: de :: Error :: missing_field (crate :: prisma :: unprofitable_messages :: $ field :: NAME)) ? ;) * Ok (Data { $ ($ field) , * }) } } const FIELDS : & 'static [& 'static str] = & ["id" , "dest" , "encoded"] ; deserializer . deserialize_struct ("Data" , FIELDS , DataVisitor) } } $ ($ (pub mod $ field { crate :: prisma :: unprofitable_messages :: $ selection_mode ! (@ field_module ; $ field : $ selection_mode { $ ($ selections) + }) ; }) ?) + } ; (@ field_type ; id) => { i32 } ; (@ field_type ; dest) => { String } ; (@ field_type ; encoded) => { Vec < u8 > } ; (@ field_type ; $ field : ident $ ($ tokens : tt) *) => { compile_error ! (stringify ! (Cannot include nonexistent relation $ field on model "UnprofitableMessages" , available relations are "id, dest, encoded")) } ; (@ field_module ; $ ($ tokens : tt) *) => { } ; (@ selection_field_to_selection_param ; id) => { Into :: < crate :: prisma :: unprofitable_messages :: SelectParam > :: into (crate :: prisma :: unprofitable_messages :: id :: Select) } ; (@ selection_field_to_selection_param ; dest) => { Into :: < crate :: prisma :: unprofitable_messages :: SelectParam > :: into (crate :: prisma :: unprofitable_messages :: dest :: Select) } ; (@ selection_field_to_selection_param ; encoded) => { Into :: < crate :: prisma :: unprofitable_messages :: SelectParam > :: into (crate :: prisma :: unprofitable_messages :: encoded :: Select) } ; (@ selection_field_to_selection_param ; $ ($ tokens : tt) *) => { compile_error ! (stringify ! ($ ($ tokens) *)) } ; (@ selections_to_params ; : $ macro_name : ident { $ ($ field : ident $ (($ ($ filters : tt) +) $ (. $ arg : ident ($ ($ arg_params : tt) *)) *) ? $ (: $ selection_mode : ident { $ ($ selections : tt) + }) ?) + }) => { [$ (crate :: prisma :: unprofitable_messages :: $ macro_name ! (@ selection_field_to_selection_param ; $ field $ (($ ($ filters) +) $ (. $ arg ($ ($ arg_params) *)) *) ? $ (: $ selection_mode { $ ($ selections) + }) ?) ,) +] } ; (@ filters_to_args ;) => { vec ! [] } ; (@ filters_to_args ; $ ($ t : tt) *) => { $ ($ t) * } ; (@ field_serde_name ; id) => { "id" } ; (@ field_serde_name ; dest) => { "dest" } ; (@ field_serde_name ; encoded) => { "encoded" } ; }
+	macro_rules ! _select_unprofitable_messages { ($ (($ ($ func_arg : ident : $ func_arg_ty : ty) , +) =>) ? $ module_name : ident { $ ($ field : ident $ (($ ($ filters : tt) +) $ (. $ arg : ident ($ ($ arg_params : tt) *)) *) ? $ (: $ selection_mode : ident { $ ($ selections : tt) + }) ?) + }) => { # [allow (warnings)] pub mod $ module_name { crate :: prisma :: unprofitable_messages :: select ! (@ definitions ; $ module_name ; $ ($ field $ (($ ($ filters) +) $ (. $ arg ($ ($ arg_params) *)) *) ? $ (: $ selection_mode { $ ($ selections) + }) ?) +) ; use super :: * ; pub struct Selection (Vec < :: prisma_client_rust :: Selection >) ; impl :: prisma_client_rust :: SelectType for Selection { type Data = Data ; type ModelData = crate :: prisma :: unprofitable_messages :: Data ; fn to_selections (self) -> Vec < :: prisma_client_rust :: Selection > { self . 0 } } pub fn select ($ ($ ($ func_arg : $ func_arg_ty) , +) ?) -> Selection { Selection ([crate :: prisma :: unprofitable_messages :: select ! (@ selections_to_params ; : select { $ ($ field $ (($ ($ filters) +) $ (. $ arg ($ ($ arg_params) *)) *) ? $ (: $ selection_mode { $ ($ selections) + }) ?) + }) . into_iter () . map (| p | p . to_selection ()) . collect :: < Vec < _ >> () ,] . into_iter () . flatten () . collect :: < Vec < _ >> ()) } } } ; ({ $ ($ field : ident $ (($ ($ filters : tt) +) $ (. $ arg : ident ($ ($ arg_params : tt) *)) *) ? $ (: $ selection_mode : ident { $ ($ selections : tt) + }) ?) + }) => { { crate :: prisma :: unprofitable_messages :: select ! (@ definitions ; ; $ ($ field $ (($ ($ filters) +) $ (. $ arg ($ ($ arg_params) *)) *) ? $ (: $ selection_mode { $ ($ selections) + }) ?) +) ; pub struct Selection (Vec < :: prisma_client_rust :: Selection >) ; impl :: prisma_client_rust :: SelectType for Selection { type Data = Data ; type ModelData = crate :: prisma :: unprofitable_messages :: Data ; fn to_selections (self) -> Vec < :: prisma_client_rust :: Selection > { self . 0 } } Selection ([crate :: prisma :: unprofitable_messages :: select ! (@ selections_to_params ; : select { $ ($ field $ (($ ($ filters) +) $ (. $ arg ($ ($ arg_params) *)) *) ? $ (: $ selection_mode { $ ($ selections) + }) ?) + }) . into_iter () . map (| p | p . to_selection ()) . collect :: < Vec < _ >> () ,] . into_iter () . flatten () . collect :: < Vec < _ >> ()) } } ; (@ definitions ; $ ($ module_name : ident) ? ; $ ($ field : ident $ (($ ($ filters : tt) +) $ (. $ arg : ident ($ ($ arg_params : tt) *)) *) ? $ (: $ selection_mode : ident { $ ($ selections : tt) + }) ?) +) => { # [allow (warnings)] enum Fields { id , dest , encoded , attempts , created_at , next_attempt_at } # [allow (warnings)] impl Fields { fn selections () { $ (let _ = Fields :: $ field ;) + } } # [allow (warnings)] # [derive (std :: fmt :: Debug , Clone)] pub struct Data { $ (pub $ field : crate :: prisma :: unprofitable_messages :: select ! (@ field_type ; $ field $ (: $ selection_mode { $ ($ selections) + }) ?) ,) + } impl :: serde :: Serialize for Data { fn serialize < S > (& self , serializer : S) -> Result < S :: Ok , S :: Error > where S : :: serde :: Serializer , { use :: serde :: ser :: SerializeStruct ; let mut state = serializer . serialize_struct ("Data" , [$ (stringify ! ($ field) ,) +] . len ()) ? ; $ (state . serialize_field (crate :: prisma :: unprofitable_messages :: $ field :: NAME , & self . $ field) ? ;) * state . end () } } impl < 'de > :: serde :: Deserialize < 'de > for Data { fn deserialize < D > (deserializer : D) -> Result < Self , D :: Error > where D : :: serde :: Deserializer < 'de > , { # [allow (warnings)] enum Field { $ ($ field) , + , } impl < 'de > :: serde :: Deserialize < 'de > for Field { fn deserialize < D > (deserializer : D) -> Result < Field , D :: Error > where D : :: serde :: Deserializer < 'de > , { struct FieldVisitor ; impl < 'de > :: serde :: de :: Visitor < 'de > for FieldVisitor { type Value = Field ; fn expecting (& self , formatter : & mut :: std :: fmt :: Formatter) -> :: std :: fmt :: Result { formatter . write_str (& [$ (crate :: prisma :: unprofitable_messages :: $ field :: NAME) , + ,] . into_iter () . collect :: < Vec < _ >> () . join (", ")) } fn visit_str < E > (self , value : & str) -> Result < Field , E > where E : :: serde :: de :: Error , { match value { $ (crate :: prisma :: unprofitable_messages :: $ field :: NAME => Ok (Field :: $ field)) , * , _ => Err (:: serde :: de :: Error :: unknown_field (value , FIELDS)) , } } } deserializer . deserialize_identifier (FieldVisitor) } } struct DataVisitor ; impl < 'de > :: serde :: de :: Visitor < 'de > for DataVisitor { type Value = Data ; fn expecting (& self , formatter : & mut std :: fmt :: Formatter) -> std :: fmt :: Result { formatter . write_str ("struct Data") } fn visit_map < V > (self , mut map : V) -> Result < Data , V :: Error > where V : :: serde :: de :: MapAccess < 'de > , { $ (let mut $ field = None ;) * while let Some (key) = map . next_key () ? { match key { $ (Field :: $ field => { if $ field . is_some () { return Err (:: serde :: de :: Error :: duplicate_field (crate :: prisma :: unprofitable_messages :: $ field :: NAME)) ; } $ field = Some (map . next_value () ?) ; }) * } } $ (let $ field = $ field . ok_or_else (|| serde :: de :: Error :: missing_field (crate :: prisma :: unprofitable_messages :: $ field :: NAME)) ? ;) * Ok (Data { $ ($ field) , * }) } } const FIELDS : & 'static [& 'static str] = & ["id" , "dest" , "encoded" , "attempts" , "created_at" , "next_attempt_at"] ; deserializer . deserialize_struct ("Data" , FIELDS , DataVisitor) } } $ ($ (pub mod $ field { crate :: prisma :: unprofitable_messages :: $ selection_mode ! (@ field_module ; $ field : $ selection_mode { $ ($ selections) + }) ; }) ?) + } ; (@ field_type ; id) => { i32 } ; (@ field_type ; dest) => { String } ; (@ field_type ; encoded) => { Vec < u8 > } ; (@ field_type ; attempts) => { i32 } ; (@ field_type ; created_at) => { i32 } ; (@ field_type ; next_attempt_at) => { i32 } ; (@ field_type ; $ field : ident $ ($ tokens : tt) *) => { compile_error ! (stringify ! (Cannot include nonexistent relation $ field on model "UnprofitableMessages" , available relations are "id, dest, encoded, attempts, created_at, next_attempt_at")) } ; (@ field_module ; $ ($ tokens : tt) *) => { } ; (@ selection_field_to_selection_param ; id) => { Into :: < crate :: prisma :: unprofitable_messages :: SelectParam > :: into (crate :: prisma :: unprofitable_messages :: id :: Select) } ; (@ selection_field_to_selection_param ; dest) => { Into :: < crate :: prisma :: unprofitable_messages :: SelectParam > :: into (crate :: prisma :: unprofitable_messages :: dest :: Select) } ; (@ selection_field_to_selection_param ; encoded) => { Into :: < crate :: prisma :: unprofitable_messages :: SelectParam > :: into (crate :: prisma :: unprofitable_messages :: encoded :: Select) } ; (@ selection_field_to_selection_param ; attempts) => { Into :: < crate :: prisma :: unprofitable_messages :: SelectParam > :: into (crate :: prisma :: unprofitable_messages :: attempts :: Select) } ; (@ selection_field_to_selection_param ; created_at) => { Into :: < crate :: prisma :: unprofitable_messages :: SelectParam > :: into (crate :: prisma :: unprofitable_messages :: created_at :: Select) } ; (@ selection_field_to_selection_param ; next_attempt_at) => { Into :: < crate :: prisma :: unprofitable_messages :: SelectParam > :: into (crate :: prisma :: unprofitable_messages :: next_attempt_at :: Select) } ; (@ selection_field_to_selection_param ; $ ($ tokens : tt) *) => { compile_error ! (stringify ! ($ ($ tokens) *)) } ; (@ selections_to_params ; : $ macro_name : ident { $ ($ field : ident $ (($ ($ filters : tt) +) $ (. $ arg : ident ($ ($ arg_params : tt) *)) *) ? $ (: $ selection_mode : ident { $ ($ selections : tt) + }) ?) + }) => { [$ (crate :: prisma :: unprofitable_messages :: $ macro_name ! (@ selection_field_to_selection_param ; $ field $ (($ ($ filters) +) $ (. $ arg ($ ($ arg_params) *)) *) ? $ (: $ selection_mode { $ ($ selections) + }) ?) ,) +] } ; (@ filters_to_args ;) => { vec ! [] } ; (@ filters_to_args ; $ ($ t : tt) *) => { $ ($ t) * } ; (@ field_serde_name ; id) => { "id" } ; (@ field_serde_name ; dest) => { "dest" } ; (@ field_serde_name ; encoded) => { "encoded" } ; (@ field_serde_name ; attempts) => { "attempts" } ; (@ field_serde_name ; created_at) => { "created_at" } ; (@ field_serde_name ; next_attempt_at) => { "next_attempt_at" } ; }
 	pub use _select_unprofitable_messages as select;
 	pub enum SelectParam {
 		Id(id::Select),
 		Dest(dest::Select),
 		Encoded(encoded::Select),
+		Attempts(attempts::Select),
+		CreatedAt(created_at::Select),
+		NextAttemptAt(next_attempt_at::Select),
 	}
 	impl SelectParam {
 		pub fn to_selection(self) -> ::prisma_client_rust::Selection {
@@ -1829,16 +2054,22 @@ pub mod unprofitable_messages {
 				Self::Id(data) => data.to_selection(),
 				Self::Dest(data) => data.to_selection(),
 				Self::Encoded(data) => data.to_selection(),
+				Self::Attempts(data) => data.to_selection(),
+				Self::CreatedAt(data) => data.to_selection(),
+				Self::NextAttemptAt(data) => data.to_selection(),
 			}
 		}
 	}
 	#[macro_export]
-	macro_rules ! _include_unprofitable_messages { ($ (($ ($ func_arg : ident : $ func_arg_ty : ty) , +) =>) ? $ module_name : ident { $ ($ field : ident $ (($ ($ filters : tt) +) $ (. $ arg : ident ($ ($ arg_params : tt) *)) *) ? $ (: $ selection_mode : ident { $ ($ selections : tt) + }) ?) + }) => { # [allow (warnings)] pub mod $ module_name { crate :: prisma :: unprofitable_messages :: include ! (@ definitions ; $ module_name ; $ ($ field $ (($ ($ filters) +) $ (. $ arg ($ ($ arg_params) *)) *) ? $ (: $ selection_mode { $ ($ selections) + }) ?) +) ; use super :: * ; pub struct Selection (Vec < :: prisma_client_rust :: Selection >) ; impl :: prisma_client_rust :: IncludeType for Selection { type Data = Data ; type ModelData = crate :: prisma :: unprofitable_messages :: Data ; fn to_selections (self) -> Vec < :: prisma_client_rust :: Selection > { self . 0 } } pub fn include ($ ($ ($ func_arg : $ func_arg_ty) , +) ?) -> Selection { Selection ([crate :: prisma :: unprofitable_messages :: include ! (@ selections_to_params ; : include { $ ($ field $ (($ ($ filters) +) $ (. $ arg ($ ($ arg_params) *)) *) ? $ (: $ selection_mode { $ ($ selections) + }) ?) + }) . into_iter () . map (| p | p . to_selection ()) . collect :: < Vec < _ >> () , < crate :: prisma :: unprofitable_messages :: Types as :: prisma_client_rust :: ModelTypes > :: scalar_selections ()] . into_iter () . flatten () . collect :: < Vec < _ >> ()) } } } ; ({ $ ($ field : ident $ (($ ($ filters : tt) +) $ (. $ arg : ident ($ ($ arg_params : tt) *)) *) ? $ (: $ selection_mode : ident { $ ($ selections : tt) + }) ?) + }) => { { crate :: prisma :: unprofitable_messages :: include ! (@ definitions ; ; $ ($ field $ (($ ($ filters) +) $ (. $ arg ($ ($ arg_params) *)) *) ? $ (: $ selection_mode { $ ($ selections) + }) ?) +) ; pub struct Selection (Vec < :: prisma_client_rust :: Selection >) ; impl :: prisma_client_rust :: IncludeType for Selection { type Data = Data ; type ModelData = crate :: prisma :: unprofitable_messages :: Data ; fn to_selections (self) -> Vec < :: prisma_client_rust :: Selection > { self . 0 } } Selection ([crate :: prisma :: unprofitable_messages :: include ! (@ selections_to_params ; : include { $ ($ field $ (($ ($ filters) +) $ (. $ arg ($ ($ arg_params) *)) *) ? $ (: $ selection_mode { $ ($ selections) + }) ?) + }) . into_iter () . map (| p | p . to_selection ()) . collect :: < Vec < _ >> () , < crate :: prisma :: unprofitable_messages :: Types as :: prisma_client_rust :: ModelTypes > :: scalar_selections ()] . into_iter () . flatten () . collect :: < Vec < _ >> ()) } } ; (@ definitions ; $ ($ module_name : ident) ? ; $ ($ field : ident $ (($ ($ filters : tt) +) $ (. $ arg : ident ($ ($ arg_params : tt) *)) *) ? $ (: $ selection_mode : ident { $ ($ selections : tt) + }) ?) +) => { # [allow (warnings)] enum Fields { } # [allow (warnings)] impl Fields { fn selections () { $ (let _ = Fields :: $ field ;) + } } # [allow (warnings)] # [derive (std :: fmt :: Debug , Clone)] pub struct Data { pub id : i32 , pub dest : String , pub encoded : Vec < u8 > , $ (pub $ field : crate :: prisma :: unprofitable_messages :: include ! (@ field_type ; $ field $ (: $ selection_mode { $ ($ selections) + }) ?) ,) + } impl :: serde :: Serialize for Data { fn serialize < S > (& self , serializer : S) -> Result < S :: Ok , S :: Error > where S : :: serde :: Serializer , { use :: serde :: ser :: SerializeStruct ; let mut state = serializer . serialize_struct ("Data" , [$ (stringify ! ($ field) ,) + stringify ! (id) , stringify ! (dest) , stringify ! (encoded)] . len ()) ? ; $ (state . serialize_field (crate :: prisma :: unprofitable_messages :: $ field :: NAME , & self . $ field) ? ;) * state . serialize_field (crate :: prisma :: unprofitable_messages :: id :: NAME , & self . id) ? ; state . serialize_field (crate :: prisma :: unprofitable_messages :: dest :: NAME , & self . dest) ? ; state . serialize_field (crate :: prisma :: unprofitable_messages :: encoded :: NAME , & self . encoded) ? ; state . end () } } impl < 'de > :: serde :: Deserialize < 'de > for Data { fn deserialize < D > (deserializer : D) -> Result < Self , D :: Error > where D : :: serde :: Deserializer < 'de > , { # [allow (warnings)] enum Field { $ ($ field) , + , id , dest , encoded } impl < 'de > :: serde :: Deserialize < 'de > for Field { fn deserialize < D > (deserializer : D) -> Result < Field , D :: Error > where D : :: serde :: Deserializer < 'de > , { struct FieldVisitor ; impl < 'de > :: serde :: de :: Visitor < 'de > for FieldVisitor { type Value = Field ; fn expecting (& self , formatter : & mut :: std :: fmt :: Formatter) -> :: std :: fmt :: Result { formatter . write_str (& [$ (crate :: prisma :: unprofitable_messages :: $ field :: NAME) , + , crate :: prisma :: unprofitable_messages :: id :: NAME , crate :: prisma :: unprofitable_messages :: dest :: NAME , crate :: prisma :: unprofitable_messages :: encoded :: NAME] . into_iter () . collect :: < Vec < _ >> () . join (", ")) } fn visit_str < E > (self , value : & str) -> Result < Field , E > where E : :: serde :: de :: Error , { match value { $ (crate :: prisma :: unprofitable_messages :: $ field :: NAME => Ok (Field :: $ field)) , * , crate :: prisma :: unprofitable_messages :: id :: NAME => Ok (Field :: id) , crate :: prisma :: unprofitable_messages :: dest :: NAME => Ok (Field :: dest) , crate :: prisma :: unprofitable_messages :: encoded :: NAME => Ok (Field :: encoded) , _ => Err (:: serde :: de :: Error :: unknown_field (value , FIELDS)) } } } deserializer . deserialize_identifier (FieldVisitor) } } struct DataVisitor ; impl < 'de > :: serde :: de :: Visitor < 'de > for DataVisitor { type Value = Data ; fn expecting (& self , formatter : & mut std :: fmt :: Formatter) -> std :: fmt :: Result { formatter . write_str ("struct Data") } fn visit_map < V > (self , mut map : V) -> Result < Data , V :: Error > where V : :: serde :: de :: MapAccess < 'de > , { $ (let mut $ field = None ;) * let mut id = None ; let mut dest = None ; let mut encoded = None ; while let Some (key) = map . next_key () ? { match key { Field :: id => { if id . is_some () { return Err (:: serde :: de :: Error :: duplicate_field (crate :: prisma :: unprofitable_messages :: id :: NAME)) ; } id = Some (map . next_value () ?) ; } Field :: dest => { if dest . is_some () { return Err (:: serde :: de :: Error :: duplicate_field (crate :: prisma :: unprofitable_messages :: dest :: NAME)) ; } dest = Some (map . next_value () ?) ; } Field :: encoded => { if encoded . is_some () { return Err (:: serde :: de :: Error :: duplicate_field (crate :: prisma :: unprofitable_messages :: encoded :: NAME)) ; } encoded = Some (map . next_value () ?) ; } $ (Field :: $ field => { if $ field . is_some () { return Err (:: serde :: de :: Error :: duplicate_field (crate :: prisma :: unprofitable_messages :: $ field :: NAME)) ; } $ field = Some (map . next_value () ?) ; }) * } } $ (let $ field = $ field . ok_or_else (|| serde :: de :: Error :: missing_field (crate :: prisma :: unprofitable_messages :: $ field :: NAME)) ? ;) * let id = id . ok_or_else (|| serde :: de :: Error :: missing_field (crate :: prisma :: unprofitable_messages :: id :: NAME)) ? ; let dest = dest . ok_or_else (|| serde :: de :: Error :: missing_field (crate :: prisma :: unprofitable_messages :: dest :: NAME)) ? ; let encoded = encoded . ok_or_else (|| serde :: de :: Error :: missing_field (crate :: prisma :: unprofitable_messages :: encoded :: NAME)) ? ; Ok (Data { id , dest , encoded , $ ($ field) , * }) } } const FIELDS : & 'static [& 'static str] = & ["id" , "dest" , "encoded"] ; deserializer . deserialize_struct ("Data" , FIELDS , DataVisitor) } } $ ($ (pub mod $ field { crate :: prisma :: unprofitable_messages :: $ selection_mode ! (@ field_module ; $ field : $ selection_mode { $ ($ selections) + }) ; }) ?) + } ; (@ field_type ; $ field : ident $ ($ tokens : tt) *) => { compile_error ! (stringify ! (Cannot include nonexistent relation $ field on model "UnprofitableMessages" , available relations are "")) } ; (@ field_module ; $ ($ tokens : tt) *) => { } ; (@ selection_field_to_selection_param ; $ ($ tokens : tt) *) => { compile_error ! (stringify ! ($ ($ tokens) *)) } ; (@ selections_to_params ; : $ macro_name : ident { $ ($ field : ident $ (($ ($ filters : tt) +) $ (. $ arg : ident ($ ($ arg_params : tt) *)) *) ? $ (: $ selection_mode : ident { $ ($ selections : tt) + }) ?) + }) => { [$ (crate :: prisma :: unprofitable_messages :: $ macro_name ! (@ selection_field_to_selection_param ; $ field $ (($ ($ filters) +) $ (. $ arg ($ ($ arg_params) *)) *) ? $ (: $ selection_mode { $ ($ selections) + }) ?) ,) +] } ; (@ filters_to_args ;) => { vec ! [] } ; (@ filters_to_args ; $ ($ t : tt) *) => { $ ($ t) * } ; (@ field_serde_name ; id) => { "id" } ; (@ field_serde_name ; dest) => { "dest" } ; (@ field_serde_name ; encoded) => { "encoded" } ; }
+	macro_rules ! _include_unprofitable_messages { ($ (($ ($ func_arg : ident : $ func_arg_ty : ty) , +) =>) ? $ module_name : ident { $ ($ field : ident $ (($ ($ filters : tt) +) $ (. $ arg : ident ($ ($ arg_params : tt) *)) *) ? $ (: $ selection_mode : ident { $ ($ selections : tt) + }) ?) + }) => { # [allow (warnings)] pub mod $ module_name { crate :: prisma :: unprofitable_messages :: include ! (@ definitions ; $ module_name ; $ ($ field $ (($ ($ filters) +) $ (. $ arg ($ ($ arg_params) *)) *) ? $ (: $ selection_mode { $ ($ selections) + }) ?) +) ; use super :: * ; pub struct Selection (Vec < :: prisma_client_rust :: Selection >) ; impl :: prisma_client_rust :: IncludeType for Selection { type Data = Data ; type ModelData = crate :: prisma :: unprofitable_messages :: Data ; fn to_selections (self) -> Vec < :: prisma_client_rust :: Selection > { self . 0 } } pub fn include ($ ($ ($ func_arg : $ func_arg_ty) , +) ?) -> Selection { Selection ([crate :: prisma :: unprofitable_messages :: include ! (@ selections_to_params ; : include { $ ($ field $ (($ ($ filters) +) $ (. $ arg ($ ($ arg_params) *)) *) ? $ (: $ selection_mode { $ ($ selections) + }) ?) + }) . into_iter () . map (| p | p . to_selection ()) . collect :: < Vec < _ >> () , < crate :: prisma :: unprofitable_messages :: Types as :: prisma_client_rust :: ModelTypes > :: scalar_selections ()] . into_iter () . flatten () . collect :: < Vec < _ >> ()) } } } ; ({ $ ($ field : ident $ (($ ($ filters : tt) +) $ (. $ arg : ident ($ ($ arg_params : tt) *)) *) ? $ (: $ selection_mode : ident { $ ($ selections : tt) + }) ?) + }) => { { crate :: prisma :: unprofitable_messages :: include ! (@ definitions ; ; $ ($ field $ (($ ($ filters) +) $ (. $ arg ($ ($ arg_params) *)) *) ? $ (: $ selection_mode { $ ($ selections) + }) ?) +) ; pub struct Selection (Vec < :: prisma_client_rust :: Selection >) ; impl :: prisma_client_rust :: IncludeType for Selection { type Data = Data ; type ModelData = crate :: prisma :: unprofitable_messages :: Data ; fn to_selections (self) -> Vec < :: prisma_client_rust :: Selection > { self . 0 } } Selection ([crate :: prisma :: unprofitable_messages :: include ! (@ selections_to_params ; : include { $ ($ field $ (($ ($ filters) +) $ (. $ arg ($ ($ arg_params) *)) *) ? $ (: $ selection_mode { $ ($ selections) + }) ?) + }) . into_iter () . map (| p | p . to_selection ()) . collect :: < Vec < _ >> () , < crate :: prisma :: unprofitable_messages :: Types as :: prisma_client_rust :: ModelTypes > :: scalar_selections ()] . into_iter () . flatten () . collect :: < Vec < _ >> ()) } } ; (@ definitions ; $ ($ module_name : ident) ? ; $ ($ field : ident $ (($ ($ filters : tt) +) $ (. $ arg : ident ($ ($ arg_params : tt) *)) *) ? $ (: $ selection_mode : ident { $ ($ selections : tt) + }) ?) +) => { # [allow (warnings)] enum Fields { } # [allow (warnings)] impl Fields { fn selections () { $ (let _ = Fields :: $ field ;) + } } # [allow (warnings)] # [derive (std :: fmt :: Debug , Clone)] pub struct Data { pub id : i32 , pub dest : String , pub encoded : Vec < u8 > , pub attempts : i32 , pub created_at : i32 , pub next_attempt_at : i32 , $ (pub $ field : crate :: prisma :: unprofitable_messages :: include ! (@ field_type ; $ field $ (: $ selection_mode { $ ($ selections) + }) ?) ,) + } impl :: serde :: Serialize for Data { fn serialize < S > (& self , serializer : S) -> Result < S :: Ok , S :: Error > where S : :: serde :: Serializer , { use :: serde :: ser :: SerializeStruct ; let mut state = serializer . serialize_struct ("Data" , [$ (stringify ! ($ field) ,) + stringify ! (id) , stringify ! (dest) , stringify ! (encoded) , stringify ! (attempts) , stringify ! (created_at) , stringify ! (next_attempt_at)] . len ()) ? ; $ (state . serialize_field (crate :: prisma :: unprofitable_messages :: $ field :: NAME , & self . $ field) ? ;) * state . serialize_field (crate :: prisma :: unprofitable_messages :: id :: NAME , & self . id) ? ; state . serialize_field (crate :: prisma :: unprofitable_messages :: dest :: NAME , & self . dest) ? ; state . serialize_field (crate :: prisma :: unprofitable_messages :: encoded :: NAME , & self . encoded) ? ; state . serialize_field (crate :: prisma :: unprofitable_messages :: attempts :: NAME , & self . attempts) ? ; state . serialize_field (crate :: prisma :: unprofitable_messages :: created_at :: NAME , & self . created_at) ? ; state . serialize_field (crate :: prisma :: unprofitable_messages :: next_attempt_at :: NAME , & self . next_attempt_at) ? ; state . end () } } impl < 'de > :: serde :: Deserialize < 'de > for Data { fn deserialize < D > (deserializer : D) -> Result < Self , D :: Error > where D : :: serde :: Deserializer < 'de > , { # [allow (warnings)] enum Field { $ ($ field) , + , id , dest , encoded , attempts , created_at , next_attempt_at } impl < 'de > :: serde :: Deserialize < 'de > for Field { fn deserialize < D > (deserializer : D) -> Result < Field , D :: Error > where D : :: serde :: Deserializer < 'de > , { struct FieldVisitor ; impl < 'de > :: serde :: de :: Visitor < 'de > for FieldVisitor { type Value = Field ; fn expecting (& self , formatter : & mut :: std :: fmt :: Formatter) -> :: std :: fmt :: Result { formatter . write_str (& [$ (crate :: prisma :: unprofitable_messages :: $ field :: NAME) , + , crate :: prisma :: unprofitable_messages :: id :: NAME , crate :: prisma :: unprofitable_messages :: dest :: NAME , crate :: prisma :: unprofitable_messages :: encoded :: NAME , crate :: prisma :: unprofitable_messages :: attempts :: NAME , crate :: prisma :: unprofitable_messages :: created_at :: NAME , crate :: prisma :: unprofitable_messages :: next_attempt_at :: NAME] . into_iter () . collect :: < Vec < _ >> () . join (", ")) } fn visit_str < E > (self , value : & str) -> Result < Field , E > where E : :: serde :: de :: Error , { match value { $ (crate :: prisma :: unprofitable_messages :: $ field :: NAME => Ok (Field :: $ field)) , * , crate :: prisma :: unprofitable_messages :: id :: NAME => Ok (Field :: id) , crate :: prisma :: unprofitable_messages :: dest :: NAME => Ok (Field :: dest) , crate :: prisma :: unprofitable_messages :: encoded :: NAME => Ok (Field :: encoded) , crate :: prisma :: unprofitable_messages :: attempts :: NAME => Ok (Field :: attempts) , crate :: prisma :: unprofitable_messages :: created_at :: NAME => Ok (Field :: created_at) , crate :: prisma :: unprofitable_messages :: next_attempt_at :: NAME => Ok (Field :: next_attempt_at) , _ => Err (:: serde :: de :: Error :: unknown_field (value , FIELDS)) , } } } deserializer . deserialize_identifier (FieldVisitor) } } struct DataVisitor ; impl < 'de > :: serde :: de :: Visitor < 'de > for DataVisitor { type Value = Data ; fn expecting (& self , formatter : & mut std :: fmt :: Formatter) -> std :: fmt :: Result { formatter . write_str ("struct Data") } fn visit_map < V > (self , mut map : V) -> Result < Data , V :: Error > where V : :: serde :: de :: MapAccess < 'de > , { $ (let mut $ field = None ;) * let mut id = None ; let mut dest = None ; let mut encoded = None ; let mut attempts = None ; let mut created_at = None ; let mut next_attempt_at = None ; while let Some (key) = map . next_key () ? { match key { Field :: id => { if id . is_some () { return Err (:: serde :: de :: Error :: duplicate_field (crate :: prisma :: unprofitable_messages :: id :: NAME)) ; } id = Some (map . next_value () ?) ; } Field :: dest => { if dest . is_some () { return Err (:: serde :: de :: Error :: duplicate_field (crate :: prisma :: unprofitable_messages :: dest :: NAME)) ; } dest = Some (map . next_value () ?) ; } Field :: encoded => { if encoded . is_some () { return Err (:: serde :: de :: Error :: duplicate_field (crate :: prisma :: unprofitable_messages :: encoded :: NAME)) ; } encoded = Some (map . next_value () ?) ; } Field :: attempts => { if attempts . is_some () { return Err (:: serde :: de :: Error :: duplicate_field (crate :: prisma :: unprofitable_messages :: attempts :: NAME)) ; } attempts = Some (map . next_value () ?) ; } Field :: created_at => { if created_at . is_some () { return Err (:: serde :: de :: Error :: duplicate_field (crate :: prisma :: unprofitable_messages :: created_at :: NAME)) ; } created_at = Some (map . next_value () ?) ; } Field :: next_attempt_at => { if next_attempt_at . is_some () { return Err (:: serde :: de :: Error :: duplicate_field (crate :: prisma :: unprofitable_messages :: next_attempt_at :: NAME)) ; } next_attempt_at = Some (map . next_value () ?) ; } $ (Field :: $ field => { if $ field . is_some () { return Err (:: serde :: de :: Error :: duplicate_field (crate :: prisma :: unprofitable_messages :: $ field :: NAME)) ; } $ field = Some (map . next_value () ?) ; }) * } } $ (let $ field = $ field . ok_or_else (|| serde :: de :: Error :: missing_field (crate :: prisma :: unprofitable_messages :: $ field :: NAME)) ? ;) * let id = id . ok_or_else (|| serde :: de :: Error :: missing_field (crate :: prisma :: unprofitable_messages :: id :: NAME)) ? ; let dest = dest . ok_or_else (|| serde :: de :: Error :: missing_field (crate :: prisma :: unprofitable_messages :: dest :: NAME)) ? ; let encoded = encoded . ok_or_else (|| serde :: de :: Error :: missing_field (crate :: prisma :: unprofitable_messages :: encoded :: NAME)) ? ; let attempts = attempts . ok_or_else (|| serde :: de :: Error :: missing_field (crate :: prisma :: unprofitable_messages :: attempts :: NAME)) ? ; let created_at = created_at . ok_or_else (|| serde :: de :: Error :: missing_field (crate :: prisma :: unprofitable_messages :: created_at :: NAME)) ? ; let next_attempt_at = next_attempt_at . ok_or_else (|| serde :: de :: Error :: missing_field (crate :: prisma :: unprofitable_messages :: next_attempt_at :: NAME)) ? ; Ok (Data { id , dest , encoded , attempts , created_at , next_attempt_at , $ ($ field) , * }) } } const FIELDS : & 'static [& 'static str] = & ["id" , "dest" , "encoded" , "attempts" , "created_at" , "next_attempt_at"] ; deserializer . deserialize_struct ("Data" , FIELDS , DataVisitor) } } $ ($ (pub mod $ field { crate :: prisma :: unprofitable_messages :: $ selection_mode ! (@ field_module ; $ field : $ selection_mode { $ ($ selections) + }) ; }) ?) + } ; (@ field_type ; $ field : ident $ ($ tokens : tt) *) => { compile_error ! (stringify ! (Cannot include nonexistent relation $ field on model "UnprofitableMessages" , available relations are "")) } ; (@ field_module ; $ ($ tokens : tt) *) => { } ; (@ selection_field_to_selection_param ; $ ($ tokens : tt) *) => { compile_error ! (stringify ! ($ ($ tokens) *)) } ; (@ selections_to_params ; : $ macro_name : ident { $ ($ field : ident $ (($ ($ filters : tt) +) $ (. $ arg : ident ($ ($ arg_params : tt) *)) *) ? $ (: $ selection_mode : ident { $ ($ selections : tt) + }) ?) + }) => { [$ (crate :: prisma :: unprofitable_messages :: $ macro_name ! (@ selection_field_to_selection_param ; $ field $ (($ ($ filters) +) $ (. $ arg ($ ($ arg_params) *)) *) ? $ (: $ selection_mode { $ ($ selections) + }) ?) ,) +] } ; (@ filters_to_args ;) => { vec ! [] } ; (@ filters_to_args ; $ ($ t : tt) *) => { $ ($ t) * } ; (@ field_serde_name ; id) => { "id" } ; (@ field_serde_name ; dest) => { "dest" } ; (@ field_serde_name ; encoded) => { "encoded" } ; (@ field_serde_name ; attempts) => { "attempts" } ; (@ field_serde_name ; created_at) => { "created_at" } ; (@ field_serde_name ; next_attempt_at) => { "next_attempt_at" } ; }
 	pub use _include_unprofitable_messages as include;
 	pub enum IncludeParam {
 		Id(id::Include),
 		Dest(dest::Include),
 		Encoded(encoded::Include),
+		Attempts(attempts::Include),
+		CreatedAt(created_at::Include),
+		NextAttemptAt(next_attempt_at::Include),
 	}
 	impl IncludeParam {
 		pub fn to_selection(self) -> ::prisma_client_rust::Selection {
@@ -1846,11 +2077,14 @@ pub mod unprofitable_messages {
 				Self::Id(data) => data.to_selection(),
 				Self::Dest(data) => data.to_selection(),
 				Self::Encoded(data) => data.to_selection(),
+				Self::Attempts(data) => data.to_selection(),
+				Self::CreatedAt(data) => data.to_selection(),
+				Self::NextAttemptAt(data) => data.to_selection(),
 			}
 		}
 	}
 	#[macro_export]
-	macro_rules ! _partial_unchecked_unprofitable_messages { ($ struct_name : ident { $ ($ scalar_field : ident) + }) => { :: prisma_client_rust :: macros :: partial_unchecked ! { crate :: prisma :: unprofitable_messages struct $ struct_name { # [serde (rename = "id")] pub id : i32 , # [serde (rename = "dest")] pub dest : String , # [serde (rename = "encoded")] pub encoded : Vec < u8 > } [$ ($ scalar_field) , +] } } ; }
+	macro_rules ! _partial_unchecked_unprofitable_messages { ($ struct_name : ident { $ ($ scalar_field : ident) + }) => { :: prisma_client_rust :: macros :: partial_unchecked ! { crate :: prisma :: unprofitable_messages struct $ struct_name { # [serde (rename = "id")] pub id : i32 , # [serde (rename = "dest")] pub dest : String , # [serde (rename = "encoded")] pub encoded : Vec < u8 > , # [serde (rename = "attempts")] pub attempts : i32 , # [serde (rename = "created_at")] pub created_at : i32 , # [serde (rename = "next_attempt_at")] pub next_attempt_at : i32 } [$ ($ scalar_field) , +] } } ; }
 	pub use _partial_unchecked_unprofitable_messages as partial_unchecked;
 	#[derive(Debug, Clone, :: serde :: Serialize, :: serde :: Deserialize)]
 	pub struct Data {
@@ -1860,6 +2094,12 @@ pub mod unprofitable_messages {
 		pub dest: String,
 		#[serde(rename = "encoded")]
 		pub encoded: Vec<u8>,
+		#[serde(rename = "attempts")]
+		pub attempts: i32,
+		#[serde(rename = "created_at")]
+		pub created_at: i32,
+		#[serde(rename = "next_attempt_at")]
+		pub next_attempt_at: i32,
 	}
 	impl Data {}
 	#[derive(Clone)]
@@ -1878,6 +2118,21 @@ pub mod unprofitable_messages {
 		DivideId(i32),
 		SetDest(String),
 		SetEncoded(Vec<u8>),
+		SetAttempts(i32),
+		IncrementAttempts(i32),
+		DecrementAttempts(i32),
+		MultiplyAttempts(i32),
+		DivideAttempts(i32),
+		SetCreatedAt(i32),
+		IncrementCreatedAt(i32),
+		DecrementCreatedAt(i32),
+		MultiplyCreatedAt(i32),
+		DivideCreatedAt(i32),
+		SetNextAttemptAt(i32),
+		IncrementNextAttemptAt(i32),
+		DecrementNextAttemptAt(i32),
+		MultiplyNextAttemptAt(i32),
+		DivideNextAttemptAt(i32),
 	}
 	impl From<SetParam> for (String, ::prisma_client_rust::PrismaValue) {
 		fn from(param: SetParam) -> Self {
@@ -1916,6 +2171,102 @@ pub mod unprofitable_messages {
 					(dest::NAME.to_string(), ::prisma_client_rust::PrismaValue::String(value)),
 				SetParam::SetEncoded(value) =>
 					(encoded::NAME.to_string(), ::prisma_client_rust::PrismaValue::Bytes(value)),
+				SetParam::SetAttempts(value) => (
+					attempts::NAME.to_string(),
+					::prisma_client_rust::PrismaValue::Int(value as i64),
+				),
+				SetParam::IncrementAttempts(value) => (
+					attempts::NAME.to_string(),
+					::prisma_client_rust::PrismaValue::Object(vec![(
+						"increment".to_string(),
+						::prisma_client_rust::PrismaValue::Int(value as i64),
+					)]),
+				),
+				SetParam::DecrementAttempts(value) => (
+					attempts::NAME.to_string(),
+					::prisma_client_rust::PrismaValue::Object(vec![(
+						"decrement".to_string(),
+						::prisma_client_rust::PrismaValue::Int(value as i64),
+					)]),
+				),
+				SetParam::MultiplyAttempts(value) => (
+					attempts::NAME.to_string(),
+					::prisma_client_rust::PrismaValue::Object(vec![(
+						"multiply".to_string(),
+						::prisma_client_rust::PrismaValue::Int(value as i64),
+					)]),
+				),
+				SetParam::DivideAttempts(value) => (
+					attempts::NAME.to_string(),
+					::prisma_client_rust::PrismaValue::Object(vec![(
+						"divide".to_string(),
+						::prisma_client_rust::PrismaValue::Int(value as i64),
+					)]),
+				),
+				SetParam::SetCreatedAt(value) => (
+					created_at::NAME.to_string(),
+					::prisma_client_rust::PrismaValue::Int(value as i64),
+				),
+				SetParam::IncrementCreatedAt(value) => (
+					created_at::NAME.to_string(),
+					::prisma_client_rust::PrismaValue::Object(vec![(
+						"increment".to_string(),
+						::prisma_client_rust::PrismaValue::Int(value as i64),
+					)]),
+				),
+				SetParam::DecrementCreatedAt(value) => (
+					created_at::NAME.to_string(),
+					::prisma_client_rust::PrismaValue::Object(vec![(
+						"decrement".to_string(),
+						::prisma_client_rust::PrismaValue::Int(value as i64),
+					)]),
+				),
+				SetParam::MultiplyCreatedAt(value) => (
+					created_at::NAME.to_string(),
+					::prisma_client_rust::PrismaValue::Object(vec![(
+						"multiply".to_string(),
+						::prisma_client_rust::PrismaValue::Int(value as i64),
+					)]),
+				),
+				SetParam::DivideCreatedAt(value) => (
+					created_at::NAME.to_string(),
+					::prisma_client_rust::PrismaValue::Object(vec![(
+						"divide".to_string(),
+						::prisma_client_rust::PrismaValue::Int(value as i64),
+					)]),
+				),
+				SetParam::SetNextAttemptAt(value) => (
+					next_attempt_at::NAME.to_string(),
+					::prisma_client_rust::PrismaValue::Int(value as i64),
+				),
+				SetParam::IncrementNextAttemptAt(value) => (
+					next_attempt_at::NAME.to_string(),
+					::prisma_client_rust::PrismaValue::Object(vec![(
+						"increment".to_string(),
+						::prisma_client_rust::PrismaValue::Int(value as i64),
+					)]),
+				),
+				SetParam::DecrementNextAttemptAt(value) => (
+					next_attempt_at::NAME.to_string(),
+					::prisma_client_rust::PrismaValue::Object(vec![(
+						"decrement".to_string(),
+						::prisma_client_rust::PrismaValue::Int(value as i64),
+					)]),
+				),
+				SetParam::MultiplyNextAttemptAt(value) => (
+					next_attempt_at::NAME.to_string(),
+					::prisma_client_rust::PrismaValue::Object(vec![(
+						"multiply".to_string(),
+						::prisma_client_rust::PrismaValue::Int(value as i64),
+					)]),
+				),
+				SetParam::DivideNextAttemptAt(value) => (
+					next_attempt_at::NAME.to_string(),
+					::prisma_client_rust::PrismaValue::Object(vec![(
+						"divide".to_string(),
+						::prisma_client_rust::PrismaValue::Int(value as i64),
+					)]),
+				),
 			}
 		}
 	}
@@ -1924,6 +2275,9 @@ pub mod unprofitable_messages {
 		Id(i32),
 		Dest(String),
 		Encoded(Vec<u8>),
+		Attempts(i32),
+		CreatedAt(i32),
+		NextAttemptAt(i32),
 	}
 	impl From<UncheckedSetParam> for SetParam {
 		fn from(param: UncheckedSetParam) -> Self {
@@ -1931,6 +2285,9 @@ pub mod unprofitable_messages {
 				UncheckedSetParam::Id(value) => Self::SetId(value),
 				UncheckedSetParam::Dest(value) => Self::SetDest(value),
 				UncheckedSetParam::Encoded(value) => Self::SetEncoded(value),
+				UncheckedSetParam::Attempts(value) => Self::SetAttempts(value),
+				UncheckedSetParam::CreatedAt(value) => Self::SetCreatedAt(value),
+				UncheckedSetParam::NextAttemptAt(value) => Self::SetNextAttemptAt(value),
 			}
 		}
 	}
@@ -1939,6 +2296,9 @@ pub mod unprofitable_messages {
 		Id(::prisma_client_rust::Direction),
 		Dest(::prisma_client_rust::Direction),
 		Encoded(::prisma_client_rust::Direction),
+		Attempts(::prisma_client_rust::Direction),
+		CreatedAt(::prisma_client_rust::Direction),
+		NextAttemptAt(::prisma_client_rust::Direction),
 	}
 	impl Into<(String, ::prisma_client_rust::PrismaValue)> for OrderByParam {
 		fn into(self) -> (String, ::prisma_client_rust::PrismaValue) {
@@ -1955,6 +2315,18 @@ pub mod unprofitable_messages {
 					encoded::NAME.to_string(),
 					::prisma_client_rust::PrismaValue::String(direction.to_string()),
 				),
+				Self::Attempts(direction) => (
+					attempts::NAME.to_string(),
+					::prisma_client_rust::PrismaValue::String(direction.to_string()),
+				),
+				Self::CreatedAt(direction) => (
+					created_at::NAME.to_string(),
+					::prisma_client_rust::PrismaValue::String(direction.to_string()),
+				),
+				Self::NextAttemptAt(direction) => (
+					next_attempt_at::NAME.to_string(),
+					::prisma_client_rust::PrismaValue::String(direction.to_string()),
+				),
 			}
 		}
 	}
@@ -1966,6 +2338,9 @@ pub mod unprofitable_messages {
 		Id(_prisma::read_filters::IntFilter),
 		Dest(_prisma::read_filters::StringFilter),
 		Encoded(_prisma::read_filters::BytesFilter),
+		Attempts(_prisma::read_filters::IntFilter),
+		CreatedAt(_prisma::read_filters::IntFilter),
+		NextAttemptAt(_prisma::read_filters::IntFilter),
 	}
 	impl ::prisma_client_rust::WhereInput for WhereParam {
 		fn serialize(self) -> ::prisma_client_rust::SerializedWhereInput {
@@ -2009,6 +2384,9 @@ pub mod unprofitable_messages {
 				Self::Id(value) => (id::NAME, value.into()),
 				Self::Dest(value) => (dest::NAME, value.into()),
 				Self::Encoded(value) => (encoded::NAME, value.into()),
+				Self::Attempts(value) => (attempts::NAME, value.into()),
+				Self::CreatedAt(value) => (created_at::NAME, value.into()),
+				Self::NextAttemptAt(value) => (next_attempt_at::NAME, value.into()),
 			};
 			::prisma_client_rust::SerializedWhereInput::new(name, value.into())
 		}
@@ -2050,6 +2428,9 @@ pub mod unprofitable_messages {
 				::prisma_client_rust::sel(id::NAME),
 				::prisma_client_rust::sel(dest::NAME),
 				::prisma_client_rust::sel(encoded::NAME),
+				::prisma_client_rust::sel(attempts::NAME),
+				::prisma_client_rust::sel(created_at::NAME),
+				::prisma_client_rust::sel(next_attempt_at::NAME),
 			]
 		}
 	}
@@ -4875,6 +5256,12 @@ pub mod _prisma {
 		Dest,
 		#[serde(rename = "encoded")]
 		Encoded,
+		#[serde(rename = "attempts")]
+		Attempts,
+		#[serde(rename = "created_at")]
+		CreatedAt,
+		#[serde(rename = "next_attempt_at")]
+		NextAttemptAt,
 	}
 	impl ToString for UnprofitableMessagesScalarFieldEnum {
 		fn to_string(&self) -> String {
@@ -4882,6 +5269,9 @@ pub mod _prisma {
 				Self::Id => "id".to_string(),
 				Self::Dest => "dest".to_string(),
 				Self::Encoded => "encoded".to_string(),
+				Self::Attempts => "attempts".to_string(),
+				Self::CreatedAt => "created_at".to_string(),
+				Self::NextAttemptAt => "next_attempt_at".to_string(),
 			}
 		}
 	}

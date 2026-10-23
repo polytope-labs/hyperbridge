@@ -1,7 +1,8 @@
-use crate::TransactionPayment;
+use crate::{ParkedMessage, RetryState, TransactionPayment};
 use ismp::{
+	consensus::{StateMachineHeight, StateMachineId},
 	host::StateMachine,
-	messaging::hash_request,
+	messaging::{hash_request, Message, Proof, RequestMessage},
 	router::{PostRequest, Request},
 };
 use std::sync::Arc;
@@ -375,6 +376,74 @@ async fn outbound_rotation_claims_upsert_is_idempotent() {
 		.unwrap();
 	assert_eq!(rows.len(), 1, "upsert with the same key must not duplicate");
 	assert_eq!(rows[0].rotation_height, 900, "upsert must not overwrite");
+
+	cleanup_db(&path);
+}
+
+// ─── Parked message retry bookkeeping ───────────────────────────────
+
+/// Parking writes the retry columns and reading them back keeps the message,
+/// its state and the row id.
+#[tokio::test]
+async fn unprofitable_messages_round_trip_retry_state() {
+	let path = temp_db_path("unprofitable_state");
+	let tx_payment = TransactionPayment::initialize(&path).await.unwrap();
+
+	let message = |nonce: u64| {
+		let post = PostRequest {
+			source: StateMachine::Evm(97),
+			dest: StateMachine::Evm(8002),
+			nonce,
+			from: vec![1],
+			to: vec![2],
+			timeout_timestamp: 0,
+			body: vec![],
+		};
+		Message::Request(RequestMessage {
+			requests: vec![post],
+			proof: Proof {
+				height: StateMachineHeight {
+					id: StateMachineId {
+						state_id: StateMachine::Evm(97),
+						consensus_state_id: *b"BEEF",
+					},
+					height: 1,
+				},
+				proof: vec![],
+			},
+			signer: vec![],
+		})
+	};
+
+	let first =
+		RetryState { attempts: 3, created_at: 1_700_000_000, next_attempt_at: 1_700_000_600 };
+	let second =
+		RetryState { attempts: 0, created_at: 1_700_000_100, next_attempt_at: 1_700_000_400 };
+	tx_payment
+		.store_unprofitable_messages(
+			vec![
+				ParkedMessage { message: message(1), state: first, id: None },
+				ParkedMessage { message: message(2), state: second, id: None },
+			],
+			StateMachine::Evm(8002),
+		)
+		.await
+		.unwrap();
+
+	let parked = tx_payment.unprofitable_messages(&StateMachine::Evm(8002)).await.unwrap();
+	assert_eq!(parked.len(), 2);
+	let by_nonce = |nonce: u64| {
+		parked
+			.iter()
+			.find(|parked| match &parked.message {
+				Message::Request(request) => request.requests[0].nonce == nonce,
+				_ => false,
+			})
+			.expect("parked message")
+	};
+	assert_eq!(by_nonce(1).state, first);
+	assert_eq!(by_nonce(2).state, second);
+	assert!(parked.iter().all(|parked| parked.id.is_some()));
 
 	cleanup_db(&path);
 }

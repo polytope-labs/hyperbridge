@@ -31,8 +31,9 @@ export { SqliteStateStore } from "./state"
  * Set through the PRAGMA rather than `DatabaseSync`'s `timeout` option on purpose.
  * That option only exists in Node >=22.18 and >=24 (`@types/node` says 22.16, which
  * is wrong — the version table on nodejs.org is authoritative), so it is silently
- * ignored on 22.16, 22.17 and the whole 23 line, all of which `engines.node`
- * admits. The PRAGMA is plain SQLite and works wherever `node:sqlite` does.
+ * ignored on 22.16, 22.17 and the whole 23 line. `engines.node` no longer admits
+ * those, but it is only advisory. The PRAGMA is plain SQLite and works wherever
+ * `node:sqlite` does.
  */
 const BUSY_TIMEOUT_MS = 5_000
 

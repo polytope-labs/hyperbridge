@@ -19,7 +19,7 @@ less work.
 npm install @hyperbridge/simplex
 ```
 
-Node.js 22.16 or later. The package ships ESM and CJS builds with bundled types.
+Node.js 22.23.4+, 24.22.1+ or 26.12.1+. The package ships ESM and CJS builds with bundled types.
 
 ## Starting a solver
 
@@ -254,7 +254,7 @@ that is only reclaimable by retracting it, and the retraction sweep finds what t
 querying the bid store. Lose those records and you leak deposits.
 
 The bundled SQLite store is a separate entry point. It runs on Node's built-in `node:sqlite`, so
-there is no native module to install or compile — the package just needs Node 22.16 or newer:
+there is no native module to install or compile — the package just needs Node 22.23.4+, 24.22.1+ or 26.12.1+:
 
 ```ts lineNumbers
 import { SqliteDataStore } from "@hyperbridge/simplex/sqlite"

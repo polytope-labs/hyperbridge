@@ -238,7 +238,7 @@ without a separate trusted network boundary.
 ## Runtime resources
 
 The staging script follows Node's binary-verification procedure: it verifies the signed
-`SHASUMS256.txt.asc` with the pinned release key, verifies the selected Node 24.19.0 archive checksum,
+`SHASUMS256.txt.asc` with the pinned release key, verifies the selected Node 24.22.1 archive checksum,
 and installs only `node` or `node.exe`. `darwin-universal` verifies both macOS slices independently
 before merging them with `lipo`.
 

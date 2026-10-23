@@ -878,8 +878,8 @@ it is.
 directory written by the binary is picked up unchanged. Limit orders and operator state ride in
 `bids.db` beside the bids, and implements `patch`; a `runtime-state.json` from an earlier version is imported once
 and then removed. It is built on Node's
-built-in `node:sqlite`, so there is no native module to install or compile — which is why the
-package requires Node 22.16 or newer.
+built-in `node:sqlite`, so there is no native module to install or compile. The package requires
+Node 22.23.4+, 24.22.1+ or 26.12.1+.
 
 **Example — a custom backend:**
 

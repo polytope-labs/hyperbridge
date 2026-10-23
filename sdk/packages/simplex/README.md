@@ -22,7 +22,7 @@ Embed it in your own Node service, or run it as a ready-made app:
 npm install @hyperbridge/simplex
 ```
 
-Requires Node.js 22.16 or later.
+Requires Node.js 22.23.4+, 24.22.1+ or 26.12.1+.
 
 ## Quick start
 

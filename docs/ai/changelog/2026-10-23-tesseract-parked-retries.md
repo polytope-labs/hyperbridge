@@ -24,6 +24,17 @@ The decoded revert reason is logged once per failed simulation instead of per fr
 permanent host rejection is dropped in `return_successful_queries`; a module revert is parked
 again.
 
+`tesseract/messaging/evm/src/real_trace.rs` checks the classification against the real
+message from #1436. It is `#[ignore]`d and needs `BSC_RPC_URL` (from
+`evm/.env.mainnet`). At Hyperbridge height 12441541, the Base→BSC request with commitment
+`0xcc973faa…` has no BSC receipt. The test reads the gateway's authorized relayer
+(`0xD15007f5fF5c8c5cCc77339A03a3EA60d1Ece854`), traces the delivery call at the chain gas
+limit from it, and classifies that trace: `onAccept` is `onlyRelayer(incoming.relayer)`, so
+a throwaway sender would only show `Unauthorized()`. With the real relayer, the cancelled
+order hits `Filled()` (`0x827d22e6`), and the trace classifies it as `ModuleReverted` with
+reason `0x5f925b88…: custom error 0x827d22e6` — the `ExtrinsicModule` that
+`IntentGatewayV2.onAccept` delegates to, not the gateway address in the request. That is the message #1436 kept re-simulating forever.
+
 Parked rows now carry `attempts`, `created_at` and `next_attempt_at` in a new
 `UnprofitableMessages` migration. The first retry is at `retry_frequency`, doubling per failed
 delivery up to an hour. Only failed deliveries count: a module revert, or a mined batch that

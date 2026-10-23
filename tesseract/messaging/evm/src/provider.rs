@@ -935,7 +935,7 @@ fn is_no_code_dispatch(frame: &alloy::rpc::types::trace::geth::CallFrame, host: 
 /// tree, so a reverting frame on that spine is the host refusing the message.
 /// Anything else that reverted is the module's own callback, even when it
 /// happens to call back into the host.
-fn simulation_failure(
+pub(crate) fn simulation_failure(
 	frame: &alloy::rpc::types::trace::geth::CallFrame,
 	host: Address,
 	handler: Address,

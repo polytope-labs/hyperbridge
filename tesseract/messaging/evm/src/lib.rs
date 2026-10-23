@@ -43,6 +43,8 @@ pub mod provider;
 
 // #[cfg(test)]
 // mod test;
+#[cfg(test)]
+mod real_trace;
 pub mod tx;
 
 pub type AlloyProvider = RootProvider;

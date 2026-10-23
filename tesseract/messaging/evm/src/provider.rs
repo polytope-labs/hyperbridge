@@ -8,7 +8,7 @@ use alloy::{
 	providers::Provider,
 	sol_types::SolType,
 };
-use alloy_sol_types::SolEvent;
+use alloy_sol_types::{SolCall, SolError, SolEvent};
 use anyhow::{anyhow, Error};
 use beefy_verifier_primitives::ConsensusState;
 use codec::Encode;
@@ -40,7 +40,7 @@ use sp_core::{H160, H256};
 use std::{collections::BTreeMap, sync::Arc, time::Duration};
 use tesseract_primitives::{
 	wait_for_challenge_period, BoxStream, EstimateGasReturnParams, IsmpProvider, Query, Signature,
-	StateMachineUpdated, StateProofQueryType, StorageKey, TxResult,
+	SimulationFailure, StateMachineUpdated, StateProofQueryType, StorageKey, TxResult,
 };
 
 use ismp_abi::ecdsa_beefy::BeefyConsensusState;
@@ -797,10 +797,185 @@ pub fn check_trace_for_event(
 	call_frame: &alloy::rpc::types::trace::geth::CallFrame,
 	event_in: CheckTraceForEventParams,
 ) -> bool {
-	if let Some(ref error) = call_frame.revert_reason {
-		log::error!(target: crate::LOG_TARGET, "Error in main call frame: {error}");
-	}
 	any_frame_has_event(call_frame, &event_in)
+}
+
+/// Decode a revert payload into a readable reason and its selector.
+///
+/// `BatchCallFailed` wraps the handler's own revert, so its inner payload is
+/// decoded instead — that is the error the message actually hit.
+fn describe_revert_payload(data: &[u8]) -> (String, Option<[u8; 4]>) {
+	use ismp_abi::handler::handler_v2::BatchCallFailed;
+
+	if data.len() < 4 {
+		return ("no revert data".into(), None);
+	}
+	let selector = [data[0], data[1], data[2], data[3]];
+
+	if selector == BatchCallFailed::SELECTOR {
+		if let Ok(failed) = BatchCallFailed::abi_decode_raw(&data[4..]) {
+			return describe_revert_payload(failed.reason.as_ref());
+		}
+	}
+
+	if let Some(name) = named_handler_error(selector) {
+		return (name.to_string(), Some(selector));
+	}
+
+	if let Some(reason) = alloy_sol_types::decode_revert_reason(data) {
+		return (reason, Some(selector));
+	}
+
+	(format!("custom error 0x{}", hex_encode(selector)), Some(selector))
+}
+
+/// Solidity error names from `HandlerV2`, used to name a raw selector.
+fn named_handler_error(selector: [u8; 4]) -> Option<&'static str> {
+	use ismp_abi::handler::handler_v2::{
+		ChallengePeriodNotElapsed, ConsensusClientExpired, DuplicateMessage, HostFrozen,
+		InvalidMessageDestination, InvalidProof, MessageTimedOut, StateCommitmentNotFound,
+		UnknownMessage,
+	};
+
+	[
+		(ChallengePeriodNotElapsed::SELECTOR, "ChallengePeriodNotElapsed"),
+		(ConsensusClientExpired::SELECTOR, "ConsensusClientExpired"),
+		(DuplicateMessage::SELECTOR, "DuplicateMessage"),
+		(HostFrozen::SELECTOR, "HostFrozen"),
+		(InvalidMessageDestination::SELECTOR, "InvalidMessageDestination"),
+		(InvalidProof::SELECTOR, "InvalidProof"),
+		(MessageTimedOut::SELECTOR, "MessageTimedOut"),
+		(StateCommitmentNotFound::SELECTOR, "StateCommitmentNotFound"),
+		(UnknownMessage::SELECTOR, "UnknownMessage"),
+	]
+	.into_iter()
+	.find(|(error_selector, _)| *error_selector == selector)
+	.map(|(_, name)| name)
+}
+
+fn hex_encode(bytes: [u8; 4]) -> String {
+	bytes.iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
+/// `"<to address>: <decoded>"`, or `"no revert data"` when the frame carried none.
+fn describe_revert(frame: &alloy::rpc::types::trace::geth::CallFrame) -> String {
+	revert_details(frame).0
+}
+
+/// [`describe_revert`] plus the selector it decoded, which decides permanence.
+fn revert_details(frame: &alloy::rpc::types::trace::geth::CallFrame) -> (String, Option<[u8; 4]>) {
+	let to = frame.to.map(|to| to.to_string()).unwrap_or_else(|| "unknown".to_string());
+	let (decoded, selector) = match frame.output.as_deref().filter(|output| !output.is_empty()) {
+		Some(output) => describe_revert_payload(output),
+		None => ("no revert data".to_string(), None),
+	};
+	(format!("{to}: {decoded}"), selector)
+}
+
+/// Errors that mean the host will never accept this message again. Unknown
+/// selectors are not permanent: they get retried with backoff and aged out.
+fn is_permanent_host_error(selector: Option<[u8; 4]>) -> bool {
+	use ismp_abi::handler::handler_v2::{
+		DuplicateMessage, InvalidMessageDestination, MessageTimedOut, UnknownMessage,
+	};
+
+	let Some(selector) = selector else { return false };
+	[
+		DuplicateMessage::SELECTOR,
+		MessageTimedOut::SELECTOR,
+		InvalidMessageDestination::SELECTOR,
+		UnknownMessage::SELECTOR,
+	]
+	.contains(&selector)
+}
+
+fn collect_frames<'a>(
+	frame: &'a alloy::rpc::types::trace::geth::CallFrame,
+	out: &mut Vec<&'a alloy::rpc::types::trace::geth::CallFrame>,
+) {
+	out.push(frame);
+	for child in &frame.calls {
+		collect_frames(child, out);
+	}
+}
+
+/// Collect the host/handler spine only: children addressed to the host or the
+/// handler. The destination module and anything below it is not part of it.
+fn collect_spine<'a>(
+	frame: &'a alloy::rpc::types::trace::geth::CallFrame,
+	host: Address,
+	handler: Address,
+	out: &mut Vec<&'a alloy::rpc::types::trace::geth::CallFrame>,
+) {
+	out.push(frame);
+	for child in &frame.calls {
+		if child.to == Some(host) || child.to == Some(handler) {
+			collect_spine(child, host, handler, out);
+		}
+	}
+}
+
+/// Whether this is `EvmHost.dispatchIncoming` returning early because the
+/// destination module has no code: no error and no child calls.
+fn is_no_code_dispatch(frame: &alloy::rpc::types::trace::geth::CallFrame, host: Address) -> bool {
+	use ismp_abi::evm_host::{dispatchIncoming_0Call, dispatchIncoming_1Call};
+
+	if frame.to != Some(host) || frame.error.is_some() || !frame.calls.is_empty() {
+		return false;
+	}
+
+	let Some(selector) = frame.selector() else { return false };
+	let selector = selector.0;
+	selector == dispatchIncoming_0Call::SELECTOR || selector == dispatchIncoming_1Call::SELECTOR
+}
+
+/// Classify a failed delivery simulation from its call trace.
+///
+/// The host and the handler both sit above the destination module in the call
+/// tree, so a reverting frame on that spine is the host refusing the message.
+/// Anything else that reverted is the module's own callback, even when it
+/// happens to call back into the host.
+pub(crate) fn simulation_failure(
+	frame: &alloy::rpc::types::trace::geth::CallFrame,
+	host: Address,
+	handler: Address,
+) -> SimulationFailure {
+	let mut frames = vec![];
+	collect_frames(frame, &mut frames);
+
+	// Out of gas anywhere says nothing about the message, module frames included.
+	if frames.iter().any(|frame| {
+		frame
+			.error
+			.as_deref()
+			.map(|error| error.to_ascii_lowercase().contains("out of gas"))
+			.unwrap_or(false)
+	}) {
+		return SimulationFailure::OutOfGas;
+	}
+
+	let mut spine = vec![];
+	collect_spine(frame, host, handler, &mut spine);
+	if let Some(deepest) = spine.iter().rev().find(|frame| frame.error.is_some()) {
+		let (reason, selector) = revert_details(deepest);
+		return SimulationFailure::HostRejected {
+			reason,
+			permanent: is_permanent_host_error(selector),
+		};
+	}
+
+	if frames.iter().any(|frame| is_no_code_dispatch(frame, host)) {
+		return SimulationFailure::HostRejected {
+			reason: "destination module has no code".into(),
+			permanent: true,
+		};
+	}
+
+	if let Some(deepest) = frames.iter().rev().find(|frame| frame.error.is_some()) {
+		return SimulationFailure::ModuleReverted { reason: describe_revert(deepest) };
+	}
+
+	SimulationFailure::Unknown { reason: "no handled event and no reverting frame".into() }
 }
 
 /// Walk the full call tree (DFS, pre-order) and return `true` as soon as any
@@ -829,10 +1004,6 @@ fn any_frame_has_event(
 	event_in: &CheckTraceForEventParams,
 ) -> bool {
 	use alloy::primitives::LogData;
-
-	if let Some(ref error) = frame.error {
-		log::error!(target: crate::LOG_TARGET, "Error in call frame {:?}: {error}", frame.to);
-	}
 
 	for log in &frame.logs {
 		let topics = log.topics.clone().unwrap_or_default();
@@ -960,6 +1131,7 @@ async fn estimate_gas_for_tx_requests(
 
 					let mut gas_to_be_used = U256::zero();
 					let mut successful_execution = false;
+					let mut failure = None;
 
 					match call_debug {
 						Ok(GethTrace::CallTracer(call_frame)) => {
@@ -990,6 +1162,17 @@ async fn estimate_gas_for_tx_requests(
 								},
 								_ => unreachable!("Only request/responses are estimated"),
 							};
+
+							let host = Address::from_slice(&client.ismp_host.0);
+							failure = (!successful_execution)
+								.then(|| simulation_failure(&call_frame, host, handler_addr));
+							if let Some(failure) = &failure {
+								log::debug!(
+									target: crate::LOG_TARGET,
+									"delivery simulation failed on {:?}: {failure}",
+									client.state_machine,
+								);
+							}
 
 							if successful_execution && is_orbit_chain(client.chain_id as u32) {
 								let estimate_tx = TransactionRequest::default()
@@ -1039,7 +1222,11 @@ async fn estimate_gas_for_tx_requests(
 
 					let execution_cost =
 						(gas_breakdown_gas_price_cost * gas_to_be_used) + gas_cost_for_data_in_usd;
-					Ok::<_, Error>(EstimateGasReturnParams { execution_cost, successful_execution })
+					Ok::<_, Error>(EstimateGasReturnParams {
+						execution_cost,
+						successful_execution,
+						failure,
+					})
 				})
 			})
 			.collect::<FuturesOrdered<_>>();
@@ -1055,4 +1242,227 @@ async fn estimate_gas_for_tx_requests(
 	}
 
 	Ok(gas_estimates)
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+	use alloy::rpc::types::trace::geth::CallFrame;
+
+	const HOST: Address = Address::new([0x11; 20]);
+	const HANDLER: Address = Address::new([0x22; 20]);
+	const MODULE: Address = Address::new([0x33; 20]);
+
+	fn frame(
+		to: Address,
+		error: Option<&str>,
+		output: Option<Vec<u8>>,
+		calls: Vec<CallFrame>,
+	) -> CallFrame {
+		CallFrame {
+			from: Address::ZERO,
+			gas: AlloyU256::ZERO,
+			gas_used: AlloyU256::ZERO,
+			to: Some(to),
+			input: Default::default(),
+			output: output.map(Into::into),
+			error: error.map(str::to_string),
+			revert_reason: None,
+			calls,
+			logs: vec![],
+			value: None,
+			typ: "CALL".into(),
+		}
+	}
+
+	fn with_input(mut frame: CallFrame, input: Vec<u8>) -> CallFrame {
+		frame.input = input.into();
+		frame
+	}
+
+	fn error_string(reason: &str) -> Vec<u8> {
+		alloy_sol_types::Revert::from(reason.to_string()).abi_encode()
+	}
+
+	fn batch_call_failed(index: AlloyU256, inner: Vec<u8>) -> Vec<u8> {
+		use ismp_abi::handler::handler_v2::BatchCallFailed;
+
+		BatchCallFailed { index, reason: inner.into() }.abi_encode()
+	}
+
+	/// A module callback that reverts is the module's fault, so another attempt
+	/// can still land once it accepts the message.
+	#[test]
+	fn module_revert_is_retriable() {
+		let trace = frame(
+			HANDLER,
+			None,
+			None,
+			vec![frame(
+				MODULE,
+				Some("execution reverted"),
+				Some(error_string("not today")),
+				vec![],
+			)],
+		);
+
+		match simulation_failure(&trace, HOST, HANDLER) {
+			SimulationFailure::ModuleReverted { reason } => {
+				assert!(reason.contains("not today"), "{reason}");
+			},
+			other => panic!("unexpected classification: {other:?}"),
+		}
+	}
+
+	#[test]
+	fn top_level_duplicate_message_is_permanent() {
+		use ismp_abi::handler::handler_v2::DuplicateMessage;
+
+		let trace = frame(
+			HANDLER,
+			Some("execution reverted"),
+			Some(DuplicateMessage::SELECTOR.to_vec()),
+			vec![],
+		);
+
+		assert_eq!(
+			simulation_failure(&trace, HOST, HANDLER),
+			SimulationFailure::HostRejected {
+				reason: format!("{HANDLER}: DuplicateMessage"),
+				permanent: true,
+			}
+		);
+	}
+
+	/// `batchCall` catches the handler error and reverts with
+	/// `BatchCallFailed(index, inner)`, while the delegatecall below it carries
+	/// the inner selector. The deepest spine frame decides.
+	#[test]
+	fn batch_call_failed_message_timed_out_is_permanent() {
+		use ismp_abi::handler::handler_v2::MessageTimedOut;
+
+		let trace = frame(
+			HANDLER,
+			Some("execution reverted"),
+			Some(batch_call_failed(AlloyU256::from(1), MessageTimedOut::SELECTOR.to_vec())),
+			vec![frame(
+				HANDLER,
+				Some("execution reverted"),
+				Some(MessageTimedOut::SELECTOR.to_vec()),
+				vec![],
+			)],
+		);
+
+		assert_eq!(
+			simulation_failure(&trace, HOST, HANDLER),
+			SimulationFailure::HostRejected {
+				reason: format!("{HANDLER}: MessageTimedOut"),
+				permanent: true,
+			}
+		);
+	}
+
+	/// A consensus prelude error says nothing about the message.
+	#[test]
+	fn batch_call_failed_consensus_client_expired_is_not_permanent() {
+		use ismp_abi::handler::handler_v2::ConsensusClientExpired;
+
+		let trace = frame(
+			HANDLER,
+			Some("execution reverted"),
+			Some(batch_call_failed(AlloyU256::ZERO, ConsensusClientExpired::SELECTOR.to_vec())),
+			vec![frame(
+				HANDLER,
+				Some("execution reverted"),
+				Some(ConsensusClientExpired::SELECTOR.to_vec()),
+				vec![],
+			)],
+		);
+
+		assert_eq!(
+			simulation_failure(&trace, HOST, HANDLER),
+			SimulationFailure::HostRejected {
+				reason: format!("{HANDLER}: ConsensusClientExpired"),
+				permanent: false,
+			}
+		);
+	}
+
+	/// A reverting host call made from inside the module is still the module's
+	/// callback failing, not the host refusing the message.
+	#[test]
+	fn module_side_host_revert_is_module_reverted() {
+		use ismp_abi::handler::handler_v2::MessageTimedOut;
+
+		let trace = frame(
+			HANDLER,
+			None,
+			None,
+			vec![frame(
+				MODULE,
+				None,
+				None,
+				vec![frame(
+					HOST,
+					Some("execution reverted"),
+					Some(MessageTimedOut::SELECTOR.to_vec()),
+					vec![],
+				)],
+			)],
+		);
+
+		assert!(matches!(
+			simulation_failure(&trace, HOST, HANDLER),
+			SimulationFailure::ModuleReverted { .. }
+		));
+	}
+
+	#[test]
+	fn out_of_gas_in_any_frame_wins() {
+		let trace = frame(
+			HANDLER,
+			Some("out of gas"),
+			None,
+			vec![frame(MODULE, Some("execution reverted"), Some(error_string("late")), vec![])],
+		);
+
+		assert_eq!(simulation_failure(&trace, HOST, HANDLER), SimulationFailure::OutOfGas);
+	}
+
+	/// `dispatchIncoming` returns before emitting an event when the destination
+	/// module has no code, and the host's receipt is rolled back.
+	#[test]
+	fn missing_module_code_is_a_permanent_host_rejection() {
+		use ismp_abi::evm_host::dispatchIncoming_0Call;
+
+		let trace = frame(
+			HANDLER,
+			None,
+			None,
+			vec![with_input(
+				frame(HOST, None, None, vec![]),
+				dispatchIncoming_0Call::SELECTOR.to_vec(),
+			)],
+		);
+
+		assert_eq!(
+			simulation_failure(&trace, HOST, HANDLER),
+			SimulationFailure::HostRejected {
+				reason: "destination module has no code".into(),
+				permanent: true,
+			}
+		);
+	}
+
+	/// A module child with no error and no handled event gives no evidence about
+	/// the module, so it stays retriable instead of being called "no code".
+	#[test]
+	fn a_clean_trace_without_an_event_is_unknown() {
+		let trace = frame(HANDLER, None, None, vec![frame(MODULE, None, None, vec![])]);
+
+		assert_eq!(
+			simulation_failure(&trace, HOST, HANDLER),
+			SimulationFailure::Unknown { reason: "no handled event and no reverting frame".into() }
+		);
+	}
 }

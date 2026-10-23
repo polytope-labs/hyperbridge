@@ -228,10 +228,42 @@ impl From<U256> for Cost {
 	}
 }
 
-#[derive(Copy, Clone, Debug, Default)]
+/// Why a simulated delivery did not do its work.
+///
+/// Only EVM providers fill this in — they have a call trace that names the
+/// reverting frame. Other providers leave it `None` and keep the boolean.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum SimulationFailure {
+	/// The ISMP host, or the handler it exposes, refused the message before
+	/// dispatching it. `permanent` means another attempt cannot help.
+	HostRejected { reason: String, permanent: bool },
+	/// The destination module's callback reverted. The host rolled the receipt
+	/// back, so the message is worth another attempt until it goes stale.
+	ModuleReverted { reason: String },
+	/// Gas ran out in some frame, so the trace says nothing about the message.
+	OutOfGas,
+	/// Another failed or unusable trace.
+	Unknown { reason: String },
+}
+
+impl Display for SimulationFailure {
+	fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+		match self {
+			SimulationFailure::HostRejected { reason, permanent } =>
+				write!(f, "host rejected: {reason}{}", if *permanent { " (permanent)" } else { "" }),
+			SimulationFailure::ModuleReverted { reason } => write!(f, "module reverted: {reason}"),
+			SimulationFailure::OutOfGas => f.write_str("out of gas"),
+			SimulationFailure::Unknown { reason } => write!(f, "unknown: {reason}"),
+		}
+	}
+}
+
+#[derive(Clone, Debug, Default)]
 pub struct EstimateGasReturnParams {
 	pub execution_cost: Cost,
 	pub successful_execution: bool,
+	/// Explains a `successful_execution == false`. Only EVM providers fill it in.
+	pub failure: Option<SimulationFailure>,
 }
 
 /// Provides an interface for accessing new events and ISMP data on the chain which must be

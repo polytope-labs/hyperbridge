@@ -25,9 +25,12 @@ model PendingWithdrawal {
 }
 
 model UnprofitableMessages {
-  id        Int    @id @default(autoincrement())
-  dest      String
-  encoded   Bytes
+  id              Int   @id @default(autoincrement())
+  dest            String
+  encoded         Bytes
+  attempts        Int   @default(0)
+  created_at      Int   @default(0)
+  next_attempt_at Int   @default(0)
 }
 
 // In-flight outbound consensus delivery reward claims.

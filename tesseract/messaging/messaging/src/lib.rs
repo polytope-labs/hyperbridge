@@ -54,7 +54,7 @@ use tesseract_primitives::{
 	config::RelayerConfig, observe_challenge_period, wait_for_state_machine_update,
 	HandleGetResponse, HyperbridgeClaim, IsmpProvider, StateMachineUpdated, TxReceipt, TxResult,
 };
-use transaction_fees::TransactionPayment;
+use transaction_fees::{unix_now, ParkedMessage, RetryState, TransactionPayment};
 
 type FeeAccSender = Sender<Vec<TxReceipt>>;
 type GetReqSender = Sender<(Vec<GetRequest>, StateMachineUpdated)>;
@@ -315,7 +315,7 @@ async fn handle_update(
 	let source_state = chain_b.state_machine_id().state_id;
 	let mut parked_events = Vec::new();
 	let mut parked_ids = Vec::new();
-	for (message, id) in tx_payment.unprofitable_messages(&sink_state).await? {
+	for ParkedMessage { message, id, .. } in tx_payment.unprofitable_messages(&sink_state).await? {
 		let Message::Request(msg) = message else {
 			tracing::debug!(
 				target: LOG_TARGET,
@@ -340,7 +340,9 @@ async fn handle_update(
 			continue;
 		}
 		parked_events.extend(own_requests.into_iter().map(Event::PostRequest));
-		parked_ids.push(id);
+		if let Some(id) = id {
+			parked_ids.push(id);
+		}
 	}
 
 	let mut events = fresh_events.clone();
@@ -519,17 +521,23 @@ async fn park_request_events(
 	let requests = events
 		.iter()
 		.filter_map(|event| match event {
-			Event::PostRequest(post) => Some(Message::Request(RequestMessage {
-				requests: vec![post.clone()],
-				// The proof is only a carrier for the height the request was read at; the row is
-				// never submitted from the db. The next update re-proves the request at its own,
-				// then-current height.
-				proof: Proof {
-					height: StateMachineHeight { id: source_state_machine_id, height },
-					proof: Vec::new(),
-				},
-				signer: sink.address(),
-			})),
+			Event::PostRequest(post) => Some(ParkedMessage {
+				message: Message::Request(RequestMessage {
+					requests: vec![post.clone()],
+					// The proof is only a carrier for the height the request was read at; the row
+					// is never submitted from the db. The next update re-proves the request at its
+					// own, then-current height.
+					proof: Proof {
+						height: StateMachineHeight { id: source_state_machine_id, height },
+						proof: Vec::new(),
+					},
+					signer: sink.address(),
+				}),
+				// Inbound rows are drained by this handler, not the per-destination retry loop,
+				// so the state is inert; the timestamp keeps the row consistent with the schema.
+				state: RetryState { created_at: unix_now(), ..Default::default() },
+				id: None,
+			}),
 			_ => None,
 		})
 		.collect::<Vec<_>>();
@@ -881,7 +889,7 @@ mod tests {
 
 		let parked = tx_payment.unprofitable_messages(&COPROCESSOR).await.unwrap();
 		assert_eq!(parked.len(), 1);
-		match &parked[0].0 {
+		match &parked[0].message {
 			Message::Request(msg) => assert_eq!(msg.requests, vec![post.clone()]),
 			message => panic!("expected one parked request, got {message:?}"),
 		}
@@ -931,20 +939,24 @@ mod tests {
 		};
 		tx_payment
 			.store_unprofitable_messages(
-				vec![Message::Request(RequestMessage {
-					requests: vec![foreign.clone()],
-					proof: Proof {
-						height: StateMachineHeight {
-							id: StateMachineId {
-								state_id: StateMachine::Evm(8453),
-								consensus_state_id: *b"BEEF",
+				vec![ParkedMessage {
+					message: Message::Request(RequestMessage {
+						requests: vec![foreign.clone()],
+						proof: Proof {
+							height: StateMachineHeight {
+								id: StateMachineId {
+									state_id: StateMachine::Evm(8453),
+									consensus_state_id: *b"BEEF",
+								},
+								height: 150,
 							},
-							height: 150,
+							proof: Vec::new(),
 						},
-						proof: Vec::new(),
-					},
-					signer: Vec::new(),
-				})],
+						signer: Vec::new(),
+					}),
+					state: RetryState { created_at: unix_now(), ..Default::default() },
+					id: None,
+				}],
 				COPROCESSOR,
 			)
 			.await
@@ -962,7 +974,7 @@ mod tests {
 		assert!(submitted.lock().unwrap().is_empty());
 		let parked = tx_payment.unprofitable_messages(&COPROCESSOR).await.unwrap();
 		assert_eq!(parked.len(), 1);
-		match &parked[0].0 {
+		match &parked[0].message {
 			Message::Request(msg) => assert_eq!(msg.requests, vec![foreign.clone()]),
 			message => panic!("expected the foreign request to stay parked, got {message:?}"),
 		}

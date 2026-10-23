@@ -37,7 +37,7 @@ use tesseract_primitives::{
 use tesseract_substrate::{config::KeccakSubstrateChain, SubstrateClient};
 use tokio::sync::mpsc::Sender;
 use tracing::Instrument;
-use transaction_fees::TransactionPayment;
+use transaction_fees::{unix_now, ParkedMessage, RetryState, TransactionPayment};
 
 use crate::events::{
 	filter_events, is_explicitly_filtered, is_retry_module, translate_events_to_messages,
@@ -645,12 +645,17 @@ async fn park_undelivered(
 	let Some(tx_payment) = tx_payment.as_ref().filter(|_| config.retries_enabled()) else {
 		return
 	};
+	let now = unix_now();
 	let requests = messages
 		.into_iter()
 		.filter_map(|message| match message {
 			Message::Request(mut msg) => {
 				msg.requests.retain(|post| is_retry_module(config, &post.to));
-				(!msg.requests.is_empty()).then_some(Message::Request(msg))
+				(!msg.requests.is_empty()).then(|| ParkedMessage {
+					message: Message::Request(msg),
+					state: RetryState { created_at: now, ..Default::default() },
+					id: None,
+				})
 			},
 			_ => None,
 		})

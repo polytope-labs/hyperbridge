@@ -70,6 +70,7 @@ jobs:
             sync-committee: ${{ steps.filter.outputs.sync-committee }}
             tendermint: ${{ steps.filter.outputs.tendermint }}
             bsc: ${{ steps.filter.outputs.bsc }}
+            wasm: ${{ steps.filter.outputs.wasm }}
         steps:
             - uses: actions/checkout@v3
               with:
@@ -100,11 +101,20 @@ jobs:
                         - 'modules/consensus/bsc/**'
                         - 'modules/ismp/clients/bsc/**'
                         - 'tesseract/consensus/bsc/**'
+                      wasm:
+                        - 'modules/**'
+                        - 'evm/rust/**'
+                        - 'parachain/runtimes/**'
+                        - 'Cargo.toml'
+                        - 'Cargo.lock'
+                        - 'rust-toolchain.toml'
+                        - '.github/workflows/ci.yml'
 
     check-wasm:
         name: Check Wasm Crates
         runs-on: arc-runner-set
-        if: github.event.pull_request.draft != true
+        needs: detect-changes
+        if: github.event.pull_request.draft != true && needs.detect-changes.outputs.wasm == 'true'
         strategy:
             matrix:
                 crate: [gargantua-runtime, nexus-runtime]

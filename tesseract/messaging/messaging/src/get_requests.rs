@@ -589,7 +589,11 @@ fn is_delivered(receipt: &[u8]) -> bool {
 mod tests {
 	use super::*;
 	use ismp::{consensus::StateMachineId, messaging::RequestMessage, router::PostRequest};
+	use std::sync::atomic::{AtomicU64, Ordering};
 	use tesseract_primitives::mocks::MockHost;
+
+	/// Makes every test database path unique within this process.
+	static NEXT_DB: AtomicU64 = AtomicU64::new(0);
 
 	const SOURCE: StateMachine = StateMachine::Evm(97);
 	const DEST: StateMachine = StateMachine::Evm(80002);
@@ -694,7 +698,8 @@ mod tests {
 			.duration_since(std::time::UNIX_EPOCH)
 			.map(|d| d.as_nanos())
 			.unwrap_or(0);
-		format!("/tmp/tesseract-get-requests-test-{pid}-{nanos}.db")
+		let seq = NEXT_DB.fetch_add(1, Ordering::Relaxed);
+		format!("/tmp/tesseract-get-requests-test-{pid}-{nanos}-{seq}.db")
 	}
 
 	fn cleanup(path: &str) {

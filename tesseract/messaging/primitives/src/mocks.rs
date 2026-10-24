@@ -32,6 +32,8 @@ pub struct MockHost<C> {
 	pub request_proof_ok: Arc<Mutex<bool>>,
 	/// When false, [`IsmpProvider::query_state_proof`] returns an error.
 	pub state_proof_ok: Arc<Mutex<bool>>,
+	/// The proof bytes returned by [`IsmpProvider::query_state_proof`].
+	pub state_proof: Arc<Mutex<Vec<u8>>>,
 	/// Records messages passed to [`HandleGetResponse::submit_get_response`].
 	pub get_responses: Arc<Mutex<Vec<GetRequestsWithProof>>>,
 	/// The address returned by [`IsmpProvider::address`].
@@ -45,6 +47,8 @@ pub struct MockHost<C> {
 	pub request_receipts: Arc<Mutex<BTreeMap<H256, Vec<u8>>>>,
 	/// The timestamp returned by [`IsmpProvider::query_timestamp`].
 	pub timestamp: Arc<Mutex<Duration>>,
+	/// When false, [`IsmpProvider::query_timestamp`] returns an error.
+	pub timestamp_ok: Arc<Mutex<bool>>,
 	/// The events returned by [`IsmpProvider::query_ismp_events`].
 	pub events: Arc<Mutex<Vec<Event>>>,
 	/// When false, [`IsmpProvider::query_ismp_events`] returns an error.
@@ -60,12 +64,14 @@ impl<C> MockHost<C> {
 			submitted: Arc::new(Mutex::new(Vec::new())),
 			request_proof_ok: Arc::new(Mutex::new(true)),
 			state_proof_ok: Arc::new(Mutex::new(true)),
+			state_proof: Arc::new(Mutex::new(vec![1])),
 			get_responses: Arc::new(Mutex::new(Vec::new())),
 			address: Arc::new(Mutex::new(Vec::new())),
 			name: Arc::new(Mutex::new("Mock".to_string())),
 			consensus_state_id: Arc::new(Mutex::new(*b"Mock")),
 			request_receipts: Arc::new(Mutex::new(BTreeMap::new())),
 			timestamp: Arc::new(Mutex::new(Duration::from_secs(0))),
+			timestamp_ok: Arc::new(Mutex::new(true)),
 			events: Arc::new(Mutex::new(Vec::new())),
 			query_events_ok: Arc::new(Mutex::new(true)),
 		}
@@ -83,6 +89,16 @@ impl<C> MockHost<C> {
 
 	pub fn with_state_proof_fail(self) -> Self {
 		*self.state_proof_ok.lock().unwrap() = false;
+		self
+	}
+
+	pub fn with_state_proof(self, proof: Vec<u8>) -> Self {
+		*self.state_proof.lock().unwrap() = proof;
+		self
+	}
+
+	pub fn with_timestamp_fail(self) -> Self {
+		*self.timestamp_ok.lock().unwrap() = false;
 		self
 	}
 
@@ -225,7 +241,11 @@ impl<C: Codec + Send + Sync> IsmpProvider for MockHost<C> {
 	}
 
 	async fn query_timestamp(&self) -> Result<Duration, Error> {
-		Ok(*self.timestamp.lock().unwrap())
+		if *self.timestamp_ok.lock().unwrap() {
+			Ok(*self.timestamp.lock().unwrap())
+		} else {
+			Err(anyhow!("mock: timestamp query failure"))
+		}
 	}
 
 	async fn query_requests_proof(
@@ -247,7 +267,7 @@ impl<C: Codec + Send + Sync> IsmpProvider for MockHost<C> {
 		_keys: StateProofQueryType,
 	) -> Result<Vec<u8>, Error> {
 		if *self.state_proof_ok.lock().unwrap() {
-			Ok(Default::default())
+			Ok(self.state_proof.lock().unwrap().clone())
 		} else {
 			Err(anyhow!("mock: state proof failure"))
 		}
@@ -397,12 +417,14 @@ impl<C: Send + Sync> Clone for MockHost<C> {
 			submitted: self.submitted.clone(),
 			request_proof_ok: self.request_proof_ok.clone(),
 			state_proof_ok: self.state_proof_ok.clone(),
+			state_proof: self.state_proof.clone(),
 			get_responses: self.get_responses.clone(),
 			address: self.address.clone(),
 			name: self.name.clone(),
 			consensus_state_id: self.consensus_state_id.clone(),
 			request_receipts: self.request_receipts.clone(),
 			timestamp: self.timestamp.clone(),
+			timestamp_ok: self.timestamp_ok.clone(),
 			events: self.events.clone(),
 			query_events_ok: self.query_events_ok.clone(),
 		}

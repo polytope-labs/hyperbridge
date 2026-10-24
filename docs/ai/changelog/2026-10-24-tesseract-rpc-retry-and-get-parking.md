@@ -20,13 +20,12 @@ each retry is a fresh parallel round over every endpoint. For a single `eth_send
 
 ## GET requests are parked until the next update
 
-In `tesseract/messaging/messaging/src/get_requests.rs`, `process_get_request_events` keeps requests
-whose source or destination proof failed and retries them on the next `StateMachineUpdated`. Parked
-requests are proved at the newest known source height, while the destination proof stays at the
-request's own height. A request is dropped once it has timed out. `handle_update` now forwards a
-batch for every handled range, including an empty one, so the processor gets that next update.
-Submissions run in a background task, so the processor keeps reading updates while a challenge
-period or submission is in progress.
-
-Parked GET requests live in memory only, so a relayer restart forgets them. A GET that no configured
-RPC can prove stays parked until it times out, or until a restart if it has no timeout.
+In `tesseract/messaging/messaging/src/get_requests.rs`, a GET request whose source proof fails is
+stored in the `UnprofitableMessages` table under hyperbridge's state machine together with its
+destination proof. The row survives a restart, and a later update fetches only the source proof at
+its newer height while reusing the stored destination proof. A GET request whose destination proof
+fails is dropped, since the RPC retry layer already covers short misses. Timed-out requests are
+dropped. When the hyperbridge timestamp query fails, the new requests are stored without a
+destination proof. `handle_update` forwards a batch for every handled range, including an empty
+one, so the processor gets that next update. Submissions run in a background task, so the processor
+keeps reading updates while a challenge period or submission is in progress.

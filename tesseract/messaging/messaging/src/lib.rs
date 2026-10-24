@@ -182,6 +182,7 @@ where
 					source,
 					hb_processor,
 					client_map,
+					tx_payment.clone(),
 				)
 				.await;
 				tracing::error!(target: LOG_TARGET, ?res, "task terminated");
@@ -316,6 +317,10 @@ async fn handle_update(
 	let mut parked_events = Vec::new();
 	let mut parked_ids = Vec::new();
 	for ParkedMessage { message, id, .. } in tx_payment.unprofitable_messages(&sink_state).await? {
+		if let Message::Response(_) = &message {
+			// GET-request rows share this key and are handled by the GET processor.
+			continue;
+		}
 		let Message::Request(msg) = message else {
 			tracing::debug!(
 				target: LOG_TARGET,
@@ -507,8 +512,9 @@ async fn handle_update(
 /// The rows are keyed by the sink's state machine: that key groups the rows of every inbound
 /// pipeline delivering to the same sink, so every pipeline for hyperbridge reads back the same
 /// rows. Each request's own `source` is what tells one source chain's rows from another's, and a
-/// pipeline only joins the requests of its own source to its proof query. The only other user of
-/// this table is the retry loop
+/// pipeline only joins the requests of its own source to its proof query. GET requests park
+/// `Message::Response` rows under the same key, so the message variant separates them from these
+/// rows. The only other user of this table is the retry loop
 /// ([`crate::retries::retry_undelivered_messages`]), which only ever drains EVM destinations, so
 /// an inbound row (the sink is hyperbridge) cannot cross-talk with it.
 async fn park_request_events(
@@ -784,7 +790,10 @@ pub async fn fee_accumulation<A: IsmpProvider + Clone + Clone + HyperbridgeClaim
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use ismp::{messaging::Message, router::PostRequest};
+	use ismp::{
+		messaging::{Message, ResponseMessage},
+		router::PostRequest,
+	};
 	use tesseract_primitives::mocks::MockHost;
 
 	const SOURCE: StateMachine = StateMachine::Evm(97);
@@ -987,6 +996,52 @@ mod tests {
 			Message::Request(msg) => assert_eq!(msg.requests, vec![foreign.clone()]),
 			message => panic!("expected the foreign request to stay parked, got {message:?}"),
 		}
+
+		let _ = std::fs::remove_file(&path);
+		let _ = std::fs::remove_file(format!("{path}-journal"));
+	}
+
+	/// A GET-request row shares the parked table and key with inbound POST rows. The inbound
+	/// pipeline leaves it for the GET processor: proving or deleting it here would lose it.
+	#[tokio::test]
+	async fn a_response_row_is_left_for_the_get_processor() {
+		let chain_a = MockHost::new((), 0, COPROCESSOR);
+		let submitted = chain_a.submitted.clone();
+		let chain_b = MockHost::new((), 0, SOURCE);
+		let source_id = chain_b.state_machine_id();
+
+		let path = temp_db_path();
+		let tx_payment = Arc::new(TransactionPayment::initialize(&path).await.unwrap());
+		tx_payment
+			.store_unprofitable_messages(
+				vec![ParkedMessage {
+					message: Message::Response(ResponseMessage {
+						requests: vec![get()],
+						proof: Proof {
+							height: StateMachineHeight { id: source_id, height: 10 },
+							proof: vec![1],
+						},
+						signer: Vec::new(),
+					}),
+					state: RetryState { created_at: unix_now(), ..Default::default() },
+					id: None,
+				}],
+				COPROCESSOR,
+			)
+			.await
+			.unwrap();
+
+		let (get_request_sender, _get_requests) = tokio::sync::mpsc::channel(8);
+		let chain_a: Arc<dyn IsmpProvider> = Arc::new(chain_a);
+		let chain_b: Arc<dyn IsmpProvider> = Arc::new(chain_b);
+		let mut previous_height = 100;
+		let handle =
+			Handler { chain_a, chain_b, tx_payment: tx_payment.clone(), get_request_sender };
+
+		handle.update(200, &mut previous_height).await.unwrap();
+		assert_eq!(previous_height, 200);
+		assert!(submitted.lock().unwrap().is_empty());
+		assert_eq!(tx_payment.unprofitable_messages(&COPROCESSOR).await.unwrap().len(), 1);
 
 		let _ = std::fs::remove_file(&path);
 		let _ = std::fs::remove_file(format!("{path}-journal"));

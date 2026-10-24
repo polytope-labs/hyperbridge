@@ -536,6 +536,7 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 		fillerAddress: runtimeSigner.address,
 		tokens: bookTokens,
 		vaultBalances: vaultVenue,
+		feeToken: async (chain) => (await contractService.getFeeTokenWithDecimals(chain)).address,
 		hyperbridge: intentFiller.hyperbridgeConnection,
 		substratePrivateKey: config.simplex.substratePrivateKey,
 	})

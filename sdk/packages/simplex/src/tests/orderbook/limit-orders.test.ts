@@ -329,6 +329,46 @@ describe("what the wallet can actually pay", () => {
 		})
 	})
 
+	/**
+	 * A cross-chain fill pays its dispatch fee in the fill chain's fee token, out of the same
+	 * wallet. An order that promised all of it was matched for swaps the filler then skipped.
+	 */
+	describe("paying out the fee token", () => {
+		const PAYS_USDC = { ...REQUEST, tokenIn: "CNGN", amountIn: "1500000", tokenOut: "USDC", amountOut: "1000" }
+
+		it("leaves 10 of it out of the book", async () => {
+			const { service } = makeService(fakeClient([]), undefined, { [ORDERBOOK_FIXTURES.USDC]: 1_005n })
+
+			await expect(service.create(PAYS_USDC)).rejects.toThrow(
+				/USDC pays the fill fees on EVM-8453, so 10 of it stays out of the book: the wallet holds 1005, which can pay out at most 995/,
+			)
+		})
+
+		it("takes an order that leaves the 10 over", async () => {
+			const { service } = makeService(
+				fakeClient([{ kind: "accepted", order: postedOrder(), surfaced: true }]),
+				undefined,
+				{ [ORDERBOOK_FIXTURES.USDC]: 1_010n },
+			)
+
+			const { order } = await service.create(PAYS_USDC)
+
+			expect(order.size).toBe((1_000n * ONE).toString())
+		})
+
+		it("holds nothing back of a token that is not the fee token", async () => {
+			const { service } = makeService(
+				fakeClient([{ kind: "accepted", order: postedOrder(), surfaced: true }]),
+				undefined,
+				{ [ORDERBOOK_FIXTURES.CNGN]: 1_500_000n },
+			)
+
+			const { order } = await service.create({ ...REQUEST, amountOut: "1500000" })
+
+			expect(order.size).toBe((1_500_000n * ONE).toString())
+		})
+	})
+
 	it("lets several orders rest on the same balance", async () => {
 		// One balance backs every order resting on it, which is what quoting both
 		// sides of a book is. The orderbook says the same: it advertises each entry

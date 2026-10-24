@@ -49,27 +49,56 @@ pub mod tx;
 
 pub type AlloyProvider = RootProvider;
 
-/// Create a RootProvider from multiple URLs with automatic failover. When multiple URLs are
-/// provided, every endpoint is asked and the first successful answer wins; a JSON-RPC error
-/// response counts as that endpoint failing (see [`transport::fallback_service`]).
+/// Create a RootProvider with retry and automatic failover. When multiple URLs are provided, every
+/// endpoint is asked and the first successful answer wins; a JSON-RPC error response counts as that
+/// endpoint failing (see [`transport::fallback_service`]). Transient failures are retried by
+/// [`transport::RetryLayer`], including `historical state`/`missing trie node` responses and HTTP
+/// 429/5xx.
 pub fn create_provider(urls: &[String]) -> Result<RootProvider, anyhow::Error> {
-	use alloy::{rpc::client::RpcClient, transports::http::Http};
-
 	if urls.is_empty() {
 		return Err(anyhow::anyhow!("At least one RPC URL must be provided"));
 	}
 
-	if urls.len() == 1 {
-		Ok(RootProvider::new_http(urls[0].parse()?))
+	build_provider(
+		urls,
+		alloy::transports::http::reqwest::Client::new(),
+		&RpcTransport::Standard,
+	)
+}
+
+/// Build one [`RootProvider`] over `urls`, with [`transport::RetryLayer`] outside the fallback
+/// transport so every retry is a fresh round over all endpoints.
+fn build_provider(
+	urls: &[String],
+	http_client: alloy::transports::http::reqwest::Client,
+	rpc_transport: &RpcTransport,
+) -> anyhow::Result<RootProvider> {
+	use alloy::{
+		rpc::client::ClientBuilder,
+		transports::{http::Http, BoxTransport},
+	};
+	use transport::{RetryLayer, TronLayer};
+
+	let is_local = urls.len() == 1 && alloy::transports::utils::guess_local_url(&urls[0]);
+	let transport: BoxTransport = if urls.len() == 1 {
+		BoxTransport::new(Http::with_client(http_client, urls[0].parse()?))
 	} else {
 		let transports: Vec<Http<_>> = urls
 			.iter()
-			.map(|u| Ok(Http::new(u.parse()?)))
+			.map(|url| Ok(Http::with_client(http_client.clone(), url.parse()?)))
 			.collect::<Result<_, anyhow::Error>>()?;
-		let service = transport::fallback_service(transports);
-		let rpc_client = RpcClient::builder().transport(service, false);
-		Ok(RootProvider::new(rpc_client))
-	}
+		BoxTransport::new(transport::fallback_service(transports))
+	};
+
+	let client = match rpc_transport {
+		RpcTransport::Tron => ClientBuilder::default()
+			.layer(TronLayer)
+			.layer(RetryLayer)
+			.transport(transport, is_local),
+		RpcTransport::Standard =>
+			ClientBuilder::default().layer(RetryLayer).transport(transport, is_local),
+	};
+	Ok(RootProvider::new(client))
 }
 
 /// Create one independent [`RootProvider`] per URL, for callers that run a
@@ -329,6 +358,9 @@ pub struct EvmClient {
 }
 
 impl EvmClient {
+	/// Build an EVM client. Its RPC provider merges multiple URLs with failover and retries
+	/// transient errors, including `historical state`/`missing trie node` responses and HTTP
+	/// 429/5xx (see [`transport::RetryLayer`]).
 	pub async fn new(config: EvmConfig) -> Result<Self, anyhow::Error> {
 		let config_clone = config.clone();
 		// If the operator configured a signer, parse it; otherwise generate a
@@ -360,50 +392,7 @@ impl EvmClient {
 			.timeout(Duration::from_secs(180))
 			.build()?;
 
-		let root_provider = if config.rpc_urls.len() == 1 {
-			let url: alloy::transports::http::reqwest::Url = config.rpc_urls[0].parse()?;
-			match config.transport {
-				RpcTransport::Tron => {
-					use crate::transport::TronLayer;
-					let http = alloy::transports::http::Http::with_client(http_client.clone(), url);
-					let rpc_client = alloy::rpc::client::ClientBuilder::default()
-						.layer(TronLayer)
-						.transport(http, false);
-					RootProvider::new(rpc_client)
-				},
-				RpcTransport::Standard => {
-					let rpc_client = alloy::rpc::client::RpcClient::new_http_with_client(
-						http_client.clone(),
-						url,
-					);
-					RootProvider::new(rpc_client)
-				},
-			}
-		} else {
-			let transports: Vec<alloy::transports::http::Http<_>> = config
-				.rpc_urls
-				.iter()
-				.map(|u| {
-					let url: alloy::transports::http::reqwest::Url = u.parse()?;
-					Ok(alloy::transports::http::Http::with_client(http_client.clone(), url))
-				})
-				.collect::<Result<_, anyhow::Error>>()?;
-			let service = transport::fallback_service(transports);
-			match config.transport {
-				RpcTransport::Tron => {
-					use crate::transport::TronLayer;
-					let rpc_client = alloy::rpc::client::ClientBuilder::default()
-						.layer(TronLayer)
-						.transport(service, false);
-					RootProvider::new(rpc_client)
-				},
-				RpcTransport::Standard => {
-					let rpc_client =
-						alloy::rpc::client::RpcClient::builder().transport(service, false);
-					RootProvider::new(rpc_client)
-				},
-			}
-		};
+		let root_provider = build_provider(&config.rpc_urls, http_client.clone(), &config.transport)?;
 		let client = Arc::new(root_provider.clone());
 
 		// One direct provider per URL for byzantine quorum. Skipped for

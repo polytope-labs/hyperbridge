@@ -628,6 +628,35 @@ impl TransactionPayment {
 		Ok(ids)
 	}
 
+	/// Rewrite a parked message's encoded payload and retry state in place.
+	pub async fn update_unprofitable_message(
+		&self,
+		id: i32,
+		parked: ParkedMessage,
+	) -> Result<(), anyhow::Error> {
+		let state = parked.state;
+		self.db
+			.unprofitable_messages()
+			.update(
+				db::unprofitable_messages::UniqueWhereParam::IdEquals(id),
+				vec![
+					db::unprofitable_messages::encoded::set(parked.message.encode()),
+					db::unprofitable_messages::attempts::set(
+						state.attempts.min(i32::MAX as u32) as i32,
+					),
+					db::unprofitable_messages::created_at::set(
+						state.created_at.min(i32::MAX as u64) as i32,
+					),
+					db::unprofitable_messages::next_attempt_at::set(
+						state.next_attempt_at.min(i32::MAX as u64) as i32,
+					),
+				],
+			)
+			.exec()
+			.await?;
+		Ok(())
+	}
+
 	/// Create payment claim proof for all deliveries of requests and responses from source to dest
 	/// a number of days The default is 30 days
 	pub async fn create_claim_proof<H: HyperbridgeClaim + Sync>(

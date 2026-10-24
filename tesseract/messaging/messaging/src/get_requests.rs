@@ -97,7 +97,7 @@ pub async fn process_get_request_events<
 			let rows = fresh
 				.iter()
 				.map(|(request, proof, state)| {
-					get_request_row(request, proof.clone(), source.address(), *state, None)
+					get_request_row(request, proof.clone(), source.address(), *state)
 				})
 				.collect::<Vec<_>>();
 			match tx_payment.store_unprofitable_messages(rows, sink).await {
@@ -148,9 +148,15 @@ pub async fn process_get_request_events<
 		}
 		entries.extend(unstored);
 
-		let Some(hyperbridge_timestamp) = hyperbridge_timestamp else { continue };
+		let Some(hyperbridge_timestamp) = hyperbridge_timestamp else {
+			let unstored = entries.iter().filter(|entry| entry.row_id.is_none()).count();
+			if unstored > 0 {
+				tracing::error!(target: crate::LOG_TARGET, unstored, "Dropping get requests that could not be stored because the hyperbridge timestamp is unavailable");
+			}
+			continue
+		};
 
-		let ProvedGetRequests { messages, store, mut delete } = prove_get_requests(
+		let ProvedGetRequests { messages, store, update, delete } = prove_get_requests(
 			&source,
 			&hyperbridge,
 			&client_map,
@@ -163,32 +169,33 @@ pub async fn process_get_request_events<
 		)
 		.await;
 
-		// Store replacements before deleting their old rows, so a failed write cannot lose a
-		// request. A row only reaches `delete` once its replacement was stored.
-		let replaced = store.iter().filter_map(|parked| parked.id).collect::<Vec<_>>();
-		let new_requests = store
-			.iter()
-			.filter(|parked| parked.id.is_none())
-			.map(|parked| match &parked.message {
-				Message::Response(msg) => msg.requests.len(),
-				_ => 0,
-			})
-			.sum::<usize>();
-		let kept_rows = replaced.len();
 		if !store.is_empty() {
-			match tx_payment.store_unprofitable_messages(store, sink).await {
-				Ok(_) => delete.extend(replaced),
-				Err(err) => {
-					tracing::error!(
-						target: crate::LOG_TARGET,
-						?err,
-						lost_requests = new_requests,
-						kept_rows,
-						"Failed to store get requests: {} new get requests lost, {} replaced rows kept",
-						new_requests,
-						kept_rows,
-					);
-				},
+			let new_requests = store
+				.iter()
+				.map(|parked| match &parked.message {
+					Message::Response(msg) => msg.requests.len(),
+					_ => 0,
+				})
+				.sum::<usize>();
+			if let Err(err) = tx_payment.store_unprofitable_messages(store, sink).await {
+				tracing::error!(
+					target: crate::LOG_TARGET,
+					?err,
+					lost_requests = new_requests,
+					"Failed to store get requests: {} new get requests lost",
+					new_requests,
+				);
+			}
+		}
+		for (id, commitment, parked) in update {
+			if let Err(err) = tx_payment.update_unprofitable_message(id, parked).await {
+				tracing::error!(
+					target: crate::LOG_TARGET,
+					?err,
+					id,
+					commitment = %commitment,
+					"Failed to update a get-request row; it keeps its old state",
+				);
 			}
 		}
 		if !delete.is_empty() {
@@ -264,9 +271,11 @@ pub async fn process_get_request_events<
 struct ProvedGetRequests {
 	/// Messages to submit, each with its commitment and destination client.
 	messages: Vec<(H256, GetRequestsWithProof, Arc<dyn IsmpProvider>)>,
-	/// Rows to insert. A `Some` id means the row replaces that old row.
+	/// Rows to insert for entries that have none yet.
 	store: Vec<ParkedMessage>,
-	/// Rows that are no longer needed and have no replacement.
+	/// Existing rows to rewrite in place, with the commitment for logging.
+	update: Vec<(i32, H256, ParkedMessage)>,
+	/// Rows that are no longer needed.
 	delete: Vec<i32>,
 }
 
@@ -297,22 +306,56 @@ async fn prove_get_requests<H: IsmpProvider>(
 	now: u64,
 	in_flight: &Arc<Mutex<HashSet<H256>>>,
 ) -> ProvedGetRequests {
-	let mut result =
-		ProvedGetRequests { messages: vec![], store: vec![], delete: vec![] };
+	let mut result = ProvedGetRequests {
+		messages: vec![],
+		store: vec![],
+		update: vec![],
+		delete: vec![],
+	};
 	// One submission per GET per pass; the first row or fresh copy seen wins.
 	let mut seen = HashSet::new();
 
 	for entry in entries {
 		let commitment = hash_request::<Hasher>(&Request::Get(entry.request.clone()));
 		if !seen.insert(commitment) {
+			// Another row for this GET already won; drop the duplicate.
+			if let Some(id) = entry.row_id {
+				result.delete.push(id);
+			}
 			continue
 		}
 		if in_flight.lock().unwrap().contains(&commitment) {
+			if entry.row_id.is_none() {
+				keep_row(
+					&mut result,
+					entry.row_id,
+					commitment,
+					get_request_row(
+						&entry.request,
+						entry.destination_proof,
+						source.address(),
+						entry.state,
+					),
+				);
+			}
 			continue
 		}
 
 		let due = retry_is_due(entry.state, now);
 		if due == RetryDue::NotYet {
+			if entry.row_id.is_none() {
+				keep_row(
+					&mut result,
+					entry.row_id,
+					commitment,
+					get_request_row(
+						&entry.request,
+						entry.destination_proof,
+						source.address(),
+						entry.state,
+					),
+				);
+			}
 			continue
 		}
 
@@ -327,6 +370,19 @@ async fn prove_get_requests<H: IsmpProvider>(
 			Ok(_) => {},
 			Err(err) => {
 				tracing::error!(target: crate::LOG_TARGET, ?err, commitment = %commitment, "Failed to query the response receipt for a get request; keeping it for the next update");
+				if entry.row_id.is_none() {
+					keep_row(
+						&mut result,
+						entry.row_id,
+						commitment,
+						get_request_row(
+							&entry.request,
+							entry.destination_proof,
+							source.address(),
+							entry.state,
+						),
+					);
+				}
 				continue
 			},
 		}
@@ -378,13 +434,17 @@ async fn prove_get_requests<H: IsmpProvider>(
 				Err(err) => {
 					let state = next_retry_state(entry.state, now, retry_frequency, true);
 					tracing::error!(target: crate::LOG_TARGET, ?err, commitment = %commitment, attempts = state.attempts, "Failed to fetch the destination proof for a get request; backing off");
-					result.store.push(get_request_row(
-						&entry.request,
-						empty_destination_proof(&destination_client, &entry.request),
-						source.address(),
-						state,
+					keep_row(
+						&mut result,
 						entry.row_id,
-					));
+						commitment,
+						get_request_row(
+							&entry.request,
+							empty_destination_proof(&destination_client, &entry.request),
+							source.address(),
+							state,
+						),
+					);
 					continue
 				},
 			}
@@ -400,13 +460,17 @@ async fn prove_get_requests<H: IsmpProvider>(
 		{
 			Ok(proof) => {
 				let state = next_retry_state(entry.state, now, retry_frequency, true);
-				result.store.push(get_request_row(
-					&entry.request,
-					destination_proof.clone(),
-					source.address(),
-					state,
+				keep_row(
+					&mut result,
 					entry.row_id,
-				));
+					commitment,
+					get_request_row(
+						&entry.request,
+						destination_proof.clone(),
+						source.address(),
+						state,
+					),
+				);
 				result.messages.push((
 					commitment,
 					GetRequestsWithProof {
@@ -426,17 +490,19 @@ async fn prove_get_requests<H: IsmpProvider>(
 			},
 			Err(err) => {
 				tracing::error!(target: crate::LOG_TARGET, ?err, commitment = %commitment, "Failed to fetch the source proof for a get request, kept it to prove at a newer height");
-				// Keep a destination proof fetched in this pass; the source height only moves.
-				if proof_missing {
-					if let Some(id) = entry.row_id {
-						result.store.push(get_request_row(
+				// Keep a destination proof fetched in this pass, or a row that was never stored.
+				if entry.row_id.is_none() || proof_missing {
+					keep_row(
+						&mut result,
+						entry.row_id,
+						commitment,
+						get_request_row(
 							&entry.request,
 							destination_proof,
 							source.address(),
 							entry.state,
-							Some(id),
-						));
-					}
+						),
+					);
 				}
 			},
 		}
@@ -451,7 +517,6 @@ fn get_request_row(
 	proof: Proof,
 	signer: Vec<u8>,
 	state: RetryState,
-	id: Option<i32>,
 ) -> ParkedMessage {
 	ParkedMessage {
 		message: Message::Response(ResponseMessage {
@@ -460,7 +525,20 @@ fn get_request_row(
 			signer,
 		}),
 		state,
-		id,
+		id: None,
+	}
+}
+
+/// Keep an entry: rewrite its row in place, or store a new row when it has none.
+fn keep_row(
+	result: &mut ProvedGetRequests,
+	row_id: Option<i32>,
+	commitment: H256,
+	parked: ParkedMessage,
+) {
+	match row_id {
+		Some(id) => result.update.push((id, commitment, parked)),
+		None => result.store.push(parked),
 	}
 }
 
@@ -823,15 +901,17 @@ mod tests {
 		.await;
 		assert!(result.messages.is_empty());
 		assert!(result.delete.is_empty());
-		assert_eq!(result.store.len(), 1);
-		let failed = &result.store[0];
-		assert_eq!(failed.id, Some(5));
+		assert!(result.store.is_empty());
+		assert_eq!(result.update.len(), 1);
+		let (failed_id, _, failed) = &result.update[0];
+		assert_eq!(*failed_id, 5);
 		assert_eq!(failed.state.attempts, 1);
 		assert_eq!(failed.state.next_attempt_at, NOW + FREQUENCY.as_secs());
 		match &failed.message {
 			Message::Response(msg) => assert!(msg.proof.proof.is_empty()),
 			other => panic!("expected a response row, got {other:?}"),
 		}
+		let failed_state = failed.state;
 
 		let destination_up =
 			dest_clients(MockHost::new((), 0, DEST).with_state_proof(STORED_PROOF.to_vec()));
@@ -839,7 +919,7 @@ mod tests {
 			request.clone(),
 			destination_proof(Vec::new()),
 			Some(5),
-			failed.state,
+			failed_state,
 		);
 
 		// Before the backoff elapses the row is skipped.
@@ -851,12 +931,13 @@ mod tests {
 			&update(300),
 			Duration::from_secs(100),
 			FREQUENCY,
-			failed.state.next_attempt_at - 1,
+			failed_state.next_attempt_at - 1,
 			&in_flight,
 		)
 		.await;
 		assert!(result.messages.is_empty());
 		assert!(result.store.is_empty());
+		assert!(result.update.is_empty());
 		assert!(result.delete.is_empty());
 
 		// Once due, the destination proof is fetched and kept with a counted attempt.
@@ -868,19 +949,19 @@ mod tests {
 				request,
 				destination_proof(Vec::new()),
 				Some(5),
-				failed.state,
+				failed_state,
 			)],
 			&update(300),
 			Duration::from_secs(100),
 			FREQUENCY,
-			failed.state.next_attempt_at,
+			failed_state.next_attempt_at,
 			&in_flight,
 		)
 		.await;
 		assert_eq!(result.messages.len(), 1);
 		assert_eq!(result.messages[0].1.response.proof, STORED_PROOF.to_vec());
-		assert_eq!(result.store.len(), 1);
-		assert_eq!(result.store[0].state.attempts, 2);
+		assert_eq!(result.update.len(), 1);
+		assert_eq!(result.update[0].2.state.attempts, 2);
 	}
 
 	/// A destination proof fetched in a pass is kept when the source proof then fails, with no
@@ -911,9 +992,10 @@ mod tests {
 		.await;
 		assert!(result.messages.is_empty());
 		assert!(result.delete.is_empty());
-		assert_eq!(result.store.len(), 1);
-		let stored = &result.store[0];
-		assert_eq!(stored.id, Some(6));
+		assert!(result.store.is_empty());
+		assert_eq!(result.update.len(), 1);
+		let (id, _, stored) = &result.update[0];
+		assert_eq!(*id, 6);
 		assert_eq!(stored.state, state);
 		match &stored.message {
 			Message::Response(msg) => assert_eq!(msg.proof.proof, STORED_PROOF.to_vec()),
@@ -1081,7 +1163,7 @@ mod tests {
 				),
 				entry(
 					request,
-					destination_proof(STORED_PROOF.to_vec()),
+					destination_proof(Vec::new()),
 					Some(2),
 					fresh_state(NOW),
 				),
@@ -1094,7 +1176,9 @@ mod tests {
 		)
 		.await;
 		assert_eq!(result.messages.len(), 1);
-		assert!(result.delete.is_empty());
+		assert_eq!(result.delete, vec![2]);
+		assert_eq!(result.update.len(), 1);
+		assert_eq!(result.update[0].0, 1);
 	}
 
 	/// A failed destination-proof fetch on a fresh GET is stored and tried again once due.
@@ -1169,7 +1253,91 @@ mod tests {
 		.await;
 		assert_eq!(due.messages.len(), 1);
 		assert_eq!(due.messages[0].1.response.proof, STORED_PROOF.to_vec());
-		assert_eq!(due.store[0].state.attempts, 2);
+		assert_eq!(due.update[0].2.state.attempts, 2);
+		cleanup(&path);
+	}
+
+	/// An unstored entry whose source proof fails is kept for a later store attempt.
+	#[tokio::test]
+	async fn an_unstored_entry_is_kept_when_the_source_proof_fails() {
+		let source = Arc::new(MockHost::new((), 0, SOURCE).with_state_proof_fail())
+			as Arc<dyn IsmpProvider>;
+		let hyperbridge =
+			MockHost::new((), 0, COPROCESSOR).with_timestamp(Duration::from_secs(100));
+		let clients =
+			dest_clients(MockHost::new((), 0, DEST).with_state_proof(STORED_PROOF.to_vec()));
+		let in_flight = Arc::new(Mutex::new(HashSet::new()));
+		let state = fresh_state(NOW);
+
+		let result = prove_get_requests(
+			&source,
+			&hyperbridge,
+			&clients,
+			vec![entry(
+				get(),
+				destination_proof(STORED_PROOF.to_vec()),
+				None,
+				state,
+			)],
+			&update(300),
+			Duration::from_secs(100),
+			FREQUENCY,
+			NOW,
+			&in_flight,
+		)
+		.await;
+		assert!(result.messages.is_empty());
+		assert!(result.update.is_empty());
+		assert!(result.delete.is_empty());
+		assert_eq!(result.store.len(), 1);
+		assert_eq!(result.store[0].state, state);
+		match &result.store[0].message {
+			Message::Response(msg) => assert_eq!(msg.proof.proof, STORED_PROOF.to_vec()),
+			other => panic!("expected a response row, got {other:?}"),
+		}
+	}
+
+	/// A counted submission rewrites the same row in place.
+	#[tokio::test(start_paused = true)]
+	async fn a_counted_submission_updates_the_same_row() {
+		let path = temp_db_path();
+		let tx_payment = Arc::new(TransactionPayment::initialize(&path).await.unwrap());
+		let source = MockHost::new((), 0, SOURCE).with_state_proof_fail();
+		let source_proof_ok = source.state_proof_ok.clone();
+		let source: Arc<dyn IsmpProvider> = Arc::new(source);
+		let hyperbridge =
+			MockHost::new((), 0, COPROCESSOR).with_timestamp(Duration::from_secs(100));
+		let responses = hyperbridge.get_responses.clone();
+		let clients =
+			dest_clients(MockHost::new((), 0, DEST).with_state_proof(STORED_PROOF.to_vec()));
+		let (sender, receiver) = tokio::sync::mpsc::channel(8);
+		let processor = tokio::spawn(process_get_request_events(
+			receiver,
+			source,
+			hyperbridge,
+			clients,
+			tx_payment.clone(),
+			Duration::ZERO,
+		));
+
+		sender.send((vec![get()], update(200))).await.unwrap();
+		tokio::time::sleep(Duration::from_secs(1)).await;
+		let rows = tx_payment.unprofitable_messages(&COPROCESSOR).await.unwrap();
+		assert_eq!(rows.len(), 1);
+		let id = rows[0].id.unwrap();
+		assert_eq!(rows[0].state.attempts, 0);
+		assert!(responses.lock().unwrap().is_empty());
+
+		*source_proof_ok.lock().unwrap() = true;
+		sender.send((vec![], update(300))).await.unwrap();
+		drop(sender);
+		assert!(processor.await.unwrap().is_err());
+		wait_for_responses(&responses, 1).await;
+
+		let rows = tx_payment.unprofitable_messages(&COPROCESSOR).await.unwrap();
+		assert_eq!(rows.len(), 1);
+		assert_eq!(rows[0].id, Some(id));
+		assert_eq!(rows[0].state.attempts, 1);
 		cleanup(&path);
 	}
 

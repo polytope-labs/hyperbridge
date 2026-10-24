@@ -1,0 +1,18 @@
+{{> metadata}}
+{{> network-config}}
+{{#if chainTypesConfig}}
+  chaintypes:
+    file: {{chainTypesConfig}}
+{{/if}}
+dataSources:
+  - kind: substrate/Runtime
+    startBlock: {{blockNumber}}
+{{#if endBlock}}
+    endBlock: {{endBlock}}
+{{/if}}
+    mapping:
+      file: ./dist/index.js
+      handlers:
+      {{> handlers}}
+
+repository: 'https://github.com/polytope-labs/hyperbridge'

@@ -45,7 +45,13 @@ const baseChainConfigSchema = z.object({
 export const schemaConfiguration = z.record(
 	z.string(),
 	z.discriminatedUnion("type", [
-		baseChainConfigSchema.extend({ type: z.literal("substrate") }),
+		baseChainConfigSchema.extend({
+			type: z.literal("substrate"),
+			// Backfills the chain's governance from this block in a separate deployment
+			governanceStartBlock: z.number().int().min(0).optional(),
+			// The main deployment indexes governance from this block, and the backfill stops just below it
+			governanceCutoverBlock: z.number().int().min(0).optional(),
+		}),
 		baseChainConfigSchema.extend({
 			type: z.literal("evm"),
 			unfinalizedBlocks: z.boolean().optional(),

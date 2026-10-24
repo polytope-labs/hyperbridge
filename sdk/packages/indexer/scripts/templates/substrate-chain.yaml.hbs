@@ -85,5 +85,14 @@ dataSources:
           kind: substrate/BlockHandler
           filter:
             modulo: 10 # Each chain instance flushes its own pending writes — historical filter hides cross-chain rows.
+{{#if governance}}
+  # Governance from the cutover block on; the history below it comes from the governance backfill
+  - kind: substrate/Runtime
+    startBlock: {{governance.startBlock}}
+    mapping:
+      file: ./dist/index.js
+      handlers:
+      {{> handlers handlers=governance.handlers}}
+{{/if}}
 
 repository: 'https://github.com/polytope-labs/hyperbridge'

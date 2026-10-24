@@ -70,10 +70,11 @@ pub async fn process_get_request_events<
 				continue
 			};
 
+			let commitment = hash_request::<Hasher>(&Request::Get(req.clone()));
 			match fetch_destination_proof(client, &req).await {
 				Ok(proof) => fetched.push((req, proof)),
 				Err(err) => {
-					tracing::error!(target: crate::LOG_TARGET, ?err, "Failed to fetch the destination proof for a get request from {}; it was dropped", req.dest);
+					tracing::error!(target: crate::LOG_TARGET, ?err, commitment = %commitment, "Failed to fetch the destination proof for a get request from {}; it was dropped", req.dest);
 				},
 			}
 		}
@@ -157,25 +158,20 @@ pub async fn process_get_request_events<
 			in_flight
 				.lock()
 				.unwrap()
-				.extend(messages.iter().map(|(commitment, _)| *commitment));
+				.extend(messages.iter().map(|(commitment, _, _)| *commitment));
 
 			// Submit in the background so a slow challenge period or submission never blocks
 			// reading the next update from the channel.
 			let hyperbridge = hyperbridge.clone();
 			let source = source.clone();
-			let client_map = client_map.clone();
 			let in_flight = in_flight.clone();
 			tokio::spawn(async move {
 				let stream = futures::stream::iter(messages);
 				stream
-					.for_each_concurrent(None, |(commitment, msg)| {
+					.for_each_concurrent(None, |(commitment, msg, dest)| {
 						let hyperbridge = Arc::new(hyperbridge.clone());
 						let source = source.clone();
 						let in_flight = in_flight.clone();
-						let dest = client_map
-							.get(&msg.response.height.id.state_id)
-							.cloned()
-							.expect("Client exists, we have a proof");
 						async move {
 							let lambda = || async {
 								// Wait for challenge period for source and dest state machine
@@ -198,7 +194,7 @@ pub async fn process_get_request_events<
 								tracing::trace!(target: crate::LOG_TARGET, "Tracing get response message");
 								hyperbridge.dry_run_submission(msg.clone()).await?;
 
-								tracing::info!(target: crate::LOG_TARGET, "Submitting get response",);
+								tracing::info!(target: crate::LOG_TARGET, commitment = %commitment, "Submitting get response",);
 								hyperbridge.submit_get_response(msg).await?;
 
 								Ok::<_, anyhow::Error>(())
@@ -206,7 +202,7 @@ pub async fn process_get_request_events<
 							match lambda().await {
 								Ok(()) => {},
 								Err(err) => {
-									tracing::error!(target: crate::LOG_TARGET, "Error submitting get response \n{err:?}");
+									tracing::error!(target: crate::LOG_TARGET, commitment = %commitment, "Error submitting get response \n{err:?}");
 								},
 							}
 							in_flight.lock().unwrap().remove(&commitment);
@@ -222,8 +218,8 @@ pub async fn process_get_request_events<
 
 /// The outcome of proving one update's GET requests.
 struct ProvedGetRequests {
-	/// Messages to submit, each with the request commitment it proves.
-	messages: Vec<(H256, GetRequestsWithProof)>,
+	/// Messages to submit, each with its commitment and destination client.
+	messages: Vec<(H256, GetRequestsWithProof, Arc<dyn IsmpProvider>)>,
 	/// Rows that are no longer needed: delivered, timed out, or without a destination client.
 	delete: Vec<i32>,
 }
@@ -267,7 +263,7 @@ async fn prove_get_requests<H: IsmpProvider>(
 			continue
 		}
 
-		if !client_map.contains_key(&entry.request.dest) {
+		let Some(destination_client) = client_map.get(&entry.request.dest).cloned() else {
 			if entry.row_id.is_some() {
 				tracing::warn!(
 					target: crate::LOG_TARGET, "Dropping a stored get request because client for {} was not found",
@@ -283,7 +279,7 @@ async fn prove_get_requests<H: IsmpProvider>(
 				result.delete.push(id);
 			}
 			continue
-		}
+		};
 
 		match hyperbridge.query_response_receipt(commitment).await {
 			Ok(receipt) if is_delivered(&receipt) => {
@@ -338,9 +334,10 @@ async fn prove_get_requests<H: IsmpProvider>(
 					response: entry.destination_proof,
 					address: source.address(),
 				},
+				destination_client,
 			)),
 			Err(err) => {
-				tracing::error!(target: crate::LOG_TARGET, ?err, "Failed to fetch the source proof for a get request, kept it to prove at a newer height");
+				tracing::error!(target: crate::LOG_TARGET, ?err, commitment = %commitment, "Failed to fetch the source proof for a get request, kept it to prove at a newer height");
 			},
 		}
 	}
@@ -512,6 +509,17 @@ mod tests {
 		panic!("expected {count} get responses, got {}", responses.lock().unwrap().len());
 	}
 
+	/// Wait under paused time until `count` dry runs have started.
+	async fn wait_for_dry_runs(started: &Arc<Mutex<usize>>, count: usize) {
+		for _ in 0..100 {
+			if *started.lock().unwrap() >= count {
+				return
+			}
+			tokio::time::sleep(Duration::from_millis(10)).await;
+		}
+		panic!("expected {count} dry runs, got {}", started.lock().unwrap());
+	}
+
 	/// A request being submitted is neither proved again nor deleted.
 	#[tokio::test]
 	async fn an_in_flight_get_request_is_neither_proved_nor_deleted() {
@@ -563,6 +571,83 @@ mod tests {
 		assert_eq!(result.delete, vec![2]);
 	}
 
+	/// While a submission is running, a newer update neither proves nor deletes the same GET.
+	#[tokio::test(start_paused = true)]
+	async fn the_in_flight_guard_stops_a_second_submission() {
+		let path = temp_db_path();
+		let tx_payment = Arc::new(TransactionPayment::initialize(&path).await.unwrap());
+		let source: Arc<dyn IsmpProvider> = Arc::new(MockHost::new((), 0, SOURCE));
+		let gate = Arc::new(tokio::sync::Notify::new());
+		let hyperbridge = MockHost::new((), 0, COPROCESSOR)
+			.with_timestamp(Duration::from_secs(100))
+			.with_dry_run_gate(gate.clone());
+		let dry_runs = hyperbridge.dry_runs_started.clone();
+		let responses = hyperbridge.get_responses.clone();
+		let clients =
+			dest_clients(MockHost::new((), 0, DEST).with_state_proof(STORED_PROOF.to_vec()));
+		let (sender, receiver) = tokio::sync::mpsc::channel(8);
+		let processor = tokio::spawn(process_get_request_events(
+			receiver,
+			source,
+			hyperbridge,
+			clients,
+			tx_payment.clone(),
+		));
+
+		sender.send((vec![get()], update(200))).await.unwrap();
+		wait_for_dry_runs(&dry_runs, 1).await;
+
+		// The request is being submitted; the next update must not prove it again.
+		sender.send((vec![], update(300))).await.unwrap();
+		tokio::time::sleep(Duration::from_secs(1)).await;
+		assert_eq!(*dry_runs.lock().unwrap(), 1);
+		assert_eq!(tx_payment.unprofitable_messages(&COPROCESSOR).await.unwrap().len(), 1);
+
+		gate.notify_one();
+		drop(sender);
+		assert!(processor.await.unwrap().is_err());
+		wait_for_responses(&responses, 1).await;
+		assert_eq!(*dry_runs.lock().unwrap(), 1);
+		assert_eq!(responses.lock().unwrap().len(), 1);
+		cleanup(&path);
+	}
+
+	/// A response-receipt query error keeps the row and skips it this update.
+	#[tokio::test(start_paused = true)]
+	async fn a_receipt_query_error_keeps_the_row() {
+		let path = temp_db_path();
+		let tx_payment = Arc::new(TransactionPayment::initialize(&path).await.unwrap());
+		tx_payment
+			.store_unprofitable_messages(
+				vec![stored_row(vec![get()], destination_proof(STORED_PROOF.to_vec()), None)],
+				COPROCESSOR,
+			)
+			.await
+			.unwrap();
+
+		let source: Arc<dyn IsmpProvider> = Arc::new(MockHost::new((), 0, SOURCE));
+		let hyperbridge = MockHost::new((), 0, COPROCESSOR)
+			.with_timestamp(Duration::from_secs(100))
+			.with_response_receipt_fail();
+		let responses = hyperbridge.get_responses.clone();
+		let clients = dest_clients(MockHost::new((), 0, DEST));
+		let (sender, receiver) = tokio::sync::mpsc::channel(8);
+		let processor = tokio::spawn(process_get_request_events(
+			receiver,
+			source,
+			hyperbridge,
+			clients,
+			tx_payment.clone(),
+		));
+		sender.send((vec![], update(300))).await.unwrap();
+		drop(sender);
+		assert!(processor.await.unwrap().is_err());
+
+		assert!(responses.lock().unwrap().is_empty());
+		assert_eq!(tx_payment.unprofitable_messages(&COPROCESSOR).await.unwrap().len(), 1);
+		cleanup(&path);
+	}
+
 	/// Two GETs at the same destination and height are proved separately, each with a destination
 	/// proof fetched for its own keys.
 	#[tokio::test(start_paused = true)]
@@ -597,19 +682,22 @@ mod tests {
 			assert_eq!(response.requests.len(), 1);
 			assert!(response.requests[0] == first || response.requests[0] == second);
 		}
+		assert_ne!(responses[0].requests[0], responses[1].requests[0]);
 		drop(responses);
 
 		let queries = dest_queries.lock().unwrap();
 		assert_eq!(queries.len(), 2);
+		let mut seen = HashSet::new();
 		for (height, keys) in queries.iter() {
 			assert_eq!(*height, first.height);
 			match keys {
 				StateProofQueryType::Arbitrary(keys) => {
-					assert!(keys == &first.keys || keys == &second.keys);
+					assert!(seen.insert(keys.clone()));
 				},
 				other => panic!("expected an arbitrary key query, got {other:?}"),
 			}
 		}
+		assert_eq!(seen, HashSet::from([vec![vec![3]], vec![vec![4]]]));
 		drop(queries);
 
 		assert_eq!(tx_payment.unprofitable_messages(&COPROCESSOR).await.unwrap().len(), 2);

@@ -40,6 +40,10 @@ pub struct MockHost<C> {
 	pub get_responses: Arc<Mutex<Vec<GetRequestsWithProof>>>,
 	/// When false, [`HandleGetResponse::dry_run_submission`] returns an error.
 	pub dry_run_ok: Arc<Mutex<bool>>,
+	/// When set, [`HandleGetResponse::dry_run_submission`] waits for it before answering.
+	pub dry_run_gate: Arc<Mutex<Option<Arc<tokio::sync::Notify>>>>,
+	/// Counts calls to [`HandleGetResponse::dry_run_submission`].
+	pub dry_runs_started: Arc<Mutex<usize>>,
 	/// The address returned by [`IsmpProvider::address`].
 	pub address: Arc<Mutex<Vec<u8>>>,
 	/// The name returned by [`IsmpProvider::name`].
@@ -51,6 +55,8 @@ pub struct MockHost<C> {
 	pub request_receipts: Arc<Mutex<BTreeMap<H256, Vec<u8>>>>,
 	/// Response receipts keyed by the GET request commitment.
 	pub response_receipts: Arc<Mutex<BTreeMap<H256, Vec<u8>>>>,
+	/// When false, [`IsmpProvider::query_response_receipt`] returns an error.
+	pub response_receipt_ok: Arc<Mutex<bool>>,
 	/// The timestamp returned by [`IsmpProvider::query_timestamp`].
 	pub timestamp: Arc<Mutex<Duration>>,
 	/// When false, [`IsmpProvider::query_timestamp`] returns an error.
@@ -74,11 +80,14 @@ impl<C> MockHost<C> {
 			state_proof_queries: Arc::new(Mutex::new(Vec::new())),
 			get_responses: Arc::new(Mutex::new(Vec::new())),
 			dry_run_ok: Arc::new(Mutex::new(true)),
+			dry_run_gate: Arc::new(Mutex::new(None)),
+			dry_runs_started: Arc::new(Mutex::new(0)),
 			address: Arc::new(Mutex::new(Vec::new())),
 			name: Arc::new(Mutex::new("Mock".to_string())),
 			consensus_state_id: Arc::new(Mutex::new(*b"Mock")),
 			request_receipts: Arc::new(Mutex::new(BTreeMap::new())),
 			response_receipts: Arc::new(Mutex::new(BTreeMap::new())),
+			response_receipt_ok: Arc::new(Mutex::new(true)),
 			timestamp: Arc::new(Mutex::new(Duration::from_secs(0))),
 			timestamp_ok: Arc::new(Mutex::new(true)),
 			events: Arc::new(Mutex::new(Vec::new())),
@@ -148,6 +157,17 @@ impl<C> MockHost<C> {
 		self
 	}
 
+	/// Make [`HandleGetResponse::dry_run_submission`] wait for `gate` before answering.
+	pub fn with_dry_run_gate(self, gate: Arc<tokio::sync::Notify>) -> Self {
+		*self.dry_run_gate.lock().unwrap() = Some(gate);
+		self
+	}
+
+	pub fn with_response_receipt_fail(self) -> Self {
+		*self.response_receipt_ok.lock().unwrap() = false;
+		self
+	}
+
 	pub fn with_timestamp(self, timestamp: Duration) -> Self {
 		*self.timestamp.lock().unwrap() = timestamp;
 		self
@@ -190,6 +210,11 @@ impl<C: Codec + Send + Sync> HandleGetResponse for MockHost<C> {
 	}
 
 	async fn dry_run_submission(&self, _msg: GetRequestsWithProof) -> anyhow::Result<()> {
+		*self.dry_runs_started.lock().unwrap() += 1;
+		let gate = self.dry_run_gate.lock().unwrap().clone();
+		if let Some(gate) = gate {
+			gate.notified().await;
+		}
 		if *self.dry_run_ok.lock().unwrap() {
 			Ok(())
 		} else {
@@ -429,6 +454,9 @@ impl<C: Codec + Send + Sync> IsmpProvider for MockHost<C> {
 	}
 
 	async fn query_response_receipt(&self, hash: H256) -> Result<Vec<u8>, anyhow::Error> {
+		if !*self.response_receipt_ok.lock().unwrap() {
+			return Err(anyhow!("mock: response receipt query failure"))
+		}
 		let receipts = self.response_receipts.lock().unwrap();
 		Ok(receipts.get(&hash).cloned().unwrap_or_else(|| H160::zero().0.to_vec()))
 	}
@@ -451,11 +479,14 @@ impl<C: Send + Sync> Clone for MockHost<C> {
 			state_proof_queries: self.state_proof_queries.clone(),
 			get_responses: self.get_responses.clone(),
 			dry_run_ok: self.dry_run_ok.clone(),
+			dry_run_gate: self.dry_run_gate.clone(),
+			dry_runs_started: self.dry_runs_started.clone(),
 			address: self.address.clone(),
 			name: self.name.clone(),
 			consensus_state_id: self.consensus_state_id.clone(),
 			request_receipts: self.request_receipts.clone(),
 			response_receipts: self.response_receipts.clone(),
+			response_receipt_ok: self.response_receipt_ok.clone(),
 			timestamp: self.timestamp.clone(),
 			timestamp_ok: self.timestamp_ok.clone(),
 			events: self.events.clone(),

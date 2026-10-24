@@ -16,7 +16,7 @@
 # ---------------------------------------------------------------------------
 # Builder — installs the toolchain, compiles protos, bundles the CLI and web UI.
 # ---------------------------------------------------------------------------
-FROM node:24.19.0 AS builder
+FROM node:24.22.1 AS builder
 
 # protoc is needed by packages/simplex/scripts/build.sh. There is deliberately no python3,
 # make or g++ here: nothing in the tree compiles any more, so node-gyp has nothing to fall
@@ -52,7 +52,7 @@ RUN cd packages/simplex && pnpm build
 # Runtime — slim base, no compiler toolchain. Keeps the pull small on Docker Desktop
 # hosts, where every layer lands inside the Linux VM's disk image.
 # ---------------------------------------------------------------------------
-FROM node:24.19.0-slim AS runtime
+FROM node:24.22.1-slim AS runtime
 
 # Create non-root user
 RUN groupadd -g 1001 simplex && \

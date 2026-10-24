@@ -22,10 +22,12 @@ each retry is a fresh parallel round over every endpoint. For a single `eth_send
 
 In `tesseract/messaging/messaging/src/get_requests.rs`, a GET request whose source proof fails is
 stored in the `UnprofitableMessages` table under hyperbridge's state machine together with its
-destination proof. The row survives a restart, and a later update fetches only the source proof at
-its newer height while reusing the stored destination proof. A GET request whose destination proof
-fails is dropped, since the RPC retry layer already covers short misses. Timed-out requests are
-dropped. When the hyperbridge timestamp query fails, the new requests are stored without a
-destination proof. `handle_update` forwards a batch for every handled range, including an empty
-one, so the processor gets that next update. Submissions run in a background task, so the processor
-keeps reading updates while a challenge period or submission is in progress.
+destination proof. The row survives a restart while it waits for a source proof, and a later update
+fetches only the source proof at its newer height while reusing the stored destination proof. Once
+both proofs are built its row is removed; a failure at the submission stage (challenge period, dry
+run, submit) drops it, as before. A GET request whose destination proof fails is dropped, since the
+RPC retry layer already covers short misses, and a missing destination client drops it. Timed-out
+requests are dropped. When the hyperbridge timestamp query fails, the new requests are stored with
+their destination proof. `handle_update` forwards a batch for every handled range, including an
+empty one, so the processor gets that next update. Submissions run in a background task, so the
+processor keeps reading updates while a challenge period or submission is in progress.

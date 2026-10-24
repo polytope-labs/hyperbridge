@@ -63,13 +63,13 @@ pub async fn process_get_request_events<
 			Ok(timestamp) => timestamp,
 			Err(err) => {
 				tracing::error!(target: crate::LOG_TARGET, "Failed to query timestamp of hyperbridge: {err:?}");
-				// The timeout filter cannot run, so park the fresh requests without pretending
-				// that a destination proof exists. Existing rows are left alone.
-				park_without_destination_proof(
+				// The timeout filter cannot run, but the destination proof does not depend on
+				// the timestamp: park the fresh requests with it and leave existing rows alone.
+				park_get_requests(
 					&tx_payment,
 					&source,
+					&client_map,
 					get_requests,
-					&state_machine_update,
 					sink,
 				)
 				.await;
@@ -90,11 +90,28 @@ pub async fn process_get_request_events<
 		// Store replacements before deleting their old rows, so a failed write cannot lose a
 		// request. A row only reaches `delete` once its replacement was stored.
 		let replaced = store.iter().filter_map(|parked| parked.id).collect::<Vec<_>>();
+		let new_requests = store
+			.iter()
+			.filter(|parked| parked.id.is_none())
+			.map(|parked| match &parked.message {
+				Message::Response(msg) => msg.requests.len(),
+				_ => 0,
+			})
+			.sum::<usize>();
+		let kept_rows = replaced.len();
 		if !store.is_empty() {
 			match tx_payment.store_unprofitable_messages(store, sink).await {
 				Ok(_) => delete.extend(replaced),
 				Err(err) => {
-					tracing::error!(target: crate::LOG_TARGET, ?err, "Failed to store get requests; their previous rows are kept");
+					tracing::error!(
+						target: crate::LOG_TARGET,
+						?err,
+						lost_requests = new_requests,
+						kept_rows,
+						"Failed to store get requests: {} new get requests lost, {} replaced rows kept",
+						new_requests,
+						kept_rows,
+					);
 				},
 			}
 		}
@@ -179,7 +196,7 @@ struct GetRequestGroup {
 	height: u64,
 	requests: Vec<GetRequest>,
 	row_id: Option<i32>,
-	/// The stored destination proof. Empty proof bytes mean it was never fetched.
+	// The stored destination proof, if this group came from a row.
 	stored_proof: Option<Proof>,
 }
 
@@ -257,36 +274,18 @@ async fn prove_get_requests(
 			// }
 
 			// Fetch the destination proof first, so a failure there never costs a source proof.
-			let had_stored_proof = group
-				.stored_proof
-				.as_ref()
-				.map(|proof| !proof.proof.is_empty())
-				.unwrap_or(false);
-			let destination_proof = match had_stored_proof {
-				true => group.stored_proof.take().expect("proof exists, qed"),
-				false => {
-					let keys =
-						group.requests.iter().map(|req| req.keys.clone()).flatten().collect::<Vec<_>>();
-					tracing::trace!(target: crate::LOG_TARGET, "Fetching state proofs for {} keys from {}", keys.len(), group.dest);
-					match client
-						.query_state_proof(group.height, StateProofQueryType::Arbitrary(keys))
-						.await
-					{
-						Ok(proof) => Proof {
-							height: StateMachineHeight {
-								id: client.state_machine_id(),
-								height: group.height,
-							},
-							proof,
-						},
-						Err(err) => {
-							tracing::error!(target: crate::LOG_TARGET, ?err, "Failed to fetch the destination proof for {} get requests; they were dropped", group.requests.len());
-							if let Some(id) = group.row_id {
-								result.delete.push(id);
-							}
-							continue;
-						},
-					}
+			let destination_proof = match group.stored_proof.take() {
+				Some(proof) => proof,
+				None => match fetch_destination_proof(client, group.height, &group.requests).await
+				{
+					Ok(proof) => proof,
+					Err(err) => {
+						tracing::error!(target: crate::LOG_TARGET, ?err, "Failed to fetch the destination proof for {} get requests; they were dropped", group.requests.len());
+						if let Some(id) = group.row_id {
+							result.delete.push(id);
+						}
+						continue;
+					},
 				},
 			};
 
@@ -312,8 +311,8 @@ async fn prove_get_requests(
 				},
 				Err(err) => {
 					tracing::error!(target: crate::LOG_TARGET, ?err, "Failed to fetch source proofs for {} get requests, kept them to prove at a newer height", group.requests.len());
-					// Keep the row untouched when neither its proof nor its requests changed.
-					if group.row_id.is_none() || timed_out || !had_stored_proof {
+					// Keep the row untouched when its requests did not change.
+					if group.row_id.is_none() || timed_out {
 						result.store.push(ParkedMessage {
 							message: Message::Response(ResponseMessage {
 								requests: group.requests,
@@ -339,10 +338,17 @@ async fn prove_get_requests(
 				result.delete.push(id);
 			}
 		} else {
-			tracing::debug!(
-				target: crate::LOG_TARGET, "Skipping get requests because client for {} was not found",
-				group.dest
-			);
+			if group.row_id.is_some() {
+				tracing::warn!(
+					target: crate::LOG_TARGET, "Dropping a stored get request because client for {} was not found",
+					group.dest
+				);
+			} else {
+				tracing::debug!(
+					target: crate::LOG_TARGET, "Skipping get requests because client for {} was not found",
+					group.dest
+				);
+			}
 			if let Some(id) = group.row_id {
 				result.delete.push(id);
 			}
@@ -354,13 +360,13 @@ async fn prove_get_requests(
 
 /// Store fresh GET requests when the hyperbridge timestamp cannot be queried.
 ///
-/// The rows carry empty proof bytes, the marker for "no destination proof fetched yet". They are
-/// grouped like the proving groups so the next update can fetch one destination proof each.
-async fn park_without_destination_proof(
+/// The timeout filter is skipped, but the destination proof does not depend on the timestamp, so
+/// each group is stored with it. A group whose destination proof cannot be fetched is dropped.
+async fn park_get_requests(
 	tx_payment: &TransactionPayment,
 	source: &Arc<dyn IsmpProvider>,
+	client_map: &HashMap<StateMachine, Arc<dyn IsmpProvider>>,
 	requests: Vec<GetRequest>,
-	state_machine_update: &StateMachineUpdated,
 	sink: StateMachine,
 ) {
 	if requests.is_empty() {
@@ -371,35 +377,61 @@ async fn park_without_destination_proof(
 	for req in requests {
 		groups.entry((req.dest, req.height)).or_default().push(req);
 	}
-	let parked = groups
-		.into_iter()
-		.map(|(_, requests)| ParkedMessage {
-			message: Message::Response(ResponseMessage {
-				requests,
-				// Empty proof bytes mean the destination proof has not been fetched yet.
-				proof: Proof {
-					height: StateMachineHeight {
-						id: state_machine_update.state_machine_id,
-						height: state_machine_update.latest_height,
-					},
-					proof: Vec::new(),
-				},
-				signer: source.address(),
-			}),
-			state: RetryState { created_at: unix_now(), ..Default::default() },
-			id: None,
-		})
-		.collect::<Vec<_>>();
 
+	let mut parked = Vec::new();
+	for ((dest, height), requests) in groups {
+		let Some(client) = client_map.get(&dest) else {
+			tracing::debug!(
+				target: crate::LOG_TARGET, "Skipping get requests because client for {dest} was not found"
+			);
+			continue;
+		};
+
+		match fetch_destination_proof(client, height, &requests).await {
+			Ok(proof) => parked.push(ParkedMessage {
+				message: Message::Response(ResponseMessage {
+					requests,
+					proof,
+					signer: source.address(),
+				}),
+				state: RetryState { created_at: unix_now(), ..Default::default() },
+				id: None,
+			}),
+			Err(err) => {
+				tracing::error!(target: crate::LOG_TARGET, ?err, "Failed to fetch the destination proof for {} get requests; they were dropped while the hyperbridge timestamp is unavailable", requests.len());
+			},
+		}
+	}
+
+	if parked.is_empty() {
+		return
+	}
 	if let Err(err) = tx_payment.store_unprofitable_messages(parked, sink).await {
 		tracing::error!(target: crate::LOG_TARGET, ?err, "Failed to store get requests after a timestamp failure");
 	}
 }
 
+/// Fetch the destination storage proof for `requests` at `height`.
+async fn fetch_destination_proof(
+	client: &Arc<dyn IsmpProvider>,
+	height: u64,
+	requests: &[GetRequest],
+) -> Result<Proof, anyhow::Error> {
+	let keys = requests.iter().flat_map(|req| req.keys.clone()).collect::<Vec<_>>();
+	tracing::trace!(target: crate::LOG_TARGET, "Fetching state proofs for {} keys from {}", keys.len(), client.state_machine_id().state_id);
+	let proof = client
+		.query_state_proof(height, StateProofQueryType::Arbitrary(keys))
+		.await?;
+	Ok(Proof {
+		height: StateMachineHeight { id: client.state_machine_id(), height },
+		proof,
+	})
+}
+
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use ismp::consensus::StateMachineId;
+	use ismp::{consensus::StateMachineId, messaging::RequestMessage, router::PostRequest};
 	use tesseract_primitives::mocks::MockHost;
 
 	const SOURCE: StateMachine = StateMachine::Evm(97);
@@ -427,6 +459,18 @@ mod tests {
 				consensus_state_id: *b"Mock",
 			},
 			latest_height: height,
+		}
+	}
+
+	fn post() -> PostRequest {
+		PostRequest {
+			source: SOURCE,
+			dest: DEST,
+			nonce: 1,
+			from: vec![1],
+			to: vec![2],
+			timeout_timestamp: 0,
+			body: vec![],
 		}
 	}
 
@@ -721,6 +765,123 @@ mod tests {
 		cleanup(&path);
 	}
 
+	/// POST-parking rows share the hyperbridge key. The GET processor must not prove, delete or
+	/// rewrite them.
+	#[tokio::test(start_paused = true)]
+	async fn post_rows_under_the_hyperbridge_key_are_left_alone() {
+		let path = temp_db_path();
+		let tx_payment = Arc::new(TransactionPayment::initialize(&path).await.unwrap());
+		let post = post();
+		tx_payment
+			.store_unprofitable_messages(
+				vec![ParkedMessage {
+					message: Message::Request(RequestMessage {
+						requests: vec![post.clone()],
+						proof: Proof {
+							height: StateMachineHeight {
+								id: StateMachineId {
+									state_id: SOURCE,
+									consensus_state_id: *b"Mock",
+								},
+								height: 10,
+							},
+							proof: vec![1],
+						},
+						signer: Vec::new(),
+					}),
+					state: RetryState::default(),
+					id: None,
+				}],
+				COPROCESSOR,
+			)
+			.await
+			.unwrap();
+
+		let source: Arc<dyn IsmpProvider> = Arc::new(MockHost::new((), 0, SOURCE));
+		let hyperbridge =
+			MockHost::new((), 0, COPROCESSOR).with_timestamp(Duration::from_secs(100));
+		let responses = hyperbridge.get_responses.clone();
+		let clients =
+			dest_clients(MockHost::new((), 0, DEST).with_state_proof(STORED_PROOF.to_vec()));
+		let (sender, receiver) = tokio::sync::mpsc::channel(8);
+		let processor = tokio::spawn(process_get_request_events(
+			receiver,
+			source,
+			hyperbridge,
+			clients,
+			tx_payment.clone(),
+		));
+		sender.send((vec![get()], update(200))).await.unwrap();
+		drop(sender);
+		assert!(processor.await.unwrap().is_err());
+		wait_for_responses(&responses, 1).await;
+
+		let rows = tx_payment.unprofitable_messages(&COPROCESSOR).await.unwrap();
+		assert_eq!(rows.len(), 1);
+		match &rows[0].message {
+			Message::Request(row) => assert_eq!(row.requests, vec![post]),
+			other => panic!("expected the post row to stay, got {other:?}"),
+		}
+		cleanup(&path);
+	}
+
+	/// A stored row with one timed-out request is replaced by a row holding only the remaining
+	/// request and the same destination proof, and the old row is deleted.
+	#[tokio::test(start_paused = true)]
+	async fn a_partially_timed_out_row_is_replaced() {
+		let path = temp_db_path();
+		let tx_payment = Arc::new(TransactionPayment::initialize(&path).await.unwrap());
+		let mut expired = get();
+		expired.nonce = 3;
+		expired.timeout_timestamp = 100;
+		let alive = get();
+		let stored_proof = destination_proof(STORED_PROOF.to_vec());
+		let ids = tx_payment
+			.store_unprofitable_messages(
+				vec![stored_row(
+					vec![expired, alive.clone()],
+					stored_proof.clone(),
+					None,
+				)],
+				COPROCESSOR,
+			)
+			.await
+			.unwrap();
+		let old_id = ids[0];
+
+		let source = Arc::new(MockHost::new((), 0, SOURCE).with_state_proof_fail())
+			as Arc<dyn IsmpProvider>;
+		let hyperbridge =
+			MockHost::new((), 0, COPROCESSOR).with_timestamp(Duration::from_secs(200));
+		let responses = hyperbridge.get_responses.clone();
+		let clients = dest_clients(MockHost::new((), 0, DEST));
+		let (sender, receiver) = tokio::sync::mpsc::channel(8);
+		let processor = tokio::spawn(process_get_request_events(
+			receiver,
+			source,
+			hyperbridge,
+			clients,
+			tx_payment.clone(),
+		));
+		sender.send((vec![], update(300))).await.unwrap();
+		drop(sender);
+		assert!(processor.await.unwrap().is_err());
+
+		assert!(responses.lock().unwrap().is_empty());
+		let rows = tx_payment.unprofitable_messages(&COPROCESSOR).await.unwrap();
+		assert_eq!(rows.len(), 1);
+		let row = rows.into_iter().next().unwrap();
+		assert_ne!(row.id, Some(old_id));
+		match row.message {
+			Message::Response(msg) => {
+				assert_eq!(msg.requests, vec![alive]);
+				assert_eq!(msg.proof, stored_proof);
+			},
+			other => panic!("expected a replacement response row, got {other:?}"),
+		}
+		cleanup(&path);
+	}
+
 	/// A stored request that has timed out is deleted and not submitted.
 	#[tokio::test(start_paused = true)]
 	async fn a_stored_request_that_times_out_is_deleted_from_the_database() {
@@ -762,10 +923,10 @@ mod tests {
 		cleanup(&path);
 	}
 
-	/// A timestamp failure stores fresh requests without a destination proof; the next update
-	/// fetches the destination proof and submits.
+	/// A timestamp failure still stores the destination proof; the next update proves the request
+	/// from that stored proof even with the destination RPC down.
 	#[tokio::test(start_paused = true)]
-	async fn a_timestamp_failure_stores_the_request_without_a_destination_proof() {
+	async fn a_timestamp_failure_stores_the_destination_proof() {
 		let path = temp_db_path();
 		let tx_payment = Arc::new(TransactionPayment::initialize(&path).await.unwrap());
 
@@ -775,8 +936,9 @@ mod tests {
 			.with_timestamp_fail();
 		let timestamp_ok = hyperbridge.timestamp_ok.clone();
 		let responses = hyperbridge.get_responses.clone();
-		let clients =
-			dest_clients(MockHost::new((), 0, DEST).with_state_proof(STORED_PROOF.to_vec()));
+		let dest = MockHost::new((), 0, DEST).with_state_proof(STORED_PROOF.to_vec());
+		let dest_proof_ok = dest.state_proof_ok.clone();
+		let clients = dest_clients(dest);
 		let (sender, receiver) = tokio::sync::mpsc::channel(8);
 		let processor = tokio::spawn(process_get_request_events(
 			receiver,
@@ -791,14 +953,19 @@ mod tests {
 
 		let rows = tx_payment.unprofitable_messages(&COPROCESSOR).await.unwrap();
 		assert_eq!(rows.len(), 1);
-		match &rows[0].message {
+		let stored_proof = match &rows[0].message {
 			Message::Response(row) => {
 				assert_eq!(row.requests, vec![get()]);
-				assert!(row.proof.proof.is_empty());
+				assert_eq!(row.proof.height.id.state_id, DEST);
+				assert_eq!(row.proof.height.height, get().height);
+				assert_eq!(row.proof.proof, STORED_PROOF.to_vec());
+				row.proof.clone()
 			},
 			other => panic!("expected a response row, got {other:?}"),
-		}
+		};
 
+		// The destination RPC is down now, but the stored proof is reused.
+		*dest_proof_ok.lock().unwrap() = false;
 		*timestamp_ok.lock().unwrap() = true;
 		sender.send((vec![], update(300))).await.unwrap();
 		drop(sender);
@@ -809,7 +976,7 @@ mod tests {
 		assert_eq!(responses.len(), 1);
 		assert_eq!(responses[0].requests, vec![get()]);
 		assert_eq!(responses[0].source.height.height, 300);
-		assert_eq!(responses[0].response.proof, STORED_PROOF.to_vec());
+		assert_eq!(responses[0].response, stored_proof);
 		drop(responses);
 
 		assert!(tx_payment.unprofitable_messages(&COPROCESSOR).await.unwrap().is_empty());

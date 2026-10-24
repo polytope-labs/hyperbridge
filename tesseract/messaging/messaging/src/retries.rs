@@ -25,7 +25,7 @@ use crate::{
 };
 
 /// How often a pass runs when the operator hasn't set `retry_frequency`.
-const DEFAULT_RETRY_FREQUENCY: Duration = Duration::from_secs(5 * 60);
+pub(crate) const DEFAULT_RETRY_FREQUENCY: Duration = Duration::from_secs(5 * 60);
 
 /// A parked message is retried at `retry_frequency` doubling per attempt, up to this.
 const MAX_BACKOFF: Duration = Duration::from_secs(60 * 60);
@@ -333,7 +333,7 @@ fn state_for_requests(
 
 /// What the retry loop should do with a parked row right now.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum RetryDue {
+pub(crate) enum RetryDue {
 	/// Too old or tried too often; the module is not going to accept it.
 	Expired,
 	/// Backoff has not elapsed; leave the row alone.
@@ -342,7 +342,7 @@ enum RetryDue {
 	Due,
 }
 
-fn retry_is_due(state: RetryState, now: u64) -> RetryDue {
+pub(crate) fn retry_is_due(state: RetryState, now: u64) -> RetryDue {
 	// A row that never had a failed delivery attempt is retried forever; the
 	// caps only apply to deliveries the module actually rejected.
 	if state.attempts >= MAX_ATTEMPTS ||
@@ -359,7 +359,7 @@ fn retry_is_due(state: RetryState, now: u64) -> RetryDue {
 /// Bookkeeping for a message that just failed another attempt. The delay
 /// starts at `retry_frequency` and doubles per failed delivery up to
 /// [`MAX_BACKOFF`]. Only a failed delivery counts toward the age clock.
-fn next_retry_state(
+pub(crate) fn next_retry_state(
 	state: RetryState,
 	now: u64,
 	frequency: Duration,

@@ -35,11 +35,12 @@ use anyhow::anyhow;
 use get_requests::process_get_request_events;
 use itertools::Itertools;
 use polkadot_sdk::sc_service::TaskManager;
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::HashMap, sync::Arc, time::Duration};
 use tokio::sync::mpsc::{Receiver, Sender};
 use tracing::Instrument;
 
 use crate::events::{filter_events, translate_events_to_messages};
+use crate::retries::DEFAULT_RETRY_FREQUENCY;
 use futures::{FutureExt, StreamExt};
 use ismp::{
 	consensus::{StateMachineHeight, StateMachineId},
@@ -183,6 +184,7 @@ where
 					hb_processor,
 					client_map,
 					tx_payment.clone(),
+					config.retry_frequency.map_or(DEFAULT_RETRY_FREQUENCY, Duration::from_secs),
 				)
 				.await;
 				tracing::error!(target: LOG_TARGET, ?res, "task terminated");

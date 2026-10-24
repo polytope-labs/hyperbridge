@@ -117,8 +117,9 @@ where
 /// A JSON-RPC error arrives as an HTTP 200, so the inner transport reports it as a success.
 /// [`FallbackService`] returns the first success it sees, so without this wrapper a fast error
 /// would beat a slower valid answer. A single-response error becomes
-/// [`TransportError::ErrorResp`], the error callers already get from an error body; any other
-/// packet, batches included, passes through unchanged.
+/// [`TransportError::ErrorResp`], a `null` `eth_getProof` result becomes
+/// [`TransportError::NullResp`] (a null proof is never a valid answer), and any other packet,
+/// batches included, passes through unchanged.
 #[derive(Debug, Clone)]
 pub struct ErrorResponseAsFailure<S>(S);
 
@@ -141,12 +142,17 @@ where
 	}
 
 	fn call(&mut self, req: RequestPacket) -> Self::Future {
+		let is_get_proof =
+			matches!(&req, RequestPacket::Single(req) if req.method() == "eth_getProof");
 		let fut = self.0.call(req);
 		Box::pin(async move {
 			match fut.await? {
 				ResponsePacket::Single(Response {
 					payload: ResponsePayload::Failure(err), ..
 				}) => Err(TransportError::ErrorResp(err)),
+				ResponsePacket::Single(Response {
+					payload: ResponsePayload::Success(raw), ..
+				}) if is_get_proof && raw.get().trim() == "null" => Err(TransportError::NullResp),
 				packet => Ok(packet),
 			}
 		})
@@ -292,6 +298,7 @@ fn is_transient(result: &Result<ResponsePacket, TransportError>, method: &str) -
 			payload: ResponsePayload::Success(raw), ..
 		})) => method == "eth_getProof" && raw.get().trim() == "null",
 		Err(TransportError::ErrorResp(err)) => transient_payload(err),
+		Err(TransportError::NullResp) => method == "eth_getProof",
 		Err(TransportError::Transport(kind)) => match kind {
 			TransportErrorKind::HttpError(err) => {
 				err.status == 429 || (500..=599).contains(&err.status)
@@ -310,12 +317,15 @@ fn is_transient(result: &Result<ResponsePacket, TransportError>, method: &str) -
 
 /// Whether a JSON-RPC error payload is transient.
 fn transient_payload(payload: &alloy_json_rpc::ErrorPayload) -> bool {
-	payload.is_retry_err() || {
-		let message = payload.message.to_lowercase();
+	let message = payload.message.to_lowercase();
+	// A revert is deterministic, even when its reason contains a retry-like phrase.
+	if payload.code == 3 || message.starts_with("execution reverted") {
+		return false
+	}
+	payload.is_retry_err() ||
 		["historical state", "missing trie node", "header not found"]
 			.iter()
 			.any(|needle| message.contains(needle))
-	}
 }
 
 /// The raw transaction bytes of a single `eth_sendRawTransaction` request.
@@ -344,11 +354,12 @@ fn is_already_known(result: &Result<ResponsePacket, TransportError>) -> bool {
 ///
 /// Every endpoint is asked and the first successful answer wins. A JSON-RPC error from one
 /// endpoint does not end the race, so a pruned node's missing-state error cannot beat an archive
-/// node's proof; when every endpoint fails, the last error is returned. A request that one
-/// endpoint answers with a JSON-RPC error now waits for the other endpoints, so a reverting
-/// `eth_call` or `eth_estimateGas` returns at the slowest endpoint's latency. If another endpoint
-/// hangs, the request waits for it, up to the HTTP client's timeout, and may then return that
-/// endpoint's transport error rather than the JSON-RPC error.
+/// node's proof, and a `null` `eth_getProof` counts as that endpoint failing; when every endpoint
+/// fails, the last error is returned. A request that one endpoint answers with a JSON-RPC error
+/// now waits for the other endpoints, so a reverting `eth_call` or `eth_estimateGas` returns at the
+/// slowest endpoint's latency. If another endpoint hangs, the request waits for it, up to the HTTP
+/// client's timeout, and may then return that endpoint's transport error rather than the JSON-RPC
+/// error.
 pub fn fallback_service<S: Clone>(
 	transports: Vec<S>,
 ) -> FallbackService<ErrorResponseAsFailure<S>> {
@@ -507,6 +518,11 @@ mod tests {
 				alloy_json_rpc::ErrorPayload { code: -32000, message: message.into(), data: None };
 			Self { delay, payload: ResponsePayload::Failure(err) }
 		}
+
+		fn null(delay: Duration) -> Self {
+			let value = serde_json::value::RawValue::from_string("null".into()).unwrap();
+			Self { delay, payload: ResponsePayload::Success(value) }
+		}
 	}
 
 	impl Service<RequestPacket> for Endpoint {
@@ -547,6 +563,31 @@ mod tests {
 			panic!("expected a single successful response, got {response:?}");
 		};
 		assert_eq!(value.get(), "\"0x1\"");
+	}
+
+	#[tokio::test]
+	async fn a_fast_null_proof_does_not_beat_a_slower_answer() {
+		let response = get_proof(vec![
+			Endpoint::null(Duration::ZERO),
+			Endpoint::ok(Duration::from_millis(50)),
+		])
+		.await
+		.unwrap();
+
+		let ResponsePacket::Single(Response { payload: ResponsePayload::Success(value), .. }) =
+			response
+		else {
+			panic!("expected a single successful response, got {response:?}");
+		};
+		assert_eq!(value.get(), "\"0x1\"");
+	}
+
+	#[tokio::test(start_paused = true)]
+	async fn a_null_proof_is_a_failed_endpoint() {
+		let endpoint = Endpoint::null(Duration::ZERO);
+		let request = RequestPacket::Single(make_serialized_request("eth_getProof", json!([])));
+		let err = ErrorResponseAsFailure(endpoint).call(request).await.unwrap_err();
+		assert!(matches!(err, TransportError::NullResp));
 	}
 
 	#[tokio::test]
@@ -633,6 +674,33 @@ mod tests {
 		RequestPacket::Single(make_serialized_request(method, params))
 	}
 
+	fn request_with_id(id: u64, method: &'static str, params: serde_json::Value) -> RequestPacket {
+		let raw_params = serde_json::value::to_raw_value(&params).unwrap();
+		let request = alloy_json_rpc::Request {
+			meta: alloy_json_rpc::RequestMeta::new(method.into(), alloy_json_rpc::Id::Number(id)),
+			params: raw_params,
+		};
+		RequestPacket::Single(request.serialize().unwrap())
+	}
+
+	fn single_response(result: Result<ResponsePacket, TransportError>) -> Response {
+		match result.unwrap() {
+			ResponsePacket::Single(response) => response,
+			other => panic!("expected a single response, got {other:?}"),
+		}
+	}
+
+	fn batch_request() -> RequestPacket {
+		RequestPacket::Batch(vec![
+			make_serialized_request("eth_getProof", json!([])),
+			make_serialized_request("eth_getBalance", json!([])),
+		])
+	}
+
+	fn batch_response(entries: Vec<Result<ResponsePacket, TransportError>>) -> ResponsePacket {
+		ResponsePacket::Batch(entries.into_iter().map(single_response).collect())
+	}
+
 	fn retrying(endpoint: Scripted) -> RetryService<Scripted> {
 		RetryLayer.layer(endpoint)
 	}
@@ -678,8 +746,7 @@ mod tests {
 
 	#[tokio::test(start_paused = true)]
 	async fn does_not_retry_execution_reverted() {
-		let endpoint =
-			Scripted::new(vec![failure(3, "execution reverted: nope")]);
+		let endpoint = Scripted::new(vec![failure(3, "execution reverted: nope")]);
 		let calls = endpoint.calls.clone();
 		let response = retrying(endpoint)
 			.call(request("eth_call", json!([])))
@@ -694,6 +761,32 @@ mod tests {
 		};
 		assert_eq!(err.code, 3);
 		assert_eq!(err.message, "execution reverted: nope");
+	}
+
+	#[tokio::test(start_paused = true)]
+	async fn does_not_retry_a_revert_with_a_retry_like_reason() {
+		let endpoint = Scripted::new(vec![failure(3, "execution reverted: rate limit exceeded")]);
+		let calls = endpoint.calls.clone();
+		let response = retrying(endpoint)
+			.call(request("eth_call", json!([])))
+			.await
+			.unwrap();
+
+		assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 1);
+		assert!(matches!(
+			response,
+			ResponsePacket::Single(Response { payload: ResponsePayload::Failure(_), .. })
+		));
+	}
+
+	#[tokio::test(start_paused = true)]
+	async fn does_not_retry_a_non_rate_limit_4xx() {
+		let endpoint =
+			Scripted::new(vec![Err(TransportErrorKind::http_error(400, "bad request".into()))]);
+		let calls = endpoint.calls.clone();
+		retrying(endpoint).call(request("eth_getProof", json!([]))).await.unwrap_err();
+
+		assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 1);
 	}
 
 	#[tokio::test(start_paused = true)]
@@ -776,16 +869,19 @@ mod tests {
 		let endpoint = Scripted::new(vec![failure(-32000, "already known")]);
 		let calls = endpoint.calls.clone();
 		let response = retrying(endpoint)
-			.call(request("eth_sendRawTransaction", json!(["0xdeadbeef"])))
+			.call(request_with_id(7, "eth_sendRawTransaction", json!(["0xdeadbeef"])))
 			.await
 			.unwrap();
 
 		assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 1);
-		let ResponsePacket::Single(Response { payload: ResponsePayload::Success(value), .. }) =
-			response
+		let ResponsePacket::Single(Response {
+			id,
+			payload: ResponsePayload::Success(value),
+		}) = response
 		else {
 			panic!("expected a successful response, got {response:?}");
 		};
+		assert_eq!(id, alloy_json_rpc::Id::Number(7));
 		let hash = alloy_primitives::keccak256([0xde, 0xad, 0xbe, 0xef]);
 		assert_eq!(value.get(), format!("\"{hash}\""));
 	}
@@ -870,6 +966,60 @@ mod tests {
 			response,
 			ResponsePacket::Single(Response { payload: ResponsePayload::Success(_), .. })
 		));
+	}
+
+	#[tokio::test(start_paused = true)]
+	async fn retries_null_proofs_across_the_fallback_service() {
+		let first = Scripted::with_delays(vec![
+			(Duration::ZERO, success("null")),
+			(Duration::from_millis(10), success("\"0x1\"")),
+		]);
+		let second = Scripted::with_delays(vec![
+			(Duration::ZERO, success("null")),
+			(Duration::from_millis(20), success("\"0x2\"")),
+		]);
+		let first_calls = first.calls.clone();
+		let second_calls = second.calls.clone();
+		let response = RetryLayer
+			.layer(fallback_service(vec![first, second]))
+			.call(request("eth_getProof", json!([])))
+			.await
+			.unwrap();
+
+		assert_eq!(first_calls.load(std::sync::atomic::Ordering::SeqCst), 2);
+		assert_eq!(second_calls.load(std::sync::atomic::Ordering::SeqCst), 2);
+		let ResponsePacket::Single(Response { payload: ResponsePayload::Success(value), .. }) =
+			response
+		else {
+			panic!("expected a successful response, got {response:?}");
+		};
+		assert_eq!(value.get(), "\"0x1\"");
+	}
+
+	#[tokio::test(start_paused = true)]
+	async fn does_not_retry_a_batch_with_an_error_entry() {
+		let endpoint = Scripted::new(vec![Ok(batch_response(vec![
+			success("\"0x1\""),
+			failure(-32000, "historical state 0x1 is not available"),
+		]))]);
+		let calls = endpoint.calls.clone();
+		let response = retrying(endpoint).call(batch_request()).await.unwrap();
+
+		assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 1);
+		assert!(matches!(response, ResponsePacket::Batch(entries) if entries.len() == 2));
+	}
+
+	#[tokio::test(start_paused = true)]
+	async fn retries_a_batch_transport_error() {
+		let endpoint = Scripted::new(vec![
+			Err(TransportErrorKind::http_error(500, "Temporary internal error".into())),
+			Ok(batch_response(vec![success("\"0x1\""), success("\"0x2\"")])),
+		]);
+		let calls = endpoint.calls.clone();
+		let response = retrying(endpoint).call(batch_request()).await.unwrap();
+
+		assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 2);
+		assert!(matches!(response, ResponsePacket::Batch(entries) if entries.len() == 2));
 	}
 
 	#[test]

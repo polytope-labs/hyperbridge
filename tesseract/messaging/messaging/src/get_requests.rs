@@ -63,51 +63,58 @@ pub async fn process_get_request_events<
 		pending = kept;
 
 		if !messages.is_empty() {
-			let stream = futures::stream::iter(messages);
-			stream
-				.for_each_concurrent(None, |msg| {
-					let hyperbridge = Arc::new(hyperbridge.clone());
-					let source = source.clone();
-					let dest = client_map
-						.get(&msg.response.height.id.state_id)
-						.cloned()
-						.expect("Client exists, we have a proof");
-					async move {
-						let lambda = || async {
-							// Wait for challenge period for source and dest state machine heights
-							// to elapse on hyperbridge
-							observe_challenge_period(
-								source.clone(),
-								hyperbridge.clone(),
-								msg.source.height.height,
-							)
-							.await?;
-							observe_challenge_period(
-								dest.clone(),
-								hyperbridge.clone(),
-								msg.response.height.height,
-							)
-							.await?;
+			// Submit in the background so a slow challenge period or submission never blocks
+			// reading the next update from the channel.
+			let hyperbridge = hyperbridge.clone();
+			let source = source.clone();
+			let client_map = client_map.clone();
+			tokio::spawn(async move {
+				let stream = futures::stream::iter(messages);
+				stream
+					.for_each_concurrent(None, |msg| {
+						let hyperbridge = Arc::new(hyperbridge.clone());
+						let source = source.clone();
+						let dest = client_map
+							.get(&msg.response.height.id.state_id)
+							.cloned()
+							.expect("Client exists, we have a proof");
+						async move {
+							let lambda = || async {
+								// Wait for challenge period for source and dest state machine
+								// heights to elapse on hyperbridge
+								observe_challenge_period(
+									source.clone(),
+									hyperbridge.clone(),
+									msg.source.height.height,
+								)
+								.await?;
+								observe_challenge_period(
+									dest.clone(),
+									hyperbridge.clone(),
+									msg.response.height.height,
+								)
+								.await?;
 
-							// Submit messages to Hyperbridge
+								// Submit messages to Hyperbridge
 
-							tracing::trace!(target: crate::LOG_TARGET, "Tracing get response message");
-							hyperbridge.dry_run_submission(msg.clone()).await?;
+								tracing::trace!(target: crate::LOG_TARGET, "Tracing get response message");
+								hyperbridge.dry_run_submission(msg.clone()).await?;
 
-							tracing::info!(target: crate::LOG_TARGET, "Submitting get response",);
-							hyperbridge.submit_get_response(msg).await?;
+								tracing::info!(target: crate::LOG_TARGET, "Submitting get response",);
+								hyperbridge.submit_get_response(msg).await?;
 
-							Ok::<_, anyhow::Error>(())
-						};
-						match lambda().await {
-							Ok(()) => {},
-							Err(err) => {
-								tracing::error!(target: crate::LOG_TARGET, "Error submitting get response \n{err:?}");
-							},
+								Ok::<_, anyhow::Error>(())
+							};
+							match lambda().await {
+								Ok(()) => {},
+								Err(err) => {
+									tracing::error!(target: crate::LOG_TARGET, "Error submitting get response \n{err:?}");
+								},
+							}
 						}
-					}
-				})
-				.await;
+					})
+					.await;
+			});
 		}
 	}
 
@@ -241,6 +248,7 @@ mod tests {
 
 	const SOURCE: StateMachine = StateMachine::Evm(97);
 	const DEST: StateMachine = StateMachine::Evm(80002);
+	const COPROCESSOR: StateMachine = StateMachine::Kusama(4009);
 
 	fn get() -> GetRequest {
 		GetRequest {
@@ -365,5 +373,74 @@ mod tests {
 		.await;
 		assert!(messages.is_empty());
 		assert!(kept.is_empty());
+	}
+
+	/// Wait under paused time until the submission task has recorded `count` messages.
+	async fn wait_for_responses(
+		responses: &Arc<std::sync::Mutex<Vec<GetRequestsWithProof>>>,
+		count: usize,
+	) {
+		for _ in 0..100 {
+			if responses.lock().unwrap().len() >= count {
+				return
+			}
+			tokio::time::sleep(Duration::from_millis(10)).await;
+		}
+		panic!("expected {count} get responses, got {}", responses.lock().unwrap().len());
+	}
+
+	/// The loop keeps a request whose first proof failed and proves it on the next update, at
+	/// that update's newer source height, even when the update carries no GET requests.
+	#[tokio::test(start_paused = true)]
+	async fn the_processor_keeps_a_failed_request_for_the_next_update() {
+		let source = MockHost::new((), 0, SOURCE).with_state_proof_fail();
+		let proof_ok = source.state_proof_ok.clone();
+		let hyperbridge =
+			MockHost::new((), 0, COPROCESSOR).with_timestamp(Duration::from_secs(100));
+		let responses = hyperbridge.get_responses.clone();
+		let source: Arc<dyn IsmpProvider> = Arc::new(source);
+		let clients = clients(MockHost::new((), 0, DEST));
+
+		let (sender, receiver) = tokio::sync::mpsc::channel(8);
+		let processor =
+			tokio::spawn(process_get_request_events(receiver, source, hyperbridge, clients));
+
+		sender.send((vec![get()], update(200))).await.unwrap();
+		// Let the processor fail the first proof and block on `recv` again.
+		tokio::time::sleep(Duration::from_secs(1)).await;
+		assert!(responses.lock().unwrap().is_empty());
+
+		*proof_ok.lock().unwrap() = true;
+		sender.send((vec![], update(300))).await.unwrap();
+		drop(sender);
+
+		assert!(processor.await.unwrap().is_err());
+		wait_for_responses(&responses, 1).await;
+		let responses = responses.lock().unwrap();
+		assert_eq!(responses.len(), 1);
+		assert_eq!(responses[0].source.height.height, 300);
+	}
+
+	/// Updates queued behind the one being handled are drained into the newest height.
+	#[tokio::test(start_paused = true)]
+	async fn the_processor_drains_queued_updates_before_proving() {
+		let source: Arc<dyn IsmpProvider> = Arc::new(MockHost::new((), 0, SOURCE));
+		let hyperbridge =
+			MockHost::new((), 0, COPROCESSOR).with_timestamp(Duration::from_secs(100));
+		let responses = hyperbridge.get_responses.clone();
+		let clients = clients(MockHost::new((), 0, DEST));
+
+		let (sender, receiver) = tokio::sync::mpsc::channel(8);
+		sender.send((vec![get()], update(200))).await.unwrap();
+		sender.send((vec![], update(300))).await.unwrap();
+		drop(sender);
+
+		let processor =
+			tokio::spawn(process_get_request_events(receiver, source, hyperbridge, clients));
+		assert!(processor.await.unwrap().is_err());
+		wait_for_responses(&responses, 1).await;
+		let responses = responses.lock().unwrap();
+		assert_eq!(responses.len(), 1);
+		assert_eq!(responses[0].source.height.height, 300);
 	}
 }

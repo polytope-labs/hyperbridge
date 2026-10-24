@@ -563,10 +563,14 @@ fn forward_get_requests(
 ) {
 	let Some(sender) = get_request_sender else { return };
 	// `try_send` so this inbound forwarder never blocks on a backed-up get-request
-	// consumer. On `Full` the range's GET requests are dropped and cannot be recovered
-	// later; warn so it surfaces.
+	// consumer. An empty update that is dropped loses nothing: the processor proves parked
+	// requests at whatever newer update it drains next. Only a dropped batch that carried GET
+	// requests is lost, so warn for that case.
+	let has_requests = !get_requests.is_empty();
 	if let Err(err) = sender.try_send((get_requests, state_machine_update.clone())) {
-		tracing::warn!(target: "messaging-inbound", ?err, "get-request channel send failed",);
+		if has_requests {
+			tracing::warn!(target: "messaging-inbound", ?err, "get-request channel send failed",);
+		}
 	}
 }
 

@@ -1,7 +1,7 @@
 use crate::{
-	BoxStream, ByzantineHandler, Cost, EstimateGasReturnParams, HyperbridgeClaim, IsmpHost,
-	IsmpProvider, Query, Signature, StateMachineUpdated, StateProofQueryType, TxResult,
-	WithdrawFundsResult,
+	BoxStream, ByzantineHandler, Cost, EstimateGasReturnParams, HandleGetResponse,
+	HyperbridgeClaim, IsmpHost, IsmpProvider, Query, Signature, StateMachineUpdated,
+	StateProofQueryType, TxResult, WithdrawFundsResult,
 };
 use anyhow::{anyhow, Error};
 use ismp::{
@@ -12,6 +12,7 @@ use ismp::{
 };
 use pallet_ismp_host_executive::HostParam;
 use pallet_ismp_relayer::withdrawal::WithdrawalProof;
+use pallet_state_coprocessor::impls::GetRequestsWithProof;
 use parity_scale_codec::Codec;
 use primitive_types::{H160, H256, U256};
 use std::{
@@ -29,6 +30,10 @@ pub struct MockHost<C> {
 	pub submitted: Arc<Mutex<Vec<Vec<Message>>>>,
 	/// When false, [`IsmpProvider::query_requests_proof`] returns an error.
 	pub request_proof_ok: Arc<Mutex<bool>>,
+	/// When false, [`IsmpProvider::query_state_proof`] returns an error.
+	pub state_proof_ok: Arc<Mutex<bool>>,
+	/// Records messages passed to [`HandleGetResponse::submit_get_response`].
+	pub get_responses: Arc<Mutex<Vec<GetRequestsWithProof>>>,
 	/// The address returned by [`IsmpProvider::address`].
 	pub address: Arc<Mutex<Vec<u8>>>,
 	/// The name returned by [`IsmpProvider::name`].
@@ -54,6 +59,8 @@ impl<C> MockHost<C> {
 			state_machine,
 			submitted: Arc::new(Mutex::new(Vec::new())),
 			request_proof_ok: Arc::new(Mutex::new(true)),
+			state_proof_ok: Arc::new(Mutex::new(true)),
+			get_responses: Arc::new(Mutex::new(Vec::new())),
 			address: Arc::new(Mutex::new(Vec::new())),
 			name: Arc::new(Mutex::new("Mock".to_string())),
 			consensus_state_id: Arc::new(Mutex::new(*b"Mock")),
@@ -71,6 +78,11 @@ impl<C> MockHost<C> {
 
 	pub fn with_request_proof_fail(self) -> Self {
 		*self.request_proof_ok.lock().unwrap() = false;
+		self
+	}
+
+	pub fn with_state_proof_fail(self) -> Self {
+		*self.state_proof_ok.lock().unwrap() = false;
 		self
 	}
 
@@ -131,6 +143,14 @@ impl<T: Codec + Send + Sync> HyperbridgeClaim for MockHost<T> {
 
 	async fn relayer_nonce(&self, _address: Vec<u8>, _chain: StateMachine) -> anyhow::Result<u64> {
 		Ok(0)
+	}
+}
+
+#[async_trait::async_trait]
+impl<C: Codec + Send + Sync> HandleGetResponse for MockHost<C> {
+	async fn submit_get_response(&self, msg: GetRequestsWithProof) -> anyhow::Result<()> {
+		self.get_responses.lock().unwrap().push(msg);
+		Ok(())
 	}
 }
 
@@ -226,7 +246,11 @@ impl<C: Codec + Send + Sync> IsmpProvider for MockHost<C> {
 		_at: u64,
 		_keys: StateProofQueryType,
 	) -> Result<Vec<u8>, Error> {
-		Ok(Default::default())
+		if *self.state_proof_ok.lock().unwrap() {
+			Ok(Default::default())
+		} else {
+			Err(anyhow!("mock: state proof failure"))
+		}
 	}
 
 	async fn query_ismp_events(
@@ -372,6 +396,8 @@ impl<C: Send + Sync> Clone for MockHost<C> {
 			state_machine: self.state_machine.clone(),
 			submitted: self.submitted.clone(),
 			request_proof_ok: self.request_proof_ok.clone(),
+			state_proof_ok: self.state_proof_ok.clone(),
+			get_responses: self.get_responses.clone(),
 			address: self.address.clone(),
 			name: self.name.clone(),
 			consensus_state_id: self.consensus_state_id.clone(),

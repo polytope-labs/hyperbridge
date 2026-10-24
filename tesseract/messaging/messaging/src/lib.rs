@@ -292,8 +292,8 @@ async fn handle_update(
 		.await
 		.map_err(|err| anyhow!("Error querying events from source chain: {err:?}"))?;
 
-	// GET requests need no proof and are forwarded once per range, so they are taken from the
-	// events read in this range only, never from the parked rows.
+	// GET requests are taken from this range's events; the get-request processor keeps any it
+	// could not prove and retries them on the next update.
 	let get_requests = fresh
 		.iter()
 		.filter_map(|event| match event {
@@ -553,18 +553,18 @@ async fn park_request_events(
 }
 
 /// Forward a range's GET requests to the GET-request processor.
+///
+/// Called for every handled range, even one with no GET requests: the processor keeps requests
+/// whose proofs failed and needs each update to retry them at its newer source height.
 fn forward_get_requests(
 	get_request_sender: &Option<GetReqSender>,
 	get_requests: Vec<GetRequest>,
 	state_machine_update: &StateMachineUpdated,
 ) {
 	let Some(sender) = get_request_sender else { return };
-	if get_requests.is_empty() {
-		return
-	}
 	// `try_send` so this inbound forwarder never blocks on a backed-up get-request
-	// consumer. On `Full` the range's GET requests are dropped, as the range is not
-	// queried again; warn so it surfaces.
+	// consumer. On `Full` the range's GET requests are dropped and cannot be recovered
+	// later; warn so it surfaces.
 	if let Err(err) = sender.try_send((get_requests, state_machine_update.clone())) {
 		tracing::warn!(target: "messaging-inbound", ?err, "get-request channel send failed",);
 	}
@@ -962,7 +962,7 @@ mod tests {
 			.await
 			.unwrap();
 
-		let (get_request_sender, _get_requests) = tokio::sync::mpsc::channel(8);
+		let (get_request_sender, mut get_requests) = tokio::sync::mpsc::channel(8);
 		let chain_a: Arc<dyn IsmpProvider> = Arc::new(chain_a);
 		let chain_b: Arc<dyn IsmpProvider> = Arc::new(chain_b);
 		let mut previous_height = 100;
@@ -972,6 +972,11 @@ mod tests {
 		handle.update(200, &mut previous_height).await.unwrap();
 		assert_eq!(previous_height, 200);
 		assert!(submitted.lock().unwrap().is_empty());
+		// Even a range with no GET requests reaches the processor, so it can retry parked ones.
+		let (forwarded, update) = get_requests.try_recv().unwrap();
+		assert!(forwarded.is_empty());
+		assert_eq!(update.latest_height, 200);
+		assert!(get_requests.try_recv().is_err());
 		let parked = tx_payment.unprofitable_messages(&COPROCESSOR).await.unwrap();
 		assert_eq!(parked.len(), 1);
 		match &parked[0].message {

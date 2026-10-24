@@ -174,6 +174,8 @@ export function limitOrderService(
 			const whole = balances[token] ?? 1_000_000_000n
 			return whole * 10n ** decimals
 		},
+		// USDC pays the fill fees on the fill chain, so an order paying it out leaves some unpromised.
+		getFeeTokenWithDecimals: async () => ({ address: USDC, decimals: 6 }),
 		// The op is opaque to the service; the nonce is echoed so a repost is visible.
 		prepareLimitOrderUserOp: async ({ orderNonce }: { orderNonce: bigint }) => ({
 			commitment: "0xabc" as HexString,

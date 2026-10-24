@@ -1,6 +1,7 @@
 import { randomBytes, randomUUID } from "node:crypto"
 import { ENTRY_POINT_V08, getChainId, MAX_DECLARED_ENTRIES, type HexString } from "@hyperbridge/sdk"
 import { type AssetRegistry, normalizeSymbol } from "@/config/asset-registry"
+import { LIMIT_ORDER_FEE_RESERVE_TOKENS } from "@/config/defaults"
 import type { LimitOrder, LimitOrderFilter, LimitOrderInsert, LimitOrderStatus, LimitOrderStore } from "@/data/types"
 import type { ContractInteractionService } from "@/services/ContractInteractionService"
 import type { DelegationService } from "@/services/DelegationService"
@@ -577,6 +578,13 @@ export class LimitOrderService {
 	 * and the rest are cut to what is left. Netting them here would refuse the
 	 * second side of every book. Vault positions are counted the same way: the
 	 * whole position.
+	 *
+	 * An order that pays out the fill chain's fee token must also leave
+	 * {@link LIMIT_ORDER_FEE_RESERVE_TOKENS} of it unpromised. A cross-chain fill
+	 * pays the escrow-release dispatch fee in that token from the same wallet, and
+	 * the orderbook advertises the whole balance when the quote reaches it, so an
+	 * order sized to everything held is matched for swaps whose fill is then
+	 * skipped for want of the fee.
 	 */
 	private async assertWalletCanPay(symbol: string, chain: string, payout: bigint): Promise<void> {
 		const token = this.assetRegistry.getAddress(symbol, chain)
@@ -588,12 +596,35 @@ export class LimitOrderService {
 			decimals,
 		)
 		const vaults = await this.vaultHoldings(token, chain)
+		const held = vaults > 0n ? `${toHuman(wallet)} in the wallet and ${toHuman(vaults)} in vaults` : toHuman(wallet)
 
 		if (wallet + vaults < payout) {
-			const held = vaults > 0n ? `${toHuman(wallet)} in the wallet and ${toHuman(vaults)} in vaults` : toHuman(wallet)
 			throw new LimitOrderValidationError(
 				`The wallet holds ${held} ${symbol} on ${chain}, which cannot pay out ${toHuman(payout)}`,
 			)
+		}
+
+		const feeReserve = (await this.isFeeToken(token, chain)) ? LIMIT_ORDER_FEE_RESERVE_TOKENS * ORDERBOOK_SCALE : 0n
+		if (wallet + vaults < payout + feeReserve) {
+			const most = wallet + vaults > feeReserve ? wallet + vaults - feeReserve : 0n
+			throw new LimitOrderValidationError(
+				`${symbol} pays the fill fees on ${chain}, so ${toHuman(feeReserve)} of it stays out of the book: the wallet holds ${held}, which can pay out at most ${toHuman(most)}`,
+			)
+		}
+	}
+
+	/**
+	 * Whether `token` is the fee token of `chain`'s host. A fee token that cannot be read
+	 * holds nothing back: the fill still refuses a payout that leaves too little for the
+	 * dispatch fee, so the cost is a skipped fill, not a lost one.
+	 */
+	private async isFeeToken(token: HexString, chain: string): Promise<boolean> {
+		try {
+			const feeToken = await this.contractService.getFeeTokenWithDecimals(chain)
+			return sameAddress(feeToken.address, token)
+		} catch (err) {
+			this.logger.warn({ chain, token, err }, "Could not read the fee token; holding none of the payout back for fees")
+			return false
 		}
 	}
 

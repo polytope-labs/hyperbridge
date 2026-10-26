@@ -1,0 +1,42 @@
+[package]
+name = "substrate-eth-rpc"
+version = "0.1.0"
+edition = "2021"
+description = "Ethereum JSON-RPC facade over Substrate chains for rindexer"
+authors = ["Polytope Labs <hello@polytope.technology>"]
+publish = false
+
+[[bin]]
+name = "substrate-eth-rpc"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = { workspace = true, default-features = true }
+thiserror = { workspace = true, default-features = true }
+serde = { workspace = true, features = ["derive", "std"] }
+serde_json = "1.0"
+toml = "0.8"
+clap = { version = "4.5", features = ["derive"] }
+tokio = { workspace = true, features = ["full"] }
+futures = { workspace = true }
+async-trait = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+jsonrpsee = { workspace = true, features = ["server", "ws-client", "http-client", "macros"] }
+tower = { version = "0.4", features = ["util"] }
+subxt = { workspace = true, default-features = true, features = ["reconnecting-rpc-client"] }
+subxt-core = { workspace = true, default-features = true }
+ismp = { workspace = true, default-features = true }
+codec = { workspace = true, default-features = true }
+scale-value = "0.18"
+alloy-primitives = { workspace = true, features = ["std", "serde"] }
+alloy-sol-types = { workspace = true, features = ["std", "json"] }
+alloy-dyn-abi = "1.5.7"
+alloy-json-abi = "1.5.7"
+alloy-rpc-types-eth = { workspace = true, features = ["std", "serde"] }
+alloy-consensus = { workspace = true, features = ["std", "serde"] }
+sp-crypto-hashing = { workspace = true }
+lru = "0.16"
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["full", "test-util"] }

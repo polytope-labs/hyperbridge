@@ -90,6 +90,7 @@ members = [
 
     # Utilities
     "modules/utils/subxt",
+    "modules/utils/substrate-eth-rpc",
     "modules/utils/serde",
     "modules/utils/crypto",
     "modules/utils/bls-utils",

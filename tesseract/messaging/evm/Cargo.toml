@@ -72,6 +72,7 @@ version = "3.2.2"
 features = ["derive"]
 
 [dev-dependencies]
+tokio = { workspace = true, features = ["test-util"] }
 alloy-rlp-derive = { workspace = true, default-features = true }
 alloy-primitives = { workspace = true, default-features = true }
 hex = "0.4.3"

@@ -1,7 +1,7 @@
 use crate::{
-	BoxStream, ByzantineHandler, Cost, EstimateGasReturnParams, HyperbridgeClaim, IsmpHost,
-	IsmpProvider, Query, Signature, StateMachineUpdated, StateProofQueryType, TxResult,
-	WithdrawFundsResult,
+	BoxStream, ByzantineHandler, Cost, EstimateGasReturnParams, HandleGetResponse,
+	HyperbridgeClaim, IsmpHost, IsmpProvider, Query, Signature, StateMachineUpdated,
+	StateProofQueryType, TxResult, WithdrawFundsResult,
 };
 use anyhow::{anyhow, Error};
 use ismp::{
@@ -12,6 +12,7 @@ use ismp::{
 };
 use pallet_ismp_host_executive::HostParam;
 use pallet_ismp_relayer::withdrawal::WithdrawalProof;
+use pallet_state_coprocessor::impls::GetRequestsWithProof;
 use parity_scale_codec::Codec;
 use primitive_types::{H160, H256, U256};
 use std::{
@@ -29,6 +30,20 @@ pub struct MockHost<C> {
 	pub submitted: Arc<Mutex<Vec<Vec<Message>>>>,
 	/// When false, [`IsmpProvider::query_requests_proof`] returns an error.
 	pub request_proof_ok: Arc<Mutex<bool>>,
+	/// When false, [`IsmpProvider::query_state_proof`] returns an error.
+	pub state_proof_ok: Arc<Mutex<bool>>,
+	/// The proof bytes returned by [`IsmpProvider::query_state_proof`].
+	pub state_proof: Arc<Mutex<Vec<u8>>>,
+	/// Records the `(height, keys)` passed to [`IsmpProvider::query_state_proof`].
+	pub state_proof_queries: Arc<Mutex<Vec<(u64, StateProofQueryType)>>>,
+	/// Records messages passed to [`HandleGetResponse::submit_get_response`].
+	pub get_responses: Arc<Mutex<Vec<GetRequestsWithProof>>>,
+	/// When false, [`HandleGetResponse::dry_run_submission`] returns an error.
+	pub dry_run_ok: Arc<Mutex<bool>>,
+	/// When set, [`HandleGetResponse::dry_run_submission`] waits for it before answering.
+	pub dry_run_gate: Arc<Mutex<Option<Arc<tokio::sync::Notify>>>>,
+	/// Counts calls to [`HandleGetResponse::dry_run_submission`].
+	pub dry_runs_started: Arc<Mutex<usize>>,
 	/// The address returned by [`IsmpProvider::address`].
 	pub address: Arc<Mutex<Vec<u8>>>,
 	/// The name returned by [`IsmpProvider::name`].
@@ -38,8 +53,14 @@ pub struct MockHost<C> {
 	/// Commitments this host has a delivery receipt for, keyed to the relayer
 	/// that delivered them.
 	pub request_receipts: Arc<Mutex<BTreeMap<H256, Vec<u8>>>>,
+	/// Response receipts keyed by the GET request commitment.
+	pub response_receipts: Arc<Mutex<BTreeMap<H256, Vec<u8>>>>,
+	/// When false, [`IsmpProvider::query_response_receipt`] returns an error.
+	pub response_receipt_ok: Arc<Mutex<bool>>,
 	/// The timestamp returned by [`IsmpProvider::query_timestamp`].
 	pub timestamp: Arc<Mutex<Duration>>,
+	/// When false, [`IsmpProvider::query_timestamp`] returns an error.
+	pub timestamp_ok: Arc<Mutex<bool>>,
 	/// The events returned by [`IsmpProvider::query_ismp_events`].
 	pub events: Arc<Mutex<Vec<Event>>>,
 	/// When false, [`IsmpProvider::query_ismp_events`] returns an error.
@@ -54,11 +75,21 @@ impl<C> MockHost<C> {
 			state_machine,
 			submitted: Arc::new(Mutex::new(Vec::new())),
 			request_proof_ok: Arc::new(Mutex::new(true)),
+			state_proof_ok: Arc::new(Mutex::new(true)),
+			state_proof: Arc::new(Mutex::new(vec![1])),
+			state_proof_queries: Arc::new(Mutex::new(Vec::new())),
+			get_responses: Arc::new(Mutex::new(Vec::new())),
+			dry_run_ok: Arc::new(Mutex::new(true)),
+			dry_run_gate: Arc::new(Mutex::new(None)),
+			dry_runs_started: Arc::new(Mutex::new(0)),
 			address: Arc::new(Mutex::new(Vec::new())),
 			name: Arc::new(Mutex::new("Mock".to_string())),
 			consensus_state_id: Arc::new(Mutex::new(*b"Mock")),
 			request_receipts: Arc::new(Mutex::new(BTreeMap::new())),
+			response_receipts: Arc::new(Mutex::new(BTreeMap::new())),
+			response_receipt_ok: Arc::new(Mutex::new(true)),
 			timestamp: Arc::new(Mutex::new(Duration::from_secs(0))),
+			timestamp_ok: Arc::new(Mutex::new(true)),
 			events: Arc::new(Mutex::new(Vec::new())),
 			query_events_ok: Arc::new(Mutex::new(true)),
 		}
@@ -71,6 +102,21 @@ impl<C> MockHost<C> {
 
 	pub fn with_request_proof_fail(self) -> Self {
 		*self.request_proof_ok.lock().unwrap() = false;
+		self
+	}
+
+	pub fn with_state_proof_fail(self) -> Self {
+		*self.state_proof_ok.lock().unwrap() = false;
+		self
+	}
+
+	pub fn with_state_proof(self, proof: Vec<u8>) -> Self {
+		*self.state_proof.lock().unwrap() = proof;
+		self
+	}
+
+	pub fn with_timestamp_fail(self) -> Self {
+		*self.timestamp_ok.lock().unwrap() = false;
 		self
 	}
 
@@ -97,6 +143,28 @@ impl<C> MockHost<C> {
 	/// Record `commitment` as already delivered by `relayer`.
 	pub fn with_request_receipt(self, commitment: H256, relayer: Vec<u8>) -> Self {
 		self.request_receipts.lock().unwrap().insert(commitment, relayer);
+		self
+	}
+
+	/// Record a response receipt for a GET request commitment.
+	pub fn with_response_receipt(self, commitment: H256, relayer: Vec<u8>) -> Self {
+		self.response_receipts.lock().unwrap().insert(commitment, relayer);
+		self
+	}
+
+	pub fn with_dry_run_fail(self) -> Self {
+		*self.dry_run_ok.lock().unwrap() = false;
+		self
+	}
+
+	/// Make [`HandleGetResponse::dry_run_submission`] wait for `gate` before answering.
+	pub fn with_dry_run_gate(self, gate: Arc<tokio::sync::Notify>) -> Self {
+		*self.dry_run_gate.lock().unwrap() = Some(gate);
+		self
+	}
+
+	pub fn with_response_receipt_fail(self) -> Self {
+		*self.response_receipt_ok.lock().unwrap() = false;
 		self
 	}
 
@@ -131,6 +199,27 @@ impl<T: Codec + Send + Sync> HyperbridgeClaim for MockHost<T> {
 
 	async fn relayer_nonce(&self, _address: Vec<u8>, _chain: StateMachine) -> anyhow::Result<u64> {
 		Ok(0)
+	}
+}
+
+#[async_trait::async_trait]
+impl<C: Codec + Send + Sync> HandleGetResponse for MockHost<C> {
+	async fn submit_get_response(&self, msg: GetRequestsWithProof) -> anyhow::Result<()> {
+		self.get_responses.lock().unwrap().push(msg);
+		Ok(())
+	}
+
+	async fn dry_run_submission(&self, _msg: GetRequestsWithProof) -> anyhow::Result<()> {
+		*self.dry_runs_started.lock().unwrap() += 1;
+		let gate = self.dry_run_gate.lock().unwrap().clone();
+		if let Some(gate) = gate {
+			gate.notified().await;
+		}
+		if *self.dry_run_ok.lock().unwrap() {
+			Ok(())
+		} else {
+			Err(anyhow!("mock: dry run failure"))
+		}
 	}
 }
 
@@ -205,7 +294,11 @@ impl<C: Codec + Send + Sync> IsmpProvider for MockHost<C> {
 	}
 
 	async fn query_timestamp(&self) -> Result<Duration, Error> {
-		Ok(*self.timestamp.lock().unwrap())
+		if *self.timestamp_ok.lock().unwrap() {
+			Ok(*self.timestamp.lock().unwrap())
+		} else {
+			Err(anyhow!("mock: timestamp query failure"))
+		}
 	}
 
 	async fn query_requests_proof(
@@ -223,10 +316,15 @@ impl<C: Codec + Send + Sync> IsmpProvider for MockHost<C> {
 
 	async fn query_state_proof(
 		&self,
-		_at: u64,
-		_keys: StateProofQueryType,
+		at: u64,
+		keys: StateProofQueryType,
 	) -> Result<Vec<u8>, Error> {
-		Ok(Default::default())
+		self.state_proof_queries.lock().unwrap().push((at, keys));
+		if *self.state_proof_ok.lock().unwrap() {
+			Ok(self.state_proof.lock().unwrap().clone())
+		} else {
+			Err(anyhow!("mock: state proof failure"))
+		}
 	}
 
 	async fn query_ismp_events(
@@ -355,8 +453,12 @@ impl<C: Codec + Send + Sync> IsmpProvider for MockHost<C> {
 		Ok(receipts.get(&hash).cloned().unwrap_or_else(|| H160::zero().0.to_vec()))
 	}
 
-	async fn query_response_receipt(&self, _hash: H256) -> Result<Vec<u8>, anyhow::Error> {
-		Ok(Default::default())
+	async fn query_response_receipt(&self, hash: H256) -> Result<Vec<u8>, anyhow::Error> {
+		if !*self.response_receipt_ok.lock().unwrap() {
+			return Err(anyhow!("mock: response receipt query failure"))
+		}
+		let receipts = self.response_receipts.lock().unwrap();
+		Ok(receipts.get(&hash).cloned().unwrap_or_else(|| H160::zero().0.to_vec()))
 	}
 
 	async fn fee_token_decimals(&self) -> Result<u8, anyhow::Error> {
@@ -372,11 +474,21 @@ impl<C: Send + Sync> Clone for MockHost<C> {
 			state_machine: self.state_machine.clone(),
 			submitted: self.submitted.clone(),
 			request_proof_ok: self.request_proof_ok.clone(),
+			state_proof_ok: self.state_proof_ok.clone(),
+			state_proof: self.state_proof.clone(),
+			state_proof_queries: self.state_proof_queries.clone(),
+			get_responses: self.get_responses.clone(),
+			dry_run_ok: self.dry_run_ok.clone(),
+			dry_run_gate: self.dry_run_gate.clone(),
+			dry_runs_started: self.dry_runs_started.clone(),
 			address: self.address.clone(),
 			name: self.name.clone(),
 			consensus_state_id: self.consensus_state_id.clone(),
 			request_receipts: self.request_receipts.clone(),
+			response_receipts: self.response_receipts.clone(),
+			response_receipt_ok: self.response_receipt_ok.clone(),
 			timestamp: self.timestamp.clone(),
+			timestamp_ok: self.timestamp_ok.clone(),
 			events: self.events.clone(),
 			query_events_ok: self.query_events_ok.clone(),
 		}

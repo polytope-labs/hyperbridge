@@ -447,3 +447,71 @@ async fn unprofitable_messages_round_trip_retry_state() {
 
 	cleanup_db(&path);
 }
+
+/// Updating a parked row rewrites its message and state in place, keeping the row id.
+#[tokio::test]
+async fn unprofitable_messages_update_in_place() {
+	let path = temp_db_path("unprofitable_update");
+	let tx_payment = TransactionPayment::initialize(&path).await.unwrap();
+
+	let message = |nonce: u64| {
+		let post = PostRequest {
+			source: StateMachine::Evm(97),
+			dest: StateMachine::Evm(8002),
+			nonce,
+			from: vec![1],
+			to: vec![2],
+			timeout_timestamp: 0,
+			body: vec![],
+		};
+		Message::Request(RequestMessage {
+			requests: vec![post],
+			proof: Proof {
+				height: StateMachineHeight {
+					id: StateMachineId {
+						state_id: StateMachine::Evm(97),
+						consensus_state_id: *b"BEEF",
+					},
+					height: 1,
+				},
+				proof: vec![],
+			},
+			signer: vec![],
+		})
+	};
+
+	let first =
+		RetryState { attempts: 0, created_at: 1_700_000_000, next_attempt_at: 1_700_000_600 };
+	tx_payment
+		.store_unprofitable_messages(
+			vec![ParkedMessage { message: message(1), state: first, id: None }],
+			StateMachine::Evm(8002),
+		)
+		.await
+		.unwrap();
+
+	let parked = tx_payment.unprofitable_messages(&StateMachine::Evm(8002)).await.unwrap();
+	assert_eq!(parked.len(), 1);
+	let id = parked[0].id.unwrap();
+
+	let updated =
+		RetryState { attempts: 4, created_at: 1_700_000_100, next_attempt_at: 1_700_001_000 };
+	tx_payment
+		.update_unprofitable_message(
+			id,
+			ParkedMessage { message: message(2), state: updated, id: Some(id) },
+		)
+		.await
+		.unwrap();
+
+	let parked = tx_payment.unprofitable_messages(&StateMachine::Evm(8002)).await.unwrap();
+	assert_eq!(parked.len(), 1);
+	assert_eq!(parked[0].id, Some(id));
+	assert_eq!(parked[0].state, updated);
+	match &parked[0].message {
+		Message::Request(request) => assert_eq!(request.requests[0].nonce, 2),
+		other => panic!("expected the updated request, got {other:?}"),
+	}
+
+	cleanup_db(&path);
+}

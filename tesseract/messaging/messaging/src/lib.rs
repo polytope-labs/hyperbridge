@@ -35,11 +35,12 @@ use anyhow::anyhow;
 use get_requests::process_get_request_events;
 use itertools::Itertools;
 use polkadot_sdk::sc_service::TaskManager;
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::HashMap, sync::Arc, time::Duration};
 use tokio::sync::mpsc::{Receiver, Sender};
 use tracing::Instrument;
 
 use crate::events::{filter_events, translate_events_to_messages};
+use crate::retries::DEFAULT_RETRY_FREQUENCY;
 use futures::{FutureExt, StreamExt};
 use ismp::{
 	consensus::{StateMachineHeight, StateMachineId},
@@ -182,6 +183,8 @@ where
 					source,
 					hb_processor,
 					client_map,
+					tx_payment.clone(),
+					config.retry_frequency.map_or(DEFAULT_RETRY_FREQUENCY, Duration::from_secs),
 				)
 				.await;
 				tracing::error!(target: LOG_TARGET, ?res, "task terminated");
@@ -292,8 +295,8 @@ async fn handle_update(
 		.await
 		.map_err(|err| anyhow!("Error querying events from source chain: {err:?}"))?;
 
-	// GET requests need no proof and are forwarded once per range, so they are taken from the
-	// events read in this range only, never from the parked rows.
+	// GET requests are taken from this range's events; the get-request processor keeps any it
+	// could not prove and retries them on the next update.
 	let get_requests = fresh
 		.iter()
 		.filter_map(|event| match event {
@@ -316,6 +319,10 @@ async fn handle_update(
 	let mut parked_events = Vec::new();
 	let mut parked_ids = Vec::new();
 	for ParkedMessage { message, id, .. } in tx_payment.unprofitable_messages(&sink_state).await? {
+		if let Message::Response(_) = &message {
+			// GET-request rows share this key and are handled by the GET processor.
+			continue;
+		}
 		let Message::Request(msg) = message else {
 			tracing::debug!(
 				target: LOG_TARGET,
@@ -507,8 +514,9 @@ async fn handle_update(
 /// The rows are keyed by the sink's state machine: that key groups the rows of every inbound
 /// pipeline delivering to the same sink, so every pipeline for hyperbridge reads back the same
 /// rows. Each request's own `source` is what tells one source chain's rows from another's, and a
-/// pipeline only joins the requests of its own source to its proof query. The only other user of
-/// this table is the retry loop
+/// pipeline only joins the requests of its own source to its proof query. GET requests park
+/// `Message::Response` rows under the same key, so the message variant separates them from these
+/// rows. The only other user of this table is the retry loop
 /// ([`crate::retries::retry_undelivered_messages`]), which only ever drains EVM destinations, so
 /// an inbound row (the sink is hyperbridge) cannot cross-talk with it.
 async fn park_request_events(
@@ -553,20 +561,24 @@ async fn park_request_events(
 }
 
 /// Forward a range's GET requests to the GET-request processor.
+///
+/// Called for every handled range, even one with no GET requests: the processor keeps requests
+/// whose proofs failed and needs each update to retry them at its newer source height.
 fn forward_get_requests(
 	get_request_sender: &Option<GetReqSender>,
 	get_requests: Vec<GetRequest>,
 	state_machine_update: &StateMachineUpdated,
 ) {
 	let Some(sender) = get_request_sender else { return };
-	if get_requests.is_empty() {
-		return
-	}
 	// `try_send` so this inbound forwarder never blocks on a backed-up get-request
-	// consumer. On `Full` the range's GET requests are dropped, as the range is not
-	// queried again; warn so it surfaces.
+	// consumer. An empty update that is dropped loses nothing: the processor proves parked
+	// requests at whatever newer update it drains next. Only a dropped batch that carried GET
+	// requests is lost, so warn for that case.
+	let has_requests = !get_requests.is_empty();
 	if let Err(err) = sender.try_send((get_requests, state_machine_update.clone())) {
-		tracing::warn!(target: "messaging-inbound", ?err, "get-request channel send failed",);
+		if has_requests {
+			tracing::warn!(target: "messaging-inbound", ?err, "get-request channel send failed",);
+		}
 	}
 }
 
@@ -780,8 +792,15 @@ pub async fn fee_accumulation<A: IsmpProvider + Clone + Clone + HyperbridgeClaim
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use ismp::{messaging::Message, router::PostRequest};
+	use ismp::{
+		messaging::{Message, ResponseMessage},
+		router::PostRequest,
+	};
+	use std::sync::atomic::{AtomicU64, Ordering};
 	use tesseract_primitives::mocks::MockHost;
+
+	/// Makes every test database path unique within this process.
+	static NEXT_DB: AtomicU64 = AtomicU64::new(0);
 
 	const SOURCE: StateMachine = StateMachine::Evm(97);
 	const DEST: StateMachine = StateMachine::Evm(80002);
@@ -794,7 +813,8 @@ mod tests {
 			.duration_since(std::time::UNIX_EPOCH)
 			.map(|d| d.as_nanos())
 			.unwrap_or(0);
-		format!("/tmp/tesseract-messaging-test-{pid}-{nanos}.db")
+		let seq = NEXT_DB.fetch_add(1, Ordering::Relaxed);
+		format!("/tmp/tesseract-messaging-test-{pid}-{nanos}-{seq}.db")
 	}
 
 	fn post() -> PostRequest {
@@ -962,6 +982,62 @@ mod tests {
 			.await
 			.unwrap();
 
+		let (get_request_sender, mut get_requests) = tokio::sync::mpsc::channel(8);
+		let chain_a: Arc<dyn IsmpProvider> = Arc::new(chain_a);
+		let chain_b: Arc<dyn IsmpProvider> = Arc::new(chain_b);
+		let mut previous_height = 100;
+		let handle =
+			Handler { chain_a, chain_b, tx_payment: tx_payment.clone(), get_request_sender };
+
+		handle.update(200, &mut previous_height).await.unwrap();
+		assert_eq!(previous_height, 200);
+		assert!(submitted.lock().unwrap().is_empty());
+		// Even a range with no GET requests reaches the processor, so it can retry parked ones.
+		let (forwarded, update) = get_requests.try_recv().unwrap();
+		assert!(forwarded.is_empty());
+		assert_eq!(update.latest_height, 200);
+		assert!(get_requests.try_recv().is_err());
+		let parked = tx_payment.unprofitable_messages(&COPROCESSOR).await.unwrap();
+		assert_eq!(parked.len(), 1);
+		match &parked[0].message {
+			Message::Request(msg) => assert_eq!(msg.requests, vec![foreign.clone()]),
+			message => panic!("expected the foreign request to stay parked, got {message:?}"),
+		}
+
+		let _ = std::fs::remove_file(&path);
+		let _ = std::fs::remove_file(format!("{path}-journal"));
+	}
+
+	/// A GET-request row shares the parked table and key with inbound POST rows. The inbound
+	/// pipeline leaves it for the GET processor: proving or deleting it here would lose it.
+	#[tokio::test]
+	async fn a_response_row_is_left_for_the_get_processor() {
+		let chain_a = MockHost::new((), 0, COPROCESSOR);
+		let submitted = chain_a.submitted.clone();
+		let chain_b = MockHost::new((), 0, SOURCE);
+		let source_id = chain_b.state_machine_id();
+
+		let path = temp_db_path();
+		let tx_payment = Arc::new(TransactionPayment::initialize(&path).await.unwrap());
+		tx_payment
+			.store_unprofitable_messages(
+				vec![ParkedMessage {
+					message: Message::Response(ResponseMessage {
+						requests: vec![get()],
+						proof: Proof {
+							height: StateMachineHeight { id: source_id, height: 10 },
+							proof: vec![1],
+						},
+						signer: Vec::new(),
+					}),
+					state: RetryState { created_at: unix_now(), ..Default::default() },
+					id: None,
+				}],
+				COPROCESSOR,
+			)
+			.await
+			.unwrap();
+
 		let (get_request_sender, _get_requests) = tokio::sync::mpsc::channel(8);
 		let chain_a: Arc<dyn IsmpProvider> = Arc::new(chain_a);
 		let chain_b: Arc<dyn IsmpProvider> = Arc::new(chain_b);
@@ -972,12 +1048,7 @@ mod tests {
 		handle.update(200, &mut previous_height).await.unwrap();
 		assert_eq!(previous_height, 200);
 		assert!(submitted.lock().unwrap().is_empty());
-		let parked = tx_payment.unprofitable_messages(&COPROCESSOR).await.unwrap();
-		assert_eq!(parked.len(), 1);
-		match &parked[0].message {
-			Message::Request(msg) => assert_eq!(msg.requests, vec![foreign.clone()]),
-			message => panic!("expected the foreign request to stay parked, got {message:?}"),
-		}
+		assert_eq!(tx_payment.unprofitable_messages(&COPROCESSOR).await.unwrap().len(), 1);
 
 		let _ = std::fs::remove_file(&path);
 		let _ = std::fs::remove_file(format!("{path}-journal"));

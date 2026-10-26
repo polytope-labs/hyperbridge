@@ -40,5 +40,6 @@ default-features = true
 features = ["sc-service"]
 
 [dev-dependencies]
+tokio = { workspace = true, features = ["test-util"] }
 async-trait = { workspace = true }
 tesseract-primitives = { workspace = true, features = ["testing"] }

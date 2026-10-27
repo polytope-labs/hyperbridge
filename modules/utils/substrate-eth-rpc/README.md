@@ -23,7 +23,7 @@ environment variable `NAME`; an unset variable is a startup error.
 | `chains[].eth_chain_id` | required | Value returned by `eth_chainId` and `net_version`, unique |
 | `chains[].hasher` | required | `keccak` or `blake2`; the chain's extrinsic hasher, used for `transactionHash` |
 | `chains[].pallets` | required | Pallet keys to map (see below); an unknown key is a startup error |
-| `chains[].max_block_range` | `500` | Largest `eth_getLogs` range (inclusive), at least 1; 100 to 200 for a cold sync against a slow archive node, the deadline hint below handles the rest |
+| `chains[].max_block_range` | `500` | Largest `eth_getLogs` span, accepted when `toBlock - fromBlock <= max_block_range`, at least 1; set it equal to the rindexer manifest `max_block_range`, both mean `to - from <= N`; 100 to 200 for a cold sync against a slow archive node, the deadline hint below handles the rest |
 | `chains[].cache_blocks` | `4096` | Decoded blocks kept in the LRU cache |
 | `chains[].upstream_concurrency` | `8` | Blocks fetched from the Substrate node at once, at least 1 |
 | `chains[].upstream_retries` | `5` | Retries of a transient upstream error per call, after the first attempt |
@@ -170,7 +170,7 @@ the whole request fails and no partial result is returned.
 
 | Code | Message | When |
 |---|---|---|
-| `-32000` | `this block range should work: [0x64, 0x65]` | Range larger than `max_block_range`, or the range missed `range_deadline_ms`; rindexer parses this hint and retries with the suggested range |
+| `-32000` | `this block range should work: [0x64, 0x65]` | `toBlock - fromBlock` larger than `max_block_range` (the hint ends at `fromBlock + max_block_range`), or the range missed `range_deadline_ms`; rindexer parses this hint and retries with the suggested range |
 | `-32000` | `toBlock 0x67 is beyond finalized head 0x66` | Range ends after the finalized head |
 | `-32000` | `block <n>: <cause>` | A block in the range failed to fetch or decode |
 | `-32000` | `block <n> not found` | `eth_call` at a block above the finalized head or at a hash that is not a finalized canonical block |

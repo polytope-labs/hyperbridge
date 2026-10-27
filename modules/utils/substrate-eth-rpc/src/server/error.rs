@@ -8,7 +8,7 @@ pub const INVALID_PARAMS: i32 = -32602;
 pub fn to_rpc_error(e: BlockError) -> ErrorObjectOwned {
 	match e {
 		BlockError::RangeTooLarge { from, max, .. } => {
-			let last = from.saturating_add(max.saturating_sub(1));
+			let last = from.saturating_add(max);
 			server_error(range_hint(from, last))
 		},
 		BlockError::RangeDeadline { from, decoded_to, .. } =>
@@ -40,12 +40,12 @@ mod tests {
 
 	#[test]
 	fn range_too_large_tells_rindexer_the_working_range() {
-		let err = to_rpc_error(BlockError::RangeTooLarge { from: 100, to: 102, max: 2 });
+		let err = to_rpc_error(BlockError::RangeTooLarge { from: 100, to: 102, max: 1 });
 		assert_eq!(err.code(), SERVER_ERROR);
 		assert_eq!(err.message(), "this block range should work: [0x64, 0x65]");
 
 		let err = to_rpc_error(BlockError::RangeTooLarge { from: 0, to: 5000, max: 1000 });
-		assert_eq!(err.message(), "this block range should work: [0x0, 0x3e7]");
+		assert_eq!(err.message(), "this block range should work: [0x0, 0x3e8]");
 	}
 
 	#[test]

@@ -458,7 +458,7 @@ mod tests {
 
 	#[tokio::test]
 	async fn get_logs_range_errors() {
-		let harness = Harness::start(2).await;
+		let harness = Harness::start(1).await;
 		let client = harness.client();
 
 		let err = call_error(&client, "eth_getLogs", log_filter("0x64", "0x66", json!({}))).await;

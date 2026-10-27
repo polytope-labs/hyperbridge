@@ -186,7 +186,7 @@ impl BlockService {
 			return Err(BlockError::InvalidRange { from, to });
 		}
 		let max = self.chain.max_block_range;
-		if to - from + 1 > max {
+		if to - from > max {
 			return Err(BlockError::RangeTooLarge { from, to, max });
 		}
 		let head = self.finalized_number().await?;
@@ -763,11 +763,14 @@ mod tests {
 
 	#[tokio::test]
 	async fn range_rejects_oversized_and_unfinalized() {
-		let service = new_service(fixture(), 2);
+		let service = new_service(fixture(), 1);
 		assert!(matches!(
 			service.range(100, 102).await,
-			Err(BlockError::RangeTooLarge { from: 100, to: 102, max: 2 })
+			Err(BlockError::RangeTooLarge { from: 100, to: 102, max: 1 })
 		));
+
+		let service = new_service(fixture(), 2);
+		assert_eq!(service.range(100, 102).await.unwrap().len(), 3);
 
 		let service = new_service(fixture(), 1000);
 		assert!(matches!(

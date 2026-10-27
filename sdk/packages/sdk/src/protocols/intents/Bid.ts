@@ -10,10 +10,11 @@ import type {
 	SelectBidResult,
 	TokenInfo,
 } from "@/types"
-import { ADDRESS_ZERO, bytes32ToBytes20, normalizeStateMachineId, retryPromise } from "@/utils"
+import { normalizeStateMachineId, retryPromise } from "@/utils"
 import type Decimal from "decimal.js"
 import { concat, decodeEventLog, parseEventLogs, recoverAddress, slice, toEventSelector } from "viem"
 import type { Hex, Log } from "viem"
+import { retryTransientBundlerErrors } from "./bundlerRetry"
 import { CryptoUtils } from "./CryptoUtils"
 import { readSelectionFormat, refreshSelectionFormat, selectionOffStateDiff, type SelectionFormat } from "./selection"
 import type { IntentGatewayContext } from "./types"
@@ -133,7 +134,6 @@ export class BidImpl implements Bid {
 	private readonly ctx: IntentGatewayContext
 	private readonly crypto: CryptoUtils
 	private readonly order: Order
-	private readonly fillOptions: FillOptions
 	private readonly priceOutputs: (outputs: TokenInfo[]) => Promise<Decimal | null>
 	private readonly sessionPrivateKey?: HexString
 
@@ -150,7 +150,6 @@ export class BidImpl implements Bid {
 		this.ctx = params.ctx
 		this.crypto = params.crypto
 		this.order = params.order
-		this.fillOptions = params.fillOptions
 		this.priceOutputs = params.priceOutputs
 		this.sessionPrivateKey = params.sessionPrivateKey
 
@@ -277,42 +276,32 @@ export class BidImpl implements Bid {
 	}
 
 	/**
-	 * Simulates this bid on-chain with an `eth_call` of its calldata from the
-	 * solver's account, after checking that the bid can be routed.
+	 * Simulates this bid with the bundler's `eth_estimateUserOperationGas` on the
+	 * EntryPoint the bid was signed for. The solver's UserOperation is sent as
+	 * signed, so a spent nonce, a failing paymaster or an EntryPoint the account
+	 * does not trust fails here as it would fail submission.
 	 *
-	 * The gateway's solver selection is turned off for the call with
-	 * {@link selectionOffStateDiff} and no `select` is made: a gateway that selects
-	 * by userOpHash checks the selection against the EntryPoint's current
-	 * operation, which only exists inside a bundle. The session's selection is
-	 * therefore not part of the simulation.
+	 * The gateway's solver selection is turned off with {@link selectionOffStateDiff}
+	 * and no selection is signed: the bundler estimates under its own gas limits,
+	 * which change the userOpHash a selection signs.
 	 *
-	 * The native value forwarded to the simulation is the sum of any native-token
-	 * (`address(0)`) output amounts plus the Hyperbridge dispatch fee.
-	 *
-	 * @throws If the bid cannot be routed, or the `eth_call` simulation reverts or errors.
+	 * @throws If the bid cannot be routed, or the bundler rejects the operation. A
+	 *   transient bundler failure is retried first.
 	 */
 	async simulate(): Promise<void> {
-		await this.route()
-
-		// Compute the native ETH the fillOrder call requires:
-		// native token outputs (address(0)) + Hyperbridge dispatch fee
-		const nativeOutputs = this.fillOptions.outputs.reduce(
-			(acc, o) => (bytes32ToBytes20(o.token) === ADDRESS_ZERO ? acc + o.amount : acc),
-			0n,
-		)
-		const simulationValue = nativeOutputs + this.fillOptions.nativeDispatchFee
+		const { entryPoint } = await this.route()
 
 		try {
-			const selectionOff = await selectionOffStateDiff(this.ctx.dest.client, this.intentGatewayV2Address)
-			await this.ctx.dest.client.call({
-				account: this.solverAddress,
-				to: this.solverAddress,
-				data: this.userOp.callData,
-				value: simulationValue,
-				stateOverride: [{ address: this.intentGatewayV2Address, stateDiff: [selectionOff] }],
-			})
+			const { slot, value } = await selectionOffStateDiff(this.ctx.dest.client, this.intentGatewayV2Address)
+			await retryTransientBundlerErrors(() =>
+				this.crypto.sendBundler(BundlerMethod.ETH_ESTIMATE_USER_OPERATION_GAS, [
+					CryptoUtils.prepareBundlerCall(this.userOp),
+					entryPoint,
+					{ [this.intentGatewayV2Address]: { stateDiff: { [slot]: value } } },
+				]),
+			)
 		} catch (e: unknown) {
-			throw new Error(`Simulation failed: ${e instanceof Error ? e.message : String(e)}`)
+			throw new Error(`Simulation failed: ${e instanceof Error ? e.message : String(e)}`, { cause: e })
 		}
 	}
 

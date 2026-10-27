@@ -872,7 +872,7 @@ interface Bid {
   /** Raw UserOperation for advanced consumers (custom batching, paymaster flows). */
   readonly userOp: PackedUserOperation
 
-  /** Runs the bid's `fillOrder` as an `eth_call` with the gateway's solver selection off. Throws if the bid cannot execute or the call reverts. */
+  /** Runs the bid's UserOperation through the bundler's `eth_estimateUserOperationGas` with the gateway's solver selection off. Throws if the bid cannot execute or the bundler rejects it. */
   simulate(): Promise<void>
   /** Signs the `SelectSolver` message, packs the signature, and submits the UserOp to the bundler on the bid's EntryPoint. */
   execute(): Promise<SelectBidResult>
@@ -883,7 +883,13 @@ interface Bid {
 
 A bid executes on the EntryPoint its solver signed it for, found by recovering the solver's signature under EntryPoint v0.9 and then v0.8. The destination gateway's `SELECT_SOLVER_TYPEHASH()` decides what the session key signs: `SelectSolver(bytes32 commitment,bytes32 userOpHash)` pairs only with v0.9 bids, and `SelectSolver(bytes32 commitment,address solver)` only with v0.8 bids. The typehash is read once per chain and read again before a bid that does not pair is refused, so an in-place gateway upgrade is picked up. A bid signed for no known EntryPoint, or for one the gateway does not pair with, fails `simulate()` and `execute()`, and the autopilot helpers skip it.
 
-`simulate()` makes a single `eth_call` of the bid's calldata from the solver account, with a state override that clears the `solverSelection` byte in the gateway's params (storage slot 5). No `select` is called and nothing is signed, so the session key's selection is not part of the simulation. The session-key signature is produced by `execute()` and cached.
+`simulate()` sends the solver's UserOperation, as signed, to the bundler's `eth_estimateUserOperationGas` on the bid's EntryPoint. The bundler checks the nonce, the account's validation and the paymaster, then runs the calldata. A bid that the bundler would reject on submission therefore fails simulation. Like `execute()`, it needs a bundler URL.
+
+A state override clears the `solverSelection` byte in the gateway's params (storage slot 5). No `select` is called and nothing is signed, so the session key's selection is not part of the simulation. The bundler estimates under its own gas limits, which change the userOpHash a selection would sign. The session-key signature is produced by `execute()` and cached.
+
+No native value is forwarded. As on-chain, the solver account pays native outputs and the dispatch fee from its own balance.
+
+A bundler error fails the simulation with `Simulation failed: <reason>`. Code `-32500` means validation failed (for example `AA25` for a spent nonce or `AA33` for a paymaster failure). Code `-32521` means execution reverted, and the reason includes the revert message. A transient failure, such as a dropped connection, is retried twice first.
 
 ---
 

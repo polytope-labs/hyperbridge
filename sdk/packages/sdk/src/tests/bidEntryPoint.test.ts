@@ -93,7 +93,6 @@ function bidOn(gateway: Gateway, userOp: PackedUserOperation) {
 			return gateway.typehash
 		}),
 		getStorageAt: vi.fn(async () => pad("0x01", { size: 32 })),
-		call: vi.fn(async () => ({ data: "0x" })),
 		waitForTransactionReceipt: async () => ({ logs: bundle(sent.entryPoint, sent.userOpHash) }),
 	}
 	const ctx = {
@@ -130,9 +129,16 @@ function bidOn(gateway: Gateway, userOp: PackedUserOperation) {
 	return { bid, client, sendBundler }
 }
 
+/** The params of the first bundler call to `method`. */
+function bundlerParams(sendBundler: ReturnType<typeof bidOn>["sendBundler"], method: string): unknown[] {
+	const call = sendBundler.mock.calls.find(([sent]) => sent === method)
+	if (!call) throw new Error(`no ${method} sent`)
+	return call[1] as unknown[]
+}
+
 /** The session's selection signature, the last 65 bytes of the signature sent to the bundler. */
 function sentSelection(sendBundler: ReturnType<typeof bidOn>["sendBundler"]): HexString {
-	const [, [sentOp]] = sendBundler.mock.calls[0] as [string, [{ signature: HexString }]]
+	const [sentOp] = bundlerParams(sendBundler, "eth_sendUserOperation") as [{ signature: HexString }]
 	return slice(sentOp.signature, 97)
 }
 
@@ -166,8 +172,8 @@ describe("BidImpl EntryPoint routing", () => {
 		await bid.simulate()
 		await bid.execute()
 
-		expect(sendBundler.mock.calls[0][0]).toBe("eth_sendUserOperation")
-		expect((sendBundler.mock.calls[0][1] as unknown[])[1]).toBe(ENTRY_POINT_V09)
+		expect(bundlerParams(sendBundler, "eth_estimateUserOperationGas")[1]).toBe(ENTRY_POINT_V09)
+		expect(bundlerParams(sendBundler, "eth_sendUserOperation")[1]).toBe(ENTRY_POINT_V09)
 
 		const digest = userOpHashSelectionDigest(BY_USER_OP_HASH, userOp)
 		expect(await recoverAddress({ hash: digest, signature: sentSelection(sendBundler) })).toBe(session.address)
@@ -179,7 +185,8 @@ describe("BidImpl EntryPoint routing", () => {
 		await bid.simulate()
 		await bid.execute()
 
-		expect((sendBundler.mock.calls[0][1] as unknown[])[1]).toBe(ENTRY_POINT_V08)
+		expect(bundlerParams(sendBundler, "eth_estimateUserOperationGas")[1]).toBe(ENTRY_POINT_V08)
+		expect(bundlerParams(sendBundler, "eth_sendUserOperation")[1]).toBe(ENTRY_POINT_V08)
 
 		const digest = hashTypedData({
 			domain: gatewayDomain(BY_ADDRESS),
@@ -196,29 +203,26 @@ describe("BidImpl EntryPoint routing", () => {
 	})
 
 	it("drops a bid signed for neither EntryPoint", async () => {
-		const { bid, client, sendBundler } = bidOn(BY_USER_OP_HASH, await signedFor(UNKNOWN_ENTRY_POINT))
+		const { bid, sendBundler } = bidOn(BY_USER_OP_HASH, await signedFor(UNKNOWN_ENTRY_POINT))
 
 		await expect(bid.simulate()).rejects.toThrow("is not signed for a known EntryPoint")
 		await expect(bid.execute()).rejects.toThrow("is not signed for a known EntryPoint")
-		expect(client.call).not.toHaveBeenCalled()
 		expect(sendBundler).not.toHaveBeenCalled()
 	})
 
 	it("drops a v0.8 bid on a gateway that selects by userOpHash", async () => {
-		const { bid, client, sendBundler } = bidOn(BY_USER_OP_HASH, await signedFor(ENTRY_POINT_V08))
+		const { bid, sendBundler } = bidOn(BY_USER_OP_HASH, await signedFor(ENTRY_POINT_V08))
 
 		await expect(bid.simulate()).rejects.toThrow("userOpHash selection does not pair with")
 		await expect(bid.execute()).rejects.toThrow("userOpHash selection does not pair with")
-		expect(client.call).not.toHaveBeenCalled()
 		expect(sendBundler).not.toHaveBeenCalled()
 	})
 
 	it("drops a v0.9 bid on a gateway that selects by address", async () => {
-		const { bid, client, sendBundler } = bidOn(BY_ADDRESS, await signedFor(ENTRY_POINT_V09))
+		const { bid, sendBundler } = bidOn(BY_ADDRESS, await signedFor(ENTRY_POINT_V09))
 
 		await expect(bid.simulate()).rejects.toThrow("address selection does not pair with")
 		await expect(bid.execute()).rejects.toThrow("address selection does not pair with")
-		expect(client.call).not.toHaveBeenCalled()
 		expect(sendBundler).not.toHaveBeenCalled()
 	})
 })
@@ -242,7 +246,7 @@ describe("BidImpl selection format after a gateway upgrade", () => {
 		await bid.execute()
 
 		expect(client.readContract).toHaveBeenCalledOnce()
-		expect((sendBundler.mock.calls[0][1] as unknown[])[1]).toBe(ENTRY_POINT_V09)
+		expect(bundlerParams(sendBundler, "eth_sendUserOperation")[1]).toBe(ENTRY_POINT_V09)
 		const digest = userOpHashSelectionDigest(gateway, userOp)
 		expect(await recoverAddress({ hash: digest, signature: sentSelection(sendBundler) })).toBe(session.address)
 

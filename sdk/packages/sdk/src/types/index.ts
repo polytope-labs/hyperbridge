@@ -1544,11 +1544,11 @@ export interface Bid {
 	/** Raw UserOperation for advanced consumers (custom batching, paymaster flows). */
 	readonly userOp: PackedUserOperation
 	/**
-	 * Runs the bid's `fillOrder` as an `eth_call`, with the gateway's solver
-	 * selection turned off, so a bid can be pre-checked before it is shown to a
-	 * user or submitted.
+	 * Runs the bid's UserOperation through the bundler's
+	 * `eth_estimateUserOperationGas`, with the gateway's solver selection turned
+	 * off, so a bid can be pre-checked before it is shown to a user or submitted.
 	 *
-	 * @throws If the bid cannot execute on the destination, or the simulation reverts.
+	 * @throws If the bid cannot execute on the destination, or the bundler rejects it.
 	 */
 	simulate(): Promise<void>
 	/**

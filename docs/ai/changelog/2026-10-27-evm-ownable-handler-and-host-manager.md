@@ -3,23 +3,25 @@
 ## OwnableHandler
 
 `OwnableHandler` is a `HandlerV2` that adds one owner-only method. The owner ("admin") is
-set in the constructor and can call `setConsensusState(host, state, height, commitment)` to
-write a new consensus state into the host without a consensus proof. The call also stores
-`commitment` at `height` and sets the latest height of `height.stateMachineId` to
-`height.height`.
+set in the constructor and can call `setConsensusState(host, state)` to write a new consensus
+state into the host without a consensus proof. The call also resets the latest height of
+Hyperbridge's state machine to 1, where the state machine id is the parachain id parsed from
+the end of `host.hyperbridge()` (3367 in "POLKADOT-3367"). The only clean way for the handler
+to move the latest height is `storeStateMachineCommitment`, so the reset stores an empty
+commitment at height 1.
 
-Resetting the latest height matters because `handleConsensus` only stores an intermediate
-commitment when its height is above the latest height of that state machine. Without the
-reset, proofs relayed at or below the previous height would be skipped. Writing the state
-also refreshes the consensus update time, so a client that passed its unstaking period can
-be made usable again.
+The reset is what makes the new state usable. `handleConsensus` only stores a commitment when
+its height is above the latest height of that state machine, and treats a latest height of 0
+as untracked, so 1 lets the next relayed proof at any height above 1 be stored. Writing the
+state also refreshes the consensus update time, so a client that passed its unstaking period
+can be made usable again.
 
-A reset does not delete commitments already stored above the new height.
+A reset does not delete commitments already stored above height 1.
 `handlePostRequests`, `handleGetResponses` and the timeout handlers read a commitment by its
 exact height, so requests proven against those older commitments are still accepted.
 
-The owner is fully trusted: it can write any state root and overlay root, so it can make the
-host accept any incoming message.
+The owner is fully trusted: it can install any consensus state, including one whose
+authorities it controls, so it can make the host accept any incoming message.
 
 Every other handler method is inherited from `HandlerV2` unchanged and stays permissionless,
 including `handleConsensus`, `handlePostRequests`, `handleGetResponses`, the timeout

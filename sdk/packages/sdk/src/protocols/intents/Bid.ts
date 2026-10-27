@@ -194,22 +194,23 @@ export class BidImpl implements Bid {
 	 * order on the gateway, and pass `SolverAccount.validateUserOp`'s checks on the
 	 * solver's part.
 	 *
-	 * @throws If the calldata fills no order or another order on the gateway, the
-	 *   signature does not open with the order id, the nonce key does not bind the
-	 *   order, the solver's signature does not recover under v0.9, the gateway
-	 *   selects by address, or its selection format cannot be read.
+	 * @throws If the order has no id, the calldata fills no order or another order
+	 *   on the gateway, the signature does not open with the order id, the nonce key
+	 *   does not bind the order, the solver's signature does not recover under v0.9,
+	 *   the gateway selects by address, or its selection format cannot be read.
 	 */
 	private async selectableUserOpHash(): Promise<HexString> {
 		if (this.cachedUserOpHash) return this.cachedUserOpHash
 
-		const commitment = this.order.id as HexString
+		const commitment = this.order.id as HexString | undefined
+		if (!commitment) throw new Error("Order has no id: bids can only be checked against a placed order")
 		const filled = filledCommitments(this.userOp.callData, this.intentGatewayV2Address)
-		if (filled.length === 0 || filled.some((other) => other.toLowerCase() !== commitment?.toLowerCase())) {
+		if (filled.length === 0 || filled.some((other) => other.toLowerCase() !== commitment.toLowerCase())) {
 			throw new Error(
 				`Bid from solver=${this.solverAddress} does not fill order ${commitment} alone on the destination gateway`,
 			)
 		}
-		if (slice(this.userOp.signature, 0, 32).toLowerCase() !== commitment?.toLowerCase()) {
+		if (slice(this.userOp.signature, 0, 32).toLowerCase() !== commitment.toLowerCase()) {
 			throw new Error(`Bid from solver=${this.solverAddress} is not signed for order ${commitment}`)
 		}
 		const nonceKey = CryptoUtils.bidNonceKey(commitment, this.order.session as HexString, this.userOp.callData)

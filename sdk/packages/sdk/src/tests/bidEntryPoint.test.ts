@@ -5,9 +5,12 @@ import { encodeERC7821ExecuteBatch } from "@/protocols/intents/decode-utils"
 import { encodeFillOrder } from "@/protocols/intents/fillOrderCodec"
 import { orderCommitment, transformOrderForContract } from "@/protocols/intents/utils"
 import type { ERC7821Call, FillOptions, HexString, Order, PackedUserOperation } from "@/types"
+import { bytes32ToBytes20 } from "@/utils"
 import {
 	concat,
 	encodeAbiParameters,
+	encodeFunctionData,
+	erc20Abi,
 	hashTypedData,
 	pad,
 	recoverAddress,
@@ -270,6 +273,25 @@ describe("BidImpl on EntryPoint v0.9", () => {
 		await expect(bid.execute()).rejects.toThrow(`does not fill order ${COMMITMENT} alone`)
 		expect(client.readContract).not.toHaveBeenCalled()
 		expect(sendBundler).not.toHaveBeenCalled()
+	})
+
+	it("accepts a batch that also approves a token, fills this order twice and calls the gateway otherwise", async () => {
+		const approve = encodeFunctionData({
+			abi: erc20Abi,
+			functionName: "approve",
+			args: [BY_USER_OP_HASH.address, 1n],
+		})
+		const callData = encodeERC7821ExecuteBatch([
+			{ target: bytes32ToBytes20(TOKEN), value: 0n, data: approve },
+			fillCall(BY_USER_OP_HASH),
+			fillCall(BY_USER_OP_HASH),
+			{ target: BY_USER_OP_HASH.address, value: 0n, data: "0xdeadbeef" },
+		])
+		const { bid, sendBundler } = bidOn(BY_USER_OP_HASH, await signedFor(ENTRY_POINT_V09, { callData }))
+
+		await bid.simulate()
+
+		expect(bundlerParams(sendBundler, "eth_estimateUserOperationGas")[1]).toBe(ENTRY_POINT_V09)
 	})
 
 	it("drops a bid on a gateway that selects by address", async () => {

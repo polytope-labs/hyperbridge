@@ -74,7 +74,8 @@ describe("BidImpl.execute fill attribution", () => {
 	const COMMITMENT = `0x${"66".repeat(32)}` as HexString
 	const userOp: PackedUserOperation = {
 		sender: SOLVER,
-		nonce: 1n,
+		// Keyed to the order below, whose session is `SOLVER`.
+		nonce: CryptoUtils.bidNonceKey(COMMITMENT, SOLVER, "0x1234") << 64n,
 		initCode: "0x",
 		callData: "0x1234",
 		accountGasLimits: `0x${"00".repeat(32)}`,

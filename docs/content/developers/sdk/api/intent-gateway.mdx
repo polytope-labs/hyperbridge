@@ -881,11 +881,13 @@ interface Bid {
 }
 ```
 
-Bids execute on EntryPoint v0.9. The solver's signature must recover under v0.9, and the session key signs `SelectSolver(bytes32 commitment,bytes32 userOpHash)`. The destination gateway must select by userOpHash, as its `SELECT_SOLVER_TYPEHASH()` reports. The SDK reads that typehash once per chain and gateway and keeps it for the life of the process. A bid signed for any other EntryPoint, or on a gateway that selects another way, fails `simulate()` and `execute()` without reaching the bundler, and the autopilot helpers skip it.
+Bids execute on EntryPoint v0.9. The solver's signature must recover under v0.9, and the session key signs `SelectSolver(bytes32 commitment,bytes32 userOpHash)`. The destination gateway must select by userOpHash, as its `SELECT_SOLVER_TYPEHASH()` reports. The SDK reads that typehash once per chain and gateway and keeps it for the life of the process.
+
+The SDK also makes the solver account's own checks on the bid. The signature must open with the order id. The nonce key, the nonce's top 192 bits, must be `CryptoUtils.bidNonceKey(order.id, order.session, callData)`. A bid that fails any of these checks fails `simulate()` and `execute()` without reaching the bundler, and the autopilot helpers skip it.
 
 `simulate()` sends the solver's UserOperation, as signed, to the bundler's `eth_estimateUserOperationGas` on EntryPoint v0.9. The bundler checks the nonce and the paymaster, then runs the calldata at the bid's signed `callGasLimit`. A spent nonce, a failing paymaster or a fill that reverts therefore fails simulation instead of submission. Like `execute()`, it needs a bundler URL.
 
-A state override clears the `solverSelection` byte in the gateway's params (storage slot 5). No `select` is called and nothing is signed, so the session key's selection is not part of the simulation. It could not be: the bundler simulates the operation with its `preVerificationGas` and fees changed, so the userOpHash inside the simulation is not the one a selection signs. The solver account's own checks, such as the nonce key that binds the bid to the order's session, therefore run only on submission. The session-key signature is produced by `execute()` and cached.
+A state override clears the `solverSelection` byte in the gateway's params (storage slot 5). No `select` is called and nothing is signed, so the session key's selection is not part of the simulation. It could not be: the bundler simulates the operation with its `preVerificationGas` and fees changed, so the userOpHash inside the simulation is not the one a selection signs. Without the selection, the solver account reports a signature failure before its own checks, and the bundler ignores that while estimating. That is why the SDK makes those checks itself first. The session-key signature is produced by `execute()` and cached.
 
 No native value is forwarded. As on-chain, the solver account pays native outputs and the dispatch fee from its own balance.
 

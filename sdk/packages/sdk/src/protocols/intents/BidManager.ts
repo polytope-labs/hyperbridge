@@ -140,8 +140,9 @@ export class BidManager {
 	 * silently dropped with a warning. The returned `Bid` instances are ready to
 	 * be ranked, simulated, and executed by the consumer.
 	 *
-	 * A bid not signed for EntryPoint v0.9, or one on a gateway that does not
-	 * select by userOpHash, is kept here and fails {@link Bid.simulate} and
+	 * A bid not signed for EntryPoint v0.9 and this order, one whose nonce key
+	 * does not bind the order, or one on a gateway that does not select by
+	 * userOpHash, is kept here and fails {@link Bid.simulate} and
 	 * {@link Bid.execute}, so {@link selectAndExecuteBest} skips it.
 	 *
 	 * @param order - The placed order the bids are competing to fill.

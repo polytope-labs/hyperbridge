@@ -93,9 +93,10 @@ export interface BidParams {
  * IntentsV2 context, crypto utilities, the order, the solver's UserOperation, and
  * the decoded fill options.
  *
- * Bids run on EntryPoint v0.9 and are selected by their userOpHash. A bid its solver
- * did not sign for v0.9, or one on a gateway that does not select by userOpHash, fails
- * {@link simulate} and {@link execute}.
+ * Bids run on EntryPoint v0.9 and are selected by their userOpHash. A bid fails
+ * {@link simulate} and {@link execute} when its solver did not sign it for v0.9 and
+ * this order, when its nonce key does not bind the order, or when the gateway does not
+ * select by userOpHash.
  *
  * The userOpHash and the session-key signature over the `SelectSolver` message are
  * resolved lazily and cached, so each is worked out at most once whether the consumer
@@ -157,15 +158,32 @@ export class BidImpl implements Bid {
 	}
 
 	/**
-	 * This bid's userOpHash on EntryPoint v0.9, once it is checked that the solver
-	 * signed the bid for v0.9 and that the destination gateway selects by userOpHash.
-	 * Caches the result.
+	 * This bid's userOpHash on EntryPoint v0.9, once the bid passes the checks
+	 * `SolverAccount.validateUserOp` makes on the solver's part of it, and the
+	 * destination gateway is checked to select by userOpHash. Caches the result.
 	 *
-	 * @throws If the solver's signature does not recover under v0.9, the gateway
-	 *   selects by address, or its selection format cannot be read.
+	 * The bundler cannot make the account's checks in {@link simulate}: without the
+	 * session's selection the account reports a signature failure first, which an
+	 * estimate ignores.
+	 *
+	 * @throws If the signature does not open with the order id, the nonce key does
+	 *   not bind the order, the solver's signature does not recover under v0.9, the
+	 *   gateway selects by address, or its selection format cannot be read.
 	 */
 	private async selectableUserOpHash(): Promise<HexString> {
 		if (this.cachedUserOpHash) return this.cachedUserOpHash
+
+		const commitment = this.order.id as HexString
+		if (slice(this.userOp.signature, 0, 32).toLowerCase() !== commitment?.toLowerCase()) {
+			throw new Error(`Bid from solver=${this.solverAddress} is not signed for order ${commitment}`)
+		}
+		const nonceKey = CryptoUtils.bidNonceKey(commitment, this.order.session as HexString, this.userOp.callData)
+		if (BigInt(this.userOp.nonce) >> 64n !== nonceKey) {
+			throw new Error(
+				`Bid from solver=${this.solverAddress} has a nonce key that does not bind order ${commitment}, ` +
+					"its session key and the bid's calldata",
+			)
+		}
 
 		const chainId = this.chainId()
 		const userOpHash = CryptoUtils.computeUserOpHash(this.userOp, ENTRY_POINT_V09, chainId)
@@ -238,7 +256,8 @@ export class BidImpl implements Bid {
 	 * The gateway's solver selection is turned off with {@link selectionOffStateDiff}
 	 * and no selection is attached: the bundler simulates the operation with its
 	 * `preVerificationGas` and fees changed, so the userOpHash there is not the one a
-	 * selection signs. The account's own checks therefore run only on submission.
+	 * selection signs. The account's own checks on the bid are made locally first,
+	 * by {@link selectableUserOpHash}.
 	 *
 	 * @throws If the bid cannot be selected, or the bundler rejects the operation. A
 	 *   transient bundler failure is retried first.

@@ -14,8 +14,17 @@ The bundler checks the nonce and the paymaster, then runs the calldata once at t
 The session's selection is not signed or sent. The bundler simulates the operation with its
 `preVerificationGas` and fees changed, so the userOpHash inside the simulation is not the one a
 selection signs. Without the selection, `SolverAccount.validateUserOp` reports a signature failure
-before its own checks, which the bundler tolerates while estimating. Those checks, such as the nonce
-key that binds the bid to the order's session, run only on submission.
+before its own checks, which the bundler tolerates while estimating. This was confirmed live on Base
+with a v0.9 solver account: a 97-byte signature, and a 162-byte one with a junk session part, both
+got a gas estimate. A wrong nonce got `AA25`.
+
+So `BidImpl` makes the account's checks on the solver's part itself, before any bundler call:
+
+- the signature opens with `order.id`;
+- the nonce key (`nonce >> 64`) is `CryptoUtils.bidNonceKey(order.id, order.session, callData)`;
+- the solver's signature recovers under v0.9.
+
+The session's signature is the SDK's own, made in `execute()`.
 
 No native value is forwarded. On the EntryPoint path the account pays native outputs and the
 dispatch fee from its own balance.
@@ -28,8 +37,8 @@ which `execute()` and `BidManager.selectAndExecuteBest` already required.
 
 Bids are routed on EntryPoint v0.9 only. Every gateway on a chain with a Hyperbridge bundler selects
 by userOpHash, which pairs only with v0.9 bids, so the v0.8 route could no longer be reached there.
-`BidImpl` now checks that the solver signed the bid for v0.9 and that the gateway selects by
-userOpHash. A bid that fails either check is refused before any bundler call. The session key
+`BidImpl` now also checks that the gateway selects by userOpHash. A bid that fails this or any check
+above is refused before any bundler call. The session key
 always signs `SelectSolver(bytes32 commitment,bytes32 userOpHash)`. Chains whose configuration
 still names EntryPoint v0.8 have no Hyperbridge bundler, and their bids are now refused.
 

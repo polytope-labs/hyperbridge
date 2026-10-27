@@ -62,7 +62,7 @@ function bundlerAnswering(...replies: Record<string, unknown>[]) {
 async function bidOn(gateway: HexString, bundlerUrl: string | null = "https://bundler.invalid") {
 	const unsigned: PackedUserOperation = {
 		sender: solver.address,
-		nonce: 1n,
+		nonce: CryptoUtils.bidNonceKey(COMMITMENT, order.session as HexString, "0x1234") << 64n,
 		initCode: "0x",
 		callData: "0x1234",
 		accountGasLimits: `0x${"00".repeat(32)}`,

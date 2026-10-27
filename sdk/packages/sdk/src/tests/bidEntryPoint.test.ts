@@ -48,11 +48,17 @@ const order: Order = {
 	output: { beneficiary: TOKEN, assets: [{ token: TOKEN, amount: 100n }], call: "0x" },
 }
 
-/** A bid as `BidManager.prepareSubmitBid` builds it: the commitment, then the solver's signature for `entryPoint`. */
-async function signedFor(entryPoint: HexString): Promise<PackedUserOperation> {
+/**
+ * A bid as `BidManager.prepareSubmitBid` builds it: a nonce keyed to the order, its session and
+ * the calldata, and a signature of the commitment, then the solver's signature for `entryPoint`.
+ */
+async function signedFor(
+	entryPoint: HexString,
+	nonce = CryptoUtils.bidNonceKey(COMMITMENT, session.address, "0x1234") << 64n,
+): Promise<PackedUserOperation> {
 	const userOp: PackedUserOperation = {
 		sender: solver.address,
-		nonce: 1n,
+		nonce,
 		initCode: "0x",
 		callData: "0x1234",
 		accountGasLimits: `0x${"00".repeat(32)}`,
@@ -187,6 +193,26 @@ describe("BidImpl on EntryPoint v0.9", () => {
 
 		await expect(bid.simulate()).rejects.toThrow("is not signed for EntryPoint v0.9")
 		await expect(bid.execute()).rejects.toThrow("is not signed for EntryPoint v0.9")
+		expect(sendBundler).not.toHaveBeenCalled()
+	})
+
+	it("drops a bid whose signature opens with another order's id, without asking the bundler", async () => {
+		const userOp = await signedFor(ENTRY_POINT_V09)
+		// The solver's own signature still recovers: the prefix is not part of the userOpHash.
+		const otherOrder = { ...userOp, signature: concat([`0x${"77".repeat(32)}`, slice(userOp.signature, 32)]) }
+		const { bid, sendBundler } = bidOn(BY_USER_OP_HASH, otherOrder)
+
+		await expect(bid.simulate()).rejects.toThrow(`is not signed for order ${COMMITMENT}`)
+		await expect(bid.execute()).rejects.toThrow(`is not signed for order ${COMMITMENT}`)
+		expect(sendBundler).not.toHaveBeenCalled()
+	})
+
+	it("drops a bid whose nonce key does not bind the order, without asking the bundler", async () => {
+		const unbound = CryptoUtils.bidNonceKey(COMMITMENT, solver.address, "0x1234") << 64n
+		const { bid, sendBundler } = bidOn(BY_USER_OP_HASH, await signedFor(ENTRY_POINT_V09, unbound))
+
+		await expect(bid.simulate()).rejects.toThrow("has a nonce key that does not bind order")
+		await expect(bid.execute()).rejects.toThrow("has a nonce key that does not bind order")
 		expect(sendBundler).not.toHaveBeenCalled()
 	})
 

@@ -121,7 +121,7 @@ mod tests {
 
 	fn set_example_env() {
 		std::env::set_var("HYPERBRIDGE_NEXUS", "wss://nexus.example,wss://nexus-2.example");
-		std::env::set_var("BIFROST", "wss://bifrost.example");
+		std::env::set_var("HYPERBRIDGE_GARGANTUA", "wss://gargantua.example");
 	}
 
 	#[test]
@@ -141,18 +141,18 @@ mod tests {
 		assert_eq!(nexus.max_block_range, 1000);
 		assert_eq!(nexus.cache_blocks, 4096);
 
-		let bifrost = &config.chains[1];
-		assert_eq!(bifrost.name, "bifrost-mainnet");
-		assert_eq!(bifrost.rpc_urls(), vec!["wss://bifrost.example"]);
-		assert_eq!(bifrost.eth_chain_id, 1000002030);
-		assert_eq!(bifrost.hasher, Hasher::Blake2);
-		assert_eq!(bifrost.pallets, vec!["ismp"]);
+		let gargantua = &config.chains[1];
+		assert_eq!(gargantua.name, "gargantua");
+		assert_eq!(gargantua.rpc_urls(), vec!["wss://gargantua.example"]);
+		assert_eq!(gargantua.eth_chain_id, 1000004009);
+		assert_eq!(gargantua.hasher, Hasher::Keccak);
+		assert_eq!(gargantua.pallets, nexus.pallets);
 	}
 
 	#[test]
 	fn rejects_duplicate_chain_name() {
 		set_example_env();
-		let duplicated = EXAMPLE.replace("bifrost-mainnet", "hyperbridge-nexus");
+		let duplicated = EXAMPLE.replace("gargantua", "hyperbridge-nexus");
 		let err = Config::parse(&duplicated).unwrap_err();
 		assert!(err.to_string().contains("duplicate chain name"), "{err}");
 	}
@@ -160,7 +160,7 @@ mod tests {
 	#[test]
 	fn rejects_duplicate_eth_chain_id() {
 		set_example_env();
-		let duplicated = EXAMPLE.replace("1000002030", "1000003367");
+		let duplicated = EXAMPLE.replace("1000004009", "1000003367");
 		let err = Config::parse(&duplicated).unwrap_err();
 		assert!(err.to_string().contains("duplicate eth_chain_id"), "{err}");
 	}
@@ -168,7 +168,7 @@ mod tests {
 	#[test]
 	fn rejects_unsafe_chain_name() {
 		set_example_env();
-		let renamed = EXAMPLE.replace("bifrost-mainnet", "Bifrost_Mainnet");
+		let renamed = EXAMPLE.replace("gargantua", "Gargantua_Testnet");
 		let err = Config::parse(&renamed).unwrap_err();
 		assert!(err.to_string().contains("[a-z0-9-]+"), "{err}");
 	}
@@ -176,7 +176,7 @@ mod tests {
 	#[test]
 	fn rejects_unset_env_var() {
 		set_example_env();
-		let missing = EXAMPLE.replace("${BIFROST}", "${SUBSTRATE_ETH_RPC_UNSET_VAR}");
+		let missing = EXAMPLE.replace("${HYPERBRIDGE_GARGANTUA}", "${SUBSTRATE_ETH_RPC_UNSET_VAR}");
 		let err = Config::parse(&missing).unwrap_err();
 		assert!(format!("{err:#}").contains("SUBSTRATE_ETH_RPC_UNSET_VAR"), "{err:#}");
 	}
@@ -185,7 +185,7 @@ mod tests {
 	fn rejects_zero_block_range() {
 		set_example_env();
 		let zero = EXAMPLE
-			.replace("eth_chain_id = 1000002030", "eth_chain_id = 1000002030\nmax_block_range = 0");
+			.replace("eth_chain_id = 1000004009", "eth_chain_id = 1000004009\nmax_block_range = 0");
 		let err = Config::parse(&zero).unwrap_err();
 		assert!(err.to_string().contains("max_block_range"), "{err}");
 	}
@@ -194,7 +194,7 @@ mod tests {
 	fn rejects_empty_rpc() {
 		set_example_env();
 		std::env::set_var("SUBSTRATE_ETH_RPC_EMPTY", " , ");
-		let empty = EXAMPLE.replace("${BIFROST}", "${SUBSTRATE_ETH_RPC_EMPTY}");
+		let empty = EXAMPLE.replace("${HYPERBRIDGE_GARGANTUA}", "${SUBSTRATE_ETH_RPC_EMPTY}");
 		let err = Config::parse(&empty).unwrap_err();
 		assert!(err.to_string().contains("rpc must not be empty"), "{err}");
 	}

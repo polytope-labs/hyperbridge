@@ -255,17 +255,17 @@ specs 8400 and 8700 (blocks 11755982, 12019344 and 12252354 with their parents).
 others a test needs, keyed by hex storage key. Fixture files contain no RPC URLs;
 URLs stay in the environment, never in committed files.
 
-Committed fixtures cover `hyperbridge-nexus` and `bifrost-mainnet`. Of the 18 mapped
-events, ten appear in recorded mainnet blocks: `StateMachineUpdated`, `Request`,
-`Response`, `PostRequestHandled`, `GetRequestHandled`, `RelayerRewarded`, `Transfer`,
-`CollatorRewarded`, `BandwidthCredited` and `BidPlaced`. `PostRequestTimeoutHandled`,
-`GetRequestTimeoutHandled`, `AccumulateFees`, `Withdraw`, `BandwidthConsumed`,
-`SubscriptionEvicted`, `ForceCredited` and `TierSet` had not been emitted on Nexus or
-Bifrost mainnet when the fixtures were recorded and are covered by unit tests with
-hand-built events only.
+Committed fixtures cover `hyperbridge-nexus` (mainnet) and `gargantua` (the Hyperbridge
+testnet, `KUSAMA-4009`). Of the 18 mapped events, eleven appear in recorded blocks:
+`StateMachineUpdated`, `Request`, `Response`, `PostRequestHandled`, `GetRequestHandled`,
+`PostRequestTimeoutHandled`, `RelayerRewarded`, `Transfer`, `CollatorRewarded`,
+`BandwidthCredited` and `BidPlaced`. `GetRequestTimeoutHandled`, `AccumulateFees`,
+`Withdraw`, `BandwidthConsumed`, `SubscriptionEvicted`, `ForceCredited` and `TierSet` had
+not been emitted on either chain when the fixtures were recorded and are covered by unit
+tests with hand-built events only.
 
 ## Chain id convention
 
 - Polkadot and Kusama parachains: `1_000_000_000 + para_id` (Hyperbridge Nexus
-  `1000003367`, Bifrost `1000002030`).
+  `1000003367`, Gargantua `1000004009`).
 - Standalone Substrate chains: `1_100_000_000 + n`, assigned in order.

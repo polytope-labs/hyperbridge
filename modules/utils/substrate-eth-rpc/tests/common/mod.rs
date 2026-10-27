@@ -38,11 +38,11 @@ pub const NEXUS: Chain = Chain {
 	],
 };
 
-pub const BIFROST: Chain = Chain {
-	dir: "bifrost-mainnet",
-	eth_chain_id: 1000002030,
-	hasher: Hasher::Blake2,
-	pallets: &["ismp"],
+pub const GARGANTUA: Chain = Chain {
+	dir: "gargantua",
+	eth_chain_id: 1000004009,
+	hasher: Hasher::Keccak,
+	pallets: NEXUS.pallets,
 };
 
 pub struct Chain {

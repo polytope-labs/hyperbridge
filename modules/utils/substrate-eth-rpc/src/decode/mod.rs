@@ -39,10 +39,11 @@ pub(crate) mod testdata {
 	const NEXUS_BLOCK: &str = include_str!("../../fixtures/hyperbridge-nexus/blocks/12483541.json");
 	const NEXUS_EVENTS: [u8; system_events_len(NEXUS_BLOCK)] = system_events(NEXUS_BLOCK);
 
-	const BIFROST_METADATA: &[u8] =
-		include_bytes!("../../fixtures/bifrost-mainnet/metadata/25000.scale");
-	const BIFROST_BLOCK: &str = include_str!("../../fixtures/bifrost-mainnet/blocks/12861850.json");
-	const BIFROST_EVENTS: [u8; system_events_len(BIFROST_BLOCK)] = system_events(BIFROST_BLOCK);
+	const GARGANTUA_METADATA: &[u8] =
+		include_bytes!("../../fixtures/gargantua/metadata/7900.scale");
+	const GARGANTUA_BLOCK: &str = include_str!("../../fixtures/gargantua/blocks/9709558.json");
+	const GARGANTUA_EVENTS: [u8; system_events_len(GARGANTUA_BLOCK)] =
+		system_events(GARGANTUA_BLOCK);
 
 	const SYSTEM_EVENTS_KEY: &[u8] =
 		b"\"0x26aa394eea5630e07c48ae0c9558cef780d41e5e16056765bc8461851072c9d7\"";
@@ -56,8 +57,8 @@ pub(crate) mod testdata {
 	pub(crate) const NEXUS: Fixture =
 		Fixture { metadata: NEXUS_METADATA, events: &NEXUS_EVENTS, block: NEXUS_BLOCK };
 
-	pub(crate) const BIFROST: Fixture =
-		Fixture { metadata: BIFROST_METADATA, events: &BIFROST_EVENTS, block: BIFROST_BLOCK };
+	pub(crate) const GARGANTUA: Fixture =
+		Fixture { metadata: GARGANTUA_METADATA, events: &GARGANTUA_EVENTS, block: GARGANTUA_BLOCK };
 
 	impl Fixture {
 		fn block(&self) -> serde_json::Value {
@@ -140,7 +141,7 @@ mod tests {
 	use scale_value::Composite;
 
 	use super::{
-		testdata::{BIFROST, NEXUS},
+		testdata::{GARGANTUA, NEXUS},
 		*,
 	};
 	use crate::types::{Hasher, Phase};
@@ -148,13 +149,13 @@ mod tests {
 	#[test]
 	fn fixture_metadata_is_unwrapped_v15() {
 		assert_eq!(&NEXUS.metadata[..5], b"meta\x0f");
-		assert_eq!(&BIFROST.metadata[..5], b"meta\x0f");
+		assert_eq!(&GARGANTUA.metadata[..5], b"meta\x0f");
 	}
 
 	#[test]
 	fn metadata_decodes_and_reports_spec_version() {
 		assert_eq!(spec_version(&decode_metadata(NEXUS.metadata).unwrap()), Some(8700));
-		assert_eq!(spec_version(&decode_metadata(BIFROST.metadata).unwrap()), Some(25000));
+		assert_eq!(spec_version(&decode_metadata(GARGANTUA.metadata).unwrap()), Some(7900));
 	}
 
 	#[test]
@@ -207,21 +208,14 @@ mod tests {
 	}
 
 	#[test]
-	fn bifrost_events_decode_with_block_metadata() {
-		let metadata = decode_metadata(BIFROST.metadata).unwrap();
-		let records = decode_event_records(&metadata, BIFROST.events).unwrap();
-		assert_eq!(BIFROST.block_number(), 12861850);
-		assert_eq!(records.len(), 6);
+	fn gargantua_events_decode_with_block_metadata() {
+		let metadata = decode_metadata(GARGANTUA.metadata).unwrap();
+		let records = decode_event_records(&metadata, GARGANTUA.events).unwrap();
+		assert_eq!(GARGANTUA.block_number(), 9709558);
+		assert_eq!(records.len(), 7);
 		assert!(records.iter().all(|r| r.topics.is_empty()));
 
-		let first = &records[0].event;
-		assert_eq!(
-			(first.pallet.as_str(), first.variant.as_str()),
-			("BuyBack", "UsdtSetSwapOutMinSuccess")
-		);
-		assert_eq!(first.phase, Phase::Initialization);
-
-		let success = &records[1].event;
+		let success = &records[0].event;
 		assert_eq!(
 			(success.pallet.as_str(), success.variant.as_str()),
 			("System", "ExtrinsicSuccess")
@@ -230,13 +224,32 @@ mod tests {
 		let Composite::Named(fields) = &success.fields else { panic!("expected named fields") };
 		assert_eq!(fields[0].0, "dispatch_info");
 
-		let request = &records[5].event;
-		assert_eq!((request.pallet.as_str(), request.variant.as_str()), ("Ismp", "Request"));
-		assert_eq!(request.phase, Phase::Finalization);
-		let Composite::Named(fields) = &request.fields else { panic!("expected named fields") };
+		let update = &records[2].event;
+		assert_eq!(
+			(update.pallet.as_str(), update.variant.as_str()),
+			("Ismp", "StateMachineUpdated")
+		);
+		assert_eq!(update.phase, Phase::ApplyExtrinsic(2));
+		let Composite::Named(fields) = &update.fields else { panic!("expected named fields") };
+		assert_eq!(fields[1].1.as_u128(), Some(42805654));
+
+		let response = &records[4].event;
+		assert_eq!((response.pallet.as_str(), response.variant.as_str()), ("Ismp", "Response"));
+		assert_eq!(response.phase, Phase::ApplyExtrinsic(3));
+		let Composite::Named(fields) = &response.fields else { panic!("expected named fields") };
 		let names: Vec<&str> = fields.iter().map(|(name, _)| name.as_str()).collect();
-		assert_eq!(names, ["dest_chain", "source_chain", "request_nonce", "commitment"]);
-		assert_eq!(fields[2].1.as_u128(), Some(67755));
+		assert_eq!(
+			names,
+			["dest_chain", "source_chain", "request_nonce", "commitment", "req_commitment"]
+		);
+		assert_eq!(fields[2].1.as_u128(), Some(95));
+
+		let handled = &records[5].event;
+		assert_eq!(
+			(handled.pallet.as_str(), handled.variant.as_str()),
+			("Ismp", "GetRequestHandled")
+		);
+		assert_eq!(handled.phase, Phase::ApplyExtrinsic(3));
 	}
 
 	#[test]
@@ -262,7 +275,7 @@ mod tests {
 
 	#[test]
 	fn events_with_foreign_metadata_fail() {
-		let metadata = decode_metadata(BIFROST.metadata).unwrap();
+		let metadata = decode_metadata(GARGANTUA.metadata).unwrap();
 		assert!(decode_events(&metadata, NEXUS.events).is_err());
 	}
 
@@ -286,19 +299,19 @@ mod tests {
 	}
 
 	#[test]
-	fn bifrost_extrinsic_hashes_use_blake2() {
-		let extrinsics = BIFROST.extrinsics();
-		let hashes = extrinsic_hashes(Hasher::Blake2, &extrinsics);
-		assert_eq!(hashes.len(), 2);
+	fn gargantua_extrinsic_hashes_use_keccak() {
+		let extrinsics = GARGANTUA.extrinsics();
+		let hashes = extrinsic_hashes(Hasher::Keccak, &extrinsics);
+		assert_eq!(hashes.len(), 4);
 		assert_eq!(
 			hashes[0],
-			b256!("6c34db0885d148d9edc5a6451f423328295de475c4fec1017521c41cc28dcd58")
+			b256!("4bbd75d804f74a932e7f9221f521ac7a008e6104b7641fc68e7540fa82dc27ee")
 		);
 		assert_eq!(
-			hashes[1],
-			b256!("a786d63465b2df01a47e0b62a91145d860b4173f821898433dd1510c3ce929b0")
+			hashes[3],
+			b256!("f56e3198f8c097bf28e5ee1b7087c40f4abab63de6f313bcb2a7c521bddec2fe")
 		);
-		assert_ne!(extrinsic_hashes(Hasher::Keccak, &extrinsics)[0], hashes[0]);
+		assert_ne!(extrinsic_hashes(Hasher::Blake2, &extrinsics)[3], hashes[3]);
 	}
 
 	#[test]
@@ -310,7 +323,7 @@ mod tests {
 		let second = cache.get(8700).unwrap();
 		assert!(Arc::ptr_eq(&inserted, &first));
 		assert!(Arc::ptr_eq(&first, &second));
-		let reinserted = cache.insert(8700, BIFROST.metadata).unwrap();
+		let reinserted = cache.insert(8700, GARGANTUA.metadata).unwrap();
 		assert!(Arc::ptr_eq(&reinserted, &first));
 		assert!(cache.insert(1, b"not metadata").is_err());
 		assert!(cache.get(1).is_none());

@@ -1,7 +1,7 @@
 mod common;
 
 use alloy_primitives::Address;
-use common::{log_filter, BIFROST, NEXUS};
+use common::{log_filter, GARGANTUA, NEXUS};
 use serde_json::json;
 use substrate_eth_rpc::pallet_address;
 
@@ -24,14 +24,14 @@ async fn range_without_matching_events_is_empty() {
 }
 
 #[tokio::test]
-async fn bifrost_only_serves_configured_pallets() {
-	let harness = BIFROST.start().await;
-	let balances = pallet_address("balances");
+async fn gargantua_range_without_matching_events_is_empty() {
+	let harness = GARGANTUA.start().await;
+	let bandwidth = pallet_address("bandwidth");
 	let logs = harness
-		.logs(log_filter(12861850, 12861850, json!({ "address": balances })))
+		.logs(log_filter(9709558, 9709558, json!({ "address": bandwidth })))
 		.await;
 	assert!(logs.is_empty());
-	let any = harness.logs(log_filter(12861850, 12861850, json!({}))).await;
+	let any = harness.logs(log_filter(9709558, 9709558, json!({}))).await;
 	assert!(any.iter().all(|log| log.address() == pallet_address("ismp")));
 }
 
@@ -46,8 +46,8 @@ async fn to_block_beyond_finalized_is_an_error() {
 		format!("toBlock {:#x} is beyond finalized head {head:#x}", head + 1)
 	);
 
-	let harness = BIFROST.start().await;
-	let head = BIFROST.finalized();
+	let harness = GARGANTUA.start().await;
+	let head = GARGANTUA.finalized();
 	let err = harness.logs_error(log_filter(head + 1, head + 5, json!({}))).await;
 	assert_eq!(err.code(), SERVER_ERROR);
 	assert!(err.message().contains("beyond finalized head"), "{}", err.message());

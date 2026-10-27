@@ -54,8 +54,7 @@ log shape and the rindexer manifest.
 - `messagingFees.FeeRewarded`, which does not exist in the runtime.
 - The three-field `BidPlaced` (no `bid`), which is skipped.
 - Configuration and fixtures for the other mainnet Substrate chains (Cere, Argon,
-  Hydration, zkVerify); only `hyperbridge-nexus` and `bifrost-mainnet` are fixtured.
-- Recorded fixtures for `PostRequestTimeoutHandled`, `GetRequestTimeoutHandled`,
-  `AccumulateFees`, `Withdraw`, `BandwidthConsumed`, `SubscriptionEvicted`,
-  `ForceCredited` and `TierSet`, which have not been emitted on either mainnet; unit
-  tests with hand-built events cover them.
+  Hydration, zkVerify); only `hyperbridge-nexus` and `gargantua` are fixtured.
+- Recorded fixtures for `GetRequestTimeoutHandled`, `AccumulateFees`, `Withdraw`,
+  `BandwidthConsumed`, `SubscriptionEvicted`, `ForceCredited` and `TierSet`, which have
+  not been emitted on Nexus or Gargantua; unit tests with hand-built events cover them.

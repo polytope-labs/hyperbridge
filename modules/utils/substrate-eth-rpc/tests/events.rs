@@ -5,7 +5,7 @@ use std::collections::BTreeSet;
 use alloy_dyn_abi::DynSolType;
 use alloy_primitives::B256;
 use alloy_rpc_types_eth::Block;
-use common::{event_filter, event_spec, Chain, Harness, BIFROST, NEXUS};
+use common::{event_filter, event_spec, Chain, Harness, GARGANTUA, NEXUS};
 use jsonrpsee::{core::client::ClientT, rpc_params};
 use substrate_eth_rpc::pallet_address;
 
@@ -64,15 +64,44 @@ const NEXUS_CASES: &[Case] = &[
 	case(12469337, "intentsCoprocessor", "BidPlaced"),
 ];
 
-const BIFROST_CASES: &[Case] = &[ismp(
-	12861850,
-	"Request",
-	&[
-		"0x07131679de0c524d9afd2341c6b53809567f253f7806438608f0af01b540e373",
-		"0x220296df7769198987de6e3c115c4ec2491925f875dcff20fa066c76a1a95d4f",
-		"0x787a184a39e25e6de799f2f46ad587272c5916f4e7b3cf23e9c342fbc94c248e",
-	],
-)];
+const GARGANTUA_CASES: &[Case] = &[
+	ismp(
+		9951192,
+		"Request",
+		&[
+			"0x4399d6a3590d9a7c770a3b4e531ab399f378a10a15199f7fa9831d3814f43f8c",
+			"0x6f8cc3e98194ca72e82bddb92c6c2f5c473c335192704c981c5e28fe49e1ee36",
+		],
+	),
+	ismp(
+		9982180,
+		"Request",
+		&["0x164348cf34d1ae64b42a45d043a17d10a5cc334ae77f071cb67564db3ef83acb"],
+	),
+	ismp(
+		9709558,
+		"Response",
+		&["0xbb10b2059608c8447171d3114686cdcd9c79df39d8084eced35083d837bed978"],
+	),
+	ismp(
+		9982180,
+		"PostRequestHandled",
+		&["0x164348cf34d1ae64b42a45d043a17d10a5cc334ae77f071cb67564db3ef83acb"],
+	),
+	ismp(
+		9709558,
+		"GetRequestHandled",
+		&["0x992344e1bbf944ded83387757d66aaed30ad06c1a8d60ef9964da0cf61be7b02"],
+	),
+	ismp(
+		10547430,
+		"PostRequestTimeoutHandled",
+		&["0xb1cbe86d89dbff43721f11021fd432b9f643486d093f4146ecee57c948ab8004"],
+	),
+	ismp(9709558, "StateMachineUpdated", &[]),
+	ismp(9982180, "StateMachineUpdated", &[]),
+	case(11070825, "intentsCoprocessor", "BidPlaced"),
+];
 
 async fn check_case(harness: &Harness, chain: &Chain, case: &Case) {
 	let spec = event_spec(case.pallet, case.event);
@@ -178,12 +207,12 @@ async fn nexus_events_decode_against_mapping() {
 }
 
 #[tokio::test]
-async fn bifrost_events_decode_against_mapping() {
-	let harness = BIFROST.start().await;
-	for case in BIFROST_CASES {
-		check_case(&harness, &BIFROST, case).await;
+async fn gargantua_events_decode_against_mapping() {
+	let harness = GARGANTUA.start().await;
+	for case in GARGANTUA_CASES {
+		check_case(&harness, &GARGANTUA, case).await;
 	}
-	check_log_shape(&harness, &BIFROST, &BIFROST_CASES[0]).await;
+	check_log_shape(&harness, &GARGANTUA, &GARGANTUA_CASES[0]).await;
 }
 
 #[tokio::test]
@@ -193,7 +222,7 @@ async fn nexus_block_matches_fixture() {
 }
 
 #[tokio::test]
-async fn bifrost_block_matches_fixture() {
-	let harness = BIFROST.start().await;
-	check_block(&harness, &BIFROST, 12861850).await;
+async fn gargantua_block_matches_fixture() {
+	let harness = GARGANTUA.start().await;
+	check_block(&harness, &GARGANTUA, 9709558).await;
 }

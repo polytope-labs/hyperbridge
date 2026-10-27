@@ -874,16 +874,16 @@ interface Bid {
 
   /** Runs the bid's UserOperation through the bundler's `eth_estimateUserOperationGas` with the gateway's solver selection off. Throws if the bid cannot execute or the bundler rejects it. */
   simulate(): Promise<void>
-  /** Signs the `SelectSolver` message, packs the signature, and submits the UserOp to the bundler on the bid's EntryPoint. */
+  /** Signs the `SelectSolver` message, packs the signature, and submits the UserOp to the bundler on EntryPoint v0.9. */
   execute(): Promise<SelectBidResult>
   /** Prices the bid's outputs in USD. Returns `null` when any output token cannot be priced. */
   outputUsdValue(): Promise<Decimal | null>
 }
 ```
 
-A bid executes on the EntryPoint its solver signed it for, found by recovering the solver's signature under EntryPoint v0.9 and then v0.8. The destination gateway's `SELECT_SOLVER_TYPEHASH()` decides what the session key signs: `SelectSolver(bytes32 commitment,bytes32 userOpHash)` pairs only with v0.9 bids, and `SelectSolver(bytes32 commitment,address solver)` only with v0.8 bids. The typehash is read once per chain and read again before a bid that does not pair is refused, so an in-place gateway upgrade is picked up. A bid signed for no known EntryPoint, or for one the gateway does not pair with, fails `simulate()` and `execute()`, and the autopilot helpers skip it.
+Bids execute on EntryPoint v0.9. The solver's signature must recover under v0.9, and the session key signs `SelectSolver(bytes32 commitment,bytes32 userOpHash)`. The destination gateway must select by userOpHash, as its `SELECT_SOLVER_TYPEHASH()` reports. The SDK reads that typehash once per chain. A bid signed for any other EntryPoint, or on a gateway that selects another way, fails `simulate()` and `execute()` without reaching the bundler, and the autopilot helpers skip it.
 
-`simulate()` sends the solver's UserOperation, as signed, to the bundler's `eth_estimateUserOperationGas` on the bid's EntryPoint. The bundler checks the nonce, the account's validation and the paymaster, then runs the calldata. A bid that the bundler would reject on submission therefore fails simulation. Like `execute()`, it needs a bundler URL.
+`simulate()` sends the solver's UserOperation, as signed, to the bundler's `eth_estimateUserOperationGas` on EntryPoint v0.9. The bundler checks the nonce, the account's validation and the paymaster, then runs the calldata. A bid that the bundler would reject on submission therefore fails simulation. Like `execute()`, it needs a bundler URL.
 
 A state override clears the `solverSelection` byte in the gateway's params (storage slot 5). No `select` is called and nothing is signed, so the session key's selection is not part of the simulation. The bundler estimates under its own gas limits, which change the userOpHash a selection would sign. The session-key signature is produced by `execute()` and cached.
 

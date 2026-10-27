@@ -16,8 +16,7 @@ const formats = new Map<string, Promise<SelectionFormat>>()
 
 /**
  * The selection format an IntentGatewayV2 verifies, from its `SELECT_SOLVER_TYPEHASH()`. Read once
- * per chain and gateway and kept until {@link refreshSelectionFormat} drops it; a failed read is
- * not cached.
+ * per chain and gateway; a failed read is not cached.
  *
  * @param client - Public client of the chain the gateway is deployed on.
  * @param chainId - Chain id of that chain.
@@ -52,29 +51,6 @@ export function readSelectionFormat(
 		if (formats.get(key) === format) formats.delete(key)
 	})
 	return format
-}
-
-/**
- * Drops `stale`, a selection format {@link readSelectionFormat} returned, and reads the format
- * again. A gateway upgraded in place can change its format, so a bid that does not pair with the
- * cached one is checked against a fresh read. When another caller has already replaced `stale`,
- * its read is reused.
- *
- * @param client - Public client of the chain the gateway is deployed on.
- * @param chainId - Chain id of that chain.
- * @param gateway - IntentGatewayV2 address.
- * @param stale - The cached read being replaced.
- * @throws If the read fails or the gateway reports a typehash of neither format.
- */
-export function refreshSelectionFormat(
-	client: ReadClient,
-	chainId: bigint | number,
-	gateway: HexString,
-	stale: Promise<SelectionFormat>,
-): Promise<SelectionFormat> {
-	const key = `${chainId}:${gateway.toLowerCase()}`
-	if (formats.get(key) === stale) formats.delete(key)
-	return readSelectionFormat(client, chainId, gateway)
 }
 
 /** The IntentGatewayV2 params slot that packs the call dispatcher with `solverSelection` in the byte above it. */

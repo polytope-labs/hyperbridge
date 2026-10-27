@@ -164,8 +164,8 @@ function userOpHashSelectionDigest(gateway: Gateway, userOp: PackedUserOperation
 	})
 }
 
-describe("BidImpl EntryPoint routing", () => {
-	it("executes a bid signed for EntryPoint v0.9 there, selected by its userOpHash", async () => {
+describe("BidImpl on EntryPoint v0.9", () => {
+	it("simulates and executes a bid signed for EntryPoint v0.9 there, selected by its userOpHash", async () => {
 		const userOp = await signedFor(ENTRY_POINT_V09)
 		const { bid, sendBundler } = bidOn(BY_USER_OP_HASH, userOp)
 
@@ -179,100 +179,28 @@ describe("BidImpl EntryPoint routing", () => {
 		expect(await recoverAddress({ hash: digest, signature: sentSelection(sendBundler) })).toBe(session.address)
 	})
 
-	it("executes a bid signed for EntryPoint v0.8 there, selected by its solver's address", async () => {
-		const { bid, sendBundler } = bidOn(BY_ADDRESS, await signedFor(ENTRY_POINT_V08))
+	it.each([
+		["EntryPoint v0.8", ENTRY_POINT_V08],
+		["an unknown EntryPoint", UNKNOWN_ENTRY_POINT],
+	])("drops a bid signed for %s without asking the bundler", async (_name, entryPoint) => {
+		const { bid, sendBundler } = bidOn(BY_USER_OP_HASH, await signedFor(entryPoint))
 
-		await bid.simulate()
-		await bid.execute()
-
-		expect(bundlerParams(sendBundler, "eth_estimateUserOperationGas")[1]).toBe(ENTRY_POINT_V08)
-		expect(bundlerParams(sendBundler, "eth_sendUserOperation")[1]).toBe(ENTRY_POINT_V08)
-
-		const digest = hashTypedData({
-			domain: gatewayDomain(BY_ADDRESS),
-			types: {
-				SelectSolver: [
-					{ name: "commitment", type: "bytes32" },
-					{ name: "solver", type: "address" },
-				],
-			},
-			primaryType: "SelectSolver",
-			message: { commitment: COMMITMENT, solver: solver.address },
-		})
-		expect(await recoverAddress({ hash: digest, signature: sentSelection(sendBundler) })).toBe(session.address)
-	})
-
-	it("drops a bid signed for neither EntryPoint", async () => {
-		const { bid, sendBundler } = bidOn(BY_USER_OP_HASH, await signedFor(UNKNOWN_ENTRY_POINT))
-
-		await expect(bid.simulate()).rejects.toThrow("is not signed for a known EntryPoint")
-		await expect(bid.execute()).rejects.toThrow("is not signed for a known EntryPoint")
+		await expect(bid.simulate()).rejects.toThrow("is not signed for EntryPoint v0.9")
+		await expect(bid.execute()).rejects.toThrow("is not signed for EntryPoint v0.9")
 		expect(sendBundler).not.toHaveBeenCalled()
 	})
 
-	it("drops a v0.8 bid on a gateway that selects by userOpHash", async () => {
-		const { bid, sendBundler } = bidOn(BY_USER_OP_HASH, await signedFor(ENTRY_POINT_V08))
-
-		await expect(bid.simulate()).rejects.toThrow("userOpHash selection does not pair with")
-		await expect(bid.execute()).rejects.toThrow("userOpHash selection does not pair with")
-		expect(sendBundler).not.toHaveBeenCalled()
-	})
-
-	it("drops a v0.9 bid on a gateway that selects by address", async () => {
+	it("drops a bid on a gateway that selects by address", async () => {
 		const { bid, sendBundler } = bidOn(BY_ADDRESS, await signedFor(ENTRY_POINT_V09))
 
-		await expect(bid.simulate()).rejects.toThrow("address selection does not pair with")
-		await expect(bid.execute()).rejects.toThrow("address selection does not pair with")
+		await expect(bid.simulate()).rejects.toThrow("the destination gateway selects by address")
+		await expect(bid.execute()).rejects.toThrow("the destination gateway selects by address")
 		expect(sendBundler).not.toHaveBeenCalled()
 	})
-})
 
-describe("BidImpl selection format after a gateway upgrade", () => {
-	it("reads the format again when a v0.9 bid meets a cached address selection", async () => {
+	it("reads a gateway's selection format once across bids", async () => {
 		const gateway: Gateway = {
 			address: "0x0000000000000000000000000000000000000a03",
-			typehash: LEGACY_SELECT_SOLVER_TYPEHASH,
-		}
-		const before = bidOn(gateway, await signedFor(ENTRY_POINT_V08))
-		await before.bid.simulate()
-		expect(before.client.readContract).toHaveBeenCalledOnce()
-
-		// The proxy is upgraded in place to an implementation that selects by userOpHash.
-		gateway.typehash = SELECT_SOLVER_TYPEHASH
-		const userOp = await signedFor(ENTRY_POINT_V09)
-		const { bid, client, sendBundler } = bidOn(gateway, userOp)
-
-		await bid.simulate()
-		await bid.execute()
-
-		expect(client.readContract).toHaveBeenCalledOnce()
-		expect(bundlerParams(sendBundler, "eth_sendUserOperation")[1]).toBe(ENTRY_POINT_V09)
-		const digest = userOpHashSelectionDigest(gateway, userOp)
-		expect(await recoverAddress({ hash: digest, signature: sentSelection(sendBundler) })).toBe(session.address)
-
-		const stale = bidOn(gateway, await signedFor(ENTRY_POINT_V08))
-		await expect(stale.bid.simulate()).rejects.toThrow("userOpHash selection does not pair with")
-	})
-
-	it("reads the format once for concurrent bids that miss the cached one", async () => {
-		const gateway: Gateway = {
-			address: "0x0000000000000000000000000000000000000a04",
-			typehash: LEGACY_SELECT_SOLVER_TYPEHASH,
-		}
-		await bidOn(gateway, await signedFor(ENTRY_POINT_V08)).bid.simulate()
-
-		gateway.typehash = SELECT_SOLVER_TYPEHASH
-		const userOp = await signedFor(ENTRY_POINT_V09)
-		const bids = [bidOn(gateway, userOp), bidOn(gateway, userOp), bidOn(gateway, userOp)]
-		await Promise.all(bids.map(({ bid }) => bid.simulate()))
-
-		const reads = bids.reduce((total, { client }) => total + client.readContract.mock.calls.length, 0)
-		expect(reads).toBe(1)
-	})
-
-	it("does not read the format again when the bid pairs with the cached one", async () => {
-		const gateway: Gateway = {
-			address: "0x0000000000000000000000000000000000000a05",
 			typehash: SELECT_SOLVER_TYPEHASH,
 		}
 		const first = bidOn(gateway, await signedFor(ENTRY_POINT_V09))

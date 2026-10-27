@@ -1,5 +1,5 @@
 import { ABI as IntentGatewayV2ABI } from "@/abis/IntentGatewayV2"
-import { ENTRY_POINT_V08, ENTRY_POINT_V09, KNOWN_ENTRY_POINTS } from "@/configs/chain"
+import { ENTRY_POINT_V09 } from "@/configs/chain"
 import type {
 	Bid,
 	FillOptions,
@@ -16,28 +16,9 @@ import { concat, decodeEventLog, parseEventLogs, recoverAddress, slice, toEventS
 import type { Hex, Log } from "viem"
 import { retryTransientBundlerErrors } from "./bundlerRetry"
 import { CryptoUtils } from "./CryptoUtils"
-import { readSelectionFormat, refreshSelectionFormat, selectionOffStateDiff, type SelectionFormat } from "./selection"
+import { readSelectionFormat, selectionOffStateDiff } from "./selection"
 import type { IntentGatewayContext } from "./types"
 import { BundlerMethod } from "./types"
-
-/**
- * The selection format the SolverAccount for each EntryPoint calls `select` with, and so the only
- * format a bid signed for that EntryPoint can be selected under.
- */
-const SELECTION_FORMAT_BY_ENTRY_POINT = new Map<string, SelectionFormat>([
-	[ENTRY_POINT_V09.toLowerCase(), "userOpHash"],
-	[ENTRY_POINT_V08.toLowerCase(), "address"],
-])
-
-/**
- * Where a bid executes: the EntryPoint its solver signed it for, its userOpHash there, and the
- * destination gateway's selection format.
- */
-interface BidRoute {
-	entryPoint: HexString
-	userOpHash: HexString
-	format: SelectionFormat
-}
 
 /** The EntryPoint events that delimit one operation's logs inside a bundle transaction. */
 const ENTRY_POINT_EVENT_ABI = [
@@ -112,14 +93,11 @@ export interface BidParams {
  * IntentsV2 context, crypto utilities, the order, the solver's UserOperation, and
  * the decoded fill options.
  *
- * The bid runs on the EntryPoint its solver signed it for, found by recovering the
- * solver's signature under each of {@link KNOWN_ENTRY_POINTS}. A v0.9 bid can only be
- * selected on a gateway that selects by userOpHash and a v0.8 bid only on one that
- * selects by address, since each SolverAccount calls its own form of `select`. A bid
- * signed for no known EntryPoint, or for one the destination gateway does not pair
- * with, fails {@link simulate} and {@link execute}.
+ * Bids run on EntryPoint v0.9 and are selected by their userOpHash. A bid its solver
+ * did not sign for v0.9, or one on a gateway that does not select by userOpHash, fails
+ * {@link simulate} and {@link execute}.
  *
- * The EntryPoint and the session-key signature over the `SelectSolver` message are
+ * The userOpHash and the session-key signature over the `SelectSolver` message are
  * resolved lazily and cached, so each is worked out at most once whether the consumer
  * calls {@link simulate}, {@link execute}, or both.
  */
@@ -143,8 +121,8 @@ export class BidImpl implements Bid {
 	/** Cached session-key signature over the `SelectSolver` message. */
 	private cachedSignature?: HexString
 
-	/** Cached result of {@link route}. */
-	private cachedRoute?: BidRoute
+	/** Cached result of {@link selectableUserOpHash}. */
+	private cachedUserOpHash?: HexString
 
 	constructor(params: BidParams) {
 		this.ctx = params.ctx
@@ -179,46 +157,31 @@ export class BidImpl implements Bid {
 	}
 
 	/**
-	 * Finds the EntryPoint this bid's solver signed it for and checks that the
-	 * destination gateway's selection format pairs with it, reading the format
-	 * again before refusing a bid in case the gateway was upgraded since it was
-	 * cached. Caches the result.
+	 * This bid's userOpHash on EntryPoint v0.9, once it is checked that the solver
+	 * signed the bid for v0.9 and that the destination gateway selects by userOpHash.
+	 * Caches the result.
 	 *
-	 * @throws If the solver's signature recovers under no known EntryPoint, the
-	 *   EntryPoint does not pair with the gateway's selection format, or the
-	 *   format cannot be read.
+	 * @throws If the solver's signature does not recover under v0.9, the gateway
+	 *   selects by address, or its selection format cannot be read.
 	 */
-	private async route(): Promise<BidRoute> {
-		if (this.cachedRoute) return this.cachedRoute
+	private async selectableUserOpHash(): Promise<HexString> {
+		if (this.cachedUserOpHash) return this.cachedUserOpHash
 
 		const chainId = this.chainId()
-		let signed: { entryPoint: HexString; userOpHash: HexString } | undefined
-		for (const entryPoint of KNOWN_ENTRY_POINTS) {
-			const userOpHash = CryptoUtils.computeUserOpHash(this.userOp, entryPoint, chainId)
-			if (await this.signedBySolver(userOpHash)) {
-				signed = { entryPoint, userOpHash }
-				break
-			}
-		}
-		if (!signed) {
-			throw new Error(`Bid from solver=${this.solverAddress} is not signed for a known EntryPoint`)
+		const userOpHash = CryptoUtils.computeUserOpHash(this.userOp, ENTRY_POINT_V09, chainId)
+		if (!(await this.signedBySolver(userOpHash))) {
+			throw new Error(`Bid from solver=${this.solverAddress} is not signed for EntryPoint v0.9`)
 		}
 
-		const pairsWith = SELECTION_FORMAT_BY_ENTRY_POINT.get(signed.entryPoint.toLowerCase())
-		const cached = readSelectionFormat(this.ctx.dest.client, chainId, this.intentGatewayV2Address)
-		let format = await cached
-		if (pairsWith !== format) {
-			format = await refreshSelectionFormat(this.ctx.dest.client, chainId, this.intentGatewayV2Address, cached)
-		}
-		if (pairsWith !== format) {
+		const format = await readSelectionFormat(this.ctx.dest.client, chainId, this.intentGatewayV2Address)
+		if (format !== "userOpHash") {
 			throw new Error(
-				`Bid from solver=${this.solverAddress} is signed for EntryPoint ${signed.entryPoint}, ` +
-					`which the destination gateway's ${format} selection does not pair with`,
+				`Bid from solver=${this.solverAddress} cannot be selected: the destination gateway selects by ${format}`,
 			)
 		}
 
-		this.cachedRoute = { ...signed, format }
-		return this.cachedRoute
+		this.cachedUserOpHash = userOpHash
+		return userOpHash
 	}
 
 	/**
@@ -238,16 +201,15 @@ export class BidImpl implements Bid {
 	}
 
 	/**
-	 * Resolves the session key, signs the `SelectSolver` message for this bid in
-	 * the destination gateway's selection format, and caches the signature. Signs
-	 * at most once per bid.
+	 * Resolves the session key, signs the `SelectSolver` message over this bid's
+	 * userOpHash, and caches the signature. Signs at most once per bid.
 	 *
-	 * @throws If the bid cannot be routed, or the session key is missing.
+	 * @throws If the bid cannot be selected, or the session key is missing.
 	 */
 	private async signSelection(): Promise<HexString> {
 		if (this.cachedSignature) return this.cachedSignature
 
-		const { format, userOpHash } = await this.route()
+		const userOpHash = await this.selectableUserOpHash()
 		const commitment = this.order.id as HexString
 		const sessionKeyAddress = this.order.session as HexString
 
@@ -258,45 +220,36 @@ export class BidImpl implements Bid {
 			throw new Error(`SessionKey not found for commitment: ${commitment}`)
 		}
 
-		this.cachedSignature =
-			format === "userOpHash"
-				? await CryptoUtils.signUserOpHashSelection(
-						commitment,
-						userOpHash,
-						this.domainSeparator,
-						sessionKeyData.privateKey,
-					)
-				: await CryptoUtils.signLegacySolverSelection(
-						commitment,
-						this.solverAddress,
-						this.domainSeparator,
-						sessionKeyData.privateKey,
-					)
+		this.cachedSignature = await CryptoUtils.signUserOpHashSelection(
+			commitment,
+			userOpHash,
+			this.domainSeparator,
+			sessionKeyData.privateKey,
+		)
 		return this.cachedSignature
 	}
 
 	/**
-	 * Simulates this bid with the bundler's `eth_estimateUserOperationGas` on the
-	 * EntryPoint the bid was signed for. The solver's UserOperation is sent as
-	 * signed, so a spent nonce, a failing paymaster or an EntryPoint the account
-	 * does not trust fails here as it would fail submission.
+	 * Simulates this bid with the bundler's `eth_estimateUserOperationGas` on
+	 * EntryPoint v0.9. The solver's UserOperation is sent as signed, so a spent
+	 * nonce or a failing paymaster fails here as it would fail submission.
 	 *
 	 * The gateway's solver selection is turned off with {@link selectionOffStateDiff}
 	 * and no selection is signed: the bundler estimates under its own gas limits,
 	 * which change the userOpHash a selection signs.
 	 *
-	 * @throws If the bid cannot be routed, or the bundler rejects the operation. A
+	 * @throws If the bid cannot be selected, or the bundler rejects the operation. A
 	 *   transient bundler failure is retried first.
 	 */
 	async simulate(): Promise<void> {
-		const { entryPoint } = await this.route()
+		await this.selectableUserOpHash()
 
 		try {
 			const { slot, value } = await selectionOffStateDiff(this.ctx.dest.client, this.intentGatewayV2Address)
 			await retryTransientBundlerErrors(() =>
 				this.crypto.sendBundler(BundlerMethod.ETH_ESTIMATE_USER_OPERATION_GAS, [
 					CryptoUtils.prepareBundlerCall(this.userOp),
-					entryPoint,
+					ENTRY_POINT_V09,
 					{ [this.intentGatewayV2Address]: { stateDiff: { [slot]: value } } },
 				]),
 			)
@@ -308,12 +261,12 @@ export class BidImpl implements Bid {
 	/**
 	 * Signs the `SelectSolver` message with the session key, appends it to the
 	 * solver's existing UserOp signature, and submits the UserOperation to the
-	 * bundler on the EntryPoint the bid was signed for. Waits for the receipt and
-	 * reads `OrderFilled` / `PartialFill` logs to determine fill status.
+	 * bundler on EntryPoint v0.9. Waits for the receipt and reads `OrderFilled` /
+	 * `PartialFill` logs to determine fill status.
 	 *
 	 * @returns A {@link SelectBidResult} with the submitted UserOperation, its hash,
 	 *   the solver address, transaction hash, and fill status.
-	 * @throws If the bundler is not configured, the bid cannot be routed, the
+	 * @throws If the bundler is not configured, the bid cannot be selected, the
 	 *   session key is missing, or the bundler rejects the UserOperation.
 	 */
 	async execute(): Promise<SelectBidResult> {
@@ -323,7 +276,6 @@ export class BidImpl implements Bid {
 			throw new Error("Bundler URL not configured")
 		}
 
-		const { entryPoint } = await this.route()
 		const sessionSignature = await this.signSelection()
 
 		const finalSignature = concat([this.userOp.signature as Hex, sessionSignature as Hex]) as HexString
@@ -334,7 +286,7 @@ export class BidImpl implements Bid {
 
 		const userOpHash = await this.crypto.sendBundler<HexString>(BundlerMethod.ETH_SEND_USER_OPERATION, [
 			CryptoUtils.prepareBundlerCall(signedUserOp),
-			entryPoint,
+			ENTRY_POINT_V09,
 		])
 
 		let txnHash: HexString | undefined
@@ -364,7 +316,7 @@ export class BidImpl implements Bid {
 			)
 			const fills = parseEventLogs({
 				abi: IntentGatewayV2ABI,
-				logs: userOperationLogs(chainReceipt.logs, entryPoint, userOpHash),
+				logs: userOperationLogs(chainReceipt.logs, ENTRY_POINT_V09, userOpHash),
 				eventName: ["OrderFilled", "PartialFill"],
 			}).filter(
 				(event) =>

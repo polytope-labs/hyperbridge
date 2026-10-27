@@ -1,7 +1,7 @@
-import { ENTRY_POINT_V08, ENTRY_POINT_V09 } from "@/configs/chain"
+import { ENTRY_POINT_V09 } from "@/configs/chain"
 import { BidImpl } from "@/protocols/intents/Bid"
 import { BundlerRpcError } from "@/protocols/intents/bundlerRetry"
-import { CryptoUtils, LEGACY_SELECT_SOLVER_TYPEHASH, SELECT_SOLVER_TYPEHASH } from "@/protocols/intents/CryptoUtils"
+import { CryptoUtils, SELECT_SOLVER_TYPEHASH } from "@/protocols/intents/CryptoUtils"
 import type { HexString, Order, PackedUserOperation } from "@/types"
 import { concat, pad } from "viem"
 import { privateKeyToAccount } from "viem/accounts"
@@ -58,13 +58,8 @@ function bundlerAnswering(...replies: Record<string, unknown>[]) {
 	return requests
 }
 
-/** A bid for `entryPoint` on the gateway at `gateway`, which selects in the format `typehash` names. */
-async function bidOn(
-	entryPoint: HexString,
-	gateway: HexString,
-	typehash: HexString,
-	bundlerUrl: string | null = "https://bundler.invalid",
-) {
+/** A bid signed for EntryPoint v0.9 on the gateway at `gateway`, which selects by userOpHash. */
+async function bidOn(gateway: HexString, bundlerUrl: string | null = "https://bundler.invalid") {
 	const unsigned: PackedUserOperation = {
 		sender: solver.address,
 		nonce: 1n,
@@ -77,13 +72,13 @@ async function bidOn(
 		signature: "0x",
 	}
 	const solverSignature = await solver.signTypedData(
-		CryptoUtils.packedUserOpTypedData(unsigned, entryPoint, BigInt(CHAIN_ID)),
+		CryptoUtils.packedUserOpTypedData(unsigned, ENTRY_POINT_V09, BigInt(CHAIN_ID)),
 	)
 	const userOp = { ...unsigned, signature: concat([COMMITMENT, solverSignature]) }
 
 	const client = {
 		chain: { id: CHAIN_ID },
-		readContract: vi.fn(async () => typehash),
+		readContract: vi.fn(async () => SELECT_SOLVER_TYPEHASH),
 		getStorageAt: vi.fn(async (_request: Record<string, unknown>) => PARAMS_WORD),
 		call: vi.fn(async (_request: Record<string, unknown>) => ({ data: "0x" })),
 	}
@@ -116,48 +111,33 @@ async function bidOn(
 afterEach(() => vi.unstubAllGlobals())
 
 describe("BidImpl.simulate", () => {
-	it.each([
-		["v0.9", "userOpHash", ENTRY_POINT_V09, SELECT_SOLVER_TYPEHASH, "0x0000000000000000000000000000000000000b01"],
-		[
-			"v0.8",
-			"address",
-			ENTRY_POINT_V08,
-			LEGACY_SELECT_SOLVER_TYPEHASH,
-			"0x0000000000000000000000000000000000000b02",
-		],
-	] as const)(
-		"estimates a %s bid's UserOperation as signed on its EntryPoint, with %s selection turned off",
-		async (_version, _format, entryPoint, typehash, gateway) => {
-			const requests = bundlerAnswering(ESTIMATE)
-			const { bid, client, userOp } = await bidOn(entryPoint, gateway, typehash)
+	it("estimates the bid's UserOperation as signed on EntryPoint v0.9, with solver selection turned off", async () => {
+		const gateway = "0x0000000000000000000000000000000000000b01" as HexString
+		const requests = bundlerAnswering(ESTIMATE)
+		const { bid, client, userOp } = await bidOn(gateway)
 
-			await bid.simulate()
+		await bid.simulate()
 
-			expect(client.getStorageAt).toHaveBeenCalledWith({ address: gateway, slot: PARAMS_SLOT })
-			expect(requests).toHaveLength(1)
-			expect(requests[0].method).toBe("eth_estimateUserOperationGas")
-			expect(requests[0].params).toEqual([
-				// The solver's signature alone: no session selection appended.
-				CryptoUtils.prepareBundlerCall(userOp),
-				entryPoint,
-				// The gateway's own dispatcher kept, the `solverSelection` byte above it cleared.
-				{ [gateway]: { stateDiff: { [PARAMS_SLOT]: `0x${"0".repeat(24)}${DISPATCHER.slice(2)}` } } },
-			])
-			// Nothing is run over the chain RPC, so no native value is forwarded.
-			expect(client.call).not.toHaveBeenCalled()
-		},
-	)
+		expect(client.getStorageAt).toHaveBeenCalledWith({ address: gateway, slot: PARAMS_SLOT })
+		expect(requests).toHaveLength(1)
+		expect(requests[0].method).toBe("eth_estimateUserOperationGas")
+		expect(requests[0].params).toEqual([
+			// The solver's signature alone: no session selection appended.
+			CryptoUtils.prepareBundlerCall(userOp),
+			ENTRY_POINT_V09,
+			// The gateway's own dispatcher kept, the `solverSelection` byte above it cleared.
+			{ [gateway]: { stateDiff: { [PARAMS_SLOT]: `0x${"0".repeat(24)}${DISPATCHER.slice(2)}` } } },
+		])
+		// Nothing is run over the chain RPC, so no native value is forwarded.
+		expect(client.call).not.toHaveBeenCalled()
+	})
 
 	it.each([
 		[-32500, "validation reverted: AA25 invalid account nonce"],
 		[-32521, "ERC20: transfer amount exceeds balance"],
 	])("fails at once when the bundler rejects the operation with %i", async (code, message) => {
 		const requests = bundlerAnswering({ error: { code, message } })
-		const { bid } = await bidOn(
-			ENTRY_POINT_V09,
-			"0x0000000000000000000000000000000000000b03",
-			SELECT_SOLVER_TYPEHASH,
-		)
+		const { bid } = await bidOn("0x0000000000000000000000000000000000000b02")
 
 		const error = await bid.simulate().catch((e: unknown) => e)
 
@@ -174,11 +154,7 @@ describe("BidImpl.simulate", () => {
 			{ error: { code: -32603, message: "internal error: rpc provider error" } },
 			ESTIMATE,
 		)
-		const { bid } = await bidOn(
-			ENTRY_POINT_V09,
-			"0x0000000000000000000000000000000000000b04",
-			SELECT_SOLVER_TYPEHASH,
-		)
+		const { bid } = await bidOn("0x0000000000000000000000000000000000000b03")
 
 		await bid.simulate()
 
@@ -187,12 +163,7 @@ describe("BidImpl.simulate", () => {
 	})
 
 	it("fails without a bundler", async () => {
-		const { bid } = await bidOn(
-			ENTRY_POINT_V09,
-			"0x0000000000000000000000000000000000000b05",
-			SELECT_SOLVER_TYPEHASH,
-			null,
-		)
+		const { bid } = await bidOn("0x0000000000000000000000000000000000000b04", null)
 
 		await expect(bid.simulate()).rejects.toThrow("Simulation failed: Bundler URL not configured")
 	})

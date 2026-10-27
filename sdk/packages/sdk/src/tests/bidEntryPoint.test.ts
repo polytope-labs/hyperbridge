@@ -1,7 +1,10 @@
 import { ENTRY_POINT_V08, ENTRY_POINT_V09 } from "@/configs/chain"
 import { BidImpl } from "@/protocols/intents/Bid"
 import { CryptoUtils, LEGACY_SELECT_SOLVER_TYPEHASH, SELECT_SOLVER_TYPEHASH } from "@/protocols/intents/CryptoUtils"
-import type { HexString, Order, PackedUserOperation } from "@/types"
+import { encodeERC7821ExecuteBatch } from "@/protocols/intents/decode-utils"
+import { encodeFillOrder } from "@/protocols/intents/fillOrderCodec"
+import { orderCommitment, transformOrderForContract } from "@/protocols/intents/utils"
+import type { ERC7821Call, FillOptions, HexString, Order, PackedUserOperation } from "@/types"
 import {
 	concat,
 	encodeAbiParameters,
@@ -17,7 +20,6 @@ import { privateKeyToAccount } from "viem/accounts"
 import { describe, expect, it, vi } from "vitest"
 
 const CHAIN_ID = 8453
-const COMMITMENT = `0x${"66".repeat(32)}` as HexString
 const TOKEN = pad("0x55", { size: 32 }) as HexString
 const solver = privateKeyToAccount("0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80")
 const SESSION_KEY = "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d" as HexString
@@ -34,8 +36,7 @@ const BY_ADDRESS = {
 }
 type Gateway = typeof BY_USER_OP_HASH
 
-const order: Order = {
-	id: COMMITMENT,
+const placed: Order = {
 	user: TOKEN,
 	source: "EVM-1",
 	destination: `EVM-${CHAIN_ID}`,
@@ -47,20 +48,48 @@ const order: Order = {
 	inputs: [{ token: TOKEN, amount: 100n }],
 	output: { beneficiary: TOKEN, assets: [{ token: TOKEN, amount: 100n }], call: "0x" },
 }
+const COMMITMENT = orderCommitment(placed)
+const order: Order = { ...placed, id: COMMITMENT }
+
+const fillOptions: FillOptions = {
+	outputs: [{ token: TOKEN, amount: 100n }],
+	inputs: [{ token: TOKEN, amount: 100n }],
+	relayerFee: 0n,
+	nativeDispatchFee: 0n,
+	validUntil: 0n,
+}
+
+/** A call of `fillOrder` for `filled` on `gateway`. */
+function fillCall(gateway: Gateway, filled: Order = placed): ERC7821Call {
+	return {
+		target: gateway.address,
+		value: 0n,
+		data: encodeFillOrder(transformOrderForContract(filled) as Order, fillOptions),
+	}
+}
+
+/** A batch whose only call fills `order` on `gateway`. */
+function fillCallData(gateway: Gateway): HexString {
+	return encodeERC7821ExecuteBatch([fillCall(gateway)])
+}
 
 /**
- * A bid as `BidManager.prepareSubmitBid` builds it: a nonce keyed to the order, its session and
- * the calldata, and a signature of the commitment, then the solver's signature for `entryPoint`.
+ * A bid as `BidManager.prepareSubmitBid` builds it for `order`: `callData`, a nonce keyed to the
+ * order, its session and the calldata, and a signature of the commitment, then the solver's
+ * signature for `entryPoint`.
  */
 async function signedFor(
 	entryPoint: HexString,
-	nonce = CryptoUtils.bidNonceKey(COMMITMENT, session.address, "0x1234") << 64n,
+	{
+		callData = fillCallData(BY_USER_OP_HASH),
+		nonce = CryptoUtils.bidNonceKey(COMMITMENT, session.address, callData) << 64n,
+	}: { callData?: HexString; nonce?: bigint } = {},
 ): Promise<PackedUserOperation> {
 	const userOp: PackedUserOperation = {
 		sender: solver.address,
 		nonce,
 		initCode: "0x",
-		callData: "0x1234",
+		callData,
 		accountGasLimits: `0x${"00".repeat(32)}`,
 		preVerificationGas: 1n,
 		gasFees: `0x${"00".repeat(32)}`,
@@ -122,13 +151,7 @@ function bidOn(gateway: Gateway, userOp: PackedUserOperation) {
 		crypto,
 		order,
 		fillerBid: { filler: "solver", bid: CryptoUtils.bidId(userOp.callData), userOp, deposit: 0n },
-		fillOptions: {
-			outputs: [{ token: TOKEN, amount: 100n }],
-			inputs: [{ token: TOKEN, amount: 100n }],
-			relayerFee: 0n,
-			nativeDispatchFee: 0n,
-			validUntil: 0n,
-		},
+		fillOptions,
 		priceOutputs: async () => null,
 		sessionPrivateKey: SESSION_KEY,
 	})
@@ -209,8 +232,12 @@ describe("BidImpl on EntryPoint v0.9", () => {
 	})
 
 	it("drops a bid whose nonce key does not bind the order, without asking the bundler", async () => {
-		const unbound = CryptoUtils.bidNonceKey(COMMITMENT, solver.address, "0x1234") << 64n
-		const { bid, client, sendBundler } = bidOn(BY_USER_OP_HASH, await signedFor(ENTRY_POINT_V09, unbound))
+		const callData = fillCallData(BY_USER_OP_HASH)
+		const nonce = CryptoUtils.bidNonceKey(COMMITMENT, solver.address, callData) << 64n
+		const { bid, client, sendBundler } = bidOn(
+			BY_USER_OP_HASH,
+			await signedFor(ENTRY_POINT_V09, { callData, nonce }),
+		)
 
 		await expect(bid.simulate()).rejects.toThrow("has a nonce key that does not bind order")
 		await expect(bid.execute()).rejects.toThrow("has a nonce key that does not bind order")
@@ -220,16 +247,36 @@ describe("BidImpl on EntryPoint v0.9", () => {
 
 	it("accepts a later sequence of the bid's nonce key", async () => {
 		// The same calldata run once already, as when a partially filled order is bid on again.
-		const nextSequence = (CryptoUtils.bidNonceKey(COMMITMENT, session.address, "0x1234") << 64n) | 1n
-		const { bid, sendBundler } = bidOn(BY_USER_OP_HASH, await signedFor(ENTRY_POINT_V09, nextSequence))
+		const callData = fillCallData(BY_USER_OP_HASH)
+		const nonce = (CryptoUtils.bidNonceKey(COMMITMENT, session.address, callData) << 64n) | 1n
+		const { bid, sendBundler } = bidOn(BY_USER_OP_HASH, await signedFor(ENTRY_POINT_V09, { callData, nonce }))
 
 		await bid.simulate()
 
 		expect(bundlerParams(sendBundler, "eth_estimateUserOperationGas")[1]).toBe(ENTRY_POINT_V09)
 	})
 
+	const another: Order = { ...placed, nonce: 2n }
+	it.each([
+		["another order", [fillCall(BY_USER_OP_HASH, another)]],
+		["this order and another", [fillCall(BY_USER_OP_HASH), fillCall(BY_USER_OP_HASH, another)]],
+		["this order on another gateway", [fillCall(BY_ADDRESS)]],
+		["nothing", []],
+	])("drops a bid whose calldata fills %s, without asking the bundler", async (_name, calls) => {
+		const callData = encodeERC7821ExecuteBatch(calls)
+		const { bid, client, sendBundler } = bidOn(BY_USER_OP_HASH, await signedFor(ENTRY_POINT_V09, { callData }))
+
+		await expect(bid.simulate()).rejects.toThrow(`does not fill order ${COMMITMENT} alone`)
+		await expect(bid.execute()).rejects.toThrow(`does not fill order ${COMMITMENT} alone`)
+		expect(client.readContract).not.toHaveBeenCalled()
+		expect(sendBundler).not.toHaveBeenCalled()
+	})
+
 	it("drops a bid on a gateway that selects by address", async () => {
-		const { bid, sendBundler } = bidOn(BY_ADDRESS, await signedFor(ENTRY_POINT_V09))
+		const { bid, sendBundler } = bidOn(
+			BY_ADDRESS,
+			await signedFor(ENTRY_POINT_V09, { callData: fillCallData(BY_ADDRESS) }),
+		)
 
 		await expect(bid.simulate()).rejects.toThrow("the destination gateway selects by address")
 		await expect(bid.execute()).rejects.toThrow("the destination gateway selects by address")
@@ -241,9 +288,10 @@ describe("BidImpl on EntryPoint v0.9", () => {
 			address: "0x0000000000000000000000000000000000000a03",
 			typehash: SELECT_SOLVER_TYPEHASH,
 		}
-		const first = bidOn(gateway, await signedFor(ENTRY_POINT_V09))
+		const callData = fillCallData(gateway)
+		const first = bidOn(gateway, await signedFor(ENTRY_POINT_V09, { callData }))
 		await first.bid.simulate()
-		const second = bidOn(gateway, await signedFor(ENTRY_POINT_V09))
+		const second = bidOn(gateway, await signedFor(ENTRY_POINT_V09, { callData }))
 		await second.bid.simulate()
 		await second.bid.execute()
 

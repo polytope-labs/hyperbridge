@@ -2,7 +2,10 @@ import { ENTRY_POINT_V09 } from "@/configs/chain"
 import { BidImpl } from "@/protocols/intents/Bid"
 import { BundlerRpcError } from "@/protocols/intents/bundlerRetry"
 import { CryptoUtils, SELECT_SOLVER_TYPEHASH } from "@/protocols/intents/CryptoUtils"
-import type { HexString, Order, PackedUserOperation } from "@/types"
+import { encodeERC7821ExecuteBatch } from "@/protocols/intents/decode-utils"
+import { encodeFillOrder } from "@/protocols/intents/fillOrderCodec"
+import { orderCommitment, transformOrderForContract } from "@/protocols/intents/utils"
+import type { FillOptions, HexString, Order, PackedUserOperation } from "@/types"
 import { concat, pad } from "viem"
 import { privateKeyToAccount } from "viem/accounts"
 import { afterEach, describe, expect, it, vi } from "vitest"
@@ -14,7 +17,6 @@ vi.mock("@/utils", async (importOriginal) => ({
 }))
 
 const CHAIN_ID = 8453
-const COMMITMENT = `0x${"66".repeat(32)}` as HexString
 const TOKEN = pad("0x55", { size: 32 }) as HexString
 const NATIVE = pad("0x", { size: 32 }) as HexString
 const DISPATCHER = `0x${"d1".repeat(20)}` as HexString
@@ -27,8 +29,7 @@ const ESTIMATE = {
 	result: { callGasLimit: "0x186a0", verificationGasLimit: "0x186a0", preVerificationGas: "0x186a0" },
 }
 
-const order: Order = {
-	id: COMMITMENT,
+const placed: Order = {
 	user: TOKEN,
 	source: "EVM-1",
 	destination: `EVM-${CHAIN_ID}`,
@@ -39,6 +40,16 @@ const order: Order = {
 	predispatch: { assets: [], call: "0x" },
 	inputs: [{ token: TOKEN, amount: 100n }],
 	output: { beneficiary: TOKEN, assets: [{ token: NATIVE, amount: 7n }], call: "0x" },
+}
+const COMMITMENT = orderCommitment(placed)
+const order: Order = { ...placed, id: COMMITMENT }
+
+const fillOptions: FillOptions = {
+	outputs: [{ token: NATIVE, amount: 7n }],
+	inputs: [{ token: TOKEN, amount: 100n }],
+	relayerFee: 0n,
+	nativeDispatchFee: 3n,
+	validUntil: 0n,
 }
 
 /**
@@ -58,13 +69,16 @@ function bundlerAnswering(...replies: Record<string, unknown>[]) {
 	return requests
 }
 
-/** A bid signed for EntryPoint v0.9 on the gateway at `gateway`, which selects by userOpHash. */
+/** A bid filling `order` on the gateway at `gateway`, which selects by userOpHash, signed for EntryPoint v0.9. */
 async function bidOn(gateway: HexString, bundlerUrl: string | null = "https://bundler.invalid") {
+	const callData = encodeERC7821ExecuteBatch([
+		{ target: gateway, value: 0n, data: encodeFillOrder(transformOrderForContract(placed) as Order, fillOptions) },
+	])
 	const unsigned: PackedUserOperation = {
 		sender: solver.address,
-		nonce: CryptoUtils.bidNonceKey(COMMITMENT, order.session as HexString, "0x1234") << 64n,
+		nonce: CryptoUtils.bidNonceKey(COMMITMENT, order.session, callData) << 64n,
 		initCode: "0x",
-		callData: "0x1234",
+		callData,
 		accountGasLimits: `0x${"00".repeat(32)}`,
 		preVerificationGas: 1n,
 		gasFees: `0x${"00".repeat(32)}`,
@@ -96,13 +110,7 @@ async function bidOn(gateway: HexString, bundlerUrl: string | null = "https://bu
 		crypto: new CryptoUtils(ctx),
 		order,
 		fillerBid: { filler: "solver", bid: CryptoUtils.bidId(userOp.callData), userOp, deposit: 0n },
-		fillOptions: {
-			outputs: [{ token: NATIVE, amount: 7n }],
-			inputs: [{ token: TOKEN, amount: 100n }],
-			relayerFee: 0n,
-			nativeDispatchFee: 3n,
-			validUntil: 0n,
-		},
+		fillOptions,
 		priceOutputs: async () => null,
 	})
 	return { bid, client, userOp }

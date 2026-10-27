@@ -2,7 +2,10 @@ import { ABI } from "@/abis/IntentGatewayV2"
 import { ENTRY_POINT_V09 } from "@/configs/chain"
 import { BidImpl, userOperationLogs } from "@/protocols/intents/Bid"
 import { CryptoUtils, SELECT_SOLVER_TYPEHASH } from "@/protocols/intents/CryptoUtils"
-import type { HexString, Order, PackedUserOperation } from "@/types"
+import { encodeERC7821ExecuteBatch } from "@/protocols/intents/decode-utils"
+import { encodeFillOrder } from "@/protocols/intents/fillOrderCodec"
+import { orderCommitment, transformOrderForContract } from "@/protocols/intents/utils"
+import type { FillOptions, HexString, Order, PackedUserOperation } from "@/types"
 import { concat, encodeAbiParameters, encodeEventTopics, pad, toEventSelector, type Log } from "viem"
 import { privateKeyToAccount } from "viem/accounts"
 import { describe, expect, it, vi } from "vitest"
@@ -71,21 +74,7 @@ describe("BidImpl.execute fill attribution", () => {
 	const solver = privateKeyToAccount(`0x${"02".repeat(32)}`)
 	const SOLVER = solver.address
 	const TOKEN = pad("0x55", { size: 32 }) as HexString
-	const COMMITMENT = `0x${"66".repeat(32)}` as HexString
-	const userOp: PackedUserOperation = {
-		sender: SOLVER,
-		// Keyed to the order below, whose session is `SOLVER`.
-		nonce: CryptoUtils.bidNonceKey(COMMITMENT, SOLVER, "0x1234") << 64n,
-		initCode: "0x",
-		callData: "0x1234",
-		accountGasLimits: `0x${"00".repeat(32)}`,
-		preVerificationGas: 1n,
-		gasFees: `0x${"00".repeat(32)}`,
-		paymasterAndData: "0x",
-		signature: "0x",
-	}
-	const order: Order = {
-		id: COMMITMENT,
+	const placed: Order = {
 		user: TOKEN,
 		source: "EVM-1",
 		destination: "EVM-8453",
@@ -96,6 +85,30 @@ describe("BidImpl.execute fill attribution", () => {
 		predispatch: { assets: [], call: "0x" },
 		inputs: [{ token: TOKEN, amount: 100n }],
 		output: { beneficiary: TOKEN, assets: [{ token: TOKEN, amount: 100n }], call: "0x" },
+	}
+	const COMMITMENT = orderCommitment(placed)
+	const order: Order = { ...placed, id: COMMITMENT }
+	const fillOptions: FillOptions = {
+		outputs: [{ token: TOKEN, amount: 100n }],
+		inputs: [{ token: TOKEN, amount: 100n }],
+		relayerFee: 0n,
+		nativeDispatchFee: 0n,
+		validUntil: 0n,
+	}
+	const callData = encodeERC7821ExecuteBatch([
+		{ target: GATEWAY, value: 0n, data: encodeFillOrder(transformOrderForContract(placed) as Order, fillOptions) },
+	])
+	const userOp: PackedUserOperation = {
+		sender: SOLVER,
+		// Keyed to the order above, whose session is `SOLVER`.
+		nonce: CryptoUtils.bidNonceKey(COMMITMENT, SOLVER, callData) << 64n,
+		initCode: "0x",
+		callData,
+		accountGasLimits: `0x${"00".repeat(32)}`,
+		preVerificationGas: 1n,
+		gasFees: `0x${"00".repeat(32)}`,
+		paymasterAndData: "0x",
+		signature: "0x",
 	}
 
 	function partialFill(filler: HexString, amount: bigint, emitter = GATEWAY): Log {
@@ -143,13 +156,7 @@ describe("BidImpl.execute fill attribution", () => {
 			crypto,
 			order,
 			fillerBid: { filler: "solver", bid: CryptoUtils.bidId(userOp.callData), userOp, deposit: 0n },
-			fillOptions: {
-				outputs: [{ token: TOKEN, amount: 100n }],
-				inputs: [{ token: TOKEN, amount: 100n }],
-				relayerFee: 0n,
-				nativeDispatchFee: 0n,
-				validUntil: 0n,
-			},
+			fillOptions,
 			priceOutputs: async () => null,
 		})
 		vi.spyOn(crypto, "sendBundler").mockImplementation(async (method, params) => {

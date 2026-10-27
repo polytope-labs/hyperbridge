@@ -15,10 +15,12 @@ The session's selection is not signed or sent. The bundler simulates the operati
 `preVerificationGas` and fees changed, so the userOpHash inside the simulation is not the one a
 selection signs. Without the selection, `SolverAccount.validateUserOp` reports a signature failure
 before its own checks, which the bundler tolerates while estimating. Even a junk session signature
-would pass.
+would pass. With selection off, the gateway would also fill an order the session never selected.
 
-So `BidImpl` makes the account's checks on the solver's part itself, before any bundler call:
+So `BidImpl` makes those checks itself, before any bundler call:
 
+- the calldata's `fillOrder` calls on the destination gateway fill `order.id` and nothing else, and
+  there is at least one;
 - the signature opens with `order.id`;
 - the nonce key (`nonce >> 64`) is `CryptoUtils.bidNonceKey(order.id, order.session, callData)`;
 - the solver's signature recovers under v0.9.

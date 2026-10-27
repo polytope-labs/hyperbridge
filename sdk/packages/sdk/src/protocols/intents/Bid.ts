@@ -12,13 +12,23 @@ import type {
 } from "@/types"
 import { normalizeStateMachineId, retryPromise } from "@/utils"
 import type Decimal from "decimal.js"
-import { concat, decodeEventLog, parseEventLogs, recoverAddress, slice, toEventSelector } from "viem"
+import {
+	concat,
+	decodeEventLog,
+	decodeFunctionData,
+	parseEventLogs,
+	recoverAddress,
+	slice,
+	toEventSelector,
+} from "viem"
 import type { Hex, Log } from "viem"
 import { retryTransientBundlerErrors } from "./bundlerRetry"
 import { CryptoUtils } from "./CryptoUtils"
+import { decodeERC7821ExecuteBatch } from "./decode-utils"
 import { readSelectionFormat, selectionOffStateDiff } from "./selection"
 import type { IntentGatewayContext } from "./types"
 import { BundlerMethod } from "./types"
+import { orderCommitment } from "./utils"
 
 /** The EntryPoint events that delimit one operation's logs inside a bundle transaction. */
 const ENTRY_POINT_EVENT_ABI = [
@@ -73,6 +83,22 @@ export function userOperationLogs(logs: Log[], entryPoint: HexString, userOpHash
 	return logs.slice(start + 1, end)
 }
 
+/**
+ * The commitment of each order a bid's ERC-7821 batch `callData` fills on `gateway`, one per
+ * `fillOrder` call. Calls to other contracts, and calls that are not `fillOrder`, are left out.
+ */
+function filledCommitments(callData: HexString, gateway: HexString): HexString[] {
+	return (decodeERC7821ExecuteBatch(callData) ?? []).flatMap((call) => {
+		if (call.target.toLowerCase() !== gateway.toLowerCase()) return []
+		try {
+			const decoded = decodeFunctionData({ abi: IntentGatewayV2ABI, data: call.data })
+			return decoded.functionName === "fillOrder" ? [orderCommitment(decoded.args[0] as unknown as Order)] : []
+		} catch {
+			return []
+		}
+	})
+}
+
 /** Constructor parameters for {@link BidImpl}. */
 export interface BidParams {
 	ctx: IntentGatewayContext
@@ -94,9 +120,9 @@ export interface BidParams {
  * the decoded fill options.
  *
  * Bids run on EntryPoint v0.9 and are selected by their userOpHash. A bid fails
- * {@link simulate} and {@link execute} when its solver did not sign it for v0.9 and
- * this order, when its nonce key does not bind the order, or when the gateway does not
- * select by userOpHash.
+ * {@link simulate} and {@link execute} when its calldata does not fill this order
+ * alone, when its solver did not sign it for v0.9 and this order, when its nonce key
+ * does not bind the order, or when the gateway does not select by userOpHash.
  *
  * The userOpHash and the session-key signature over the `SelectSolver` message are
  * resolved lazily and cached, so each is worked out at most once whether the consumer
@@ -158,30 +184,38 @@ export class BidImpl implements Bid {
 	}
 
 	/**
-	 * This bid's userOpHash on EntryPoint v0.9, once the bid passes the checks
-	 * `SolverAccount.validateUserOp` makes on the solver's part of it, and the
-	 * destination gateway is checked to select by userOpHash. Caches the result.
+	 * This bid's userOpHash on EntryPoint v0.9, once the bid passes the checks the
+	 * chain makes on it that {@link simulate} cannot, and the destination gateway is
+	 * checked to select by userOpHash. Caches the result.
 	 *
-	 * The bundler cannot make the account's checks in {@link simulate}: without the
-	 * session's selection the account reports a signature failure first, which an
-	 * estimate ignores.
+	 * The bundler cannot make them: without the session's selection the account
+	 * reports a signature failure first, which an estimate ignores, and the gateway's
+	 * selection check is turned off. So the bid must fill this order and only this
+	 * order on the gateway, and pass `SolverAccount.validateUserOp`'s checks on the
+	 * solver's part.
 	 *
-	 * @throws If the signature does not open with the order id, the nonce key does
-	 *   not bind the order, the solver's signature does not recover under v0.9, the
-	 *   gateway selects by address, or its selection format cannot be read.
+	 * @throws If the calldata fills no order or another order on the gateway, the
+	 *   signature does not open with the order id, the nonce key does not bind the
+	 *   order, the solver's signature does not recover under v0.9, the gateway
+	 *   selects by address, or its selection format cannot be read.
 	 */
 	private async selectableUserOpHash(): Promise<HexString> {
 		if (this.cachedUserOpHash) return this.cachedUserOpHash
 
 		const commitment = this.order.id as HexString
+		const filled = filledCommitments(this.userOp.callData, this.intentGatewayV2Address)
+		if (filled.length === 0 || filled.some((other) => other.toLowerCase() !== commitment?.toLowerCase())) {
+			throw new Error(
+				`Bid from solver=${this.solverAddress} does not fill order ${commitment} alone on the destination gateway`,
+			)
+		}
 		if (slice(this.userOp.signature, 0, 32).toLowerCase() !== commitment?.toLowerCase()) {
 			throw new Error(`Bid from solver=${this.solverAddress} is not signed for order ${commitment}`)
 		}
 		const nonceKey = CryptoUtils.bidNonceKey(commitment, this.order.session as HexString, this.userOp.callData)
 		if (BigInt(this.userOp.nonce) >> 64n !== nonceKey) {
 			throw new Error(
-				`Bid from solver=${this.solverAddress} has a nonce key that does not bind order ${commitment}, ` +
-					"its session key and the bid's calldata",
+				`Bid from solver=${this.solverAddress} has a nonce key that does not bind order ${commitment}`,
 			)
 		}
 
@@ -256,8 +290,8 @@ export class BidImpl implements Bid {
 	 * The gateway's solver selection is turned off with {@link selectionOffStateDiff}
 	 * and no selection is attached: the bundler simulates the operation with its
 	 * `preVerificationGas` and fees changed, so the userOpHash there is not the one a
-	 * selection signs. The account's own checks on the bid are made locally first,
-	 * by {@link selectableUserOpHash}.
+	 * selection signs. The checks the chain makes that this simulation cannot are
+	 * made locally first, by {@link selectableUserOpHash}.
 	 *
 	 * @throws If the bid cannot be selected, or the bundler rejects the operation. A
 	 *   transient bundler failure is retried first.

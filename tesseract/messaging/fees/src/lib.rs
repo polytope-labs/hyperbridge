@@ -293,6 +293,54 @@ impl TransactionPayment {
 			.collect())
 	}
 
+	/// The last height a pipeline read from `source` for `dest`, if it has a saved checkpoint.
+	pub async fn processed_height(&self, source: &str, dest: &str) -> anyhow::Result<Option<u64>> {
+		use crate::db::processed_heights;
+		let row = self
+			.db
+			.processed_heights()
+			.find_unique(processed_heights::UniqueWhereParam::SourceDestEquals(
+				source.to_string(),
+				dest.to_string(),
+			))
+			.exec()
+			.await?;
+		Ok(row.map(|row| row.height as u64))
+	}
+
+	/// Save the last height a pipeline read from `source` for `dest`, so a restart resumes from it.
+	pub async fn store_processed_height(
+		&self,
+		source: &str,
+		dest: &str,
+		height: u64,
+	) -> anyhow::Result<()> {
+		use crate::db::processed_heights;
+		let now = chrono::Utc::now().timestamp() as i32;
+		self.db
+			.processed_heights()
+			.upsert(
+				processed_heights::UniqueWhereParam::SourceDestEquals(
+					source.to_string(),
+					dest.to_string(),
+				),
+				processed_heights::create(
+					source.to_string(),
+					dest.to_string(),
+					height as i64,
+					now,
+					vec![],
+				),
+				vec![
+					processed_heights::height::set(height as i64),
+					processed_heights::updated_at::set(now),
+				],
+			)
+			.exec()
+			.await?;
+		Ok(())
+	}
+
 	/// Query all deliveries in the db and make them unique by the source & destination pair
 	pub async fn distinct_deliveries(&self) -> anyhow::Result<Vec<Data>> {
 		let deliveries = self.db.deliveries().find_many(vec![]).exec().await?;

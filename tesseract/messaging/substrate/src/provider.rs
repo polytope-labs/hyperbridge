@@ -337,6 +337,8 @@ where
 		}
 	}
 
+	/// Events are queried in chunks of 100 blocks. A chunk that fails fails the whole query, so
+	/// the caller re-reads the range instead of mistaking a partial read for "no events".
 	async fn query_ismp_events(
 		&self,
 		previous_height: u64,
@@ -360,21 +362,15 @@ where
 			let response = self
 				.rpc_client
 				.request::<HashMap<String, Vec<Event>>>("ismp_queryEvents", params)
-				.await;
-			match response {
-				Ok(response) => {
-					let batch = response.values().into_iter().cloned().flatten();
-					events.extend(batch)
-				},
-				Err(err) => {
-					log::error!(
-						target: crate::LOG_TARGET, "Error while querying events in range {}..{} from {:?}: {err:?}",
-						start,
-						end,
+				.await
+				.map_err(|err| {
+					anyhow!(
+						"Error while querying events in range {start}..{end} from {:?}: {err:?}",
 						self.state_machine
-					);
-				},
-			}
+					)
+				})?;
+			let batch = response.values().into_iter().cloned().flatten();
+			events.extend(batch)
 		}
 
 		Ok(events)

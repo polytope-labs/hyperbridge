@@ -4989,6 +4989,852 @@ pub mod outbound_request_claims {
 		}
 	}
 }
+pub mod processed_heights {
+	use super::{_prisma::*, *};
+	pub const NAME: &str = "ProcessedHeights";
+	pub mod id {
+		use super::{
+			super::*, OrderByParam, SetParam, UncheckedSetParam, UniqueWhereParam, WhereParam,
+			WithParam, _prisma::*,
+		};
+		pub const NAME: &str = "id";
+		pub struct Set(pub i32);
+		impl From<Set> for SetParam {
+			fn from(Set(v): Set) -> Self {
+				Self::SetId(v)
+			}
+		}
+		impl From<Set> for UncheckedSetParam {
+			fn from(Set(v): Set) -> Self {
+				Self::Id(v)
+			}
+		}
+		pub fn set<T: From<Set>>(value: i32) -> T {
+			Set(value).into()
+		}
+		pub fn order(direction: ::prisma_client_rust::Direction) -> OrderByParam {
+			OrderByParam::Id(direction)
+		}
+		pub fn equals<T: From<UniqueWhereParam>>(value: i32) -> T {
+			UniqueWhereParam::IdEquals(value).into()
+		}
+		::prisma_client_rust::scalar_where_param_fns!(_prisma::read_filters::IntFilter, Id, {
+			fn in_vec(_: Vec<i32>) -> InVec;
+			fn not_in_vec(_: Vec<i32>) -> NotInVec;
+			fn lt(_: i32) -> Lt;
+			fn lte(_: i32) -> Lte;
+			fn gt(_: i32) -> Gt;
+			fn gte(_: i32) -> Gte;
+			fn not(_: i32) -> Not;
+		});
+		pub fn increment(value: i32) -> SetParam {
+			SetParam::IncrementId(value)
+		}
+		pub fn decrement(value: i32) -> SetParam {
+			SetParam::DecrementId(value)
+		}
+		pub fn multiply(value: i32) -> SetParam {
+			SetParam::MultiplyId(value)
+		}
+		pub fn divide(value: i32) -> SetParam {
+			SetParam::DivideId(value)
+		}
+		pub struct Include;
+		impl Into<super::IncludeParam> for Include {
+			fn into(self) -> super::IncludeParam {
+				super::IncludeParam::Id(self)
+			}
+		}
+		impl Include {
+			pub fn to_selection(self) -> ::prisma_client_rust::Selection {
+				::prisma_client_rust::sel(NAME)
+			}
+		}
+		pub struct Select;
+		impl Into<super::SelectParam> for Select {
+			fn into(self) -> super::SelectParam {
+				super::SelectParam::Id(self)
+			}
+		}
+		impl Select {
+			pub fn to_selection(self) -> ::prisma_client_rust::Selection {
+				::prisma_client_rust::sel(NAME)
+			}
+		}
+	}
+	pub mod source {
+		use super::{
+			super::*, OrderByParam, SetParam, UncheckedSetParam, UniqueWhereParam, WhereParam,
+			WithParam, _prisma::*,
+		};
+		pub const NAME: &str = "source";
+		pub struct Set(pub String);
+		impl From<Set> for SetParam {
+			fn from(Set(v): Set) -> Self {
+				Self::SetSource(v)
+			}
+		}
+		impl From<Set> for UncheckedSetParam {
+			fn from(Set(v): Set) -> Self {
+				Self::Source(v)
+			}
+		}
+		pub fn set<T: From<Set>>(value: String) -> T {
+			Set(value).into()
+		}
+		pub fn order(direction: ::prisma_client_rust::Direction) -> OrderByParam {
+			OrderByParam::Source(direction)
+		}
+		pub fn equals(value: String) -> WhereParam {
+			WhereParam::Source(_prisma::read_filters::StringFilter::Equals(value))
+		}
+		::prisma_client_rust::scalar_where_param_fns!(
+			_prisma::read_filters::StringFilter,
+			Source,
+			{
+				fn in_vec(_: Vec<String>) -> InVec;
+				fn not_in_vec(_: Vec<String>) -> NotInVec;
+				fn lt(_: String) -> Lt;
+				fn lte(_: String) -> Lte;
+				fn gt(_: String) -> Gt;
+				fn gte(_: String) -> Gte;
+				fn contains(_: String) -> Contains;
+				fn starts_with(_: String) -> StartsWith;
+				fn ends_with(_: String) -> EndsWith;
+				fn not(_: String) -> Not;
+			}
+		);
+		pub struct Include;
+		impl Into<super::IncludeParam> for Include {
+			fn into(self) -> super::IncludeParam {
+				super::IncludeParam::Source(self)
+			}
+		}
+		impl Include {
+			pub fn to_selection(self) -> ::prisma_client_rust::Selection {
+				::prisma_client_rust::sel(NAME)
+			}
+		}
+		pub struct Select;
+		impl Into<super::SelectParam> for Select {
+			fn into(self) -> super::SelectParam {
+				super::SelectParam::Source(self)
+			}
+		}
+		impl Select {
+			pub fn to_selection(self) -> ::prisma_client_rust::Selection {
+				::prisma_client_rust::sel(NAME)
+			}
+		}
+	}
+	pub mod dest {
+		use super::{
+			super::*, OrderByParam, SetParam, UncheckedSetParam, UniqueWhereParam, WhereParam,
+			WithParam, _prisma::*,
+		};
+		pub const NAME: &str = "dest";
+		pub struct Set(pub String);
+		impl From<Set> for SetParam {
+			fn from(Set(v): Set) -> Self {
+				Self::SetDest(v)
+			}
+		}
+		impl From<Set> for UncheckedSetParam {
+			fn from(Set(v): Set) -> Self {
+				Self::Dest(v)
+			}
+		}
+		pub fn set<T: From<Set>>(value: String) -> T {
+			Set(value).into()
+		}
+		pub fn order(direction: ::prisma_client_rust::Direction) -> OrderByParam {
+			OrderByParam::Dest(direction)
+		}
+		pub fn equals(value: String) -> WhereParam {
+			WhereParam::Dest(_prisma::read_filters::StringFilter::Equals(value))
+		}
+		::prisma_client_rust::scalar_where_param_fns!(_prisma::read_filters::StringFilter, Dest, {
+			fn in_vec(_: Vec<String>) -> InVec;
+			fn not_in_vec(_: Vec<String>) -> NotInVec;
+			fn lt(_: String) -> Lt;
+			fn lte(_: String) -> Lte;
+			fn gt(_: String) -> Gt;
+			fn gte(_: String) -> Gte;
+			fn contains(_: String) -> Contains;
+			fn starts_with(_: String) -> StartsWith;
+			fn ends_with(_: String) -> EndsWith;
+			fn not(_: String) -> Not;
+		});
+		pub struct Include;
+		impl Into<super::IncludeParam> for Include {
+			fn into(self) -> super::IncludeParam {
+				super::IncludeParam::Dest(self)
+			}
+		}
+		impl Include {
+			pub fn to_selection(self) -> ::prisma_client_rust::Selection {
+				::prisma_client_rust::sel(NAME)
+			}
+		}
+		pub struct Select;
+		impl Into<super::SelectParam> for Select {
+			fn into(self) -> super::SelectParam {
+				super::SelectParam::Dest(self)
+			}
+		}
+		impl Select {
+			pub fn to_selection(self) -> ::prisma_client_rust::Selection {
+				::prisma_client_rust::sel(NAME)
+			}
+		}
+	}
+	pub mod height {
+		use super::{
+			super::*, OrderByParam, SetParam, UncheckedSetParam, UniqueWhereParam, WhereParam,
+			WithParam, _prisma::*,
+		};
+		pub const NAME: &str = "height";
+		pub struct Set(pub i64);
+		impl From<Set> for SetParam {
+			fn from(Set(v): Set) -> Self {
+				Self::SetHeight(v)
+			}
+		}
+		impl From<Set> for UncheckedSetParam {
+			fn from(Set(v): Set) -> Self {
+				Self::Height(v)
+			}
+		}
+		pub fn set<T: From<Set>>(value: i64) -> T {
+			Set(value).into()
+		}
+		pub fn order(direction: ::prisma_client_rust::Direction) -> OrderByParam {
+			OrderByParam::Height(direction)
+		}
+		pub fn equals(value: i64) -> WhereParam {
+			WhereParam::Height(_prisma::read_filters::BigIntFilter::Equals(value))
+		}
+		::prisma_client_rust::scalar_where_param_fns!(
+			_prisma::read_filters::BigIntFilter,
+			Height,
+			{
+				fn in_vec(_: Vec<i64>) -> InVec;
+				fn not_in_vec(_: Vec<i64>) -> NotInVec;
+				fn lt(_: i64) -> Lt;
+				fn lte(_: i64) -> Lte;
+				fn gt(_: i64) -> Gt;
+				fn gte(_: i64) -> Gte;
+				fn not(_: i64) -> Not;
+			}
+		);
+		pub fn increment(value: i64) -> SetParam {
+			SetParam::IncrementHeight(value)
+		}
+		pub fn decrement(value: i64) -> SetParam {
+			SetParam::DecrementHeight(value)
+		}
+		pub fn multiply(value: i64) -> SetParam {
+			SetParam::MultiplyHeight(value)
+		}
+		pub fn divide(value: i64) -> SetParam {
+			SetParam::DivideHeight(value)
+		}
+		pub struct Include;
+		impl Into<super::IncludeParam> for Include {
+			fn into(self) -> super::IncludeParam {
+				super::IncludeParam::Height(self)
+			}
+		}
+		impl Include {
+			pub fn to_selection(self) -> ::prisma_client_rust::Selection {
+				::prisma_client_rust::sel(NAME)
+			}
+		}
+		pub struct Select;
+		impl Into<super::SelectParam> for Select {
+			fn into(self) -> super::SelectParam {
+				super::SelectParam::Height(self)
+			}
+		}
+		impl Select {
+			pub fn to_selection(self) -> ::prisma_client_rust::Selection {
+				::prisma_client_rust::sel(NAME)
+			}
+		}
+	}
+	pub mod updated_at {
+		use super::{
+			super::*, OrderByParam, SetParam, UncheckedSetParam, UniqueWhereParam, WhereParam,
+			WithParam, _prisma::*,
+		};
+		pub const NAME: &str = "updated_at";
+		pub struct Set(pub i32);
+		impl From<Set> for SetParam {
+			fn from(Set(v): Set) -> Self {
+				Self::SetUpdatedAt(v)
+			}
+		}
+		impl From<Set> for UncheckedSetParam {
+			fn from(Set(v): Set) -> Self {
+				Self::UpdatedAt(v)
+			}
+		}
+		pub fn set<T: From<Set>>(value: i32) -> T {
+			Set(value).into()
+		}
+		pub fn order(direction: ::prisma_client_rust::Direction) -> OrderByParam {
+			OrderByParam::UpdatedAt(direction)
+		}
+		pub fn equals(value: i32) -> WhereParam {
+			WhereParam::UpdatedAt(_prisma::read_filters::IntFilter::Equals(value))
+		}
+		::prisma_client_rust::scalar_where_param_fns!(
+			_prisma::read_filters::IntFilter,
+			UpdatedAt,
+			{
+				fn in_vec(_: Vec<i32>) -> InVec;
+				fn not_in_vec(_: Vec<i32>) -> NotInVec;
+				fn lt(_: i32) -> Lt;
+				fn lte(_: i32) -> Lte;
+				fn gt(_: i32) -> Gt;
+				fn gte(_: i32) -> Gte;
+				fn not(_: i32) -> Not;
+			}
+		);
+		pub fn increment(value: i32) -> SetParam {
+			SetParam::IncrementUpdatedAt(value)
+		}
+		pub fn decrement(value: i32) -> SetParam {
+			SetParam::DecrementUpdatedAt(value)
+		}
+		pub fn multiply(value: i32) -> SetParam {
+			SetParam::MultiplyUpdatedAt(value)
+		}
+		pub fn divide(value: i32) -> SetParam {
+			SetParam::DivideUpdatedAt(value)
+		}
+		pub struct Include;
+		impl Into<super::IncludeParam> for Include {
+			fn into(self) -> super::IncludeParam {
+				super::IncludeParam::UpdatedAt(self)
+			}
+		}
+		impl Include {
+			pub fn to_selection(self) -> ::prisma_client_rust::Selection {
+				::prisma_client_rust::sel(NAME)
+			}
+		}
+		pub struct Select;
+		impl Into<super::SelectParam> for Select {
+			fn into(self) -> super::SelectParam {
+				super::SelectParam::UpdatedAt(self)
+			}
+		}
+		impl Select {
+			pub fn to_selection(self) -> ::prisma_client_rust::Selection {
+				::prisma_client_rust::sel(NAME)
+			}
+		}
+	}
+	pub fn source_dest<T: From<UniqueWhereParam>>(source: String, dest: String) -> T {
+		UniqueWhereParam::SourceDestEquals(source, dest).into()
+	}
+	pub fn create(
+		source: String,
+		dest: String,
+		height: i64,
+		updated_at: i32,
+		_params: Vec<SetParam>,
+	) -> (String, String, i64, i32, Vec<SetParam>) {
+		(source, dest, height, updated_at, _params)
+	}
+	pub fn create_unchecked(
+		source: String,
+		dest: String,
+		height: i64,
+		updated_at: i32,
+		_params: Vec<SetParam>,
+	) -> (String, String, i64, i32, Vec<SetParam>) {
+		(source, dest, height, updated_at, _params)
+	}
+	#[macro_export]
+	macro_rules ! _select_processed_heights { ($ (($ ($ func_arg : ident : $ func_arg_ty : ty) , +) =>) ? $ module_name : ident { $ ($ field : ident $ (($ ($ filters : tt) +) $ (. $ arg : ident ($ ($ arg_params : tt) *)) *) ? $ (: $ selection_mode : ident { $ ($ selections : tt) + }) ?) + }) => { # [allow (warnings)] pub mod $ module_name { crate :: prisma :: processed_heights :: select ! (@ definitions ; $ module_name ; $ ($ field $ (($ ($ filters) +) $ (. $ arg ($ ($ arg_params) *)) *) ? $ (: $ selection_mode { $ ($ selections) + }) ?) +) ; use super :: * ; pub struct Selection (Vec < :: prisma_client_rust :: Selection >) ; impl :: prisma_client_rust :: SelectType for Selection { type Data = Data ; type ModelData = crate :: prisma :: processed_heights :: Data ; fn to_selections (self) -> Vec < :: prisma_client_rust :: Selection > { self . 0 } } pub fn select ($ ($ ($ func_arg : $ func_arg_ty) , +) ?) -> Selection { Selection ([crate :: prisma :: processed_heights :: select ! (@ selections_to_params ; : select { $ ($ field $ (($ ($ filters) +) $ (. $ arg ($ ($ arg_params) *)) *) ? $ (: $ selection_mode { $ ($ selections) + }) ?) + }) . into_iter () . map (| p | p . to_selection ()) . collect :: < Vec < _ >> () ,] . into_iter () . flatten () . collect :: < Vec < _ >> ()) } } } ; ({ $ ($ field : ident $ (($ ($ filters : tt) +) $ (. $ arg : ident ($ ($ arg_params : tt) *)) *) ? $ (: $ selection_mode : ident { $ ($ selections : tt) + }) ?) + }) => { { crate :: prisma :: processed_heights :: select ! (@ definitions ; ; $ ($ field $ (($ ($ filters) +) $ (. $ arg ($ ($ arg_params) *)) *) ? $ (: $ selection_mode { $ ($ selections) + }) ?) +) ; pub struct Selection (Vec < :: prisma_client_rust :: Selection >) ; impl :: prisma_client_rust :: SelectType for Selection { type Data = Data ; type ModelData = crate :: prisma :: processed_heights :: Data ; fn to_selections (self) -> Vec < :: prisma_client_rust :: Selection > { self . 0 } } Selection ([crate :: prisma :: processed_heights :: select ! (@ selections_to_params ; : select { $ ($ field $ (($ ($ filters) +) $ (. $ arg ($ ($ arg_params) *)) *) ? $ (: $ selection_mode { $ ($ selections) + }) ?) + }) . into_iter () . map (| p | p . to_selection ()) . collect :: < Vec < _ >> () ,] . into_iter () . flatten () . collect :: < Vec < _ >> ()) } } ; (@ definitions ; $ ($ module_name : ident) ? ; $ ($ field : ident $ (($ ($ filters : tt) +) $ (. $ arg : ident ($ ($ arg_params : tt) *)) *) ? $ (: $ selection_mode : ident { $ ($ selections : tt) + }) ?) +) => { # [allow (warnings)] enum Fields { id , source , dest , height , updated_at } # [allow (warnings)] impl Fields { fn selections () { $ (let _ = Fields :: $ field ;) + } } # [allow (warnings)] # [derive (std :: fmt :: Debug , Clone)] pub struct Data { $ (pub $ field : crate :: prisma :: processed_heights :: select ! (@ field_type ; $ field $ (: $ selection_mode { $ ($ selections) + }) ?) ,) + } impl :: serde :: Serialize for Data { fn serialize < S > (& self , serializer : S) -> Result < S :: Ok , S :: Error > where S : :: serde :: Serializer , { use :: serde :: ser :: SerializeStruct ; let mut state = serializer . serialize_struct ("Data" , [$ (stringify ! ($ field) ,) +] . len ()) ? ; $ (state . serialize_field (crate :: prisma :: processed_heights :: $ field :: NAME , & self . $ field) ? ;) * state . end () } } impl < 'de > :: serde :: Deserialize < 'de > for Data { fn deserialize < D > (deserializer : D) -> Result < Self , D :: Error > where D : :: serde :: Deserializer < 'de > , { # [allow (warnings)] enum Field { $ ($ field) , + , } impl < 'de > :: serde :: Deserialize < 'de > for Field { fn deserialize < D > (deserializer : D) -> Result < Field , D :: Error > where D : :: serde :: Deserializer < 'de > , { struct FieldVisitor ; impl < 'de > :: serde :: de :: Visitor < 'de > for FieldVisitor { type Value = Field ; fn expecting (& self , formatter : & mut :: std :: fmt :: Formatter) -> :: std :: fmt :: Result { formatter . write_str (& [$ (crate :: prisma :: processed_heights :: $ field :: NAME) , + ,] . into_iter () . collect :: < Vec < _ >> () . join (", ")) } fn visit_str < E > (self , value : & str) -> Result < Field , E > where E : :: serde :: de :: Error , { match value { $ (crate :: prisma :: processed_heights :: $ field :: NAME => Ok (Field :: $ field)) , * , _ => Err (:: serde :: de :: Error :: unknown_field (value , FIELDS)) , } } } deserializer . deserialize_identifier (FieldVisitor) } } struct DataVisitor ; impl < 'de > :: serde :: de :: Visitor < 'de > for DataVisitor { type Value = Data ; fn expecting (& self , formatter : & mut std :: fmt :: Formatter) -> std :: fmt :: Result { formatter . write_str ("struct Data") } fn visit_map < V > (self , mut map : V) -> Result < Data , V :: Error > where V : :: serde :: de :: MapAccess < 'de > , { $ (let mut $ field = None ;) * while let Some (key) = map . next_key () ? { match key { $ (Field :: $ field => { if $ field . is_some () { return Err (:: serde :: de :: Error :: duplicate_field (crate :: prisma :: processed_heights :: $ field :: NAME)) ; } $ field = Some (map . next_value () ?) ; }) * } } $ (let $ field = $ field . ok_or_else (|| serde :: de :: Error :: missing_field (crate :: prisma :: processed_heights :: $ field :: NAME)) ? ;) * Ok (Data { $ ($ field) , * }) } } const FIELDS : & 'static [& 'static str] = & ["id" , "source" , "dest" , "height" , "updated_at"] ; deserializer . deserialize_struct ("Data" , FIELDS , DataVisitor) } } $ ($ (pub mod $ field { crate :: prisma :: processed_heights :: $ selection_mode ! (@ field_module ; $ field : $ selection_mode { $ ($ selections) + }) ; }) ?) + } ; (@ field_type ; id) => { i32 } ; (@ field_type ; source) => { String } ; (@ field_type ; dest) => { String } ; (@ field_type ; height) => { i64 } ; (@ field_type ; updated_at) => { i32 } ; (@ field_type ; $ field : ident $ ($ tokens : tt) *) => { compile_error ! (stringify ! (Cannot include nonexistent relation $ field on model "ProcessedHeights" , available relations are "id, source, dest, height, updated_at")) } ; (@ field_module ; $ ($ tokens : tt) *) => { } ; (@ selection_field_to_selection_param ; id) => { Into :: < crate :: prisma :: processed_heights :: SelectParam > :: into (crate :: prisma :: processed_heights :: id :: Select) } ; (@ selection_field_to_selection_param ; source) => { Into :: < crate :: prisma :: processed_heights :: SelectParam > :: into (crate :: prisma :: processed_heights :: source :: Select) } ; (@ selection_field_to_selection_param ; dest) => { Into :: < crate :: prisma :: processed_heights :: SelectParam > :: into (crate :: prisma :: processed_heights :: dest :: Select) } ; (@ selection_field_to_selection_param ; height) => { Into :: < crate :: prisma :: processed_heights :: SelectParam > :: into (crate :: prisma :: processed_heights :: height :: Select) } ; (@ selection_field_to_selection_param ; updated_at) => { Into :: < crate :: prisma :: processed_heights :: SelectParam > :: into (crate :: prisma :: processed_heights :: updated_at :: Select) } ; (@ selection_field_to_selection_param ; $ ($ tokens : tt) *) => { compile_error ! (stringify ! ($ ($ tokens) *)) } ; (@ selections_to_params ; : $ macro_name : ident { $ ($ field : ident $ (($ ($ filters : tt) +) $ (. $ arg : ident ($ ($ arg_params : tt) *)) *) ? $ (: $ selection_mode : ident { $ ($ selections : tt) + }) ?) + }) => { [$ (crate :: prisma :: processed_heights :: $ macro_name ! (@ selection_field_to_selection_param ; $ field $ (($ ($ filters) +) $ (. $ arg ($ ($ arg_params) *)) *) ? $ (: $ selection_mode { $ ($ selections) + }) ?) ,) +] } ; (@ filters_to_args ;) => { vec ! [] } ; (@ filters_to_args ; $ ($ t : tt) *) => { $ ($ t) * } ; (@ field_serde_name ; id) => { "id" } ; (@ field_serde_name ; source) => { "source" } ; (@ field_serde_name ; dest) => { "dest" } ; (@ field_serde_name ; height) => { "height" } ; (@ field_serde_name ; updated_at) => { "updated_at" } ; }
+	pub use _select_processed_heights as select;
+	pub enum SelectParam {
+		Id(id::Select),
+		Source(source::Select),
+		Dest(dest::Select),
+		Height(height::Select),
+		UpdatedAt(updated_at::Select),
+	}
+	impl SelectParam {
+		pub fn to_selection(self) -> ::prisma_client_rust::Selection {
+			match self {
+				Self::Id(data) => data.to_selection(),
+				Self::Source(data) => data.to_selection(),
+				Self::Dest(data) => data.to_selection(),
+				Self::Height(data) => data.to_selection(),
+				Self::UpdatedAt(data) => data.to_selection(),
+			}
+		}
+	}
+	#[macro_export]
+	macro_rules ! _include_processed_heights { ($ (($ ($ func_arg : ident : $ func_arg_ty : ty) , +) =>) ? $ module_name : ident { $ ($ field : ident $ (($ ($ filters : tt) +) $ (. $ arg : ident ($ ($ arg_params : tt) *)) *) ? $ (: $ selection_mode : ident { $ ($ selections : tt) + }) ?) + }) => { # [allow (warnings)] pub mod $ module_name { crate :: prisma :: processed_heights :: include ! (@ definitions ; $ module_name ; $ ($ field $ (($ ($ filters) +) $ (. $ arg ($ ($ arg_params) *)) *) ? $ (: $ selection_mode { $ ($ selections) + }) ?) +) ; use super :: * ; pub struct Selection (Vec < :: prisma_client_rust :: Selection >) ; impl :: prisma_client_rust :: IncludeType for Selection { type Data = Data ; type ModelData = crate :: prisma :: processed_heights :: Data ; fn to_selections (self) -> Vec < :: prisma_client_rust :: Selection > { self . 0 } } pub fn include ($ ($ ($ func_arg : $ func_arg_ty) , +) ?) -> Selection { Selection ([crate :: prisma :: processed_heights :: include ! (@ selections_to_params ; : include { $ ($ field $ (($ ($ filters) +) $ (. $ arg ($ ($ arg_params) *)) *) ? $ (: $ selection_mode { $ ($ selections) + }) ?) + }) . into_iter () . map (| p | p . to_selection ()) . collect :: < Vec < _ >> () , < crate :: prisma :: processed_heights :: Types as :: prisma_client_rust :: ModelTypes > :: scalar_selections ()] . into_iter () . flatten () . collect :: < Vec < _ >> ()) } } } ; ({ $ ($ field : ident $ (($ ($ filters : tt) +) $ (. $ arg : ident ($ ($ arg_params : tt) *)) *) ? $ (: $ selection_mode : ident { $ ($ selections : tt) + }) ?) + }) => { { crate :: prisma :: processed_heights :: include ! (@ definitions ; ; $ ($ field $ (($ ($ filters) +) $ (. $ arg ($ ($ arg_params) *)) *) ? $ (: $ selection_mode { $ ($ selections) + }) ?) +) ; pub struct Selection (Vec < :: prisma_client_rust :: Selection >) ; impl :: prisma_client_rust :: IncludeType for Selection { type Data = Data ; type ModelData = crate :: prisma :: processed_heights :: Data ; fn to_selections (self) -> Vec < :: prisma_client_rust :: Selection > { self . 0 } } Selection ([crate :: prisma :: processed_heights :: include ! (@ selections_to_params ; : include { $ ($ field $ (($ ($ filters) +) $ (. $ arg ($ ($ arg_params) *)) *) ? $ (: $ selection_mode { $ ($ selections) + }) ?) + }) . into_iter () . map (| p | p . to_selection ()) . collect :: < Vec < _ >> () , < crate :: prisma :: processed_heights :: Types as :: prisma_client_rust :: ModelTypes > :: scalar_selections ()] . into_iter () . flatten () . collect :: < Vec < _ >> ()) } } ; (@ definitions ; $ ($ module_name : ident) ? ; $ ($ field : ident $ (($ ($ filters : tt) +) $ (. $ arg : ident ($ ($ arg_params : tt) *)) *) ? $ (: $ selection_mode : ident { $ ($ selections : tt) + }) ?) +) => { # [allow (warnings)] enum Fields { } # [allow (warnings)] impl Fields { fn selections () { $ (let _ = Fields :: $ field ;) + } } # [allow (warnings)] # [derive (std :: fmt :: Debug , Clone)] pub struct Data { pub id : i32 , pub source : String , pub dest : String , pub height : i64 , pub updated_at : i32 , $ (pub $ field : crate :: prisma :: processed_heights :: include ! (@ field_type ; $ field $ (: $ selection_mode { $ ($ selections) + }) ?) ,) + } impl :: serde :: Serialize for Data { fn serialize < S > (& self , serializer : S) -> Result < S :: Ok , S :: Error > where S : :: serde :: Serializer , { use :: serde :: ser :: SerializeStruct ; let mut state = serializer . serialize_struct ("Data" , [$ (stringify ! ($ field) ,) + stringify ! (id) , stringify ! (source) , stringify ! (dest) , stringify ! (height) , stringify ! (updated_at)] . len ()) ? ; $ (state . serialize_field (crate :: prisma :: processed_heights :: $ field :: NAME , & self . $ field) ? ;) * state . serialize_field (crate :: prisma :: processed_heights :: id :: NAME , & self . id) ? ; state . serialize_field (crate :: prisma :: processed_heights :: source :: NAME , & self . source) ? ; state . serialize_field (crate :: prisma :: processed_heights :: dest :: NAME , & self . dest) ? ; state . serialize_field (crate :: prisma :: processed_heights :: height :: NAME , & self . height) ? ; state . serialize_field (crate :: prisma :: processed_heights :: updated_at :: NAME , & self . updated_at) ? ; state . end () } } impl < 'de > :: serde :: Deserialize < 'de > for Data { fn deserialize < D > (deserializer : D) -> Result < Self , D :: Error > where D : :: serde :: Deserializer < 'de > , { # [allow (warnings)] enum Field { $ ($ field) , + , id , source , dest , height , updated_at } impl < 'de > :: serde :: Deserialize < 'de > for Field { fn deserialize < D > (deserializer : D) -> Result < Field , D :: Error > where D : :: serde :: Deserializer < 'de > , { struct FieldVisitor ; impl < 'de > :: serde :: de :: Visitor < 'de > for FieldVisitor { type Value = Field ; fn expecting (& self , formatter : & mut :: std :: fmt :: Formatter) -> :: std :: fmt :: Result { formatter . write_str (& [$ (crate :: prisma :: processed_heights :: $ field :: NAME) , + , crate :: prisma :: processed_heights :: id :: NAME , crate :: prisma :: processed_heights :: source :: NAME , crate :: prisma :: processed_heights :: dest :: NAME , crate :: prisma :: processed_heights :: height :: NAME , crate :: prisma :: processed_heights :: updated_at :: NAME] . into_iter () . collect :: < Vec < _ >> () . join (", ")) } fn visit_str < E > (self , value : & str) -> Result < Field , E > where E : :: serde :: de :: Error , { match value { $ (crate :: prisma :: processed_heights :: $ field :: NAME => Ok (Field :: $ field)) , * , crate :: prisma :: processed_heights :: id :: NAME => Ok (Field :: id) , crate :: prisma :: processed_heights :: source :: NAME => Ok (Field :: source) , crate :: prisma :: processed_heights :: dest :: NAME => Ok (Field :: dest) , crate :: prisma :: processed_heights :: height :: NAME => Ok (Field :: height) , crate :: prisma :: processed_heights :: updated_at :: NAME => Ok (Field :: updated_at) , _ => Err (:: serde :: de :: Error :: unknown_field (value , FIELDS)) , } } } deserializer . deserialize_identifier (FieldVisitor) } } struct DataVisitor ; impl < 'de > :: serde :: de :: Visitor < 'de > for DataVisitor { type Value = Data ; fn expecting (& self , formatter : & mut std :: fmt :: Formatter) -> std :: fmt :: Result { formatter . write_str ("struct Data") } fn visit_map < V > (self , mut map : V) -> Result < Data , V :: Error > where V : :: serde :: de :: MapAccess < 'de > , { $ (let mut $ field = None ;) * let mut id = None ; let mut source = None ; let mut dest = None ; let mut height = None ; let mut updated_at = None ; while let Some (key) = map . next_key () ? { match key { Field :: id => { if id . is_some () { return Err (:: serde :: de :: Error :: duplicate_field (crate :: prisma :: processed_heights :: id :: NAME)) ; } id = Some (map . next_value () ?) ; } Field :: source => { if source . is_some () { return Err (:: serde :: de :: Error :: duplicate_field (crate :: prisma :: processed_heights :: source :: NAME)) ; } source = Some (map . next_value () ?) ; } Field :: dest => { if dest . is_some () { return Err (:: serde :: de :: Error :: duplicate_field (crate :: prisma :: processed_heights :: dest :: NAME)) ; } dest = Some (map . next_value () ?) ; } Field :: height => { if height . is_some () { return Err (:: serde :: de :: Error :: duplicate_field (crate :: prisma :: processed_heights :: height :: NAME)) ; } height = Some (map . next_value () ?) ; } Field :: updated_at => { if updated_at . is_some () { return Err (:: serde :: de :: Error :: duplicate_field (crate :: prisma :: processed_heights :: updated_at :: NAME)) ; } updated_at = Some (map . next_value () ?) ; } $ (Field :: $ field => { if $ field . is_some () { return Err (:: serde :: de :: Error :: duplicate_field (crate :: prisma :: processed_heights :: $ field :: NAME)) ; } $ field = Some (map . next_value () ?) ; }) * } } $ (let $ field = $ field . ok_or_else (|| serde :: de :: Error :: missing_field (crate :: prisma :: processed_heights :: $ field :: NAME)) ? ;) * let id = id . ok_or_else (|| serde :: de :: Error :: missing_field (crate :: prisma :: processed_heights :: id :: NAME)) ? ; let source = source . ok_or_else (|| serde :: de :: Error :: missing_field (crate :: prisma :: processed_heights :: source :: NAME)) ? ; let dest = dest . ok_or_else (|| serde :: de :: Error :: missing_field (crate :: prisma :: processed_heights :: dest :: NAME)) ? ; let height = height . ok_or_else (|| serde :: de :: Error :: missing_field (crate :: prisma :: processed_heights :: height :: NAME)) ? ; let updated_at = updated_at . ok_or_else (|| serde :: de :: Error :: missing_field (crate :: prisma :: processed_heights :: updated_at :: NAME)) ? ; Ok (Data { id , source , dest , height , updated_at , $ ($ field) , * }) } } const FIELDS : & 'static [& 'static str] = & ["id" , "source" , "dest" , "height" , "updated_at"] ; deserializer . deserialize_struct ("Data" , FIELDS , DataVisitor) } } $ ($ (pub mod $ field { crate :: prisma :: processed_heights :: $ selection_mode ! (@ field_module ; $ field : $ selection_mode { $ ($ selections) + }) ; }) ?) + } ; (@ field_type ; $ field : ident $ ($ tokens : tt) *) => { compile_error ! (stringify ! (Cannot include nonexistent relation $ field on model "ProcessedHeights" , available relations are "")) } ; (@ field_module ; $ ($ tokens : tt) *) => { } ; (@ selection_field_to_selection_param ; $ ($ tokens : tt) *) => { compile_error ! (stringify ! ($ ($ tokens) *)) } ; (@ selections_to_params ; : $ macro_name : ident { $ ($ field : ident $ (($ ($ filters : tt) +) $ (. $ arg : ident ($ ($ arg_params : tt) *)) *) ? $ (: $ selection_mode : ident { $ ($ selections : tt) + }) ?) + }) => { [$ (crate :: prisma :: processed_heights :: $ macro_name ! (@ selection_field_to_selection_param ; $ field $ (($ ($ filters) +) $ (. $ arg ($ ($ arg_params) *)) *) ? $ (: $ selection_mode { $ ($ selections) + }) ?) ,) +] } ; (@ filters_to_args ;) => { vec ! [] } ; (@ filters_to_args ; $ ($ t : tt) *) => { $ ($ t) * } ; (@ field_serde_name ; id) => { "id" } ; (@ field_serde_name ; source) => { "source" } ; (@ field_serde_name ; dest) => { "dest" } ; (@ field_serde_name ; height) => { "height" } ; (@ field_serde_name ; updated_at) => { "updated_at" } ; }
+	pub use _include_processed_heights as include;
+	pub enum IncludeParam {
+		Id(id::Include),
+		Source(source::Include),
+		Dest(dest::Include),
+		Height(height::Include),
+		UpdatedAt(updated_at::Include),
+	}
+	impl IncludeParam {
+		pub fn to_selection(self) -> ::prisma_client_rust::Selection {
+			match self {
+				Self::Id(data) => data.to_selection(),
+				Self::Source(data) => data.to_selection(),
+				Self::Dest(data) => data.to_selection(),
+				Self::Height(data) => data.to_selection(),
+				Self::UpdatedAt(data) => data.to_selection(),
+			}
+		}
+	}
+	#[macro_export]
+	macro_rules ! _partial_unchecked_processed_heights { ($ struct_name : ident { $ ($ scalar_field : ident) + }) => { :: prisma_client_rust :: macros :: partial_unchecked ! { crate :: prisma :: processed_heights struct $ struct_name { # [serde (rename = "id")] pub id : i32 , # [serde (rename = "source")] pub source : String , # [serde (rename = "dest")] pub dest : String , # [serde (rename = "height")] pub height : i64 , # [serde (rename = "updated_at")] pub updated_at : i32 } [$ ($ scalar_field) , +] } } ; }
+	pub use _partial_unchecked_processed_heights as partial_unchecked;
+	#[derive(Debug, Clone, :: serde :: Serialize, :: serde :: Deserialize)]
+	pub struct Data {
+		#[serde(rename = "id")]
+		pub id: i32,
+		#[serde(rename = "source")]
+		pub source: String,
+		#[serde(rename = "dest")]
+		pub dest: String,
+		#[serde(rename = "height")]
+		pub height: i64,
+		#[serde(rename = "updated_at")]
+		pub updated_at: i32,
+	}
+	impl Data {}
+	#[derive(Clone)]
+	pub enum WithParam {}
+	impl Into<::prisma_client_rust::Selection> for WithParam {
+		fn into(self) -> ::prisma_client_rust::Selection {
+			match self {}
+		}
+	}
+	#[derive(Clone)]
+	pub enum SetParam {
+		SetId(i32),
+		IncrementId(i32),
+		DecrementId(i32),
+		MultiplyId(i32),
+		DivideId(i32),
+		SetSource(String),
+		SetDest(String),
+		SetHeight(i64),
+		IncrementHeight(i64),
+		DecrementHeight(i64),
+		MultiplyHeight(i64),
+		DivideHeight(i64),
+		SetUpdatedAt(i32),
+		IncrementUpdatedAt(i32),
+		DecrementUpdatedAt(i32),
+		MultiplyUpdatedAt(i32),
+		DivideUpdatedAt(i32),
+	}
+	impl From<SetParam> for (String, ::prisma_client_rust::PrismaValue) {
+		fn from(param: SetParam) -> Self {
+			match param {
+				SetParam::SetId(value) =>
+					(id::NAME.to_string(), ::prisma_client_rust::PrismaValue::Int(value as i64)),
+				SetParam::IncrementId(value) => (
+					id::NAME.to_string(),
+					::prisma_client_rust::PrismaValue::Object(vec![(
+						"increment".to_string(),
+						::prisma_client_rust::PrismaValue::Int(value as i64),
+					)]),
+				),
+				SetParam::DecrementId(value) => (
+					id::NAME.to_string(),
+					::prisma_client_rust::PrismaValue::Object(vec![(
+						"decrement".to_string(),
+						::prisma_client_rust::PrismaValue::Int(value as i64),
+					)]),
+				),
+				SetParam::MultiplyId(value) => (
+					id::NAME.to_string(),
+					::prisma_client_rust::PrismaValue::Object(vec![(
+						"multiply".to_string(),
+						::prisma_client_rust::PrismaValue::Int(value as i64),
+					)]),
+				),
+				SetParam::DivideId(value) => (
+					id::NAME.to_string(),
+					::prisma_client_rust::PrismaValue::Object(vec![(
+						"divide".to_string(),
+						::prisma_client_rust::PrismaValue::Int(value as i64),
+					)]),
+				),
+				SetParam::SetSource(value) =>
+					(source::NAME.to_string(), ::prisma_client_rust::PrismaValue::String(value)),
+				SetParam::SetDest(value) =>
+					(dest::NAME.to_string(), ::prisma_client_rust::PrismaValue::String(value)),
+				SetParam::SetHeight(value) =>
+					(height::NAME.to_string(), ::prisma_client_rust::PrismaValue::BigInt(value)),
+				SetParam::IncrementHeight(value) => (
+					height::NAME.to_string(),
+					::prisma_client_rust::PrismaValue::Object(vec![(
+						"increment".to_string(),
+						::prisma_client_rust::PrismaValue::BigInt(value),
+					)]),
+				),
+				SetParam::DecrementHeight(value) => (
+					height::NAME.to_string(),
+					::prisma_client_rust::PrismaValue::Object(vec![(
+						"decrement".to_string(),
+						::prisma_client_rust::PrismaValue::BigInt(value),
+					)]),
+				),
+				SetParam::MultiplyHeight(value) => (
+					height::NAME.to_string(),
+					::prisma_client_rust::PrismaValue::Object(vec![(
+						"multiply".to_string(),
+						::prisma_client_rust::PrismaValue::BigInt(value),
+					)]),
+				),
+				SetParam::DivideHeight(value) => (
+					height::NAME.to_string(),
+					::prisma_client_rust::PrismaValue::Object(vec![(
+						"divide".to_string(),
+						::prisma_client_rust::PrismaValue::BigInt(value),
+					)]),
+				),
+				SetParam::SetUpdatedAt(value) => (
+					updated_at::NAME.to_string(),
+					::prisma_client_rust::PrismaValue::Int(value as i64),
+				),
+				SetParam::IncrementUpdatedAt(value) => (
+					updated_at::NAME.to_string(),
+					::prisma_client_rust::PrismaValue::Object(vec![(
+						"increment".to_string(),
+						::prisma_client_rust::PrismaValue::Int(value as i64),
+					)]),
+				),
+				SetParam::DecrementUpdatedAt(value) => (
+					updated_at::NAME.to_string(),
+					::prisma_client_rust::PrismaValue::Object(vec![(
+						"decrement".to_string(),
+						::prisma_client_rust::PrismaValue::Int(value as i64),
+					)]),
+				),
+				SetParam::MultiplyUpdatedAt(value) => (
+					updated_at::NAME.to_string(),
+					::prisma_client_rust::PrismaValue::Object(vec![(
+						"multiply".to_string(),
+						::prisma_client_rust::PrismaValue::Int(value as i64),
+					)]),
+				),
+				SetParam::DivideUpdatedAt(value) => (
+					updated_at::NAME.to_string(),
+					::prisma_client_rust::PrismaValue::Object(vec![(
+						"divide".to_string(),
+						::prisma_client_rust::PrismaValue::Int(value as i64),
+					)]),
+				),
+			}
+		}
+	}
+	#[derive(Clone)]
+	pub enum UncheckedSetParam {
+		Id(i32),
+		Source(String),
+		Dest(String),
+		Height(i64),
+		UpdatedAt(i32),
+	}
+	impl From<UncheckedSetParam> for SetParam {
+		fn from(param: UncheckedSetParam) -> Self {
+			match param {
+				UncheckedSetParam::Id(value) => Self::SetId(value),
+				UncheckedSetParam::Source(value) => Self::SetSource(value),
+				UncheckedSetParam::Dest(value) => Self::SetDest(value),
+				UncheckedSetParam::Height(value) => Self::SetHeight(value),
+				UncheckedSetParam::UpdatedAt(value) => Self::SetUpdatedAt(value),
+			}
+		}
+	}
+	#[derive(Clone)]
+	pub enum OrderByParam {
+		Id(::prisma_client_rust::Direction),
+		Source(::prisma_client_rust::Direction),
+		Dest(::prisma_client_rust::Direction),
+		Height(::prisma_client_rust::Direction),
+		UpdatedAt(::prisma_client_rust::Direction),
+	}
+	impl Into<(String, ::prisma_client_rust::PrismaValue)> for OrderByParam {
+		fn into(self) -> (String, ::prisma_client_rust::PrismaValue) {
+			match self {
+				Self::Id(direction) => (
+					id::NAME.to_string(),
+					::prisma_client_rust::PrismaValue::String(direction.to_string()),
+				),
+				Self::Source(direction) => (
+					source::NAME.to_string(),
+					::prisma_client_rust::PrismaValue::String(direction.to_string()),
+				),
+				Self::Dest(direction) => (
+					dest::NAME.to_string(),
+					::prisma_client_rust::PrismaValue::String(direction.to_string()),
+				),
+				Self::Height(direction) => (
+					height::NAME.to_string(),
+					::prisma_client_rust::PrismaValue::String(direction.to_string()),
+				),
+				Self::UpdatedAt(direction) => (
+					updated_at::NAME.to_string(),
+					::prisma_client_rust::PrismaValue::String(direction.to_string()),
+				),
+			}
+		}
+	}
+	#[derive(Clone)]
+	pub enum WhereParam {
+		Not(Vec<WhereParam>),
+		Or(Vec<WhereParam>),
+		And(Vec<WhereParam>),
+		SourceDestEquals(String, String),
+		Id(_prisma::read_filters::IntFilter),
+		Source(_prisma::read_filters::StringFilter),
+		Dest(_prisma::read_filters::StringFilter),
+		Height(_prisma::read_filters::BigIntFilter),
+		UpdatedAt(_prisma::read_filters::IntFilter),
+	}
+	impl ::prisma_client_rust::WhereInput for WhereParam {
+		fn serialize(self) -> ::prisma_client_rust::SerializedWhereInput {
+			let (name, value) = match self {
+				Self::Not(value) => (
+					"NOT",
+					::prisma_client_rust::SerializedWhereValue::Object(
+						::prisma_client_rust::merge_fields(
+							value
+								.into_iter()
+								.map(::prisma_client_rust::WhereInput::serialize)
+								.map(Into::into)
+								.collect(),
+						),
+					),
+				),
+				Self::Or(value) => (
+					"OR",
+					::prisma_client_rust::SerializedWhereValue::List(
+						value
+							.into_iter()
+							.map(::prisma_client_rust::WhereInput::serialize)
+							.map(Into::into)
+							.map(|v| vec![v])
+							.map(::prisma_client_rust::PrismaValue::Object)
+							.collect(),
+					),
+				),
+				Self::And(value) => (
+					"AND",
+					::prisma_client_rust::SerializedWhereValue::Object(
+						::prisma_client_rust::merge_fields(
+							value
+								.into_iter()
+								.map(::prisma_client_rust::WhereInput::serialize)
+								.map(Into::into)
+								.collect(),
+						),
+					),
+				),
+				Self::SourceDestEquals(source, dest) => (
+					"source_dest",
+					::prisma_client_rust::SerializedWhereValue::Object(vec![
+						(
+							source::NAME.to_string(),
+							::prisma_client_rust::PrismaValue::String(source),
+						),
+						(dest::NAME.to_string(), ::prisma_client_rust::PrismaValue::String(dest)),
+					]),
+				),
+				Self::Id(value) => (id::NAME, value.into()),
+				Self::Source(value) => (source::NAME, value.into()),
+				Self::Dest(value) => (dest::NAME, value.into()),
+				Self::Height(value) => (height::NAME, value.into()),
+				Self::UpdatedAt(value) => (updated_at::NAME, value.into()),
+			};
+			::prisma_client_rust::SerializedWhereInput::new(name, value.into())
+		}
+	}
+	#[derive(Clone)]
+	pub enum UniqueWhereParam {
+		SourceDestEquals(String, String),
+		IdEquals(i32),
+	}
+	impl From<UniqueWhereParam> for WhereParam {
+		fn from(value: UniqueWhereParam) -> Self {
+			match value {
+				UniqueWhereParam::SourceDestEquals(source, dest) =>
+					Self::SourceDestEquals(source, dest),
+				UniqueWhereParam::IdEquals(value) =>
+					Self::Id(_prisma::read_filters::IntFilter::Equals(value)),
+			}
+		}
+	}
+	impl From<::prisma_client_rust::Operator<Self>> for WhereParam {
+		fn from(op: ::prisma_client_rust::Operator<Self>) -> Self {
+			match op {
+				::prisma_client_rust::Operator::Not(value) => Self::Not(value),
+				::prisma_client_rust::Operator::And(value) => Self::And(value),
+				::prisma_client_rust::Operator::Or(value) => Self::Or(value),
+			}
+		}
+	}
+	#[derive(Clone)]
+	pub struct Types;
+	impl ::prisma_client_rust::ModelTypes for Types {
+		type Data = Data;
+		type Where = WhereParam;
+		type UncheckedSet = UncheckedSetParam;
+		type Set = SetParam;
+		type With = WithParam;
+		type OrderBy = OrderByParam;
+		type Cursor = UniqueWhereParam;
+		const MODEL: &'static str = NAME;
+		fn scalar_selections() -> Vec<::prisma_client_rust::Selection> {
+			vec![
+				::prisma_client_rust::sel(id::NAME),
+				::prisma_client_rust::sel(source::NAME),
+				::prisma_client_rust::sel(dest::NAME),
+				::prisma_client_rust::sel(height::NAME),
+				::prisma_client_rust::sel(updated_at::NAME),
+			]
+		}
+	}
+	pub type UniqueArgs = ::prisma_client_rust::UniqueArgs<Types>;
+	pub type ManyArgs = ::prisma_client_rust::ManyArgs<Types>;
+	pub type Count<'a> = ::prisma_client_rust::Count<'a, Types>;
+	pub type Create<'a> = ::prisma_client_rust::Create<'a, Types>;
+	pub type CreateMany<'a> = ::prisma_client_rust::CreateMany<'a, Types>;
+	pub type FindUnique<'a> = ::prisma_client_rust::FindUnique<'a, Types>;
+	pub type FindMany<'a> = ::prisma_client_rust::FindMany<'a, Types>;
+	pub type FindFirst<'a> = ::prisma_client_rust::FindFirst<'a, Types>;
+	pub type Update<'a> = ::prisma_client_rust::Update<'a, Types>;
+	pub type UpdateMany<'a> = ::prisma_client_rust::UpdateMany<'a, Types>;
+	pub type Upsert<'a> = ::prisma_client_rust::Upsert<'a, Types>;
+	pub type Delete<'a> = ::prisma_client_rust::Delete<'a, Types>;
+	pub type DeleteMany<'a> = ::prisma_client_rust::DeleteMany<'a, Types>;
+	#[derive(Clone)]
+	pub struct Actions<'a> {
+		pub client: &'a ::prisma_client_rust::PrismaClientInternals,
+	}
+	impl<'a> Actions<'a> {
+		pub fn find_unique(self, _where: UniqueWhereParam) -> FindUnique<'a> {
+			FindUnique::new(self.client, _where.into())
+		}
+		pub fn find_first(self, _where: Vec<WhereParam>) -> FindFirst<'a> {
+			FindFirst::new(self.client, _where)
+		}
+		pub fn find_many(self, _where: Vec<WhereParam>) -> FindMany<'a> {
+			FindMany::new(self.client, _where)
+		}
+		pub fn create(
+			self,
+			source: String,
+			dest: String,
+			height: i64,
+			updated_at: i32,
+			mut _params: Vec<SetParam>,
+		) -> Create<'a> {
+			_params.extend([
+				source::set(source),
+				dest::set(dest),
+				height::set(height),
+				updated_at::set(updated_at),
+			]);
+			Create::new(self.client, _params)
+		}
+		pub fn create_unchecked(
+			self,
+			source: String,
+			dest: String,
+			height: i64,
+			updated_at: i32,
+			mut _params: Vec<UncheckedSetParam>,
+		) -> Create<'a> {
+			_params.extend([
+				source::set(source),
+				dest::set(dest),
+				height::set(height),
+				updated_at::set(updated_at),
+			]);
+			Create::new(self.client, _params.into_iter().map(Into::into).collect())
+		}
+		pub fn update(self, _where: UniqueWhereParam, _params: Vec<SetParam>) -> Update<'a> {
+			Update::new(self.client, _where.into(), _params, vec![])
+		}
+		pub fn update_unchecked(
+			self,
+			_where: UniqueWhereParam,
+			_params: Vec<UncheckedSetParam>,
+		) -> Update<'a> {
+			Update::new(
+				self.client,
+				_where.into(),
+				_params.into_iter().map(Into::into).collect(),
+				vec![],
+			)
+		}
+		pub fn update_many(
+			self,
+			_where: Vec<WhereParam>,
+			_params: Vec<SetParam>,
+		) -> UpdateMany<'a> {
+			UpdateMany::new(self.client, _where, _params)
+		}
+		pub fn upsert(
+			self,
+			_where: UniqueWhereParam,
+			(source, dest, height, updated_at, mut _params): (
+				String,
+				String,
+				i64,
+				i32,
+				Vec<SetParam>,
+			),
+			_update: Vec<SetParam>,
+		) -> Upsert<'a> {
+			_params.extend([
+				source::set(source),
+				dest::set(dest),
+				height::set(height),
+				updated_at::set(updated_at),
+			]);
+			Upsert::new(self.client, _where.into(), _params, _update)
+		}
+		pub fn delete(self, _where: UniqueWhereParam) -> Delete<'a> {
+			Delete::new(self.client, _where.into(), vec![])
+		}
+		pub fn delete_many(self, _where: Vec<WhereParam>) -> DeleteMany<'a> {
+			DeleteMany::new(self.client, _where)
+		}
+		pub fn count(self, _where: Vec<WhereParam>) -> Count<'a> {
+			Count::new(self.client, _where)
+		}
+		pub fn find_raw<T: ::prisma_client_rust::Data>(
+			self,
+		) -> ::prisma_client_rust::FindRaw<'a, Types, T> {
+			::prisma_client_rust::FindRaw::new(self.client)
+		}
+		pub fn aggregate_raw<T: ::prisma_client_rust::Data>(
+			self,
+		) -> ::prisma_client_rust::AggregateRaw<'a, Types, T> {
+			::prisma_client_rust::AggregateRaw::new(self.client)
+		}
+	}
+}
 pub mod _prisma {
 	pub struct PrismaClientBuilder {
 		url: Option<String>,
@@ -5090,6 +5936,9 @@ pub mod _prisma {
 		}
 		pub fn outbound_request_claims(&self) -> super::outbound_request_claims::Actions {
 			super::outbound_request_claims::Actions { client: &self.0 }
+		}
+		pub fn processed_heights(&self) -> super::processed_heights::Actions {
+			super::processed_heights::Actions { client: &self.0 }
 		}
 	}
 	impl ::prisma_client_rust::PrismaClient for PrismaClient {
@@ -5217,6 +6066,30 @@ pub mod _prisma {
 				Self::Id => "id".to_string(),
 				Self::Dest => "dest".to_string(),
 				Self::Encoded => "encoded".to_string(),
+			}
+		}
+	}
+	#[derive(Debug, Clone, Copy, :: serde :: Serialize, :: serde :: Deserialize, PartialEq, Eq)]
+	pub enum ProcessedHeightsScalarFieldEnum {
+		#[serde(rename = "id")]
+		Id,
+		#[serde(rename = "source")]
+		Source,
+		#[serde(rename = "dest")]
+		Dest,
+		#[serde(rename = "height")]
+		Height,
+		#[serde(rename = "updated_at")]
+		UpdatedAt,
+	}
+	impl ToString for ProcessedHeightsScalarFieldEnum {
+		fn to_string(&self) -> String {
+			match self {
+				Self::Id => "id".to_string(),
+				Self::Source => "source".to_string(),
+				Self::Dest => "dest".to_string(),
+				Self::Height => "height".to_string(),
+				Self::UpdatedAt => "updated_at".to_string(),
 			}
 		}
 	}

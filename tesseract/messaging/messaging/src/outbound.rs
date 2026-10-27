@@ -46,6 +46,9 @@ use crate::events::{
 /// Log/tracing target for the outbound pipeline.
 const LOG_TARGET: &str = concat!("messaging", "-outbound");
 
+/// Checkpoint dest for the outbound fan-out, which serves every EVM destination from one cursor.
+const OUTBOUND_CHECKPOINT_DEST: &str = "outbound";
+
 /// Cap on consensus proofs bundled into a single `submit` call. EVM destinations
 /// enforce calldata and gas limits that a large rotation catch-up would blow
 /// through — three BEEFY proofs is the empirical ceiling that still fits under
@@ -116,8 +119,21 @@ pub async fn run(
 	let hb_state_machine_id = hyperbridge.state_machine_id();
 	let coprocessor = hb_state_machine_id.state_id;
 	let source_name = hyperbridge.name();
+	let source = hb_state_machine_id.state_id.to_string();
 	let mut stream = hyperbridge.proof_accepted_notification().await?;
-	let mut cursor: u64 = hyperbridge.initial_height();
+	let mut cursor: u64 = match claim_tx_payment.as_ref() {
+		Some(tx_payment) =>
+			crate::resume_height(
+				tx_payment,
+				&source,
+				OUTBOUND_CHECKPOINT_DEST,
+				hyperbridge.initial_height(),
+			)
+			.await?,
+		// Without a database the cursor starts at `initial_height()`, and no checkpoint is read
+		// or written.
+		None => hyperbridge.initial_height(),
+	};
 
 	tracing::info!(target: LOG_TARGET, source = %source_name, cursor, "Subscribed to Beefy Proof Notifications");
 
@@ -312,6 +328,9 @@ pub async fn run(
 		}
 
 		cursor = new_height;
+		if let Some(tx_payment) = claim_tx_payment.as_ref() {
+			crate::save_height(tx_payment, &source, OUTBOUND_CHECKPOINT_DEST, cursor).await;
+		}
 	}
 
 	Err(anyhow::anyhow!("proof_accepted stream ended (source={source_name})"))

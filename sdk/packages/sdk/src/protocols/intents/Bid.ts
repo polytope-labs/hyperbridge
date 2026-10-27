@@ -232,11 +232,13 @@ export class BidImpl implements Bid {
 	/**
 	 * Simulates this bid with the bundler's `eth_estimateUserOperationGas` on
 	 * EntryPoint v0.9. The solver's UserOperation is sent as signed, so a spent
-	 * nonce or a failing paymaster fails here as it would fail submission.
+	 * nonce, a failing paymaster or a fill that reverts at the signed
+	 * `callGasLimit` fails here as it would fail submission.
 	 *
 	 * The gateway's solver selection is turned off with {@link selectionOffStateDiff}
-	 * and no selection is signed: the bundler estimates under its own gas limits,
-	 * which change the userOpHash a selection signs.
+	 * and no selection is attached: the bundler simulates the operation with its
+	 * `preVerificationGas` and fees changed, so the userOpHash there is not the one a
+	 * selection signs. The account's own checks therefore run only on submission.
 	 *
 	 * @throws If the bid cannot be selected, or the bundler rejects the operation. A
 	 *   transient bundler failure is retried first.

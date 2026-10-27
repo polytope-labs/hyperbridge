@@ -108,7 +108,10 @@ async function bidOn(gateway: HexString, bundlerUrl: string | null = "https://bu
 	return { bid, client, userOp }
 }
 
-afterEach(() => vi.unstubAllGlobals())
+afterEach(() => {
+	vi.unstubAllGlobals()
+	vi.restoreAllMocks()
+})
 
 describe("BidImpl.simulate", () => {
 	it("estimates the bid's UserOperation as signed on EntryPoint v0.9, with solver selection turned off", async () => {
@@ -149,7 +152,7 @@ describe("BidImpl.simulate", () => {
 	})
 
 	it("estimates again after a transient bundler failure", async () => {
-		const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
+		vi.spyOn(console, "warn").mockImplementation(() => {})
 		const requests = bundlerAnswering(
 			{ error: { code: -32603, message: "internal error: rpc provider error" } },
 			ESTIMATE,
@@ -159,7 +162,6 @@ describe("BidImpl.simulate", () => {
 		await bid.simulate()
 
 		expect(requests).toHaveLength(2)
-		warn.mockRestore()
 	})
 
 	it("fails without a bundler", async () => {

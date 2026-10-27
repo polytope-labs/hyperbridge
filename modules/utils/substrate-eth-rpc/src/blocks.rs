@@ -314,10 +314,18 @@ impl BlockService {
 			self.upstream(&at, || self.rpc.storage(&events_key, hash)),
 			self.upstream(&at, || self.rpc.storage(&timestamp_key, hash)),
 		)?;
-		let events = events.ok_or(BlockError::MissingEvents(number))?;
-		let timestamp = timestamp.ok_or(BlockError::MissingTimestamp(number))?;
-		let timestamp_ms = u64::decode(&mut &timestamp[..])
-			.map_err(|e| RpcError::Decode(format!("Timestamp.Now at block {number}: {e}")))?;
+		// Genesis is never executed, so its state holds neither events nor a timestamp.
+		let events = match events {
+			Some(events) => events,
+			None if number == 0 => vec![0],
+			None => return Err(BlockError::MissingEvents(number)),
+		};
+		let timestamp_ms = match timestamp {
+			Some(timestamp) => u64::decode(&mut &timestamp[..])
+				.map_err(|e| RpcError::Decode(format!("Timestamp.Now at block {number}: {e}")))?,
+			None if number == 0 => 0,
+			None => return Err(BlockError::MissingTimestamp(number)),
+		};
 
 		let metadata = match self.metadata.get(version.spec_version) {
 			Some(metadata) => metadata,
@@ -844,6 +852,27 @@ mod tests {
 		let err = service.block_by_number(101).await.unwrap_err();
 		assert!(matches!(err, BlockError::At { number: 101, .. }), "{err}");
 		assert!(matches!(root(&err), BlockError::MissingEvents(101)), "{err}");
+	}
+
+	#[tokio::test]
+	async fn genesis_decodes_without_events_or_timestamp() {
+		let mut genesis = fixture_block(1, None, None);
+		genesis.number = 0;
+		genesis.hash = hash_of(0);
+		genesis.parent_hash = H256::ZERO;
+		let blocks = vec![genesis, fixture_block(1, None, Some(TIMESTAMP_MS))];
+		let metadata = HashMap::from([(SPEC_VERSION, METADATA.to_vec())]);
+		let service = new_service(Arc::new(FixtureRpc::from_blocks(blocks, metadata, 1)), 1000);
+
+		let block = service.block_by_number(0).await.unwrap().unwrap();
+		assert_eq!(block.number, 0);
+		assert!(block.logs.is_empty());
+		assert_eq!(block.logs_bloom, Bloom::default());
+		assert_eq!(block.timestamp, 0);
+		assert_eq!(block.timestamp_ms, 0);
+
+		let err = service.block_by_number(1).await.unwrap_err();
+		assert!(matches!(root(&err), BlockError::MissingEvents(1)), "{err}");
 	}
 
 	#[tokio::test]

@@ -11,6 +11,8 @@ pub mod substrate;
 pub mod types;
 
 pub use config::{ChainConfig, Config};
+#[cfg(feature = "node")]
+pub use substrate::ClientRpc;
 pub use types::{
 	pallet_address, storage_address, DecodedBlock, DecodedEvent, EthLog, Hasher, Phase, H256,
 };

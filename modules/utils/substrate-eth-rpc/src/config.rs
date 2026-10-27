@@ -122,6 +122,31 @@ impl Config {
 }
 
 impl ChainConfig {
+	pub fn in_node(
+		name: impl Into<String>,
+		eth_chain_id: u64,
+		hasher: Hasher,
+		pallets: Vec<String>,
+		max_block_range: u64,
+		cache_blocks: usize,
+		upstream_concurrency: usize,
+	) -> Self {
+		Self {
+			name: name.into(),
+			rpc: String::new(),
+			eth_chain_id,
+			hasher,
+			pallets,
+			max_block_range,
+			cache_blocks,
+			upstream_concurrency,
+			upstream_retries: 0,
+			upstream_backoff_ms: 0,
+			rate_limit_cooldown_ms: 0,
+			range_deadline_ms: default_range_deadline_ms(),
+		}
+	}
+
 	pub fn rpc_urls(&self) -> Vec<String> {
 		self.rpc
 			.split(',')
@@ -199,6 +224,32 @@ mod tests {
 		assert_eq!(gargantua.upstream_backoff_ms, 500);
 		assert_eq!(gargantua.rate_limit_cooldown_ms, 30_000);
 		assert_eq!(gargantua.range_deadline_ms, 45_000);
+	}
+
+	#[test]
+	fn in_node_config_disables_upstream_retries() {
+		let chain = ChainConfig::in_node(
+			"gargantua",
+			1000004009,
+			Hasher::Keccak,
+			vec!["ismp".to_string()],
+			200,
+			1024,
+			4,
+		);
+		assert_eq!(chain.name, "gargantua");
+		assert!(chain.rpc.is_empty());
+		assert!(chain.rpc_urls().is_empty());
+		assert_eq!(chain.eth_chain_id, 1000004009);
+		assert_eq!(chain.hasher, Hasher::Keccak);
+		assert_eq!(chain.pallets, ["ismp"]);
+		assert_eq!(chain.max_block_range, 200);
+		assert_eq!(chain.cache_blocks, 1024);
+		assert_eq!(chain.upstream_concurrency, 4);
+		assert_eq!(chain.upstream_retries, 0);
+		assert_eq!(chain.upstream_backoff_ms, 0);
+		assert_eq!(chain.rate_limit_cooldown_ms, 0);
+		assert_eq!(chain.range_deadline_ms, 60_000);
 	}
 
 	#[test]

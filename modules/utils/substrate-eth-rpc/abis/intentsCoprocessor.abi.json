@@ -1,33 +1,33 @@
 [
   {
-    "anonymous": false,
+    "type": "event",
+    "name": "BidPlaced",
     "inputs": [
       {
-        "indexed": true,
-        "internalType": "bytes32",
         "name": "filler",
-        "type": "bytes32"
-      },
-      {
+        "type": "bytes32",
         "indexed": true,
-        "internalType": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
         "name": "commitment",
-        "type": "bytes32"
+        "type": "bytes32",
+        "indexed": true,
+        "internalType": "bytes32"
       },
       {
-        "indexed": false,
-        "internalType": "bytes32",
         "name": "bid",
-        "type": "bytes32"
+        "type": "bytes32",
+        "indexed": false,
+        "internalType": "bytes32"
       },
       {
-        "indexed": false,
-        "internalType": "uint128",
         "name": "deposit",
-        "type": "uint128"
+        "type": "uint128",
+        "indexed": false,
+        "internalType": "uint128"
       }
     ],
-    "name": "BidPlaced",
-    "type": "event"
+    "anonymous": false
   }
 ]

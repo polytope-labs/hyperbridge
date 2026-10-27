@@ -1,51 +1,51 @@
 [
   {
-    "anonymous": false,
+    "type": "event",
+    "name": "RelayerRewarded",
     "inputs": [
       {
-        "indexed": true,
-        "internalType": "bytes32",
         "name": "relayer",
-        "type": "bytes32"
+        "type": "bytes32",
+        "indexed": true,
+        "internalType": "bytes32"
       },
       {
-        "indexed": false,
-        "internalType": "uint128",
         "name": "amount",
-        "type": "uint128"
+        "type": "uint128",
+        "indexed": false,
+        "internalType": "uint128"
       },
       {
-        "components": [
-          {
-            "components": [
-              {
-                "internalType": "string",
-                "name": "stateId",
-                "type": "string"
-              },
-              {
-                "internalType": "bytes4",
-                "name": "consensusStateId",
-                "type": "bytes4"
-              }
-            ],
-            "internalType": "tuple",
-            "name": "id",
-            "type": "tuple"
-          },
-          {
-            "internalType": "uint64",
-            "name": "height",
-            "type": "uint64"
-          }
-        ],
+        "name": "stateMachineHeight",
+        "type": "tuple",
         "indexed": false,
         "internalType": "tuple",
-        "name": "stateMachineHeight",
-        "type": "tuple"
+        "components": [
+          {
+            "name": "id",
+            "type": "tuple",
+            "internalType": "tuple",
+            "components": [
+              {
+                "name": "stateId",
+                "type": "string",
+                "internalType": "string"
+              },
+              {
+                "name": "consensusStateId",
+                "type": "bytes4",
+                "internalType": "bytes4"
+              }
+            ]
+          },
+          {
+            "name": "height",
+            "type": "uint64",
+            "internalType": "uint64"
+          }
+        ]
       }
     ],
-    "name": "RelayerRewarded",
-    "type": "event"
+    "anonymous": false
   }
 ]

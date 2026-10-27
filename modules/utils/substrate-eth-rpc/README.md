@@ -1,11 +1,15 @@
 # substrate-eth-rpc
 
-An Ethereum JSON-RPC facade over Substrate JSON-RPC. It lets EVM indexers such as
+An Ethereum JSON-RPC facade over Substrate chains. It lets EVM indexers such as
 rindexer index Substrate chains: pallet events become Ethereum logs, blocks take the
 Ethereum block shape, and Substrate storage is readable through `eth_call`. Only
 finalized blocks are served, so a client never sees a reorg.
 
-## Running
+The facade runs in one of two ways: as a standalone binary that talks to any Substrate
+node over its JSON-RPC, or inside the Hyperbridge node itself, reading the node's own
+client with no RPC round trip (see "Running inside the Hyperbridge node").
+
+## Running standalone
 
 ```sh
 cargo run -p substrate-eth-rpc -- serve --config config.toml
@@ -32,7 +36,57 @@ environment variable `NAME`; an unset variable is a startup error.
 | `chains[].range_deadline_ms` | `60000` | Time an `eth_getLogs` range may take before it answers with a hint to retry a shorter range, at least 1000; keep it below the client's HTTP timeout (rindexer: 90 s) |
 
 Each chain is served at `http://<listen>/<name>`. Any other path returns HTTP 404. When
-exactly one chain is configured it is also served at `/`.
+exactly one chain is configured it is also served at `/`. The per-path layout and the
+`chains[]` table above apply to the standalone binary only.
+
+## Running inside the Hyperbridge node
+
+With the cargo feature `node`, the crate exposes `ClientRpc`, a `SubstrateRpc`
+implementation that reads blocks, storage, runtime versions and metadata straight from
+a Substrate node client (`HeaderBackend`, `BlockBackend`, `StorageProvider`,
+`CallApiAt` and the `Metadata` runtime API). The `hyperbridge` binary uses it to mount
+the same `eth_*` methods next to its `ismp_*`, `mmr_*` and intents RPCs:
+
+```sh
+hyperbridge --chain nexus --state-pruning=archive --blocks-pruning=archive --eth-rpc
+```
+
+The flags are accepted by both `hyperbridge` and `hyperbridge simnode`.
+
+| Flag | Default | Meaning |
+|---|---|---|
+| `--eth-rpc` | off | Serve the facade on the node's RPC port |
+| `--eth-rpc-max-block-range` | `500` | Largest `eth_getLogs` span, accepted when `toBlock - fromBlock <= N` |
+| `--eth-rpc-cache-blocks` | `4096` | Decoded blocks kept in the LRU cache |
+| `--eth-rpc-concurrency` | `8` | Parallel block decodes per `eth_getLogs` |
+
+The methods are served on the node's normal RPC endpoint with no path, for example
+`http://<node>:9944`. Chain identity comes from the chain spec: `eth_chainId` is
+`1_000_000_000 + para_id` (Nexus `1000003367`, Gargantua `1000004009`), the hasher is
+`keccak` and every pallet in the mapping table is exposed. Because the data comes from
+the local client there are no upstream retries, backoff or rate-limit cooldowns:
+`rpc`, `upstream_retries`, `upstream_backoff_ms` and `rate_limit_cooldown_ms` do not
+apply; `range_deadline_ms` is fixed at 60 s. Request and response bodies are capped
+by the node at 150 MB (`hyperbridge simnode` keeps the 15 MB sc-cli default), more than the
+standalone's 32 MB.
+
+The node must run with `--state-pruning=archive --blocks-pruning=archive` so historic
+`System.Events`, `Timestamp.Now` and metadata are readable. Enable the flag on
+dedicated RPC nodes rather than collators: `eth_getLogs` decoding is CPU work on the
+node's RPC threads.
+
+The rindexer manifest then points at the node directly:
+
+```yaml
+networks:
+  - name: hyperbridge-nexus
+    chain_id: 1000003367
+    rpc: http://<node>:9944
+    max_block_range: 500
+```
+
+This is the intended deployment for Nexus and Gargantua. The standalone binary remains
+for chains whose node is run by someone else, and for `emit-abi` and `record-fixtures`.
 
 ## Supported methods
 
@@ -236,7 +290,8 @@ contracts:
       - GetRequestTimeoutHandled
 ```
 
-`chain_id` must equal the chain's `eth_chain_id`. `disable_logs_bloom_checks` is not
+`chain_id` must equal the chain's `eth_chain_id` (standalone) or `1_000_000_000 +
+para_id` (in-node, where `rpc` is the node's own RPC URL). `disable_logs_bloom_checks` is not
 needed because blocks carry a real `logsBloom`. `reorg_safe_distance` is not needed
 because only finalized blocks are served. Other pallets are added the same way, using
 `pallet_address(key)` and `abis/<key>.abi.json`.

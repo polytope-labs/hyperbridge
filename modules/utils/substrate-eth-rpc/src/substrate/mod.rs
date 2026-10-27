@@ -8,9 +8,13 @@ use crate::types::H256;
 
 pub mod client;
 pub mod fixture;
+#[cfg(feature = "node")]
+pub mod node;
 
 pub use client::LiveRpc;
 pub use fixture::{FixtureBlock, FixtureRpc};
+#[cfg(feature = "node")]
+pub use node::ClientRpc;
 
 #[derive(Debug, thiserror::Error)]
 pub enum RpcError {

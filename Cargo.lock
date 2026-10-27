@@ -9500,6 +9500,7 @@ dependencies = [
  "serde",
  "serde_json",
  "simnode-runtime-api",
+ "substrate-eth-rpc",
  "tokio",
 ]
 
@@ -24537,6 +24538,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sp-core",
+ "substrate-eth-rpc",
  "substrate-state-machine",
  "subxt 0.42.1",
  "subxt-signer 0.41.0",
@@ -27424,6 +27426,7 @@ dependencies = [
  "jsonrpsee 0.24.11",
  "lru 0.16.3",
  "parity-scale-codec",
+ "polkadot-sdk",
  "scale-value",
  "serde",
  "serde_json",

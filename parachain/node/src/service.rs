@@ -21,7 +21,10 @@ use std::{sync::Arc, time::Duration};
 
 use cumulus_client_cli::CollatorOptions;
 // Local Runtime Types
-use crate::runtime_api::{opaque, BaseHostRuntimeApis};
+use crate::{
+	cli::EthRpcConfig,
+	runtime_api::{opaque, BaseHostRuntimeApis},
+};
 
 // Cumulus Imports
 use cumulus_client_collator::service::CollatorService;
@@ -48,6 +51,9 @@ use sp_api::ConstructRuntimeApi;
 use sp_core::traits::CodeExecutor;
 use sp_keystore::KeystorePtr;
 use sp_runtime::traits::Keccak256;
+use substrate_eth_rpc::{
+	blocks::BlockService, mapping::all_pallet_keys, ChainConfig, ClientRpc, Hasher,
+};
 use substrate_prometheus_endpoint::Registry;
 
 #[cfg(not(feature = "runtime-benchmarks"))]
@@ -166,6 +172,42 @@ where
 	})
 }
 
+/// Builds the Ethereum JSON-RPC facade over the node client. The service owns the decoded-block
+/// cache, so it is built once and shared across RPC module rebuilds.
+pub fn build_eth_rpc<Runtime, Executor>(
+	client: Arc<FullClient<Runtime, Executor>>,
+	cfg: &EthRpcConfig,
+) -> Result<Arc<BlockService>, sc_service::Error>
+where
+	Runtime:
+		ConstructRuntimeApi<opaque::Block, FullClient<Runtime, Executor>> + Send + Sync + 'static,
+	Runtime::RuntimeApi: BaseHostRuntimeApis,
+	Executor: CodeExecutor + RuntimeVersionOf + 'static,
+{
+	log::info!(
+		target: "eth-rpc",
+		"Ethereum JSON-RPC facade enabled for {} (chain id {}, max block range {}, cache {} blocks, concurrency {})",
+		cfg.chain_name,
+		cfg.eth_chain_id,
+		cfg.max_block_range,
+		cfg.cache_blocks,
+		cfg.concurrency,
+	);
+	let rpc = ClientRpc::<FullClient<Runtime, Executor>, FullBackend, opaque::Block>::new(client);
+	let config = ChainConfig::in_node(
+		&cfg.chain_name,
+		cfg.eth_chain_id,
+		Hasher::Keccak,
+		all_pallet_keys(),
+		cfg.max_block_range,
+		cfg.cache_blocks,
+		cfg.concurrency,
+	);
+	BlockService::new(Arc::new(rpc), config)
+		.map(Arc::new)
+		.map_err(|e| sc_service::Error::Other(e.to_string()))
+}
+
 /// Start a node with the given parachain `Configuration` and relay chain `Configuration`.
 ///
 /// This is the actual implementation that is abstract over the executor and the runtime api.
@@ -177,6 +219,7 @@ async fn start_node_impl<Runtime, T, Extra>(
 	para_id: ParaId,
 	hwbench: Option<sc_sysinfo::HwBench>,
 	tesseract_config: Option<std::path::PathBuf>,
+	eth_rpc: Option<EthRpcConfig>,
 ) -> sc_service::error::Result<TaskManager>
 where
 	Runtime: ConstructRuntimeApi<opaque::Block, FullClient<Runtime>> + Send + Sync + 'static,
@@ -302,6 +345,8 @@ where
 		),
 	);
 
+	let eth_rpc = eth_rpc.as_ref().map(|cfg| build_eth_rpc(client.clone(), cfg)).transpose()?;
+
 	let rpc_builder = {
 		let client = client.clone();
 		let backend = backend.clone();
@@ -316,6 +361,7 @@ where
 				backend: backend.clone(),
 				bid_cache: bid_cache.clone(),
 				bid_sender: bid_sender.clone(),
+				eth_rpc: eth_rpc.clone(),
 			};
 
 			let module = crate::rpc::create_full(deps)?;
@@ -571,6 +617,7 @@ pub async fn start_parachain_node(
 	para_id: ParaId,
 	hwbench: Option<sc_sysinfo::HwBench>,
 	tesseract_config: Option<std::path::PathBuf>,
+	eth_rpc: Option<EthRpcConfig>,
 ) -> sc_service::error::Result<TaskManager> {
 	match parachain_config.chain_spec.id() {
 		chain if chain.contains("gargantua") =>
@@ -585,6 +632,7 @@ pub async fn start_parachain_node(
 				para_id,
 				hwbench,
 				tesseract_config,
+				eth_rpc,
 			)
 			.await,
 		chain if chain.contains("nexus") =>
@@ -599,6 +647,7 @@ pub async fn start_parachain_node(
 				para_id,
 				hwbench,
 				tesseract_config,
+				eth_rpc,
 			)
 			.await,
 		chain => panic!("Unknown chain with id: {}", chain),

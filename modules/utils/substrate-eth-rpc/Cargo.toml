@@ -38,5 +38,21 @@ alloy-consensus = { workspace = true, features = ["std", "serde"] }
 sp-crypto-hashing = { workspace = true }
 lru = "0.16"
 
+[dependencies.polkadot-sdk]
+workspace = true
+optional = true
+default-features = true
+features = [
+    "sc-client-api",
+    "sp-api",
+    "sp-blockchain",
+    "sp-core",
+    "sp-runtime",
+]
+
+[features]
+default = []
+node = ["dep:polkadot-sdk"]
+
 [dev-dependencies]
 tokio = { workspace = true, features = ["full", "test-util"] }

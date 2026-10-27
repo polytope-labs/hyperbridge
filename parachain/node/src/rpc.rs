@@ -23,6 +23,7 @@
 use pallet_intents_rpc::{BidCache, RpcBidInfo};
 use polkadot_sdk::*;
 use std::sync::Arc;
+use substrate_eth_rpc::{blocks::BlockService, server::ChainRpc};
 use tokio::sync::broadcast;
 
 use gargantua_runtime::{opaque::Block, AccountId, Balance, Index as Nonce};
@@ -48,6 +49,8 @@ pub struct FullDeps<C, P, B> {
 	pub backend: Arc<B>,
 	pub bid_cache: Arc<BidCache>,
 	pub bid_sender: broadcast::Sender<RpcBidInfo>,
+	/// Ethereum JSON-RPC facade, present when the node runs with `--eth-rpc`.
+	pub eth_rpc: Option<Arc<BlockService>>,
 }
 
 /// Instantiate all RPC extensions.
@@ -86,7 +89,7 @@ where
 	use substrate_frame_rpc_system::{System, SystemApiServer};
 
 	let mut module = RpcExtension::new(());
-	let FullDeps { client, pool, backend, bid_cache, bid_sender } = deps;
+	let FullDeps { client, pool, backend, bid_cache, bid_sender, eth_rpc } = deps;
 
 	module.merge(System::new(client.clone(), pool).into_rpc())?;
 	module.merge(TransactionPayment::new(client.clone()).into_rpc())?;
@@ -97,6 +100,9 @@ where
 			.map_err(|e| e.to_string())?
 			.into_rpc(),
 	)?;
+	if let Some(service) = eth_rpc {
+		module.merge(ChainRpc::new(service).into_module())?;
+	}
 
 	Ok(module)
 }

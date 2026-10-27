@@ -1,189 +1,189 @@
 [
   {
-    "anonymous": false,
+    "type": "event",
+    "name": "StateMachineUpdated",
     "inputs": [
       {
-        "components": [
-          {
-            "internalType": "string",
-            "name": "stateId",
-            "type": "string"
-          },
-          {
-            "internalType": "bytes4",
-            "name": "consensusStateId",
-            "type": "bytes4"
-          }
-        ],
+        "name": "stateMachineId",
+        "type": "tuple",
         "indexed": false,
         "internalType": "tuple",
-        "name": "stateMachineId",
-        "type": "tuple"
+        "components": [
+          {
+            "name": "stateId",
+            "type": "string",
+            "internalType": "string"
+          },
+          {
+            "name": "consensusStateId",
+            "type": "bytes4",
+            "internalType": "bytes4"
+          }
+        ]
       },
       {
-        "indexed": false,
-        "internalType": "uint64",
         "name": "latestHeight",
-        "type": "uint64"
+        "type": "uint64",
+        "indexed": false,
+        "internalType": "uint64"
       }
     ],
-    "name": "StateMachineUpdated",
-    "type": "event"
+    "anonymous": false
   },
   {
-    "anonymous": false,
-    "inputs": [
-      {
-        "indexed": false,
-        "internalType": "string",
-        "name": "destChain",
-        "type": "string"
-      },
-      {
-        "indexed": false,
-        "internalType": "string",
-        "name": "sourceChain",
-        "type": "string"
-      },
-      {
-        "indexed": false,
-        "internalType": "uint64",
-        "name": "requestNonce",
-        "type": "uint64"
-      },
-      {
-        "indexed": true,
-        "internalType": "bytes32",
-        "name": "commitment",
-        "type": "bytes32"
-      }
-    ],
+    "type": "event",
     "name": "Request",
-    "type": "event"
-  },
-  {
-    "anonymous": false,
     "inputs": [
       {
-        "indexed": false,
-        "internalType": "string",
         "name": "destChain",
-        "type": "string"
+        "type": "string",
+        "indexed": false,
+        "internalType": "string"
       },
       {
-        "indexed": false,
-        "internalType": "string",
         "name": "sourceChain",
-        "type": "string"
+        "type": "string",
+        "indexed": false,
+        "internalType": "string"
       },
       {
-        "indexed": false,
-        "internalType": "uint64",
         "name": "requestNonce",
-        "type": "uint64"
+        "type": "uint64",
+        "indexed": false,
+        "internalType": "uint64"
       },
       {
-        "indexed": true,
-        "internalType": "bytes32",
         "name": "commitment",
-        "type": "bytes32"
-      },
-      {
+        "type": "bytes32",
         "indexed": true,
-        "internalType": "bytes32",
-        "name": "reqCommitment",
-        "type": "bytes32"
+        "internalType": "bytes32"
       }
     ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
     "name": "Response",
-    "type": "event"
-  },
-  {
-    "anonymous": false,
     "inputs": [
       {
-        "indexed": true,
-        "internalType": "bytes32",
-        "name": "commitment",
-        "type": "bytes32"
+        "name": "destChain",
+        "type": "string",
+        "indexed": false,
+        "internalType": "string"
       },
       {
+        "name": "sourceChain",
+        "type": "string",
         "indexed": false,
-        "internalType": "bytes",
-        "name": "relayer",
-        "type": "bytes"
+        "internalType": "string"
+      },
+      {
+        "name": "requestNonce",
+        "type": "uint64",
+        "indexed": false,
+        "internalType": "uint64"
+      },
+      {
+        "name": "commitment",
+        "type": "bytes32",
+        "indexed": true,
+        "internalType": "bytes32"
+      },
+      {
+        "name": "reqCommitment",
+        "type": "bytes32",
+        "indexed": true,
+        "internalType": "bytes32"
       }
     ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
     "name": "PostRequestHandled",
-    "type": "event"
-  },
-  {
-    "anonymous": false,
     "inputs": [
       {
-        "indexed": true,
-        "internalType": "bytes32",
         "name": "commitment",
-        "type": "bytes32"
+        "type": "bytes32",
+        "indexed": true,
+        "internalType": "bytes32"
       },
       {
-        "indexed": false,
-        "internalType": "bytes",
         "name": "relayer",
-        "type": "bytes"
+        "type": "bytes",
+        "indexed": false,
+        "internalType": "bytes"
       }
     ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
     "name": "GetRequestHandled",
-    "type": "event"
-  },
-  {
-    "anonymous": false,
     "inputs": [
       {
-        "indexed": true,
-        "internalType": "bytes32",
         "name": "commitment",
-        "type": "bytes32"
+        "type": "bytes32",
+        "indexed": true,
+        "internalType": "bytes32"
       },
       {
+        "name": "relayer",
+        "type": "bytes",
         "indexed": false,
-        "internalType": "string",
-        "name": "source",
-        "type": "string"
-      },
-      {
-        "indexed": false,
-        "internalType": "string",
-        "name": "dest",
-        "type": "string"
+        "internalType": "bytes"
       }
     ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
     "name": "PostRequestTimeoutHandled",
-    "type": "event"
-  },
-  {
-    "anonymous": false,
     "inputs": [
       {
-        "indexed": true,
-        "internalType": "bytes32",
         "name": "commitment",
-        "type": "bytes32"
+        "type": "bytes32",
+        "indexed": true,
+        "internalType": "bytes32"
       },
       {
-        "indexed": false,
-        "internalType": "string",
         "name": "source",
-        "type": "string"
+        "type": "string",
+        "indexed": false,
+        "internalType": "string"
       },
       {
-        "indexed": false,
-        "internalType": "string",
         "name": "dest",
-        "type": "string"
+        "type": "string",
+        "indexed": false,
+        "internalType": "string"
       }
     ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
     "name": "GetRequestTimeoutHandled",
-    "type": "event"
+    "inputs": [
+      {
+        "name": "commitment",
+        "type": "bytes32",
+        "indexed": true,
+        "internalType": "bytes32"
+      },
+      {
+        "name": "source",
+        "type": "string",
+        "indexed": false,
+        "internalType": "string"
+      },
+      {
+        "name": "dest",
+        "type": "string",
+        "indexed": false,
+        "internalType": "string"
+      }
+    ],
+    "anonymous": false
   }
 ]

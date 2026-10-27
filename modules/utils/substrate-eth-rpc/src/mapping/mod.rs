@@ -38,6 +38,10 @@ pub fn all_pallets() -> Vec<PalletSpec> {
 	]
 }
 
+pub fn all_pallet_keys() -> Vec<String> {
+	all_pallets().into_iter().map(|pallet| pallet.key.to_string()).collect()
+}
+
 pub fn pallets_for(keys: &[String]) -> Result<Vec<PalletSpec>, MappingError> {
 	let all = all_pallets();
 	keys.iter()
@@ -429,6 +433,14 @@ mod tests {
 				"IntentsCoprocessor"
 			]
 		);
+	}
+
+	#[test]
+	fn all_pallet_keys_follow_spec_order() {
+		let keys = all_pallet_keys();
+		assert_eq!(keys.len(), 7);
+		assert_eq!(keys[0], "ismp");
+		assert_eq!(keys, all_pallets().iter().map(|p| p.key.to_string()).collect::<Vec<_>>());
 	}
 
 	#[test]

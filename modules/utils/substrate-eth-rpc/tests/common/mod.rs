@@ -66,6 +66,11 @@ impl Chain {
 			pallets: self.pallets.iter().map(|pallet| pallet.to_string()).collect(),
 			max_block_range: 1000,
 			cache_blocks: 64,
+			upstream_concurrency: 8,
+			upstream_retries: 5,
+			upstream_backoff_ms: 250,
+			rate_limit_cooldown_ms: 10_000,
+			range_deadline_ms: 60_000,
 		}
 	}
 

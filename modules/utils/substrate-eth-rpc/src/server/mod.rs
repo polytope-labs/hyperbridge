@@ -54,11 +54,15 @@ pub async fn start_with_services(
 
 #[cfg(test)]
 mod tests {
-	use std::collections::{BTreeMap, HashMap};
+	use std::{
+		collections::{BTreeMap, HashMap},
+		time::Duration,
+	};
 
 	use alloy_primitives::{hex, keccak256, Address, Bytes, B256};
 	use alloy_rpc_types_eth::{Block, Log};
 	use alloy_sol_types::{sol_data, SolCall, SolType};
+	use async_trait::async_trait;
 	use codec::Encode;
 	use jsonrpsee::{
 		core::{
@@ -77,8 +81,8 @@ mod tests {
 		decode::testdata::NEXUS,
 		mapping::pallets_for,
 		substrate::{
-			fixture::FixtureRuntimeVersion, system_events_key, timestamp_now_key, FixtureBlock,
-			FixtureRpc,
+			fixture::FixtureRuntimeVersion, system_events_key, timestamp_now_key, BlockHeader,
+			FixtureBlock, FixtureRpc, RawBlock, RpcError, RuntimeVersion, SubstrateRpc,
 		},
 		types::{pallet_address, storage_address, Hasher},
 	};
@@ -137,6 +141,57 @@ mod tests {
 			pallets: vec!["ismp".into(), "consensusIncentives".into()],
 			max_block_range,
 			cache_blocks: 64,
+			upstream_concurrency: 8,
+			upstream_retries: 5,
+			upstream_backoff_ms: 250,
+			rate_limit_cooldown_ms: 10_000,
+			range_deadline_ms: 60_000,
+		}
+	}
+
+	struct Slow {
+		inner: Arc<FixtureRpc>,
+		delay: Duration,
+	}
+
+	#[async_trait]
+	impl SubstrateRpc for Slow {
+		async fn finalized_head(&self) -> Result<B256, RpcError> {
+			self.inner.finalized_head().await
+		}
+
+		async fn block_hash(&self, number: u64) -> Result<Option<B256>, RpcError> {
+			self.inner.block_hash(number).await
+		}
+
+		async fn header(&self, hash: B256) -> Result<Option<BlockHeader>, RpcError> {
+			self.inner.header(hash).await
+		}
+
+		async fn block(&self, hash: B256) -> Result<Option<RawBlock>, RpcError> {
+			tokio::time::sleep(self.delay).await;
+			self.inner.block(hash).await
+		}
+
+		async fn storage(&self, key: &[u8], at: B256) -> Result<Option<Vec<u8>>, RpcError> {
+			self.inner.storage(key, at).await
+		}
+
+		async fn child_storage(
+			&self,
+			child_key: &[u8],
+			key: &[u8],
+			at: B256,
+		) -> Result<Option<Vec<u8>>, RpcError> {
+			self.inner.child_storage(child_key, key, at).await
+		}
+
+		async fn runtime_version(&self, at: B256) -> Result<RuntimeVersion, RpcError> {
+			self.inner.runtime_version(at).await
+		}
+
+		async fn metadata(&self, at: B256) -> Result<Vec<u8>, RpcError> {
+			self.inner.metadata(at).await
 		}
 	}
 
@@ -148,8 +203,16 @@ mod tests {
 
 	impl Harness {
 		async fn start(max_block_range: u64) -> Self {
+			Self::start_with(chain(max_block_range), None).await
+		}
+
+		async fn start_with(chain: ChainConfig, delay: Option<Duration>) -> Self {
 			let rpc = fixture();
-			let service = Arc::new(BlockService::new(rpc.clone(), chain(max_block_range)).unwrap());
+			let upstream: Arc<dyn SubstrateRpc> = match delay {
+				Some(delay) => Arc::new(Slow { inner: rpc.clone(), delay }),
+				None => rpc.clone(),
+			};
+			let service = Arc::new(BlockService::new(upstream, chain).unwrap());
 			let listen: SocketAddr = "127.0.0.1:0".parse().unwrap();
 			let (addr, handle) =
 				start_with_services(listen, vec![("nexus".into(), service)]).await.unwrap();
@@ -417,6 +480,31 @@ mod tests {
 		.await;
 		assert_eq!(err.code(), error::INVALID_PARAMS);
 		assert_eq!(err.message(), "blockHash filter not supported");
+	}
+
+	#[tokio::test]
+	async fn get_logs_deadline_hints_and_recovers_from_cache() {
+		let mut chain = chain(1000);
+		chain.range_deadline_ms = 0;
+		let harness = Harness::start_with(chain, Some(Duration::from_millis(200))).await;
+		let client = harness.client();
+		let params = || log_filter("0x64", "0x66", json!({ "address": ismp() }));
+
+		let err = call_error(&client, "eth_getLogs", params()).await;
+		assert_eq!(err.code(), error::SERVER_ERROR);
+		assert_eq!(err.message(), "this block range should work: [0x64, 0x64]");
+
+		let mut logs = None;
+		for _ in 0..100 {
+			if let Ok(found) = client.request::<Vec<Log>, _>("eth_getLogs", params()).await {
+				logs = Some(found);
+				break;
+			}
+			tokio::time::sleep(Duration::from_millis(10)).await;
+		}
+		let logs = logs.expect("abandoned decodes land in the cache");
+		assert!(logs.iter().any(|log| log.block_number == Some(100)));
+		assert!(logs.iter().any(|log| log.block_number == Some(102)));
 	}
 
 	#[tokio::test]

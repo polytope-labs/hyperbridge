@@ -45,6 +45,12 @@ log shape and the rindexer manifest.
   mapping is updated.
 - `eth_getBlockByHash` and hash-based `eth_call` answer only for finalized canonical
   blocks; any other hash is `null` or `block not found`.
+- Upstream load is bounded by `upstream_concurrency` (default 8, halved for
+  `rate_limit_cooldown_ms` after a rate-limit answer); transient upstream errors (rate
+  limits, timeouts, lost connections, HTTP 5xx) are retried with exponential backoff.
+- An `eth_getLogs` range that misses `range_deadline_ms` (default 60 s) answers with the
+  same `this block range should work: [from, k]` hint, `k` being the end of the already
+  decoded prefix, while the running decodes finish into the cache; no partial logs.
 
 ## Not included
 

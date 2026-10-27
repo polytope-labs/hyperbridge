@@ -23,8 +23,13 @@ environment variable `NAME`; an unset variable is a startup error.
 | `chains[].eth_chain_id` | required | Value returned by `eth_chainId` and `net_version`, unique |
 | `chains[].hasher` | required | `keccak` or `blake2`; the chain's extrinsic hasher, used for `transactionHash` |
 | `chains[].pallets` | required | Pallet keys to map (see below); an unknown key is a startup error |
-| `chains[].max_block_range` | `1000` | Largest `eth_getLogs` range (inclusive), at least 1 |
+| `chains[].max_block_range` | `500` | Largest `eth_getLogs` range (inclusive), at least 1; 100 to 200 for a cold sync against a slow archive node, the deadline hint below handles the rest |
 | `chains[].cache_blocks` | `4096` | Decoded blocks kept in the LRU cache |
+| `chains[].upstream_concurrency` | `8` | Blocks fetched from the Substrate node at once, at least 1 |
+| `chains[].upstream_retries` | `5` | Retries of a transient upstream error per call, after the first attempt |
+| `chains[].upstream_backoff_ms` | `250` | Delay before the first retry; doubles per retry, capped at 5 s, plus up to 25% jitter |
+| `chains[].rate_limit_cooldown_ms` | `10000` | After a rate-limit answer, each block fetch holds two concurrency permits for this long, halving the load on the node |
+| `chains[].range_deadline_ms` | `60000` | Time an `eth_getLogs` range may take before it answers with a hint to retry a shorter range, at least 1000; keep it below the client's HTTP timeout (rindexer: 90 s) |
 
 Each chain is served at `http://<listen>/<name>`. Any other path returns HTTP 404. When
 exactly one chain is configured it is also served at `/`.
@@ -165,13 +170,29 @@ the whole request fails and no partial result is returned.
 
 | Code | Message | When |
 |---|---|---|
-| `-32000` | `this block range should work: [0x64, 0x65]` | Range larger than `max_block_range`; rindexer parses this hint and retries with the suggested range |
+| `-32000` | `this block range should work: [0x64, 0x65]` | Range larger than `max_block_range`, or the range missed `range_deadline_ms`; rindexer parses this hint and retries with the suggested range |
 | `-32000` | `toBlock 0x67 is beyond finalized head 0x66` | Range ends after the finalized head |
 | `-32000` | `block <n>: <cause>` | A block in the range failed to fetch or decode |
 | `-32000` | `block <n> not found` | `eth_call` at a block above the finalized head or at a hash that is not a finalized canonical block |
 | `-32602` | `fromBlock <a> is after toBlock <b>` | Inverted range |
 | `-32602` | `blockHash filter not supported` | `eth_getLogs` with `blockHash` |
 | `-32602` | parameter errors | Bad `eth_call` target or selector, malformed params |
+
+When a range misses `range_deadline_ms` the hint is `[fromBlock, k]`, where `k` is the
+last block of the longest already decoded prefix, or `[fromBlock, fromBlock]` when the
+first block is not decoded yet. The decodes that were running keep going and land in the
+cache, so the retried range is served from cache and the client advances. No partial
+logs are ever returned.
+
+Transient upstream errors (rate limits such as `-32999`, `429` or `Too Many Requests`,
+timeouts, lost or reconnecting connections, HTTP 5xx) are retried per call up to
+`upstream_retries` times with exponential backoff from `upstream_backoff_ms`, capped at
+5 s, each retry logged at `warn`. Any other error fails the block, and so the range, at
+once. A rate-limit answer also starts a `rate_limit_cooldown_ms` cooldown during which the
+effective `upstream_concurrency` is halved.
+
+Every request logs its method, chain, resolved block or range, outcome and elapsed time
+at `debug` (`substrate_eth_rpc=debug`); a failed `eth_getLogs` is logged at `warn`.
 
 The Substrate endpoint must be an archive node. Every block read fetches historic
 `System.Events` and `Timestamp.Now` through `state_getStorage`, the runtime version
@@ -196,7 +217,7 @@ networks:
   - name: hyperbridge-nexus
     chain_id: 1000003367
     rpc: http://127.0.0.1:8545/hyperbridge-nexus
-    max_block_range: 1000
+    max_block_range: 500
 
 contracts:
   - name: Ismp

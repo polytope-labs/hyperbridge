@@ -1,12 +1,20 @@
 use std::{
-	collections::HashMap,
+	collections::{hash_map::Entry, HashMap},
+	future::Future,
 	sync::{Arc, Mutex},
+	time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
 use alloy_primitives::keccak256;
 use codec::Decode;
-use futures::{stream, StreamExt, TryStreamExt};
-use tokio::sync::{OnceCell, Semaphore};
+use futures::{
+	future::{BoxFuture, Shared},
+	stream, FutureExt, StreamExt, TryStreamExt,
+};
+use tokio::{
+	sync::{Semaphore, SemaphorePermit},
+	time::Instant,
+};
 
 use crate::{
 	bloom::block_bloom,
@@ -19,7 +27,7 @@ use crate::{
 };
 
 const DECODE_CONCURRENCY: usize = 16;
-const UPSTREAM_CONCURRENCY: usize = 32;
+const MAX_BACKOFF: Duration = Duration::from_secs(5);
 
 #[derive(Debug, thiserror::Error)]
 pub enum BlockError {
@@ -45,8 +53,12 @@ pub enum BlockError {
 	InvalidRange { from: u64, to: u64 },
 	#[error("block range {from}..={to} exceeds max {max}")]
 	RangeTooLarge { from: u64, to: u64, max: u64 },
+	#[error("block range {from}..={to} missed the deadline, decoded up to {decoded_to:?}")]
+	RangeDeadline { from: u64, to: u64, decoded_to: Option<u64> },
 	#[error("toBlock {to} is beyond finalized head {head}")]
 	BeyondHead { to: u64, head: u64 },
+	#[error("decode task: {0}")]
+	Task(String),
 	#[error(transparent)]
 	Shared(Arc<BlockError>),
 }
@@ -60,7 +72,7 @@ impl BlockError {
 	}
 }
 
-type InFlight = Arc<OnceCell<Result<Arc<DecodedBlock>, Arc<BlockError>>>>;
+type InFlight = Shared<BoxFuture<'static, Result<Arc<DecodedBlock>, Arc<BlockError>>>>;
 
 pub struct BlockService {
 	rpc: Arc<dyn SubstrateRpc>,
@@ -71,6 +83,7 @@ pub struct BlockService {
 	finalized: FinalizedCache,
 	in_flight: Mutex<HashMap<H256, InFlight>>,
 	upstream: Semaphore,
+	cooldown_until: Mutex<Option<Instant>>,
 	concurrency: usize,
 }
 
@@ -78,6 +91,7 @@ impl BlockService {
 	pub fn new(rpc: Arc<dyn SubstrateRpc>, chain: ChainConfig) -> Result<Self, BlockError> {
 		let mapper = Arc::new(Mapper::new(pallets_for(&chain.pallets)?));
 		let cache = BlockCache::new(chain.cache_blocks);
+		let upstream = Semaphore::new(chain.upstream_concurrency.max(1));
 		Ok(Self {
 			rpc,
 			chain,
@@ -86,7 +100,8 @@ impl BlockService {
 			cache,
 			finalized: FinalizedCache::default(),
 			in_flight: Mutex::new(HashMap::new()),
-			upstream: Semaphore::new(UPSTREAM_CONCURRENCY),
+			upstream,
+			cooldown_until: Mutex::new(None),
 			concurrency: DECODE_CONCURRENCY,
 		})
 	}
@@ -112,7 +127,7 @@ impl BlockService {
 	}
 
 	pub async fn block_by_number(
-		&self,
+		self: &Arc<Self>,
 		number: u64,
 	) -> Result<Option<Arc<DecodedBlock>>, BlockError> {
 		if number > self.finalized_number().await? {
@@ -121,15 +136,20 @@ impl BlockService {
 		if let Some(block) = self.cache.get_by_number(number) {
 			return Ok(Some(block));
 		}
-		let Some(hash) =
-			self.rpc.block_hash(number).await.map_err(|e| BlockError::from(e).at(number))?
+		let Some(hash) = self
+			.upstream(&format!("block {number}"), || self.rpc.block_hash(number))
+			.await
+			.map_err(|e| BlockError::from(e).at(number))?
 		else {
 			return Ok(None);
 		};
 		self.fetch_cached(hash).await.map(Some).map_err(|e| e.at(number))
 	}
 
-	pub async fn block_by_hash(&self, hash: H256) -> Result<Option<Arc<DecodedBlock>>, BlockError> {
+	pub async fn block_by_hash(
+		self: &Arc<Self>,
+		hash: H256,
+	) -> Result<Option<Arc<DecodedBlock>>, BlockError> {
 		if let Some(block) = self.cache.get_by_hash(hash) {
 			return Ok(Some(block));
 		}
@@ -150,12 +170,18 @@ impl BlockService {
 		if number > self.finalized_number().await? {
 			return Ok(None);
 		}
-		let canonical =
-			self.rpc.block_hash(number).await.map_err(|e| BlockError::from(e).at(number))?;
+		let canonical = self
+			.upstream(&format!("block {number}"), || self.rpc.block_hash(number))
+			.await
+			.map_err(|e| BlockError::from(e).at(number))?;
 		Ok((canonical == Some(hash)).then_some(number))
 	}
 
-	pub async fn range(&self, from: u64, to: u64) -> Result<Vec<Arc<DecodedBlock>>, BlockError> {
+	pub async fn range(
+		self: &Arc<Self>,
+		from: u64,
+		to: u64,
+	) -> Result<Vec<Arc<DecodedBlock>>, BlockError> {
 		if from > to {
 			return Err(BlockError::InvalidRange { from, to });
 		}
@@ -177,11 +203,21 @@ impl BlockService {
 			}
 		}
 
-		let fetched: Vec<Arc<DecodedBlock>> = stream::iter(missing)
+		let decode = stream::iter(missing)
 			.map(|number| self.fetch_number(number))
 			.buffer_unordered(self.concurrency)
-			.try_collect()
-			.await?;
+			.try_collect::<Vec<Arc<DecodedBlock>>>();
+		let deadline = Duration::from_millis(self.chain.range_deadline_ms);
+		// Decodes already running keep going as detached tasks and land in the cache, so the
+		// hint points the client at the prefix it can get instantly on its retry.
+		let fetched = match tokio::time::timeout(deadline, decode).await {
+			Ok(fetched) => fetched?,
+			Err(_) => {
+				let decoded_to = self.cached_prefix_end(from, to);
+				tracing::debug!(from, to, decoded_to, "range deadline reached");
+				return Err(BlockError::RangeDeadline { from, to, decoded_to });
+			},
+		};
 		blocks.extend(fetched);
 		blocks.sort_by_key(|block| block.number);
 		Ok(blocks)
@@ -205,66 +241,79 @@ impl BlockService {
 			.map_err(|e| BlockError::from(e).at(at))
 	}
 
+	fn cached_prefix_end(&self, from: u64, to: u64) -> Option<u64> {
+		(from..=to)
+			.take_while(|number| self.cache.get_by_number(*number).is_some())
+			.last()
+	}
+
 	async fn canonical_hash(&self, number: u64) -> Result<H256, BlockError> {
 		if let Some(block) = self.cache.get_by_number(number) {
 			return Ok(block.hash);
 		}
-		self.rpc
-			.block_hash(number)
+		self.upstream(&format!("block {number}"), || self.rpc.block_hash(number))
 			.await
 			.map_err(|e| BlockError::from(e).at(number))?
 			.ok_or(BlockError::NotFound(number))
 	}
 
-	async fn fetch_number(&self, number: u64) -> Result<Arc<DecodedBlock>, BlockError> {
+	async fn fetch_number(self: &Arc<Self>, number: u64) -> Result<Arc<DecodedBlock>, BlockError> {
 		let hash = self.canonical_hash(number).await?;
 		self.fetch_cached(hash).await.map_err(|e| e.at(number))
 	}
 
-	async fn fetch_cached(&self, hash: H256) -> Result<Arc<DecodedBlock>, BlockError> {
-		let cell = {
+	async fn fetch_cached(self: &Arc<Self>, hash: H256) -> Result<Arc<DecodedBlock>, BlockError> {
+		let pending = {
 			let mut in_flight = self.in_flight.lock().unwrap_or_else(|e| e.into_inner());
 			if let Some(block) = self.cache.get_by_hash(hash) {
 				return Ok(block);
 			}
-			in_flight.entry(hash).or_default().clone()
+			match in_flight.entry(hash) {
+				Entry::Occupied(entry) => entry.get().clone(),
+				Entry::Vacant(entry) => entry.insert(self.spawn_decode(hash)).clone(),
+			}
 		};
-		let result = cell
-			.get_or_init(|| async {
-				let block = self
-					.decode_block(hash)
-					.await
-					.and_then(|block| block.ok_or(RpcError::HashNotFound(hash).into()))
-					.map_err(Arc::new)?;
-				let _in_flight = self.in_flight.lock().unwrap_or_else(|e| e.into_inner());
-				self.cache.insert(block.clone());
-				Ok(block)
-			})
-			.await
-			.clone();
-		let mut in_flight = self.in_flight.lock().unwrap_or_else(|e| e.into_inner());
-		if in_flight.get(&hash).is_some_and(|current| Arc::ptr_eq(current, &cell)) {
-			in_flight.remove(&hash);
-		}
-		result.map_err(BlockError::Shared)
+		pending.await.map_err(BlockError::Shared)
+	}
+
+	// A decode runs as its own task so a caller that stops waiting for it, such as a range
+	// that hit its deadline, still leaves the block in the cache for the retry.
+	fn spawn_decode(self: &Arc<Self>, hash: H256) -> InFlight {
+		let this = self.clone();
+		tokio::spawn(async move {
+			let mut guard = DecodeGuard { service: this.clone(), hash, block: None };
+			let result = this
+				.decode_block(hash)
+				.await
+				.and_then(|block| block.ok_or(RpcError::HashNotFound(hash).into()))
+				.map_err(Arc::new);
+			guard.block = result.as_ref().ok().cloned();
+			drop(guard);
+			result
+		})
+		.map(|joined| joined.unwrap_or_else(|err| Err(Arc::new(BlockError::Task(err.to_string())))))
+		.boxed()
+		.shared()
 	}
 
 	async fn decode_block(&self, hash: H256) -> Result<Option<Arc<DecodedBlock>>, BlockError> {
-		let permit = self.upstream.acquire().await.expect("upstream semaphore is never closed");
-		let Some(raw) = self.rpc.block(hash).await? else {
+		let permit = self.acquire_upstream().await;
+		let Some(raw) = self.upstream(&format!("block {hash}"), || self.rpc.block(hash)).await?
+		else {
 			return Ok(None);
 		};
+		let number = raw.number;
+		let at = format!("block {number}");
 		// System.Events at `hash` were written by the runtime live at the parent's state; the
 		// block that applies an upgrade already reports the new version at its own hash.
-		let spec_at = if raw.number == 0 { hash } else { raw.parent_hash };
+		let spec_at = if number == 0 { hash } else { raw.parent_hash };
 		let events_key = system_events_key();
 		let timestamp_key = timestamp_now_key();
 		let (version, events, timestamp) = tokio::try_join!(
-			self.rpc.runtime_version(spec_at),
-			self.rpc.storage(&events_key, hash),
-			self.rpc.storage(&timestamp_key, hash),
+			self.upstream(&at, || self.rpc.runtime_version(spec_at)),
+			self.upstream(&at, || self.rpc.storage(&events_key, hash)),
+			self.upstream(&at, || self.rpc.storage(&timestamp_key, hash)),
 		)?;
-		let number = raw.number;
 		let events = events.ok_or(BlockError::MissingEvents(number))?;
 		let timestamp = timestamp.ok_or(BlockError::MissingTimestamp(number))?;
 		let timestamp_ms = u64::decode(&mut &timestamp[..])
@@ -273,7 +322,7 @@ impl BlockService {
 		let metadata = match self.metadata.get(version.spec_version) {
 			Some(metadata) => metadata,
 			None => {
-				let raw_metadata = self.rpc.metadata(spec_at).await?;
+				let raw_metadata = self.upstream(&at, || self.rpc.metadata(spec_at)).await?;
 				self.metadata.insert(version.spec_version, &raw_metadata)?
 			},
 		};
@@ -282,6 +331,61 @@ impl BlockService {
 		let block =
 			self.build_block(raw, version.spec_version, &events, timestamp_ms, &metadata)?;
 		Ok(Some(Arc::new(block)))
+	}
+
+	// During a rate-limit cooldown every fetch holds two permits, which halves the number of
+	// blocks in flight against the upstream.
+	async fn acquire_upstream(&self) -> SemaphorePermit<'_> {
+		let permits = if self.cooling_down() { 2.min(self.chain.upstream_concurrency) } else { 1 };
+		self.upstream
+			.acquire_many(permits as u32)
+			.await
+			.expect("upstream semaphore is never closed")
+	}
+
+	fn cooling_down(&self) -> bool {
+		self.cooldown_until
+			.lock()
+			.unwrap_or_else(|e| e.into_inner())
+			.is_some_and(|until| Instant::now() < until)
+	}
+
+	fn note_rate_limit(&self) {
+		let cooldown = Duration::from_millis(self.chain.rate_limit_cooldown_ms);
+		*self.cooldown_until.lock().unwrap_or_else(|e| e.into_inner()) =
+			Some(Instant::now() + cooldown);
+	}
+
+	async fn upstream<T, F, Fut>(&self, at: &str, call: F) -> Result<T, RpcError>
+	where
+		F: Fn() -> Fut,
+		Fut: Future<Output = Result<T, RpcError>>,
+	{
+		let retries = self.chain.upstream_retries;
+		let mut attempt = 0;
+		loop {
+			let err = match call().await {
+				Ok(value) => return Ok(value),
+				Err(err) => err,
+			};
+			if err.is_rate_limited() {
+				self.note_rate_limit();
+			}
+			if !err.is_transient() || attempt >= retries {
+				return Err(err);
+			}
+			attempt += 1;
+			let delay = backoff(self.chain.upstream_backoff_ms, attempt);
+			tracing::warn!(
+				at,
+				attempt,
+				retries,
+				delay_ms = delay.as_millis() as u64,
+				%err,
+				"retrying upstream call"
+			);
+			tokio::time::sleep(delay).await;
+		}
 	}
 
 	fn build_block(
@@ -345,6 +449,36 @@ impl BlockService {
 			logs_bloom,
 		})
 	}
+}
+
+// Caching the block and clearing the in-flight entry happen under one lock so a request
+// sees either the cache hit or the pending decode; the guard also clears the entry when
+// the decode panics, so the next request retries instead of inheriting a dead task.
+struct DecodeGuard {
+	service: Arc<BlockService>,
+	hash: H256,
+	block: Option<Arc<DecodedBlock>>,
+}
+
+impl Drop for DecodeGuard {
+	fn drop(&mut self) {
+		let mut in_flight = self.service.in_flight.lock().unwrap_or_else(|e| e.into_inner());
+		if let Some(block) = self.block.take() {
+			self.service.cache.insert(block);
+		}
+		in_flight.remove(&self.hash);
+	}
+}
+
+fn backoff(base_ms: u64, attempt: u32) -> Duration {
+	let exponent = attempt.saturating_sub(1).min(16);
+	let delay = Duration::from_millis(base_ms.saturating_mul(1 << exponent)).min(MAX_BACKOFF);
+	let spread = delay.as_millis() as u64 / 4;
+	let jitter = SystemTime::now()
+		.duration_since(UNIX_EPOCH)
+		.map(|now| u64::from(now.subsec_nanos()) % (spread + 1))
+		.unwrap_or(0);
+	delay + Duration::from_millis(jitter)
 }
 
 fn synthetic_tx_hash(block_hash: H256, tag: &[u8]) -> H256 {
@@ -426,15 +560,54 @@ mod tests {
 		}
 	}
 
+	fn number_of(hash: H256) -> u64 {
+		hash[0] as u64
+	}
+
 	struct Wrapped {
 		inner: Arc<FixtureRpc>,
 		block_calls: AtomicUsize,
 		fork_at: Option<u64>,
+		transient_failures: Mutex<HashMap<u64, u32>>,
+		transient_hits: AtomicUsize,
+		delays: Mutex<HashMap<u64, Duration>>,
 	}
 
 	impl Wrapped {
 		fn new(inner: Arc<FixtureRpc>) -> Arc<Self> {
-			Arc::new(Self { inner, block_calls: AtomicUsize::new(0), fork_at: None })
+			Arc::new(Self::wrap(inner))
+		}
+
+		fn wrap(inner: Arc<FixtureRpc>) -> Self {
+			Self {
+				inner,
+				block_calls: AtomicUsize::new(0),
+				fork_at: None,
+				transient_failures: Mutex::new(HashMap::new()),
+				transient_hits: AtomicUsize::new(0),
+				delays: Mutex::new(HashMap::new()),
+			}
+		}
+
+		fn fail_transient_at(&self, number: u64, times: u32) {
+			self.transient_failures.lock().unwrap().insert(number, times);
+		}
+
+		fn delay_at(&self, number: u64, delay: Duration) {
+			self.delays.lock().unwrap().insert(number, delay);
+		}
+
+		fn take_transient_failure(&self, number: u64) -> Option<RpcError> {
+			let mut failures = self.transient_failures.lock().unwrap();
+			let remaining = failures.get_mut(&number)?;
+			if *remaining == 0 {
+				return None;
+			}
+			*remaining -= 1;
+			self.transient_hits.fetch_add(1, Ordering::SeqCst);
+			Some(RpcError::Transport(format!(
+				"User error: RPC rate limit exceeded (-32999) at block {number}"
+			)))
 		}
 	}
 
@@ -457,6 +630,14 @@ mod tests {
 
 		async fn block(&self, hash: H256) -> Result<Option<RawBlock>, RpcError> {
 			self.block_calls.fetch_add(1, Ordering::SeqCst);
+			let number = number_of(hash);
+			if let Some(err) = self.take_transient_failure(number) {
+				return Err(err);
+			}
+			let delay = self.delays.lock().unwrap().get(&number).copied();
+			if let Some(delay) = delay {
+				tokio::time::sleep(delay).await;
+			}
 			self.inner.block(hash).await
 		}
 
@@ -501,11 +682,20 @@ mod tests {
 			pallets: vec!["ismp".into(), "consensusIncentives".into()],
 			max_block_range,
 			cache_blocks: 64,
+			upstream_concurrency: 8,
+			upstream_retries: 2,
+			upstream_backoff_ms: 10,
+			rate_limit_cooldown_ms: 1000,
+			range_deadline_ms: 60_000,
 		}
 	}
 
-	fn new_service(rpc: Arc<dyn SubstrateRpc>, max_block_range: u64) -> BlockService {
-		BlockService::new(rpc, chain(max_block_range)).unwrap()
+	fn new_service(rpc: Arc<dyn SubstrateRpc>, max_block_range: u64) -> Arc<BlockService> {
+		new_service_with(rpc, chain(max_block_range))
+	}
+
+	fn new_service_with(rpc: Arc<dyn SubstrateRpc>, chain: ChainConfig) -> Arc<BlockService> {
+		Arc::new(BlockService::new(rpc, chain).unwrap())
 	}
 
 	fn state_machine_updated_topic() -> H256 {
@@ -692,7 +882,7 @@ mod tests {
 		assert_eq!(service.canonical_number(hash_of(103)).await.unwrap(), None);
 		assert_eq!(service.canonical_number(hash_of(102)).await.unwrap(), Some(102));
 
-		let mut forked = Wrapped { inner: rpc, block_calls: AtomicUsize::new(0), fork_at: None };
+		let mut forked = Wrapped::wrap(rpc);
 		forked.fork_at = Some(101);
 		let service = new_service(Arc::new(forked), 1000);
 		assert!(service.block_by_hash(hash_of(101)).await.unwrap().is_none());
@@ -744,6 +934,113 @@ mod tests {
 
 		assert_eq!(service.range(100, 102).await.unwrap().len(), 3);
 		assert_eq!(rpc.block_calls.load(Ordering::SeqCst), 3);
+	}
+
+	#[tokio::test(start_paused = true)]
+	async fn transient_failures_are_retried() {
+		let rpc = Wrapped::new(fixture());
+		let service = new_service(rpc.clone(), 1000);
+		rpc.fail_transient_at(101, 1);
+
+		let blocks = service.range(100, 102).await.unwrap();
+		assert_eq!(blocks.iter().map(|b| b.number).collect::<Vec<_>>(), vec![100, 101, 102]);
+		assert_eq!(rpc.transient_hits.load(Ordering::SeqCst), 1);
+		assert_eq!(rpc.block_calls.load(Ordering::SeqCst), 4);
+		assert!(service.cooling_down());
+	}
+
+	#[tokio::test(start_paused = true)]
+	async fn non_transient_failures_are_not_retried() {
+		let fixture = fixture();
+		let rpc = Wrapped::new(fixture.clone());
+		let service = new_service(rpc.clone(), 1000);
+		fixture.fail_at(101);
+
+		let started = Instant::now();
+		let err = service.range(100, 102).await.unwrap_err();
+		assert!(matches!(err, BlockError::At { number: 101, .. }), "{err}");
+		assert!(
+			matches!(root(&err), BlockError::Rpc(RpcError::Transport(msg)) if msg.contains("injected")),
+			"{err}"
+		);
+		assert_eq!(started.elapsed(), Duration::ZERO, "no backoff sleep");
+		assert_eq!(rpc.transient_hits.load(Ordering::SeqCst), 0);
+		assert!(!service.cooling_down());
+	}
+
+	#[tokio::test(start_paused = true)]
+	async fn exhausted_retries_fail_the_block() {
+		let rpc = Wrapped::new(fixture());
+		let service = new_service(rpc.clone(), 1000);
+		rpc.fail_transient_at(101, 10);
+
+		let err = service.range(100, 102).await.unwrap_err();
+		assert!(matches!(err, BlockError::At { number: 101, .. }), "{err}");
+		assert!(
+			matches!(root(&err), BlockError::Rpc(RpcError::Transport(msg)) if msg.contains("rate limit")),
+			"{err}"
+		);
+		assert_eq!(rpc.transient_hits.load(Ordering::SeqCst), 3);
+		assert_eq!(rpc.block_calls.load(Ordering::SeqCst), 5);
+
+		rpc.fail_transient_at(101, 0);
+		assert_eq!(service.range(100, 102).await.unwrap().len(), 3);
+	}
+
+	#[tokio::test(start_paused = true)]
+	async fn range_deadline_hints_at_the_cached_prefix() {
+		let rpc = Wrapped::new(fixture());
+		let mut chain = chain(1000);
+		chain.range_deadline_ms = 200;
+		let service = new_service_with(rpc.clone(), chain);
+		rpc.delay_at(102, Duration::from_millis(500));
+
+		let err = service.range(100, 102).await.unwrap_err();
+		assert!(
+			matches!(err, BlockError::RangeDeadline { from: 100, to: 102, decoded_to: Some(101) }),
+			"{err}"
+		);
+		assert_eq!(rpc.block_calls.load(Ordering::SeqCst), 3);
+
+		let started = Instant::now();
+		let blocks = service.range(100, 101).await.unwrap();
+		assert_eq!(blocks.len(), 2);
+		assert_eq!(started.elapsed(), Duration::ZERO);
+		assert_eq!(rpc.block_calls.load(Ordering::SeqCst), 3);
+
+		tokio::time::sleep(Duration::from_secs(1)).await;
+		let blocks = service.range(100, 102).await.unwrap();
+		assert_eq!(blocks.len(), 3);
+		assert_eq!(rpc.block_calls.load(Ordering::SeqCst), 3);
+	}
+
+	#[tokio::test(start_paused = true)]
+	async fn range_deadline_without_progress_hints_at_the_first_block() {
+		let rpc = Wrapped::new(fixture());
+		let mut chain = chain(1000);
+		chain.range_deadline_ms = 200;
+		let service = new_service_with(rpc.clone(), chain);
+		rpc.delay_at(100, Duration::from_millis(500));
+
+		let err = service.range(100, 102).await.unwrap_err();
+		assert!(
+			matches!(err, BlockError::RangeDeadline { from: 100, to: 102, decoded_to: None }),
+			"{err}"
+		);
+	}
+
+	#[test]
+	fn backoff_doubles_with_jitter_and_caps() {
+		let within = |attempt: u32, base: u64| {
+			let delay = backoff(250, attempt).as_millis() as u64;
+			assert!(delay >= base && delay <= base + base / 4, "attempt {attempt}: {delay}");
+		};
+		within(1, 250);
+		within(2, 500);
+		within(3, 1000);
+		within(5, 4000);
+		within(6, 5000);
+		within(40, 5000);
 	}
 
 	#[test]

@@ -24,6 +24,16 @@ pub struct ChainConfig {
 	pub max_block_range: u64,
 	#[serde(default = "default_cache_blocks")]
 	pub cache_blocks: usize,
+	#[serde(default = "default_upstream_concurrency")]
+	pub upstream_concurrency: usize,
+	#[serde(default = "default_upstream_retries")]
+	pub upstream_retries: u32,
+	#[serde(default = "default_upstream_backoff_ms")]
+	pub upstream_backoff_ms: u64,
+	#[serde(default = "default_rate_limit_cooldown_ms")]
+	pub rate_limit_cooldown_ms: u64,
+	#[serde(default = "default_range_deadline_ms")]
+	pub range_deadline_ms: u64,
 }
 
 fn default_listen() -> SocketAddr {
@@ -31,12 +41,34 @@ fn default_listen() -> SocketAddr {
 }
 
 fn default_max_block_range() -> u64 {
-	1000
+	500
 }
 
 fn default_cache_blocks() -> usize {
 	4096
 }
+
+fn default_upstream_concurrency() -> usize {
+	8
+}
+
+fn default_upstream_retries() -> u32 {
+	5
+}
+
+fn default_upstream_backoff_ms() -> u64 {
+	250
+}
+
+fn default_rate_limit_cooldown_ms() -> u64 {
+	10_000
+}
+
+fn default_range_deadline_ms() -> u64 {
+	60_000
+}
+
+const MIN_RANGE_DEADLINE_MS: u64 = 1000;
 
 impl Config {
 	pub fn load(path: impl AsRef<Path>) -> anyhow::Result<Config> {
@@ -74,6 +106,15 @@ impl Config {
 			}
 			if chain.max_block_range < 1 {
 				bail!("chain {}: max_block_range must be at least 1", chain.name);
+			}
+			if chain.upstream_concurrency < 1 {
+				bail!("chain {}: upstream_concurrency must be at least 1", chain.name);
+			}
+			if chain.range_deadline_ms < MIN_RANGE_DEADLINE_MS {
+				bail!(
+					"chain {}: range_deadline_ms must be at least {MIN_RANGE_DEADLINE_MS}",
+					chain.name
+				);
 			}
 		}
 		Ok(())
@@ -138,8 +179,13 @@ mod tests {
 		assert_eq!(nexus.eth_chain_id, 1000003367);
 		assert_eq!(nexus.hasher, Hasher::Keccak);
 		assert_eq!(nexus.pallets[0], "ismp");
-		assert_eq!(nexus.max_block_range, 1000);
+		assert_eq!(nexus.max_block_range, 500);
 		assert_eq!(nexus.cache_blocks, 4096);
+		assert_eq!(nexus.upstream_concurrency, 8);
+		assert_eq!(nexus.upstream_retries, 5);
+		assert_eq!(nexus.upstream_backoff_ms, 250);
+		assert_eq!(nexus.rate_limit_cooldown_ms, 10_000);
+		assert_eq!(nexus.range_deadline_ms, 60_000);
 
 		let gargantua = &config.chains[1];
 		assert_eq!(gargantua.name, "gargantua");
@@ -147,6 +193,28 @@ mod tests {
 		assert_eq!(gargantua.eth_chain_id, 1000004009);
 		assert_eq!(gargantua.hasher, Hasher::Keccak);
 		assert_eq!(gargantua.pallets, nexus.pallets);
+		assert_eq!(gargantua.max_block_range, 200);
+		assert_eq!(gargantua.upstream_concurrency, 4);
+		assert_eq!(gargantua.upstream_retries, 8);
+		assert_eq!(gargantua.upstream_backoff_ms, 500);
+		assert_eq!(gargantua.rate_limit_cooldown_ms, 30_000);
+		assert_eq!(gargantua.range_deadline_ms, 45_000);
+	}
+
+	#[test]
+	fn rejects_zero_upstream_concurrency() {
+		set_example_env();
+		let zero = EXAMPLE.replace("upstream_concurrency = 4", "upstream_concurrency = 0");
+		let err = Config::parse(&zero).unwrap_err();
+		assert!(err.to_string().contains("upstream_concurrency"), "{err}");
+	}
+
+	#[test]
+	fn rejects_short_range_deadline() {
+		set_example_env();
+		let short = EXAMPLE.replace("range_deadline_ms = 45000", "range_deadline_ms = 999");
+		let err = Config::parse(&short).unwrap_err();
+		assert!(err.to_string().contains("range_deadline_ms must be at least 1000"), "{err}");
 	}
 
 	#[test]
@@ -184,8 +252,7 @@ mod tests {
 	#[test]
 	fn rejects_zero_block_range() {
 		set_example_env();
-		let zero = EXAMPLE
-			.replace("eth_chain_id = 1000004009", "eth_chain_id = 1000004009\nmax_block_range = 0");
+		let zero = EXAMPLE.replace("max_block_range = 200", "max_block_range = 0");
 		let err = Config::parse(&zero).unwrap_err();
 		assert!(err.to_string().contains("max_block_range"), "{err}");
 	}

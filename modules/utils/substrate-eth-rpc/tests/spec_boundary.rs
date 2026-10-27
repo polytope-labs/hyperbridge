@@ -44,11 +44,13 @@ async fn blocks_on_both_sides_of_a_runtime_upgrade_decode() {
 #[tokio::test]
 async fn upgrade_blocks_decode_with_the_runtime_that_produced_their_events() {
 	let harness = NEXUS.start().await;
-	let service = BlockService::new(
-		Arc::new(FixtureRpc::load(&NEXUS.fixtures()).expect("load fixtures")),
-		NEXUS.config(),
-	)
-	.expect("block service");
+	let service = Arc::new(
+		BlockService::new(
+			Arc::new(FixtureRpc::load(&NEXUS.fixtures()).expect("load fixtures")),
+			NEXUS.config(),
+		)
+		.expect("block service"),
+	);
 
 	for upgrade in UPGRADES {
 		let (last_old, first_new) = (upgrade.first_new_block - 1, upgrade.first_new_block);

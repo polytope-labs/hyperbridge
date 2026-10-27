@@ -1,7 +1,7 @@
-use std::{future::Future, sync::Arc};
+use std::{fmt::Display, future::Future, sync::Arc, time::Instant};
 
 use alloy_consensus::EMPTY_OMMER_ROOT_HASH;
-use alloy_primitives::{Address, Bytes, TxKind, B256, B64, U256, U64};
+use alloy_primitives::{hex, Address, Bytes, TxKind, B256, B64, U256, U64};
 use alloy_rpc_types_eth::{
 	Block, BlockId, BlockNumberOrTag, BlockTransactions, Filter, FilterBlockOption, Header, Log,
 	TransactionRequest,
@@ -62,28 +62,45 @@ impl ChainRpc {
 	}
 
 	async fn block_number(&self) -> RpcResult<U64> {
-		let head = self.service.finalized_number().await.map_err(to_rpc_error)?;
-		Ok(U64::from(head))
+		let started = Instant::now();
+		let result = self.service.finalized_number().await.map_err(to_rpc_error).map(U64::from);
+		log_outcome(started, "finalized", &result, |head| head.to_string());
+		result
 	}
 
 	async fn block_by_number(&self, params: Params<'static>) -> RpcResult<Option<Block<B256>>> {
+		let started = Instant::now();
 		let mut seq = params.sequence();
 		let tag: BlockNumberOrTag = seq.next()?;
 		let _full: Option<bool> = seq.optional_next()?;
 		let number = self.resolve_tag(tag).await?;
-		let block = self.service.block_by_number(number).await.map_err(to_rpc_error)?;
-		Ok(block.map(|block| to_rpc_block(&block)))
+		let result = self
+			.service
+			.block_by_number(number)
+			.await
+			.map_err(to_rpc_error)
+			.map(|block| block.map(|block| to_rpc_block(&block)));
+		log_outcome(started, format!("block {number}"), &result, describe_block);
+		result
 	}
 
 	async fn block_by_hash(&self, params: Params<'static>) -> RpcResult<Option<Block<B256>>> {
+		let started = Instant::now();
 		let mut seq = params.sequence();
 		let hash: B256 = seq.next()?;
 		let _full: Option<bool> = seq.optional_next()?;
-		let block = self.service.block_by_hash(hash).await.map_err(to_rpc_error)?;
-		Ok(block.map(|block| to_rpc_block(&block)))
+		let result = self
+			.service
+			.block_by_hash(hash)
+			.await
+			.map_err(to_rpc_error)
+			.map(|block| block.map(|block| to_rpc_block(&block)));
+		log_outcome(started, format!("block {hash}"), &result, describe_block);
+		result
 	}
 
 	async fn logs(&self, params: Params<'static>) -> RpcResult<Vec<Log>> {
+		let started = Instant::now();
 		let filter: Filter = params.sequence().next()?;
 		let (from, to) = match filter.block_option {
 			FilterBlockOption::AtBlockHash(_) =>
@@ -93,17 +110,33 @@ impl ChainRpc {
 				self.resolve_tag(to_block.unwrap_or(BlockNumberOrTag::Finalized)).await?,
 			),
 		};
-		let blocks = self.service.range(from, to).await.map_err(to_rpc_error)?;
-		let logs = blocks
-			.iter()
-			.flat_map(|block| block.logs.iter())
-			.map(to_rpc_log)
-			.filter(|log| filter.matches(&log.inner))
-			.collect();
-		Ok(logs)
+		let addresses = filter.address.len();
+		let topics = filter.topics.iter().filter(|topic| !topic.is_empty()).count();
+		let result = self.service.range(from, to).await.map_err(to_rpc_error).map(|blocks| {
+			blocks
+				.iter()
+				.flat_map(|block| block.logs.iter())
+				.map(to_rpc_log)
+				.filter(|log| filter.matches(&log.inner))
+				.collect::<Vec<Log>>()
+		});
+		let at = format!("range {from}..={to} addresses {addresses} topics {topics}");
+		if let Err(err) = &result {
+			tracing::warn!(
+				from,
+				to,
+				code = err.code(),
+				message = err.message(),
+				elapsed_ms = started.elapsed().as_millis() as u64,
+				"eth_getLogs failed"
+			);
+		}
+		log_outcome(started, at, &result, |logs| format!("{} logs", logs.len()));
+		result
 	}
 
 	async fn call(&self, params: Params<'static>) -> RpcResult<Bytes> {
+		let started = Instant::now();
 		let mut seq = params.sequence();
 		let request: TransactionRequest = seq.next()?;
 		let block: Option<BlockId> = seq.optional_next()?;
@@ -112,20 +145,25 @@ impl ChainRpc {
 			return Err(invalid_params("only the storage address is callable"));
 		}
 		let data = request.input.input().cloned().unwrap_or_default();
+		let selector = hex::encode_prefixed(data.get(..4).unwrap_or_default());
 		let call = SubstrateStorage::SubstrateStorageCalls::abi_decode(&data)
 			.map_err(|e| invalid_params(format!("unknown storage call: {e}")))?;
 		let at = self
 			.resolve_block_id(block.unwrap_or(BlockId::Number(BlockNumberOrTag::Finalized)))
 			.await?;
 
-		let value = match call {
+		let result = match call {
 			SubstrateStorage::SubstrateStorageCalls::getStorage(call) =>
 				self.service.storage(&call.key, at).await,
 			SubstrateStorage::SubstrateStorageCalls::getChildStorage(call) =>
 				self.service.child_storage(&call.childKey, &call.key, at).await,
 		}
-		.map_err(to_rpc_error)?;
-		Ok(Bytes::from(sol_data::Bytes::abi_encode(&value.unwrap_or_default())))
+		.map_err(to_rpc_error)
+		.map(|value| Bytes::from(sol_data::Bytes::abi_encode(&value.unwrap_or_default())));
+		log_outcome(started, format!("block {at} selector {selector}"), &result, |value| {
+			format!("{} bytes", value.len())
+		});
+		result
 	}
 
 	async fn resolve_tag(&self, tag: BlockNumberOrTag) -> RpcResult<u64> {
@@ -165,9 +203,32 @@ where
 {
 	module
 		.register_async_method(name, move |params, rpc, _| {
-			handler(rpc, params).instrument(tracing::debug_span!("rpc", method = name))
+			let span =
+				tracing::debug_span!("rpc", method = name, chain = %rpc.service.chain().name);
+			handler(rpc, params).instrument(span)
 		})
 		.expect("method names are unique");
+}
+
+fn log_outcome<T>(
+	started: Instant,
+	at: impl Display,
+	result: &RpcResult<T>,
+	describe: impl FnOnce(&T) -> String,
+) {
+	let elapsed_ms = started.elapsed().as_millis() as u64;
+	match result {
+		Ok(value) => tracing::debug!(%at, result = %describe(value), elapsed_ms, "ok"),
+		Err(err) =>
+			tracing::debug!(%at, code = err.code(), message = err.message(), elapsed_ms, "error"),
+	}
+}
+
+fn describe_block(block: &Option<Block<B256>>) -> String {
+	match block {
+		Some(block) => format!("{} txs", block.transactions.len()),
+		None => "null".into(),
+	}
 }
 
 pub fn to_rpc_block(block: &DecodedBlock) -> Block<B256> {

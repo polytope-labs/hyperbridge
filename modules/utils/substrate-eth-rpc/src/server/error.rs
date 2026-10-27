@@ -9,13 +9,20 @@ pub fn to_rpc_error(e: BlockError) -> ErrorObjectOwned {
 	match e {
 		BlockError::RangeTooLarge { from, max, .. } => {
 			let last = from.saturating_add(max.saturating_sub(1));
-			server_error(format!("this block range should work: [{from:#x}, {last:#x}]"))
+			server_error(range_hint(from, last))
 		},
+		BlockError::RangeDeadline { from, decoded_to, .. } =>
+			server_error(range_hint(from, decoded_to.unwrap_or(from))),
 		BlockError::BeyondHead { to, head } =>
 			server_error(format!("toBlock {to:#x} is beyond finalized head {head:#x}")),
 		BlockError::InvalidRange { .. } => invalid_params(e.to_string()),
 		other => server_error(other.to_string()),
 	}
+}
+
+// rindexer parses this exact wording and retries with the suggested range.
+fn range_hint(from: u64, to: u64) -> String {
+	format!("this block range should work: [{from:#x}, {to:#x}]")
 }
 
 pub fn server_error(message: impl Into<String>) -> ErrorObjectOwned {
@@ -39,6 +46,18 @@ mod tests {
 
 		let err = to_rpc_error(BlockError::RangeTooLarge { from: 0, to: 5000, max: 1000 });
 		assert_eq!(err.message(), "this block range should work: [0x0, 0x3e7]");
+	}
+
+	#[test]
+	fn range_deadline_tells_rindexer_the_cached_prefix() {
+		let err =
+			to_rpc_error(BlockError::RangeDeadline { from: 100, to: 1099, decoded_to: Some(101) });
+		assert_eq!(err.code(), SERVER_ERROR);
+		assert_eq!(err.message(), "this block range should work: [0x64, 0x65]");
+
+		let err = to_rpc_error(BlockError::RangeDeadline { from: 100, to: 1099, decoded_to: None });
+		assert_eq!(err.code(), SERVER_ERROR);
+		assert_eq!(err.message(), "this block range should work: [0x64, 0x64]");
 	}
 
 	#[test]

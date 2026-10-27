@@ -26,6 +26,55 @@ pub enum RpcError {
 	Fixture(String),
 }
 
+const RATE_LIMIT_MARKERS: &[&str] = &["rate limit", "too many requests"];
+const RATE_LIMIT_CODES: &[&str] = &["-32999", "429"];
+const TRANSIENT_MARKERS: &[&str] = &[
+	"timeout",
+	"timed out",
+	"connection was lost",
+	"connection was closed",
+	"connection closed",
+	"connection reset",
+	"reconnect",
+	"not connected",
+	"disconnected",
+	"restart required",
+	"broken pipe",
+	"unexpected eof",
+	"end of file",
+	"bad gateway",
+	"service unavailable",
+	"gateway timeout",
+	"internal server error",
+];
+const SERVER_STATUS_CODES: &[&str] = &["500", "502", "503", "504"];
+
+impl RpcError {
+	pub fn is_rate_limited(&self) -> bool {
+		let RpcError::Transport(message) = self else { return false };
+		let message = message.to_ascii_lowercase();
+		RATE_LIMIT_MARKERS.iter().any(|marker| message.contains(marker)) ||
+			RATE_LIMIT_CODES.iter().any(|code| contains_token(&message, code))
+	}
+
+	pub fn is_transient(&self) -> bool {
+		let RpcError::Transport(message) = self else { return false };
+		let message = message.to_ascii_lowercase();
+		self.is_rate_limited() ||
+			TRANSIENT_MARKERS.iter().any(|marker| message.contains(marker)) ||
+			SERVER_STATUS_CODES.iter().any(|code| contains_token(&message, code))
+	}
+}
+
+fn contains_token(message: &str, token: &str) -> bool {
+	message.match_indices(token).any(|(start, _)| {
+		let before = message[..start].chars().next_back();
+		let after = message[start + token.len()..].chars().next();
+		!before.is_some_and(|c| c.is_ascii_alphanumeric()) &&
+			!after.is_some_and(|c| c.is_ascii_alphanumeric())
+	})
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BlockHeader {
 	pub hash: H256,
@@ -118,6 +167,44 @@ mod tests {
 			hex::encode_prefixed(system_events_key()),
 			"0x26aa394eea5630e07c48ae0c9558cef780d41e5e16056765bc8461851072c9d7"
 		);
+	}
+
+	#[test]
+	fn classifies_transient_transport_errors() {
+		let transport = |message: &str| RpcError::Transport(message.into());
+		let rate_limited = transport("User error: RPC rate limit exceeded (-32999)");
+		assert!(rate_limited.is_rate_limited());
+		assert!(rate_limited.is_transient());
+		assert!(transport("Connection rejected with status code: 429").is_rate_limited());
+		assert!(transport("Too Many Requests").is_rate_limited());
+		assert!(transport("User error: something (-32999)").is_rate_limited());
+
+		for message in [
+			"Request timeout",
+			"RPC error: the connection was lost (closed); reconnect automatically initiated",
+			"The background task closed client is not connected; restart required",
+			"Connection reset by peer",
+			"Connection rejected with status code: 503",
+			"502 Bad Gateway",
+		] {
+			let err = transport(message);
+			assert!(err.is_transient(), "{message}");
+			assert!(!err.is_rate_limited(), "{message}");
+		}
+
+		for err in [
+			transport("injected failure at block 101"),
+			transport("User error: Unknown block (-32602)"),
+			transport("block 0x1a429b failed"),
+			transport("block 5031 is 429x"),
+			RpcError::Decode("rate limit".into()),
+			RpcError::Fixture("timeout".into()),
+			RpcError::BlockNotFound(429),
+			RpcError::HashNotFound(H256::ZERO),
+		] {
+			assert!(!err.is_transient(), "{err}");
+			assert!(!err.is_rate_limited(), "{err}");
+		}
 	}
 
 	#[test]

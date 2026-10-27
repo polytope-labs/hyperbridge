@@ -200,20 +200,32 @@ describe("BidImpl on EntryPoint v0.9", () => {
 		const userOp = await signedFor(ENTRY_POINT_V09)
 		// The solver's own signature still recovers: the prefix is not part of the userOpHash.
 		const otherOrder = { ...userOp, signature: concat([`0x${"77".repeat(32)}`, slice(userOp.signature, 32)]) }
-		const { bid, sendBundler } = bidOn(BY_USER_OP_HASH, otherOrder)
+		const { bid, client, sendBundler } = bidOn(BY_USER_OP_HASH, otherOrder)
 
 		await expect(bid.simulate()).rejects.toThrow(`is not signed for order ${COMMITMENT}`)
 		await expect(bid.execute()).rejects.toThrow(`is not signed for order ${COMMITMENT}`)
+		expect(client.readContract).not.toHaveBeenCalled()
 		expect(sendBundler).not.toHaveBeenCalled()
 	})
 
 	it("drops a bid whose nonce key does not bind the order, without asking the bundler", async () => {
 		const unbound = CryptoUtils.bidNonceKey(COMMITMENT, solver.address, "0x1234") << 64n
-		const { bid, sendBundler } = bidOn(BY_USER_OP_HASH, await signedFor(ENTRY_POINT_V09, unbound))
+		const { bid, client, sendBundler } = bidOn(BY_USER_OP_HASH, await signedFor(ENTRY_POINT_V09, unbound))
 
 		await expect(bid.simulate()).rejects.toThrow("has a nonce key that does not bind order")
 		await expect(bid.execute()).rejects.toThrow("has a nonce key that does not bind order")
+		expect(client.readContract).not.toHaveBeenCalled()
 		expect(sendBundler).not.toHaveBeenCalled()
+	})
+
+	it("accepts a later sequence of the bid's nonce key", async () => {
+		// The same calldata run once already, as when a partially filled order is bid on again.
+		const nextSequence = (CryptoUtils.bidNonceKey(COMMITMENT, session.address, "0x1234") << 64n) | 1n
+		const { bid, sendBundler } = bidOn(BY_USER_OP_HASH, await signedFor(ENTRY_POINT_V09, nextSequence))
+
+		await bid.simulate()
+
+		expect(bundlerParams(sendBundler, "eth_estimateUserOperationGas")[1]).toBe(ENTRY_POINT_V09)
 	})
 
 	it("drops a bid on a gateway that selects by address", async () => {

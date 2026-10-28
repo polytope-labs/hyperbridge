@@ -1,10 +1,21 @@
 subquery-{{chainName}}:
   image: {{image}}
+{{#if backfill}}
+  # A backfill stops at its end block, and a restart past it exits, so it runs once
+  restart: "no"
+{{else}}
   restart: unless-stopped
+{{/if}}
   environment:
     DB_USER: ${DB_USER}
     DB_PASS: ${DB_PASS}
+{{#if governance}}
+    # Its own database, since two deployments of a chain can't index into one. The copy step moves
+    # the backfill into the main database at the cutover.
+    DB_DATABASE: ${GOVERNANCE_DB_DATABASE}
+{{else}}
     DB_DATABASE: ${DB_DATABASE}
+{{/if}}
     DB_HOST: ${DB_HOST}
     DB_PORT: ${DB_PORT}
 {{#if allowSchemaMigration}}
@@ -31,6 +42,7 @@ subquery-{{chainName}}:
     retries: 10
     start_period: 120s
 {{#unless unfinalizedBlocks}}
+{{#unless backfill}}
   # Finalized-only chains resume cleanly from the persisted height on restart, so
   # they may opt into autoheal (the host must run an autoheal watcher for the
   # label to take effect). Chains with --unfinalized-blocks are intentionally
@@ -38,4 +50,5 @@ subquery-{{chainName}}:
   # rewind.
   labels:
     autoheal: "true"
+{{/unless}}
 {{/unless}}

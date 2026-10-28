@@ -3219,3 +3219,419 @@ type CumulativeIntentGatewayVolumeUSD @entity {
 	"""
 	lastUpdatedAt: BigInt!
 }
+
+"""
+An OpenGov referendum. The governance deployment indexes these from the referenda pallet, and the
+`info` field keeps the last ongoing `ReferendumInfoFor` value since storage only holds the outcome once
+the referendum ends.
+Across the governance entities, chain values such as proposals, event args, calls and dispatch results
+are stored as JSON encoded strings.
+"""
+type GovernanceReferendum @entity {
+	"""
+	Referendum index
+	"""
+	id: ID!
+
+	index: Int! @index
+
+	track: Int! @index
+
+	proposer: String @index
+
+	"""
+	The proposal exactly as emitted in `Submitted` (a preimage lookup, an inline call or a legacy hash)
+	"""
+	proposal: String!
+
+	proposalHash: String @index
+
+	"""
+	The proposed call decoded with the runtime of the block it became known in
+	"""
+	call: String
+
+	"""
+	The track's definition at the referendum's last state change, JSON encoded, since runtime upgrades can change it
+	"""
+	trackInfo: String
+
+	"""
+	Name of the last referenda event seen, such as Submitted, DecisionStarted or Confirmed
+	"""
+	state: String! @index
+
+	"""
+	True once the referendum can no longer change
+	"""
+	isFinal: Boolean! @index
+
+	ayes: BigInt!
+
+	nays: BigInt!
+
+	support: BigInt!
+
+	"""
+	Active issuance at the referendum's last event before it ended, which support is measured against
+	"""
+	electorate: BigInt
+
+	"""
+	The last ongoing `ReferendumInfoFor` value, JSON encoded
+	"""
+	info: String
+
+	"""
+	Scheduler task name used to match the enactment `Dispatched` event to this referendum
+	"""
+	enactmentTask: String @index
+
+	"""
+	Dispatch result of the enacted call, set when the scheduler runs it
+	"""
+	enactmentResult: String
+
+	submittedBlock: Int! @index
+
+	submittedAt: Date! @index
+
+	updatedBlock: Int!
+}
+
+"""
+A referenda track as defined by the runtime's `Referenda::Tracks` constant
+"""
+type GovernanceTrack @entity {
+	"""
+	Track id
+	"""
+	id: ID!
+
+	name: String!
+
+	"""
+	The track details, such as deposits, periods and curves
+	"""
+	info: String!
+
+	updatedBlock: Int!
+}
+
+"""
+One event in a referendum's history, including the scheduler dispatch of its enactment
+"""
+type GovernanceReferendumEvent @entity {
+	"""
+	Composite identifier: {blockNumber}-{eventIndex}
+	"""
+	id: ID!
+
+	referendum: GovernanceReferendum!
+
+	name: String!
+
+	args: String
+
+	"""
+	False for deposit refunds, which can come long after the referendum ended and do not change its state
+	"""
+	changesState: Boolean!
+
+	blockNumber: Int! @index
+
+	blockHash: String!
+
+	extrinsicIndex: Int
+
+	eventIndex: Int!
+
+	timestamp: Date!
+}
+
+"""
+Referendum tally after a lifecycle event or a change in its votes, used for the support and approval curves
+"""
+type GovernanceTallySnapshot @entity {
+	"""
+	Composite identifier: {referendumIndex}-{blockNumber}
+	"""
+	id: ID!
+
+	referendum: GovernanceReferendum!
+
+	ayes: BigInt!
+
+	nays: BigInt!
+
+	support: BigInt!
+
+	"""
+	Active issuance at this block
+	"""
+	electorate: BigInt!
+
+	blockNumber: Int! @index
+
+	timestamp: Date!
+}
+
+"""
+An account's direct vote on a referendum, read from `ConvictionVoting::VotingFor`. Votes on finished
+referenda are left as they were when the referendum ended.
+"""
+type GovernanceVote @entity @compositeIndexes(fields: [["referendumIndex", "account"]]) {
+	"""
+	Composite identifier: {referendumIndex}-{account}
+	"""
+	id: ID!
+
+	referendumIndex: Int! @index
+
+	track: Int!
+
+	account: String! @index
+
+	"""
+	Standard, Split or SplitAbstain
+	"""
+	kind: String!
+
+	"""
+	Direction of a Standard vote
+	"""
+	aye: Boolean
+
+	"""
+	Conviction of a Standard vote, 0 for None up to 6 for Locked6x
+	"""
+	conviction: Int
+
+	balance: BigInt!
+
+	ayeBalance: BigInt
+
+	nayBalance: BigInt
+
+	abstainBalance: BigInt
+
+	"""
+	Votes and capital delegated to this account on the referendum's track when the vote was read
+	"""
+	delegatedVotes: BigInt!
+
+	delegatedCapital: BigInt!
+
+	blockNumber: Int!
+}
+
+"""
+A vote or vote removal by an account, as it happened
+"""
+type GovernanceVoteCall @entity {
+	"""
+	Composite identifier: {blockNumber}-{eventIndex}-{referendumIndex}
+	"""
+	id: ID!
+
+	account: String! @index
+
+	referendumIndex: Int! @index
+
+	"""
+	The vote that was cast or removed, or null when it was removed without an event payload
+	"""
+	vote: String
+
+	removed: Boolean!
+
+	blockNumber: Int! @index
+
+	blockHash: String!
+
+	extrinsicIndex: Int
+
+	eventIndex: Int!
+
+	timestamp: Date!
+}
+
+"""
+A period during which an account delegated its votes on one track
+"""
+type GovernanceDelegation
+	@entity
+	@compositeIndexes(fields: [["target", "track"], ["delegator", "track"]]) {
+	"""
+	Composite identifier: {delegator}-{track}-{fromBlock}
+	"""
+	id: ID!
+
+	delegator: String! @index
+
+	target: String! @index
+
+	track: Int! @index
+
+	conviction: Int!
+
+	balance: BigInt!
+
+	"""
+	True while the delegation lasts
+	"""
+	active: Boolean! @index
+
+	fromBlock: Int! @index
+
+	toBlock: Int @index
+}
+
+"""
+A technical committee motion
+"""
+type GovernanceMotion @entity {
+	"""
+	Motion index
+	"""
+	id: ID!
+
+	index: Int! @index
+
+	hash: String! @index
+
+	proposer: String! @index
+
+	threshold: Int!
+
+	"""
+	The proposed call decoded with the runtime metadata of the block it was proposed in
+	"""
+	call: String
+
+	ayes: [String!]!
+
+	nays: [String!]!
+
+	"""
+	Block after which the motion can be closed
+	"""
+	end: Int
+
+	state: String! @index
+
+	isFinal: Boolean! @index
+
+	result: String
+
+	proposedBlock: Int! @index
+
+	proposedAt: Date! @index
+
+	updatedBlock: Int!
+}
+
+"""
+One event in a technical committee motion's history
+"""
+type GovernanceMotionEvent @entity {
+	"""
+	Composite identifier: {blockNumber}-{eventIndex}
+	"""
+	id: ID!
+
+	motion: GovernanceMotion!
+
+	name: String!
+
+	args: String
+
+	blockNumber: Int! @index
+
+	blockHash: String!
+
+	extrinsicIndex: Int
+
+	eventIndex: Int!
+
+	timestamp: Date!
+}
+
+"""
+A call hash whitelisted by the technical committee
+"""
+type GovernanceWhitelistedCall @entity {
+	"""
+	Call hash
+	"""
+	id: ID!
+
+	whitelistedBlock: Int!
+
+	removedBlock: Int
+
+	dispatchedBlock: Int
+
+	dispatchResult: String
+}
+
+"""
+A preimage, kept with its bytes so a call can still be shown after the preimage is cleared on chain
+"""
+type GovernancePreimage @entity {
+	"""
+	Preimage hash
+	"""
+	id: ID!
+
+	length: Int
+
+	"""
+	Hex encoded preimage bytes
+	"""
+	data: String
+
+	"""
+	Noted, Requested or Cleared
+	"""
+	status: String! @index
+
+	notedBlock: Int @index
+
+	updatedBlock: Int!
+}
+
+"""
+A treasury spend approved through `Treasury::spend`
+"""
+type GovernanceTreasurySpend @entity {
+	"""
+	Spend index
+	"""
+	id: ID!
+
+	index: Int! @index
+
+	assetKind: String!
+
+	amount: BigInt!
+
+	beneficiary: String!
+
+	validFrom: Int!
+
+	expireAt: Int!
+
+	"""
+	Approved, Paid, Failed, Processed or Voided
+	"""
+	state: String! @index
+
+	paymentId: String
+
+	approvedBlock: Int! @index
+
+	approvedAt: Date! @index
+
+	updatedBlock: Int!
+}

@@ -12,9 +12,7 @@ import { type Configuration, getConfigs, getEnv, getValidChains } from "../src/c
 const skipRpc = process.argv.includes("--skip-rpc")
 const root = process.cwd()
 const currentEnv = getEnv()
-const validChains = skipRpc
-	? new Map<string, Configuration>(Object.entries(getConfigs()))
-	: getValidChains()
+const validChains = skipRpc ? new Map<string, Configuration>(Object.entries(getConfigs())) : getValidChains()
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -34,6 +32,49 @@ const substrateTemplate = Handlebars.compile(
 )
 const evmTemplate = Handlebars.compile(fs.readFileSync(path.join(templatesDir, "evm-chain.yaml.hbs"), "utf8"))
 const multichainTemplate = Handlebars.compile(fs.readFileSync(path.join(templatesDir, "multichain.yaml.hbs"), "utf8"))
+const governanceTemplate = Handlebars.compile(
+	fs.readFileSync(path.join(templatesDir, "governance-chain.yaml.hbs"), "utf8"),
+)
+
+const GOVERNANCE_EVENTS: Record<string, [module: string, methods: string[]]> = {
+	handleReferendaEvent: [
+		"referenda",
+		[
+			"Submitted",
+			"DecisionDepositPlaced",
+			"DecisionDepositRefunded",
+			"SubmissionDepositRefunded",
+			"DecisionStarted",
+			"ConfirmStarted",
+			"ConfirmAborted",
+			"Confirmed",
+			"Approved",
+			"Rejected",
+			"TimedOut",
+			"Cancelled",
+			"Killed",
+			"MetadataSet",
+			"MetadataCleared",
+		],
+	],
+	handleConvictionVotingEvent: ["convictionVoting", ["Voted", "VoteRemoved", "Delegated", "Undelegated"]],
+	handleSchedulerDispatchedEvent: ["scheduler", ["Dispatched"]],
+	handleTechnicalCollectiveEvent: [
+		"technicalCollective",
+		["Proposed", "Voted", "Approved", "Disapproved", "Executed", "Closed", "Killed"],
+	],
+	handleWhitelistEvent: ["whitelist", ["CallWhitelisted", "WhitelistedCallRemoved", "WhitelistedCallDispatched"]],
+	handlePreimageEvent: ["preimage", ["Noted", "Requested", "Cleared"]],
+	handleTreasurySpendEvent: [
+		"treasury",
+		["AssetSpendApproved", "Paid", "PaymentFailed", "SpendProcessed", "AssetSpendVoided"],
+	],
+}
+
+const governanceHandlers = () =>
+	Object.entries(GOVERNANCE_EVENTS).flatMap(([handler, [module, methods]]) =>
+		methods.map((method) => ({ handler, module, method })),
+	)
 
 const EVM_TRACKED = [
 	// The HyperFX orderbook's base URL. Its `solvers` watchlist discovers solvers that have never
@@ -104,6 +145,11 @@ const generateSubstrateYaml = async (chain: string, config: Configuration) => {
 		chainTypesConfig,
 		blockNumber,
 		isHyperbridgeChain,
+		governance: config.type === "substrate" &&
+			config.governanceCutoverBlock !== undefined && {
+				startBlock: config.governanceCutoverBlock,
+				handlers: governanceHandlers(),
+			},
 		handlerKind: "substrate/EventHandler",
 		handlers: [
 			{ handler: "handleIsmpStateMachineUpdatedEvent", module: "ismp", method: "StateMachineUpdated" },
@@ -126,6 +172,33 @@ const generateSubstrateYaml = async (chain: string, config: Configuration) => {
 
 	return substrateTemplate(templateData)
 }
+
+// Governance history is backfilled by its own deployment with its own database schema, because
+// SubQuery keys sync progress by chain id and the history starts far below the chain's main start
+// block. With a cutover block the backfill stops just below it and the main deployment takes over.
+const generateGovernanceYaml = (
+	chain: string,
+	config: Configuration,
+	governanceStartBlock: number,
+	governanceCutoverBlock?: number,
+) =>
+	governanceTemplate({
+		name: `${chain}-governance`,
+		description: `${chain.charAt(0).toUpperCase() + chain.slice(1)} Governance Indexer`,
+		runner: {
+			node: {
+				name: "@subql/node",
+				version: ">=4.0.0",
+			},
+		},
+		config,
+		endpoints: generateEndpoints(chain),
+		chainTypesConfig: getChainTypesPath(chain),
+		blockNumber: governanceStartBlock,
+		endBlock: governanceCutoverBlock && governanceCutoverBlock - 1,
+		handlerKind: "substrate/EventHandler",
+		handlers: governanceHandlers(),
+	})
 
 const generateEvmYaml = async (chain: string, config: Configuration) => {
 	const endpoints = generateEndpoints(chain)
@@ -209,6 +282,14 @@ async function generateAllChainYamls() {
 
 		fs.writeFileSync(root + `/src/configs/${chain}.yaml`, yaml)
 		console.log(`Generated ${root}/src/configs/${chain}.yaml`)
+
+		if (config.type === "substrate" && config.governanceStartBlock !== undefined) {
+			fs.writeFileSync(
+				root + `/src/configs/${chain}-governance.yaml`,
+				generateGovernanceYaml(chain, config, config.governanceStartBlock, config.governanceCutoverBlock),
+			)
+			console.log(`Generated ${root}/src/configs/${chain}-governance.yaml`)
+		}
 	}
 }
 
@@ -276,9 +357,7 @@ const generateYieldVaultAddresses = () => {
 	lines.push("// ERC-4626 vault addresses per chain, keyed by underlying token address (lowercase).")
 	lines.push("// Aave stata token addresses sourced from https://github.com/bgd-labs/aave-address-book")
 	lines.push("// Values are arrays because multiple vaults may wrap the same underlying token.")
-	lines.push(
-		"// To add or update vaults, edit the \"yieldVaults\" field in the relevant chain entry",
-	)
+	lines.push('// To add or update vaults, edit the "yieldVaults" field in the relevant chain entry')
 	lines.push("// in src/configs/config-mainnet.json (or config-testnet.json) and re-run codegen.")
 	lines.push("export const YIELD_VAULT_ADDRESSES: Record<string, Record<string, string[]>> = {")
 
@@ -333,11 +412,9 @@ const generateTokenSlotOverrides = () => {
 	lines.push("// Auto-generated, DO NOT EDIT")
 	lines.push("// Per-token ERC-20 storage slot overrides for tokens that don't follow the standard OZ layout")
 	lines.push("// (slot 0 = _balances, slot 1 = _allowances).")
-	lines.push("// To add or update entries, edit the \"tokenSlots\" field in the relevant chain entry")
+	lines.push('// To add or update entries, edit the "tokenSlots" field in the relevant chain entry')
 	lines.push("// in src/configs/config-mainnet.json (or config-testnet.json) and re-run codegen.")
-	lines.push(
-		"export const TOKEN_SLOT_OVERRIDES: Record<string, { balanceSlot: bigint; allowanceSlot: bigint }> = {",
-	)
+	lines.push("export const TOKEN_SLOT_OVERRIDES: Record<string, { balanceSlot: bigint; allowanceSlot: bigint }> = {")
 
 	const seen = new Map<string, { description: string; balanceSlot: number; allowanceSlot: number }>()
 	validChains.forEach((config) => {

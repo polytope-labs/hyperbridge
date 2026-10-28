@@ -128,6 +128,9 @@ members = [
 
     "tesseract/relayer",
 
+    # governance
+    "governance/api",
+
 ]
 
 # Config for 'cargo dist'

@@ -50,8 +50,8 @@ export class BidManager {
 	 *
 	 * The solver signs the operation as EIP-712 typed data for
 	 * `entryPointAddress`, whose digest is that EntryPoint's userOpHash. It must
-	 * be the EntryPoint the solver's `SolverAccount` accepts: the user's SDK
-	 * recovers it from this signature and executes the bid there. The binding
+	 * be EntryPoint v0.9, the one the solver's `SolverAccount` accepts: the user's
+	 * SDK refuses a bid whose signature does not recover under v0.9. The binding
 	 * to the order lives in the operation itself: the 4337 nonce key must derive
 	 * from the order commitment, the session key and the calldata
 	 * (`SolverAccount` enforces this during validation), and the callData
@@ -140,10 +140,11 @@ export class BidManager {
 	 * silently dropped with a warning. The returned `Bid` instances are ready to
 	 * be ranked, simulated, and executed by the consumer.
 	 *
-	 * A bid signed for no known EntryPoint, or for one the destination gateway's
-	 * selection format does not pair with, is kept here and fails
-	 * {@link Bid.simulate} and {@link Bid.execute}, so {@link selectAndExecuteBest}
-	 * skips it.
+	 * A bid whose calldata does not fill this order alone, one not signed for
+	 * EntryPoint v0.9 and this order, one whose nonce key does not bind the
+	 * order, or one on a gateway that does not select by userOpHash, is kept here
+	 * and fails {@link Bid.simulate} and {@link Bid.execute}, so
+	 * {@link selectAndExecuteBest} skips it.
 	 *
 	 * @param order - The placed order the bids are competing to fill.
 	 * @param bids - Raw filler bids fetched from the coprocessor.

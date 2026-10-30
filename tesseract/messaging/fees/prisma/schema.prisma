@@ -97,3 +97,20 @@ model OutboundRequestClaims {
   @@unique([commitment], name: "commitment_unique")
   @@index([status])
 }
+
+// Last height read by a pipeline, so a restart resumes from it instead of
+// starting over at the configured initial height.
+//
+// Rows are keyed by (source, dest), each a state machine's display string,
+// e.g. ("SUBSTRATE-PDEX", "KUSAMA-4009"). The outbound fan-out serves every
+// EVM destination from one cursor, so its dest is the fixed string
+// "outbound".
+model ProcessedHeights {
+  id         Int    @id @default(autoincrement())
+  source     String
+  dest       String
+  height     BigInt
+  updated_at Int
+
+  @@unique([source, dest], name: "source_dest")
+}

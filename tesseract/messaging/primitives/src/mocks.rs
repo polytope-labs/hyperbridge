@@ -4,6 +4,7 @@ use crate::{
 	StateProofQueryType, TxResult, WithdrawFundsResult,
 };
 use anyhow::{anyhow, Error};
+use futures::StreamExt;
 use ismp::{
 	consensus::{ConsensusStateId, StateCommitment, StateMachineHeight, StateMachineId},
 	events::{Event, StateCommitmentVetoed},
@@ -65,6 +66,13 @@ pub struct MockHost<C> {
 	pub events: Arc<Mutex<Vec<Event>>>,
 	/// When false, [`IsmpProvider::query_ismp_events`] returns an error.
 	pub query_events_ok: Arc<Mutex<bool>>,
+	/// Records the `previous_height` passed to [`IsmpProvider::query_ismp_events`].
+	pub query_heights: Arc<Mutex<Vec<u64>>>,
+	/// The state machine updates yielded by
+	/// [`IsmpProvider::state_machine_update_notification`], in order.
+	pub updates: Arc<Mutex<Vec<StateMachineUpdated>>>,
+	/// The height returned by [`IsmpProvider::initial_height`].
+	pub initial_height: Arc<Mutex<u64>>,
 }
 
 impl<C> MockHost<C> {
@@ -92,6 +100,9 @@ impl<C> MockHost<C> {
 			timestamp_ok: Arc::new(Mutex::new(true)),
 			events: Arc::new(Mutex::new(Vec::new())),
 			query_events_ok: Arc::new(Mutex::new(true)),
+			query_heights: Arc::new(Mutex::new(Vec::new())),
+			updates: Arc::new(Mutex::new(Vec::new())),
+			initial_height: Arc::new(Mutex::new(0)),
 		}
 	}
 
@@ -175,6 +186,18 @@ impl<C> MockHost<C> {
 
 	pub fn with_events(self, events: Vec<Event>) -> Self {
 		*self.events.lock().unwrap() = events;
+		self
+	}
+
+	/// Set the state machine updates the notification stream yields, in order.
+	pub fn with_updates(self, updates: Vec<StateMachineUpdated>) -> Self {
+		*self.updates.lock().unwrap() = updates;
+		self
+	}
+
+	/// Set the height returned by [`IsmpProvider::initial_height`].
+	pub fn with_initial_height(self, height: u64) -> Self {
+		*self.initial_height.lock().unwrap() = height;
 		self
 	}
 }
@@ -329,9 +352,10 @@ impl<C: Codec + Send + Sync> IsmpProvider for MockHost<C> {
 
 	async fn query_ismp_events(
 		&self,
-		_previous_height: u64,
+		previous_height: u64,
 		_event: StateMachineUpdated,
 	) -> Result<Vec<Event>, Error> {
+		self.query_heights.lock().unwrap().push(previous_height);
 		if *self.query_events_ok.lock().unwrap() {
 			Ok(self.events.lock().unwrap().clone())
 		} else {
@@ -359,7 +383,7 @@ impl<C: Codec + Send + Sync> IsmpProvider for MockHost<C> {
 	}
 
 	fn initial_height(&self) -> u64 {
-		0
+		*self.initial_height.lock().unwrap()
 	}
 
 	async fn estimate_gas(
@@ -387,7 +411,8 @@ impl<C: Codec + Send + Sync> IsmpProvider for MockHost<C> {
 		&self,
 		_counterparty_state_id: StateMachineId,
 	) -> Result<BoxStream<StateMachineUpdated>, Error> {
-		todo!()
+		let updates = self.updates.lock().unwrap().clone();
+		Ok(futures::stream::iter(updates.into_iter().map(Ok)).boxed())
 	}
 
 	async fn state_commitment_vetoed_notification(
@@ -491,6 +516,9 @@ impl<C: Send + Sync> Clone for MockHost<C> {
 			timestamp_ok: self.timestamp_ok.clone(),
 			events: self.events.clone(),
 			query_events_ok: self.query_events_ok.clone(),
+			query_heights: self.query_heights.clone(),
+			updates: self.updates.clone(),
+			initial_height: self.initial_height.clone(),
 		}
 	}
 }

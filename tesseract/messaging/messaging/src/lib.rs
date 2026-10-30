@@ -197,6 +197,51 @@ where
 	Ok(())
 }
 
+/// Resolve the height a pipeline starts reading from.
+///
+/// The saved checkpoint and the configured initial height can disagree after a config change or a
+/// restart; the lower one wins so a restart never skips a range. This reads the checkpoint, which
+/// is why its error ends the pipeline: a crash is recoverable, a skipped range is not.
+pub(crate) async fn resume_height(
+	tx_payment: &TransactionPayment,
+	source: &str,
+	dest: &str,
+	initial: u64,
+) -> anyhow::Result<u64> {
+	let checkpoint = tx_payment.processed_height(source, dest).await?;
+	let start = checkpoint.map_or(initial, |saved| saved.min(initial));
+	tracing::info!(
+		target: LOG_TARGET,
+		source,
+		dest,
+		start,
+		saved = ?checkpoint,
+		initial,
+		"Resuming pipeline from its last processed height",
+	);
+	Ok(start)
+}
+
+/// Save a pipeline's cursor. A failed write only makes the next restart re-read more, so it is
+/// logged and the pipeline carries on.
+pub(crate) async fn save_height(
+	tx_payment: &TransactionPayment,
+	source: &str,
+	dest: &str,
+	height: u64,
+) {
+	if let Err(err) = tx_payment.store_processed_height(source, dest, height).await {
+		tracing::warn!(
+			target: LOG_TARGET,
+			source,
+			dest,
+			height,
+			?err,
+			"Failed to save the pipeline's last processed height",
+		);
+	}
+}
+
 async fn handle_notification(
 	chain_a: Arc<dyn IsmpProvider>,
 	chain_b: Arc<dyn IsmpProvider>,
@@ -218,7 +263,12 @@ async fn handle_notification(
 			)
 		})?;
 
-	let mut previous_height = chain_b.initial_height();
+	// The events come from chain_b and are delivered to chain_a, so those are the checkpoint's
+	// source and dest.
+	let source = chain_b.state_machine_id().state_id.to_string();
+	let dest = chain_a.state_machine_id().state_id.to_string();
+	let mut previous_height =
+		resume_height(&tx_payment, &source, &dest, chain_b.initial_height()).await?;
 
 	while let Some(item) = state_machine_update_stream.next().await {
 		match item {
@@ -247,6 +297,8 @@ async fn handle_notification(
 						?err,
 						"Error while handling state machine update, the range will be read again on the next update",
 					);
+				} else {
+					save_height(&tx_payment, &source, &dest, previous_height).await;
 				}
 			},
 			Err(e) => {
@@ -1084,6 +1136,122 @@ mod tests {
 		*query_events_ok.lock().unwrap() = true;
 		handle.update(300, &mut previous_height).await.unwrap();
 		assert_eq!(previous_height, 300);
+
+		let _ = std::fs::remove_file(&path);
+		let _ = std::fs::remove_file(format!("{path}-journal"));
+	}
+
+	/// The checkpoint key `handle_notification` uses for a SOURCE -> COPROCESSOR pipeline.
+	fn checkpoint_key() -> (String, String) {
+		(SOURCE.to_string(), COPROCESSOR.to_string())
+	}
+
+	/// A state-machine update of SOURCE to `latest_height`.
+	fn update_to(latest_height: u64) -> StateMachineUpdated {
+		StateMachineUpdated {
+			state_machine_id: StateMachineId { state_id: SOURCE, consensus_state_id: *b"Mock" },
+			latest_height,
+		}
+	}
+
+	/// Run a SOURCE -> COPROCESSOR pipeline whose update stream yields `updates`. The stream is
+	/// finite, so `handle_notification` returns `Err` once it ends; the test asserts on the side
+	/// effects instead.
+	async fn run_pipeline(
+		chain_b: MockHost<()>,
+		updates: Vec<StateMachineUpdated>,
+		tx_payment: Arc<TransactionPayment>,
+	) -> Vec<u64> {
+		let query_heights = chain_b.query_heights.clone();
+		let chain_a = MockHost::new((), 0, COPROCESSOR).with_updates(updates);
+		let result = handle_notification(
+			Arc::new(chain_a),
+			Arc::new(chain_b),
+			tx_payment,
+			RelayerConfig::default(),
+			COPROCESSOR,
+			HashMap::new(),
+			None,
+			None,
+		)
+		.await;
+		assert!(result.is_err(), "the finite update stream must end the pipeline");
+		let heights = query_heights.lock().unwrap().clone();
+		heights
+	}
+
+	/// A saved checkpoint wins over a higher configured initial height, and the new height is
+	/// saved after the update is handled.
+	#[tokio::test]
+	async fn a_saved_checkpoint_is_resumed_over_a_higher_initial_height() {
+		let (source, dest) = checkpoint_key();
+		let path = temp_db_path();
+		let tx_payment = Arc::new(TransactionPayment::initialize(&path).await.unwrap());
+		tx_payment.store_processed_height(&source, &dest, 100).await.unwrap();
+
+		let chain_b = MockHost::new((), 0, SOURCE).with_initial_height(500);
+		let heights = run_pipeline(chain_b, vec![update_to(600)], tx_payment.clone()).await;
+
+		assert_eq!(heights, vec![100]);
+		assert_eq!(tx_payment.processed_height(&source, &dest).await.unwrap(), Some(600));
+
+		let _ = std::fs::remove_file(&path);
+		let _ = std::fs::remove_file(format!("{path}-journal"));
+	}
+
+	/// A configured initial height below the checkpoint rewinds the pipeline, so lowering
+	/// `initial_height` re-reads ranges.
+	#[tokio::test]
+	async fn an_initial_height_below_the_checkpoint_rewinds() {
+		let (source, dest) = checkpoint_key();
+		let path = temp_db_path();
+		let tx_payment = Arc::new(TransactionPayment::initialize(&path).await.unwrap());
+		tx_payment.store_processed_height(&source, &dest, 100).await.unwrap();
+
+		let chain_b = MockHost::new((), 0, SOURCE).with_initial_height(50);
+		let heights = run_pipeline(chain_b, vec![update_to(600)], tx_payment.clone()).await;
+
+		assert_eq!(heights, vec![50]);
+		assert_eq!(tx_payment.processed_height(&source, &dest).await.unwrap(), Some(600));
+
+		let _ = std::fs::remove_file(&path);
+		let _ = std::fs::remove_file(format!("{path}-journal"));
+	}
+
+	/// With no saved row the pipeline starts at the configured initial height and writes the
+	/// checkpoint once an update is handled.
+	#[tokio::test]
+	async fn a_pipeline_without_a_checkpoint_starts_at_the_initial_height() {
+		let (source, dest) = checkpoint_key();
+		let path = temp_db_path();
+		let tx_payment = Arc::new(TransactionPayment::initialize(&path).await.unwrap());
+
+		let chain_b = MockHost::new((), 0, SOURCE).with_initial_height(100);
+		let heights = run_pipeline(chain_b, vec![update_to(200)], tx_payment.clone()).await;
+
+		assert_eq!(heights, vec![100]);
+		assert_eq!(tx_payment.processed_height(&source, &dest).await.unwrap(), Some(200));
+
+		let _ = std::fs::remove_file(&path);
+		let _ = std::fs::remove_file(format!("{path}-journal"));
+	}
+
+	/// A failed event query does not move the checkpoint: the pipeline resumes from the saved 100
+	/// over the higher initial height of 500, and the failed update to 200 is not saved, so the
+	/// range is read again after a restart.
+	#[tokio::test]
+	async fn a_failed_event_query_does_not_move_the_checkpoint() {
+		let (source, dest) = checkpoint_key();
+		let path = temp_db_path();
+		let tx_payment = Arc::new(TransactionPayment::initialize(&path).await.unwrap());
+		tx_payment.store_processed_height(&source, &dest, 100).await.unwrap();
+
+		let chain_b =
+			MockHost::new((), 0, SOURCE).with_initial_height(500).with_query_events_fail();
+		let heights = run_pipeline(chain_b, vec![update_to(200)], tx_payment.clone()).await;
+
+		assert_eq!(heights, vec![100]);
+		assert_eq!(tx_payment.processed_height(&source, &dest).await.unwrap(), Some(100));
 
 		let _ = std::fs::remove_file(&path);
 		let _ = std::fs::remove_file(format!("{path}-journal"));

@@ -1,0 +1,21 @@
+[
+  {
+    "type": "event",
+    "name": "CollatorRewarded",
+    "inputs": [
+      {
+        "name": "collator",
+        "type": "bytes32",
+        "indexed": true,
+        "internalType": "bytes32"
+      },
+      {
+        "name": "amount",
+        "type": "uint128",
+        "indexed": false,
+        "internalType": "uint128"
+      }
+    ],
+    "anonymous": false
+  }
+]

@@ -362,6 +362,14 @@ pub fn run() -> Result<()> {
 			let config = runner.config_mut();
 			config.offchain_worker.indexing_enabled = true;
 			let tesseract_config = cmd.tesseract_config.clone();
+			let eth_rpc = if cmd.eth_rpc.eth_rpc {
+				let para_id = chain_spec::Extensions::try_get(&*config.chain_spec)
+					.map(|e| e.para_id)
+					.ok_or_else(|| "Could not find parachain ID in chain-spec.")?;
+				cmd.eth_rpc.to_config(config.chain_spec.id(), para_id)
+			} else {
+				None
+			};
 
 			match config.chain_spec.id() {
 				chain if chain.contains("gargantua") || chain.contains("dev") => {
@@ -410,6 +418,11 @@ pub fn run() -> Result<()> {
 							None
 						};
 
+						let eth_rpc = eth_rpc
+							.as_ref()
+							.map(|cfg| crate::service::build_eth_rpc(client.clone(), cfg))
+							.transpose()?;
+
 						let task_manager = sc_simnode::parachain::start_simnode::<
 							crate::simnode::GargantuaRuntimeInfo,
 							_,
@@ -428,6 +441,7 @@ pub fn run() -> Result<()> {
 									backend: backend.clone(),
 									bid_cache: bid_cache.clone(),
 									bid_sender: bid_sender.clone(),
+									eth_rpc: eth_rpc.clone(),
 								};
 								rpc::create_full(deps).map_err(Into::into)
 							}),
@@ -516,6 +530,8 @@ pub fn run() -> Result<()> {
 				info!("Parachain Account: {}", parachain_account);
 				info!("Is collating: {}", if config.role.is_authority() { "yes" } else { "no" });
 
+				let eth_rpc = cli.eth_rpc.to_config(config.chain_spec.id(), para_id);
+
 				crate::service::start_parachain_node(
 					config,
 					polkadot_config,
@@ -523,6 +539,7 @@ pub fn run() -> Result<()> {
 					id,
 					hwbench,
 					cli.tesseract_config.clone(),
+					eth_rpc,
 				)
 				.await
 				.map_err(Into::into)

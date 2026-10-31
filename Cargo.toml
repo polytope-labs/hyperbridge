@@ -90,6 +90,7 @@ members = [
 
     # Utilities
     "modules/utils/subxt",
+    "modules/utils/substrate-eth-rpc",
     "modules/utils/serde",
     "modules/utils/crypto",
     "modules/utils/bls-utils",
@@ -278,6 +279,7 @@ simnode-tests = { path = "parachain/simtests" }
 integration-tests = { path = "parachain/integration-tests" }
 hyperclient = { path = "modules/hyperclient", default-features = false }
 subxt-utils = { path = "modules/utils/subxt", default-features = false }
+substrate-eth-rpc = { path = "modules/utils/substrate-eth-rpc", default-features = false }
 
 # consensus provers & verifiers
 beefy-verifier-primitives = { version = "2606.0.0", path = "./modules/consensus/beefy/primitives", default-features = false }

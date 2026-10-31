@@ -1,0 +1,51 @@
+[
+  {
+    "type": "event",
+    "name": "RelayerRewarded",
+    "inputs": [
+      {
+        "name": "relayer",
+        "type": "bytes32",
+        "indexed": true,
+        "internalType": "bytes32"
+      },
+      {
+        "name": "amount",
+        "type": "uint128",
+        "indexed": false,
+        "internalType": "uint128"
+      },
+      {
+        "name": "stateMachineHeight",
+        "type": "tuple",
+        "indexed": false,
+        "internalType": "tuple",
+        "components": [
+          {
+            "name": "id",
+            "type": "tuple",
+            "internalType": "tuple",
+            "components": [
+              {
+                "name": "stateId",
+                "type": "string",
+                "internalType": "string"
+              },
+              {
+                "name": "consensusStateId",
+                "type": "bytes4",
+                "internalType": "bytes4"
+              }
+            ]
+          },
+          {
+            "name": "height",
+            "type": "uint64",
+            "internalType": "uint64"
+          }
+        ]
+      }
+    ],
+    "anonymous": false
+  }
+]

@@ -40,6 +40,7 @@ pallet-ismp = { workspace = true, default-features = true }
 pallet-fishermen = { workspace = true, default-features = true }
 ismp-parachain-runtime-api = { workspace = true }
 ismp-parachain = { workspace = true }
+substrate-eth-rpc = { workspace = true, features = ["node"] }
 
 # supporting
 sc-simnode = { workspace = true, features = ["parachain"] }

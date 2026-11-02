@@ -17,16 +17,20 @@ Deposits and mints close while the shortfall exceeds `MAX_SHORTFALL_FOR_DEPOSITS
 once yield refills it; exits through this vault are never blocked by the shortfall.
 
 The owner can `pause()` deposits, withdrawals and share transfers; `maxDeposit`, `maxMint`, `maxWithdraw`
-and `maxRedeem` return 0 meanwhile. `harvest()` and `execute` still work while paused, but share transfers
-don't. A paused vault freezes exits, so the owner should be a multisig. `renounceOwnership` always reverts: a
-renounced owner could never unpause or collect yield.
+and `maxRedeem` return 0 meanwhile. `maxWithdraw` is overridden to follow `maxRedeem`, so the pause and
+liquidity limits hold on every OpenZeppelin version the package allows (^5.4.0). `harvest()` and `execute`
+still work while paused. A paused vault freezes exits, so the owner should be a multisig.
+`renounceOwnership` always reverts: a renounced owner could never unpause or collect yield.
 
 The owner can `execute` ERC-7821 call batches as the vault, e.g. to claim Aave incentives, which only the
-stata holder can do. A batch is refused if it calls the asset, calls any `transferFrom`, approves the
-inner-vault shares, calls the vault itself for anything but `transfer`, or leaves the vault with fewer
-inner-vault shares. So it cannot take depositors' principal or spend the approvals the vault asks for (the asset
-and its own shares); yield still leaves only through `harvest()`. Allowances users grant the vault for any other
-token are not protected, so they shouldn't grant any.
+stata holder can do. A batch is refused if it calls the asset, calls ERC-20 `transferFrom`, approves the
+inner-vault shares, calls the vault itself for anything but `transfer`, leaves the vault with fewer
+inner-vault shares, or changes `totalSupply()`. The supply check stops a batch depositing through a helper and
+redeeming the new inner shares, which would leave the helper with unbacked vault shares. So it cannot take
+depositors' principal or spend the approvals the vault asks for (the asset and its own shares); yield still
+leaves only through `harvest()`. The `approve` block assumes the inner vault grants allowances only through
+`approve` or a `permit` the vault cannot sign, as with stataUSDC. Allowances users grant the vault for any
+other token are not protected, so they shouldn't grant any.
 
 Stray balances are recovered with `execute`: another token with `transfer(owner, amount)`, vault shares sent to
 the vault with a self `transfer`, and donated USDC by depositing it into the inner vault, then `harvest()`.
@@ -34,6 +38,3 @@ the vault with a self `transfer`, and donated USDC by depositing it into the inn
 Aave pauses: a paused or inactive reserve zeroes the inner vault's max functions and `harvest()` returns 0;
 a frozen one blocks only deposits; stataUSDC's own pause reverts everything until lifted. The inner vault and
 the asset are trusted (no fees, no rebasing, no reentrancy).
-
-Files: `contracts/vaults/YieldCaptureVault.sol`, `test/YieldCaptureVault.t.sol`,
-`test/YieldCaptureVaultBaseFork.t.sol`, `package.json`, `docs/ai/changelog/2026-10-25-yield-capture-vault.md`.

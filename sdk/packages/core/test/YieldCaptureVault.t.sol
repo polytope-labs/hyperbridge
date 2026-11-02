@@ -214,6 +214,24 @@ contract MockShareBorrower {
     }
 }
 
+/// @dev Deposits into a vault as itself and later redeems its own shares, so a batch can move vault shares
+///      through a helper contract.
+contract ReentrantDepositor {
+    function depositInto(IERC20 token, YieldCaptureVault targetVault, uint256 amount) external {
+        token.approve(address(targetVault), amount);
+        targetVault.deposit(amount, address(this));
+    }
+
+    function exit(YieldCaptureVault targetVault, address to) external {
+        targetVault.redeem(targetVault.balanceOf(address(this)), to, address(this));
+    }
+
+    function depositIntoInnerVaultFor(IERC20 token, IERC4626 inner, uint256 amount, address receiver) external {
+        token.approve(address(inner), amount);
+        inner.deposit(amount, receiver);
+    }
+}
+
 /// @notice Tests for {YieldCaptureVault} against a mock of Aave's stataUSDC. They cover:
 ///          - shares that are exactly 1:1 with the asset, and principal to depositors with all yield to the owner
 ///          - the tiny-first-deposit ("dust") attack: a 2-wei first deposit leaves the inner vault 1 wei short
@@ -1943,6 +1961,93 @@ contract YieldCaptureVaultTest is Test {
             ),
             abi.encodeWithSelector(
                 YieldCaptureVault.InnerVaultSharesDecreased.selector, innerShares, innerShares - yieldInnerShares
+            )
+        );
+    }
+
+    /// @notice Regression for the exploit where a batch minted unbacked vault shares: a helper deposits into the
+    ///         vault, then the batch redeems the inner shares just bought, paying the owner and leaving the
+    ///         helper's vault shares unbacked. The supply check refuses it.
+    function test_Execute_cannotMintUnbackedSharesThroughAReentrantDeposit() public {
+        uint256 aliceShares = _depositAs(alice, 1_000_000 * ONE_USDC);
+        _depositAs(bob, 1_000_000 * ONE_USDC);
+        uint256 aliceValueBefore = vault.previewRedeem(aliceShares);
+
+        ReentrantDepositor helper = new ReentrantDepositor();
+        uint256 flashAmount = 20_000_000 * ONE_USDC;
+        usdc.mint(address(helper), flashAmount);
+        uint256 innerSharesForFlash = innerVault.previewDeposit(flashAmount);
+        uint256 supplyBefore = vault.totalSupply();
+
+        _assertGuardRefuses(
+            _batchOf(
+                _call(
+                    address(helper),
+                    abi.encodeCall(ReentrantDepositor.depositInto, (IERC20(address(usdc)), vault, flashAmount))
+                ),
+                _call(address(innerVault), abi.encodeCall(IERC4626.redeem, (innerSharesForFlash, owner, address(vault))))
+            ),
+            abi.encodeWithSelector(
+                YieldCaptureVault.VaultSharesSupplyChanged.selector, supplyBefore, supplyBefore + flashAmount
+            )
+        );
+
+        assertEq(vault.previewRedeem(vault.balanceOf(alice)), aliceValueBefore, "alice's value moved");
+        assertEq(vault.totalSupply(), supplyBefore, "the supply moved");
+    }
+
+    /// @notice A batch that burns vault shares through a helper is refused too. The inner-share check fires first.
+    function test_Execute_cannotBurnVaultSharesThroughAHelper() public {
+        _depositAs(alice, 1_000 * ONE_USDC);
+        ReentrantDepositor helper = new ReentrantDepositor();
+        uint256 helperAmount = 1_000 * ONE_USDC;
+        usdc.mint(address(helper), helperAmount);
+        helper.depositInto(IERC20(address(usdc)), vault, helperAmount);
+
+        uint256 helperSharesBefore = vault.balanceOf(address(helper));
+        uint256 vaultInnerSharesBefore = innerVault.balanceOf(address(vault));
+        uint256 assetsRedeemed = vault.previewRedeem(helperSharesBefore);
+        uint256 innerSharesBurned = innerVault.previewWithdraw(assetsRedeemed);
+
+        _assertGuardRefuses(
+            _batchOf(_call(address(helper), abi.encodeCall(ReentrantDepositor.exit, (vault, owner)))),
+            abi.encodeWithSelector(
+                YieldCaptureVault.InnerVaultSharesDecreased.selector,
+                vaultInnerSharesBefore,
+                vaultInnerSharesBefore - innerSharesBurned
+            )
+        );
+        assertEq(vault.balanceOf(address(helper)), helperSharesBefore, "the helper's shares moved");
+    }
+
+    /// @notice A batch that burns vault shares is refused even if a later call restores the vault's inner shares,
+    ///         so the supply check is not just a stricter version of the inner-share check.
+    function test_Execute_cannotBurnVaultSharesEvenIfInnerSharesAreRestored() public {
+        _depositAs(alice, 1_000 * ONE_USDC);
+        ReentrantDepositor helper = new ReentrantDepositor();
+        uint256 helperAmount = 1_000 * ONE_USDC;
+        usdc.mint(address(helper), helperAmount);
+        helper.depositInto(IERC20(address(usdc)), vault, helperAmount);
+
+        uint256 helperShares = vault.balanceOf(address(helper));
+        uint256 innerSharesBurned = innerVault.previewWithdraw(vault.previewRedeem(helperShares));
+        uint256 assetsToRestore = innerVault.previewMint(innerSharesBurned);
+        usdc.mint(address(helper), assetsToRestore);
+        uint256 supplyBefore = vault.totalSupply();
+
+        _assertGuardRefuses(
+            _batchOf(
+                _call(address(helper), abi.encodeCall(ReentrantDepositor.exit, (vault, owner))),
+                _call(
+                    address(helper),
+                    abi.encodeCall(
+                        ReentrantDepositor.depositIntoInnerVaultFor,
+                        (IERC20(address(usdc)), IERC4626(address(innerVault)), assetsToRestore, address(vault))
+                    )
+                )
+            ),
+            abi.encodeWithSelector(
+                YieldCaptureVault.VaultSharesSupplyChanged.selector, supplyBefore, supplyBefore - helperShares
             )
         );
     }

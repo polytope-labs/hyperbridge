@@ -66,6 +66,9 @@ contract YieldCaptureVault is ERC4626, Ownable, Pausable, ERC7821 {
     /// @notice Thrown when an `execute` batch leaves the vault with fewer inner-vault shares
     error InnerVaultSharesDecreased(uint256 innerSharesBefore, uint256 innerSharesAfter);
 
+    /// @notice Thrown when an `execute` batch changes `totalSupply()`
+    error VaultSharesSupplyChanged(uint256 supplyBefore, uint256 supplyAfter);
+
     /// @notice Emitted when the unharvested yield is redeemed and paid out
     event YieldHarvested(address indexed recipient, uint256 innerShares, uint256 assets);
 
@@ -207,6 +210,13 @@ contract YieldCaptureVault is ERC4626, Ownable, Pausable, ERC7821 {
     }
 
     /**
+     * @notice What `maxRedeem` shares are worth, so it follows the same pause and liquidity limits
+     */
+    function maxWithdraw(address holder) public view override returns (uint256) {
+        return previewRedeem(maxRedeem(holder));
+    }
+
+    /**
      * @notice Sends the unharvested yield to whoever is the owner when it is called, up to the inner vault's
      * available liquidity
      * @dev Returns 0 when the inner vault has nothing redeemable (no liquidity, or a paused reserve). Works
@@ -227,10 +237,12 @@ contract YieldCaptureVault is ERC4626, Ownable, Pausable, ERC7821 {
 
     /**
      * @notice Owner-only batch of calls made as the vault, e.g. to claim Aave incentives
-     * @dev Refuses the asset as a target, any `transferFrom`, `approve` on the inner vault, and calls to the vault
-     * itself except `transfer` (to recover shares sent to it), and reverts if the vault ends with fewer inner-vault
-     * shares. So it can't take depositors' principal or spend the approvals the vault asks for (the asset and its
-     * own shares). Allowances users grant the vault for any other token are not protected, so they shouldn't grant
+     * @dev Refuses the asset as a target, the ERC-20 `transferFrom(address,address,uint256)` selector, `approve` on the
+     * inner vault, and calls to the vault itself except `transfer` (to recover shares sent to it), and reverts if the
+     * vault ends with fewer inner-vault shares or a different `totalSupply()`. So it can't take depositors' principal,
+     * change the share supply, or spend the approvals the vault asks for (the asset and its own shares). The `approve`
+     * block assumes the inner vault grants allowances only through `approve` or a `permit` the vault cannot sign, as
+     * with stataUSDC. Allowances users grant the vault for any other token are not protected, so they shouldn't grant
      * any. Stray asset: deposit it into the inner vault, then `harvest`. Works while paused, but share transfers don't.
      */
     function execute(bytes32 mode, bytes calldata executionData) public payable override onlyOwner {
@@ -254,12 +266,17 @@ contract YieldCaptureVault is ERC4626, Ownable, Pausable, ERC7821 {
             if (target == innerVault && selector == IERC20.approve.selector) revert CannotApproveInnerVaultShares();
         }
 
-        uint256 preBalance = IERC4626(innerVault).balanceOf(address(this));
+        uint256 innerSharesBefore = IERC4626(innerVault).balanceOf(address(this));
+        uint256 vaultSharesSupplyBefore = totalSupply();
         super.execute(mode, executionData);
-        uint256 postBalance = IERC4626(innerVault).balanceOf(address(this));
+        uint256 innerSharesAfter = IERC4626(innerVault).balanceOf(address(this));
+        uint256 vaultSharesSupplyAfter = totalSupply();
 
-        if (postBalance < preBalance) {
-            revert InnerVaultSharesDecreased(preBalance, postBalance);
+        if (innerSharesAfter < innerSharesBefore) {
+            revert InnerVaultSharesDecreased(innerSharesBefore, innerSharesAfter);
+        }
+        if (vaultSharesSupplyAfter != vaultSharesSupplyBefore) {
+            revert VaultSharesSupplyChanged(vaultSharesSupplyBefore, vaultSharesSupplyAfter);
         }
     }
 

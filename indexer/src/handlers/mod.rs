@@ -1,6 +1,7 @@
 //! Every handler, grouped by the area of the TypeScript indexer it was ported from.
 
 pub mod abi;
+pub mod ismp;
 pub mod pallets;
 
 use std::sync::Arc;
@@ -20,6 +21,7 @@ pub struct Handlers {
 /** Every event and block hook the indexer runs. */
 pub fn all() -> Handlers {
 	let mut handlers = Handlers::default();
+	ismp::register(&mut handlers);
 	pallets::register(&mut handlers);
 	handlers
 }

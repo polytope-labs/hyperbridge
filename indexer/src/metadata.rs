@@ -10,9 +10,12 @@ use tokio_postgres::Transaction;
 
 use crate::{chains::Chain, config::ChainKind};
 
-/** A chain's metadata table. omnihedron lists the tables whose name starts `_metadata_0x`. */
-pub fn table(network: &str) -> String {
-	format!("app.\"_metadata_0x{}\"", hex::encode(&keccak256(network.as_bytes())[..8]))
+/**
+ * The metadata table for the chain named `chain`. omnihedron lists the tables whose name starts
+ * `_metadata_0x`. Naming them after `chain` keeps one node per chain.
+ */
+pub fn table(chain: &str) -> String {
+	format!("app.\"_metadata_0x{}\"", hex::encode(&keccak256(chain.as_bytes())[..8]))
 }
 
 /**
@@ -26,12 +29,12 @@ pub async fn chain_name(chain: &Chain) -> anyhow::Result<String> {
 			.substrate()?
 			.call("system_chain", json!([]))
 			.await
-			.with_context(|| format!("{}: system_chain", chain.name)),
+			.with_context(|| chain.name.clone()),
 	}
 }
 
-/** Creates a chain's metadata table and records its name. */
-pub async fn register(db: &Transaction<'_>, network: &str, name: &str) -> anyhow::Result<()> {
+/** Creates the metadata table for the chain named `chain`, and records the name in it. */
+pub async fn register(db: &Transaction<'_>, chain: &str) -> anyhow::Result<()> {
 	db.batch_execute(&format!(
 		"CREATE TABLE IF NOT EXISTS {} (
 			key character varying(255) NOT NULL PRIMARY KEY,
@@ -39,36 +42,28 @@ pub async fn register(db: &Transaction<'_>, network: &str, name: &str) -> anyhow
 			\"createdAt\" timestamp with time zone NOT NULL,
 			\"updatedAt\" timestamp with time zone NOT NULL
 		)",
-		table(network)
+		table(chain)
 	))
 	.await?;
-	write(db, network, &[("chain", json!(name))]).await
+	write(db, chain, &[("chain", json!(chain))]).await
 }
 
 /** Records how far a chain is indexed, and the block indexing is heading for. */
 pub async fn record_progress(
 	db: &Transaction<'_>,
-	network: &str,
+	chain: &str,
 	processed: u64,
 	target: u64,
 ) -> anyhow::Result<()> {
-	write(
-		db,
-		network,
-		&[("lastProcessedHeight", json!(processed)), ("targetHeight", json!(target))],
-	)
-	.await
+	write(db, chain, &[("lastProcessedHeight", json!(processed)), ("targetHeight", json!(target))])
+		.await
 }
 
-async fn write(
-	db: &Transaction<'_>,
-	network: &str,
-	entries: &[(&str, Value)],
-) -> anyhow::Result<()> {
+async fn write(db: &Transaction<'_>, chain: &str, entries: &[(&str, Value)]) -> anyhow::Result<()> {
 	let sql = format!(
 		"INSERT INTO {} (key, value, \"createdAt\", \"updatedAt\") VALUES ($1, $2, now(), now())
 		 ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, \"updatedAt\" = now()",
-		table(network)
+		table(chain)
 	);
 	for (key, value) in entries {
 		db.execute(&sql, &[key, value]).await?;

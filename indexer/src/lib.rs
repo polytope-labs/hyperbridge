@@ -79,18 +79,6 @@ pub async fn run(config_path: &Path, run_dir: &Path, selected: &[String]) -> any
 	for name in indexed {
 		chains.insert(name.clone(), Chain::connect(name, &config.chains[name], &http)?);
 	}
-	let mut names = Vec::new();
-	for (network, chain) in &chains {
-		names.push((network, metadata::chain_name(chain).await?));
-	}
-	{
-		let mut conn = db.raw_connection().await?;
-		let tx = conn.transaction().await?;
-		for (network, name) in &names {
-			metadata::register(&tx, network, name).await?;
-		}
-		tx.commit().await?;
-	}
 	let rpc_urls: BTreeMap<String, String> = chains
 		.iter()
 		.map(|(name, chain)| (name.clone(), chain.rpc_url.clone()))

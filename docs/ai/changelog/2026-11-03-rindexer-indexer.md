@@ -46,9 +46,15 @@ hyperbridge-indexer --config indexer/config/mainnet.toml --chains bsc-mainnet
 - **Metadata.** Each chain has its own `app._metadata_0x…` table, which omnihedron serves as one
   `_metadatas` node, as SubQuery's multichain tables were. The explorer finds a chain by `chain`
   and reads `lastProcessedHeight`. The SDK's CI waits until every chain is close to its
-  `targetHeight`. `chain` is the EVM chain id, or the Substrate node's `system_chain`, such as
-  "Hyperbridge (Nexus)". Every 15 s, `lastProcessedHeight` is set to the block rindexer has synced,
-  so it moves on chains with no logs too. `targetHeight` is the head less the reorg-safe distance.
+  `targetHeight`.
+  - `chain` is the EVM chain id, or the Substrate node's `system_chain`, such as
+    "Hyperbridge (Nexus)". The table is named after it, so a chain has one node.
+  - A Substrate chain's table appears once its node answers `system_chain`. Until then, the
+    chain indexes as usual, but has no metadata.
+  - Every 15 s, `lastProcessedHeight` is set to the block rindexer has synced, so it moves on
+    chains with no logs too.
+  - `targetHeight` is the head less the reorg-safe distance, and never below
+    `lastProcessedHeight`.
 - **Pending statuses.** A status whose parent another chain hasn't indexed yet waits in
   `pending_status_metadata`. Each process's flusher moves it once the parent exists.
 - **Schema.** `migrations/0001_app_schema.sql` is the DDL SubQuery generates for `schema.graphql`,

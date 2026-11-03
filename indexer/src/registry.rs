@@ -422,7 +422,8 @@ const UPKEEP_INTERVAL: Duration = Duration::from_secs(15);
  * Work that follows the block rindexer has synced to rather than the logs, every
  * [`UPKEEP_INTERVAL`] per chain. rindexer only calls back for ranges that have logs, so on a
  * quiet chain the hooks would stop: they run here when the synced block is past the chain's
- * cursor. Then the chain's metadata records how far it is indexed.
+ * cursor. Then the chain's metadata records how far it is indexed, once the chain's name is
+ * known.
  */
 pub fn spawn_upkeep(indexer: Arc<Indexer>, routes: &HashMap<String, Arc<ChainRoutes>>) {
 	for (network, chain_routes) in routes {
@@ -430,6 +431,7 @@ pub fn spawn_upkeep(indexer: Arc<Indexer>, routes: &HashMap<String, Arc<ChainRou
 			(indexer.clone(), network.clone(), chain_routes.clone());
 		tokio::spawn(async move {
 			let mut interval = tokio::time::interval(UPKEEP_INTERVAL);
+			let mut metadata_name = None;
 			loop {
 				interval.tick().await;
 				if !chain_routes.hooks.is_empty() {
@@ -437,7 +439,15 @@ pub fn spawn_upkeep(indexer: Arc<Indexer>, routes: &HashMap<String, Arc<ChainRou
 						tracing::warn!(%network, "idle hooks failed: {err:#}");
 					}
 				}
-				if let Err(err) = record_progress(&indexer, &network, &chain_routes).await {
+				if metadata_name.is_none() {
+					match register_metadata(&indexer, &network).await {
+						Ok(name) => metadata_name = Some(name),
+						Err(err) =>
+							tracing::warn!(%network, "metadata registration failed: {err:#}"),
+					}
+				}
+				let Some(name) = &metadata_name else { continue };
+				if let Err(err) = record_progress(&indexer, &network, name, &chain_routes).await {
 					tracing::warn!(%network, "metadata update failed: {err:#}");
 				}
 			}
@@ -557,6 +567,16 @@ async fn run_idle_hooks(
 	Ok(())
 }
 
+/** Creates the chain's metadata table, and returns the chain's name in it. */
+async fn register_metadata(indexer: &Indexer, network: &str) -> anyhow::Result<String> {
+	let name = crate::metadata::chain_name(indexer.chain(network)?).await?;
+	let mut conn = indexer.db.raw_connection().await?;
+	let tx = conn.transaction().await?;
+	crate::metadata::register(&tx, &name).await?;
+	tx.commit().await?;
+	Ok(name)
+}
+
 /**
  * Records the synced block as the chain's `lastProcessedHeight`. Its `targetHeight` is the head
  * less the reorg-safe distance, the last block rindexer indexes.
@@ -564,6 +584,7 @@ async fn run_idle_hooks(
 async fn record_progress(
 	indexer: &Indexer,
 	network: &str,
+	name: &str,
 	routes: &ChainRoutes,
 ) -> anyhow::Result<()> {
 	let chain = indexer.chain(network)?;
@@ -572,7 +593,7 @@ async fn record_progress(
 	let tx = conn.transaction().await?;
 	let Some(synced) = synced_block(&tx, network, routes).await? else { return Ok(()) };
 	let target = head.saturating_sub(chain.config.reorg_safe_distance).max(synced);
-	crate::metadata::record_progress(&tx, network, synced, target).await?;
+	crate::metadata::record_progress(&tx, name, synced, target).await?;
 	tx.commit().await?;
 	Ok(())
 }

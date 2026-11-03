@@ -9,17 +9,18 @@ use hyperbridge_indexer::metadata::{record_progress, register, table};
 async fn each_chain_keeps_one_metadata_table_omnihedron_lists() {
 	let Some(mut client) = database().await else { return };
 	let db = client.transaction().await.unwrap();
-	register(&db, "test-chain", "Hyperbridge (Test)").await.unwrap();
-	record_progress(&db, "test-chain", 100, 105).await.unwrap();
+	let chain = "Hyperbridge (Test)";
+	register(&db, chain).await.unwrap();
+	record_progress(&db, chain, 100, 105).await.unwrap();
 	// A restart registers again, and progress overwrites the last.
-	register(&db, "test-chain", "Hyperbridge (Test)").await.unwrap();
-	record_progress(&db, "test-chain", 104, 110).await.unwrap();
+	register(&db, chain).await.unwrap();
+	record_progress(&db, chain, 104, 110).await.unwrap();
 
 	let rows = text(
 		&db,
 		&format!(
 			"SELECT string_agg(key || '=' || value::text, ',' ORDER BY key) FROM {}",
-			table("test-chain")
+			table(chain)
 		),
 	)
 	.await;
@@ -28,15 +29,19 @@ async fn each_chain_keeps_one_metadata_table_omnihedron_lists() {
 		Some(r#"chain="Hyperbridge (Test)",lastProcessedHeight=104,targetHeight=110"#)
 	);
 
-	// omnihedron serves the plain `_metadata` table and every `_metadata_0x…` one. A plain table
-	// with no rows would add a node whose `chain` is null.
+	// omnihedron serves every `_metadata_0x…` table, and the plain `_metadata` one first. With no
+	// rows, a plain table would answer `_metadata` with nulls and add a node whose `chain` is null.
 	let listed = text(
 		&db,
-		"SELECT string_agg(format('app.\"%s\"', relname), ',') FROM pg_class c
-		 JOIN pg_namespace n ON n.oid = c.relnamespace
-		 WHERE n.nspname = 'app' AND c.relkind = 'r'
-		   AND (c.relname = '_metadata' OR c.relname LIKE '\\_metadata\\_0x%')",
+		&format!(
+			"SELECT count(*)::text FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+			 WHERE n.nspname = 'app' AND c.relkind = 'r' AND c.relname LIKE '\\_metadata\\_0x%'
+			   AND format('app.\"%s\"', c.relname) = '{}'",
+			table(chain)
+		),
 	)
 	.await;
-	assert_eq!(listed, Some(table("test-chain")));
+	assert_eq!(listed.as_deref(), Some("1"));
+	let plain_absent = text(&db, "SELECT (to_regclass('app._metadata') IS NULL)::text").await;
+	assert_eq!(plain_absent.as_deref(), Some("true"));
 }

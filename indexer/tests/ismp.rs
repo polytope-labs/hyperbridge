@@ -704,3 +704,41 @@ async fn evm_state_machine_updates_reproduce_the_old_slot_read() {
 	.await;
 	assert_eq!(rows, Some(format!("EVM-56_{tx:#x}_POLKADOT-3367_12597213 1793708886 40 2")));
 }
+
+/** On Hyperbridge, `Response` comes before `GetRequestHandled` in the same block, so the
+ * response is written before the GET request it points at. */
+#[tokio::test]
+async fn a_get_response_keeps_its_request_before_the_request_is_indexed() {
+	use hyperbridge_indexer::{
+		handlers::ismp::requests::{insert_get_response, GetResponseRow},
+		store::numeric,
+	};
+	let Some(mut client) = database().await else { return };
+	let db = client.transaction().await.unwrap();
+	let response = "0x61567ec5fa5699d1ec48bed7a456ade633572f3217451d0913318d2383e286f2";
+	let request = "0xba51a2830d33dcb9c41c533150a97d94b47d30033837ee79815e03292dbc8162";
+	insert_get_response(
+		&db,
+		&GetResponseRow {
+			commitment: response,
+			chain: "KUSAMA-4009",
+			request,
+			values: vec![Some(String::new())],
+			timeout_timestamp: numeric(0),
+			block_timestamp: 1_791_463_710,
+			block_number: 10_805_856,
+			block_hash: "0xblock",
+			transaction_hash: "0xfdce",
+		},
+	)
+	.await
+	.unwrap();
+	let row = text(
+		&db,
+		&format!(
+			"SELECT request_id || ' ' || created_at FROM app.get_responses WHERE id = '{response}'"
+		),
+	)
+	.await;
+	assert_eq!(row, Some(format!("{request} 2026-10-08 12:48:30")));
+}

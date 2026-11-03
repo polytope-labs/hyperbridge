@@ -284,25 +284,14 @@ pub struct GetResponseRow<'a> {
 }
 
 /**
- * `GetResponseService.findOrCreate`: the first write wins. `request_id` references
- * `get_request_v2s`; when that row is missing it is left empty, where the TypeScript's insert
- * failed the block.
+ * `GetResponseService.findOrCreate`: the first write wins. `request_id` is stored even when the
+ * GET request isn't indexed yet: on Hyperbridge the `Response` event comes before
+ * `GetRequestHandled` in the same block, and relations are comments, not constraints.
  */
 pub async fn insert_get_response(
 	db: &Transaction<'_>,
 	row: &GetResponseRow<'_>,
 ) -> anyhow::Result<()> {
-	let request = db
-		.query_opt("SELECT id FROM app.get_request_v2s WHERE id = $1", &[&row.request])
-		.await?
-		.map(|r| r.get::<_, String>(0));
-	if request.is_none() {
-		tracing::warn!(
-			commitment = row.commitment,
-			request = row.request,
-			"GET response for a request that isn't indexed; storing it without request_id"
-		);
-	}
 	let values = Value::from(
 		row.values
 			.iter()
@@ -320,7 +309,7 @@ pub async fn insert_get_response(
 			&row.chain,
 			&values,
 			&row.timeout_timestamp,
-			&request,
+			&row.request,
 			&timestamp_to_date(row.block_timestamp),
 			&row.block_number.to_string(),
 			&row.block_hash,

@@ -748,3 +748,55 @@ async fn an_early_fill_keeps_the_destination_chains_valuation() {
 			.await;
 	assert_eq!(left, None);
 }
+
+#[tokio::test]
+async fn early_fills_in_one_transaction_are_awarded_partials_first() {
+	let Some(mut client) = database().await else { return };
+	let db = client.transaction().await.unwrap();
+	defer_foreign_keys(&db).await;
+	let market = TestMarket::new();
+	let destination = gateway(&db, &market);
+	let source = Gateway { db: &db, chain: "56", state_machine: "EVM-56", market: &market };
+
+	let mut order = order(vec![token(USDC, 5_000_000)], vec![token(WETH, 1000)], 8);
+	order.source = "EVM-56".into();
+	let c = order.commitment().unwrap().to_string();
+	// Log 12 sorts before log 5 as text, which is how the deferred rows' ids compare.
+	for (kind, amount, log_index) in [(FillKind::Partial, 400, 5), (FillKind::Full, 600, 12)] {
+		destination
+			.record_fill(
+				kind,
+				&c,
+				FILLER,
+				&[token(WETH, amount)],
+				&[],
+				&tx(0xcf, 90, log_index),
+				&FillReceipt::default(),
+			)
+			.await
+			.unwrap();
+	}
+
+	place(&source, &order, &tx(0xae, 100, 3)).await;
+	let points = one(
+		&db,
+		&format!("SELECT points::text FROM app.rewards WHERE id = '{FILLER}-EVM-8453-FILLER'"),
+	)
+	.await;
+	assert_eq!(points.as_deref(), Some("3000"));
+	// Both fills write one activity row, and SubQuery awarded the partial before the full.
+	let fill_hash = B256::repeat_byte(0xcf).to_string();
+	let logged = one(
+		&db,
+		&format!(
+			"SELECT string_agg(points::text, ',') FROM app.rewards_activity_logs
+			 WHERE transaction_hash = '{fill_hash}'"
+		),
+	)
+	.await;
+	assert_eq!(logged.as_deref(), Some("1800"));
+	let left =
+		one(&db, &format!("SELECT id FROM indexer.deferred_fill_points WHERE commitment = '{c}'"))
+			.await;
+	assert_eq!(left, None);
+}

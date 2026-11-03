@@ -324,7 +324,8 @@ pub async fn token_metadata(
 		.call()
 		.await
 		.with_context(|| format!("{token} decimals()"))?;
-	Ok((symbol, decimals))
+	// Postgres text can't hold NUL, so a symbol padded with it would fail every write.
+	Ok((symbol.replace('\0', ""), decimals))
 }
 
 #[cfg(test)]

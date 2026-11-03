@@ -17,8 +17,8 @@ hyperbridge-indexer --config indexer/config/mainnet.toml --chains bsc-mainnet
   chain in the config when unset. The solver watchlist poller runs in the process that indexes
   Hyperbridge.
 - `DATABASE_URL` is the Postgres database. `DATABASE_POOL_SIZE` defaults to twice the number of
-  chains the process indexes, plus 4. Migrations run at startup: `indexer.*` holds the
-  cursors, and `app.*` holds the served tables.
+  chains the process indexes plus 4, and at least 10. Migrations run at startup: `indexer.*`
+  holds the cursors, and `app.*` holds the served tables.
 - Each chain's RPC URL comes from an env var named after the chain: `bsc-mainnet` reads
   `BSC_MAINNET`. For a Substrate chain, that is its substrate-eth-rpc URL. `<CHAIN>_SUBSTRATE`
   is the node's own RPC, and defaults to the same URL, which is right for the in-node facade.
@@ -44,7 +44,7 @@ hyperbridge-indexer --config indexer/config/mainnet.toml --chains bsc-mainnet
   last block it applied. On a chain with no logs, they run every 15 s at the block rindexer has
   synced.
 - **Pending statuses.** A status whose parent another chain hasn't indexed yet waits in
-  `pending_status_metadata`. One flusher moves it once the parent exists.
+  `pending_status_metadata`. Each process's flusher moves it once the parent exists.
 - **Schema.** `migrations/0001_app_schema.sql` is the DDL SubQuery generates for `schema.graphql`,
   with relations declared as `@foreignKey` table comments. Production SubQuery keeps history, so
   it never had real foreign keys; with them, an event that arrived before its parent would stall
@@ -63,8 +63,13 @@ compared. The deliberate differences:
   `ismp_queryRequests` has no block parameter and still reads the head. So
   `treasuries.total_balance` and `bridge_token_supplies.circulating_supply` differ from
   SubQuery's by the few blocks SubQuery trailed the head.
-- RPC and database errors SubQuery swallowed now fail the batch and are retried. Reverts and
-  malformed data are still logged and skipped.
+- RPC and database errors SubQuery swallowed now fail the batch and are retried. Reverts, other
+  failed executions and malformed data are still logged and skipped. Four reads stay
+  best-effort and only log a failure:
+  - the `debug_traceTransaction` fallback for an order's calldata, which many RPCs don't serve;
+  - HyperFX orderbook prices;
+  - yield vault reads, which a later block retries until the day's snapshot completes;
+  - the bridge token supply, which the next 3600-block run reads again.
 - The periodic pending flush only picks rows whose parent exists, so a row whose parent never
   arrives no longer blocks the rest.
 - A token that doesn't answer `symbol()` and `decimals()` is worth $0 in order and fill values.

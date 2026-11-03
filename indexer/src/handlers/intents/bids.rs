@@ -104,6 +104,7 @@ pub async fn resolve_bid_source(
 				})
 				.and_then(|entry| entry.user_op)
 				.filter(|user_op| !user_op.is_empty()),
+			Err(err) if crate::errors::is_transient(&err) => return Err(err),
 			Err(err) => {
 				tracing::warn!(%commitment, "intents_getBidsForOrder failed: {err:#}");
 				None

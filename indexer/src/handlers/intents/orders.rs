@@ -819,25 +819,34 @@ impl Gateway<'_> {
 					continue;
 				}
 				self.accumulate_filled(commitment, &outputs).await?;
+				// A deferred award has its fill's id, so points go out in SubQuery's order.
+				let deferred = self
+					.db
+					.query_opt(
+						"DELETE FROM indexer.deferred_fill_points WHERE id = $1
+						 RETURNING filler, usd, transaction_hash, timestamp",
+						&[&fill_id],
+					)
+					.await?;
+				if let Some(row) = deferred {
+					let (filler, usd, transaction_hash): (String, String, String) =
+						(row.get(0), row.get(1), row.get(2));
+					let timestamp: i64 = row.get(3);
+					self.award_fill_points(
+						commitment,
+						&filler,
+						&usd,
+						&transaction_hash,
+						timestamp as u64,
+					)
+					.await?;
+				}
 			}
 		}
-		let deferred = self
-			.db
-			.query(
-				"DELETE FROM indexer.deferred_fill_points WHERE commitment = $1
-				 RETURNING id, filler, usd, transaction_hash, timestamp",
-				&[&commitment],
-			)
+		// Fills past the first 100 of a kind were never awarded by SubQuery either.
+		self.db
+			.execute("DELETE FROM indexer.deferred_fill_points WHERE commitment = $1", &[&commitment])
 			.await?;
-		let mut deferred: Vec<_> = deferred.into_iter().collect();
-		deferred.sort_by_key(|row| row.get::<_, String>(0));
-		for row in deferred {
-			let (filler, usd, transaction_hash): (String, String, String) =
-				(row.get(1), row.get(2), row.get(3));
-			let timestamp: i64 = row.get(4);
-			self.award_fill_points(commitment, &filler, &usd, &transaction_hash, timestamp as u64)
-				.await?;
-		}
 		Ok(())
 	}
 
@@ -1159,6 +1168,7 @@ impl Gateway<'_> {
 				None => {
 					let (symbol, decimals) = match self.metadata(address).await {
 						Ok(metadata) => metadata,
+						Err(err) if is_transient(&err) => return Err(err),
 						Err(err) => {
 							tracing::error!(
 								"recording {volume_type} volume: {token_address} metadata failed: {err:#}"

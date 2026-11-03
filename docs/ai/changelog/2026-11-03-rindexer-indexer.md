@@ -63,6 +63,11 @@ compared. The deliberate differences:
   malformed data are still logged and skipped.
 - The periodic pending flush only picks rows whose parent exists, so a row whose parent never
   arrives no longer blocks the rest.
+- A token that doesn't answer `symbol()` and `decimals()` is worth $0 in order and fill values.
+  SubQuery failed the block, and under rindexer's retries that would stop the chain.
+- Points for a fill indexed before its order use the destination chain's valuation, kept in
+  `indexer.deferred_fill_points` until the order arrives. SubQuery re-read the destination's
+  tokens on the source chain, which failed the block when a token had no code there.
 
 Bugs kept for parity, to decide on separately:
 

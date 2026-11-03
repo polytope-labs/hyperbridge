@@ -4,6 +4,7 @@ use rindexer::PostgresClient;
 const MIGRATIONS: &[(&str, &str)] = &[
 	("0000_indexer", include_str!("../migrations/0000_indexer.sql")),
 	("0001_app_schema", include_str!("../migrations/0001_app_schema.sql")),
+	("0002_deferred_fill_points", include_str!("../migrations/0002_deferred_fill_points.sql")),
 ];
 
 /** Applies the migrations that haven't run yet, each in its own transaction. */

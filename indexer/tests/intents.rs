@@ -668,3 +668,83 @@ async fn bid_payload_matches_the_live_indexer() {
 	assert!(user_op.starts_with("ce319986ca4d5d0893751a628d0db3dc8fc91d621c1945e2739b22af62eb0bf9"));
 	assert!(user_op.ends_with("dc0c3381bc50420375b382c6054eb85559c19f8fb57ac774c2577150d47bed1b"));
 }
+
+/** A token's metadata read fails with a transport error, which should retry. */
+struct FlakyMarket;
+
+#[async_trait]
+impl Market for FlakyMarket {
+	async fn token_metadata(&self, token: Address) -> anyhow::Result<(String, u8)> {
+		Err(anyhow::anyhow!(hyperbridge_indexer::errors::Retry(format!("{token}: timed out"))))
+	}
+
+	async fn usd_price(&self, _symbol: &str) -> Option<Dec> {
+		None
+	}
+}
+
+#[tokio::test]
+async fn an_unreadable_token_is_worth_zero_but_a_transient_read_fails() {
+	let Some(mut client) = database().await else { return };
+	let db = client.transaction().await.unwrap();
+	let market = TestMarket::new();
+	let g = gateway(&db, &market);
+	let no_code = Address::repeat_byte(0x77);
+	let order = order(vec![token(USDC, 5_000_000), token(no_code, 1)], vec![token(WETH, 1)], 6);
+	let c = place(&g, &order, &tx(0xab, 100, 3)).await;
+	let input_usd =
+		one(&db, &format!("SELECT input_u_s_d::text FROM app.i_order_v3s WHERE id = '{c}'")).await;
+	assert_eq!(input_usd.as_deref(), Some("5"));
+
+	let flaky = Gateway { db: &db, chain: "8453", state_machine: "EVM-8453", market: &FlakyMarket };
+	assert!(flaky.token_values_usd(&[token(USDC, 1)]).await.is_err());
+}
+
+#[tokio::test]
+async fn an_early_fill_keeps_the_destination_chains_valuation() {
+	let Some(mut client) = database().await else { return };
+	let db = client.transaction().await.unwrap();
+	defer_foreign_keys(&db).await;
+	// The destination knows WETH; the source chain has no such token.
+	let destination_market = TestMarket::new();
+	let source_market = TestMarket {
+		tokens: HashMap::from([(USDC, ("USDC", 6))]),
+		prices: HashMap::from([("USDC", "1")]),
+	};
+	let destination = gateway(&db, &destination_market);
+	let source = Gateway { db: &db, chain: "56", state_machine: "EVM-56", market: &source_market };
+
+	let mut order = order(vec![token(USDC, 5_000_000)], vec![token(WETH, 1000)], 7);
+	order.source = "EVM-56".into();
+	let c = order.commitment().unwrap().to_string();
+	let filled = tx(0xce, 90, 2);
+	destination
+		.record_fill(
+			FillKind::Full,
+			&c,
+			FILLER,
+			&[token(WETH, 1000)],
+			&[],
+			&filled,
+			&FillReceipt::default(),
+		)
+		.await
+		.unwrap();
+	let deferred =
+		one(&db, &format!("SELECT usd FROM indexer.deferred_fill_points WHERE commitment = '{c}'"))
+			.await;
+	assert_eq!(deferred.as_deref(), Some("3000.000000000000000000"));
+
+	// SubQuery re-read WETH on the source chain here and failed the block.
+	place(&source, &order, &tx(0xad, 100, 3)).await;
+	let points = one(
+		&db,
+		&format!("SELECT points::text FROM app.rewards WHERE id = '{FILLER}-EVM-8453-FILLER'"),
+	)
+	.await;
+	assert_eq!(points.as_deref(), Some("3000"));
+	let left =
+		one(&db, &format!("SELECT id FROM indexer.deferred_fill_points WHERE commitment = '{c}'"))
+			.await;
+	assert_eq!(left, None);
+}

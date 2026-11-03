@@ -1,6 +1,7 @@
 pub mod chains;
 pub mod config;
 pub mod db;
+pub mod errors;
 pub mod handlers;
 pub mod manifest;
 pub mod provider;

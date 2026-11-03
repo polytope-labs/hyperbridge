@@ -19,6 +19,7 @@ pub async fn database() -> Option<Client> {
 			"CREATE SCHEMA IF NOT EXISTS indexer",
 			include_str!("../../migrations/0000_indexer.sql"),
 			include_str!("../../migrations/0001_app_schema.sql"),
+			include_str!("../../migrations/0002_deferred_fill_points.sql"),
 		] {
 			client.batch_execute(sql).await.unwrap();
 		}

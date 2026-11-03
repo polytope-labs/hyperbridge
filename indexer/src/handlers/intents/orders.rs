@@ -9,6 +9,7 @@ use tokio_postgres::Transaction;
 
 use super::calls::{Order, TokenAmount};
 use crate::{
+	errors::is_transient,
 	services::{
 		decimal::{amount_value_in_usd, to_scaled_usd, Dec},
 		pending::{defer_status, flush_commitment, PendingEntity, PendingStatus},
@@ -167,12 +168,22 @@ impl Gateway<'_> {
 		self.market.token_metadata(token).await
 	}
 
-	/** `getTokenValuesUSD`: the tokens' total USD value, `toFixed(18)`. Fails on unreadable
-	 * tokens. */
+	/**
+	 * `getTokenValuesUSD`: the tokens' total USD value, `toFixed(18)`. A token that doesn't
+	 * answer `symbol()` and `decimals()` (no code, a bytes32 symbol) is worth 0. SubQuery
+	 * failed the block on it, which under rindexer's retries would stop the chain for good.
+	 */
 	pub async fn token_values_usd(&self, tokens: &[TokenAmount]) -> anyhow::Result<String> {
 		let mut total = Dec::zero();
 		for token in tokens {
-			let (symbol, decimals) = self.metadata(token.address()).await?;
+			let (symbol, decimals) = match self.metadata(token.address()).await {
+				Ok(metadata) => metadata,
+				Err(err) if is_transient(&err) => return Err(err),
+				Err(err) => {
+					tracing::warn!(token = %token.address(), "unreadable token valued at 0: {err:#}");
+					continue;
+				},
+			};
 			let price = self.market.usd_price(&symbol).await.unwrap_or_else(Dec::zero);
 			total = total.add(&Dec::parse(&amount_value_in_usd(token.amount, decimals, &price))?);
 		}
@@ -615,8 +626,7 @@ impl Gateway<'_> {
 			}
 		}
 		self.accumulate_filled(commitment, outputs).await?;
-		self.award_fill_rewards(commitment, filler, outputs, &tx.transaction_hash, tx.timestamp)
-			.await
+		self.award_fill_rewards(commitment, filler, outputs, tx).await
 	}
 
 	async fn order_exists(&self, commitment: &str) -> anyhow::Result<bool> {
@@ -666,9 +676,9 @@ impl Gateway<'_> {
 		commitment: &str,
 		filler: &str,
 		outputs: &[TokenAmount],
-		transaction_hash: &str,
-		timestamp: u64,
+		tx: &TxMeta,
 	) -> anyhow::Result<()> {
+		let (transaction_hash, timestamp) = (tx.transaction_hash.as_str(), tx.timestamp);
 		let provided: Vec<TokenAmount> =
 			outputs.iter().filter(|o| !o.amount.is_zero()).copied().collect();
 		if provided.is_empty() {
@@ -691,12 +701,33 @@ impl Gateway<'_> {
 		.await?;
 		update_volume(self.db, "IntentGatewayV3.FILLED", self.state_machine, &total, timestamp)
 			.await?;
-		self.award_fill_points(commitment, filler, &total, transaction_hash, timestamp)
-			.await
+		if self
+			.award_fill_points(commitment, filler, &total, transaction_hash, timestamp)
+			.await?
+		{
+			return Ok(());
+		}
+		// The order isn't indexed yet. Keep this chain's valuation for the placement's backfill,
+		// which runs on the source chain and can't read these tokens there.
+		self.db
+			.execute(
+				"INSERT INTO indexer.deferred_fill_points
+				   (id, commitment, filler, usd, transaction_hash, timestamp)
+				 VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT (id) DO NOTHING",
+				&[
+					&tx.event_id(),
+					&commitment,
+					&filler,
+					&total,
+					&transaction_hash,
+					&(timestamp as i64),
+				],
+			)
+			.await?;
+		Ok(())
 	}
 
-	/** `awardFillPoints`: nothing while the order is missing; the placement's backfill awards
-	 * it. */
+	/** `awardFillPoints`. Returns false, awarding nothing, while the order is missing. */
 	async fn award_fill_points(
 		&self,
 		commitment: &str,
@@ -704,17 +735,17 @@ impl Gateway<'_> {
 		slice_usd: &str,
 		transaction_hash: &str,
 		timestamp: u64,
-	) -> anyhow::Result<()> {
+	) -> anyhow::Result<bool> {
 		let Some(row) = self
 			.db
 			.query_opt("SELECT dest_chain FROM app.i_order_v3s WHERE id = $1", &[&commitment])
 			.await?
 		else {
-			return Ok(());
+			return Ok(false);
 		};
 		let points = whole_dollars(slice_usd);
 		if points.is_zero() {
-			return Ok(());
+			return Ok(true);
 		}
 		let dest_chain: String = row.get(0);
 		let description = format!(
@@ -734,13 +765,16 @@ impl Gateway<'_> {
 				timestamp,
 			},
 		)
-		.await
+		.await?;
+		Ok(true)
 	}
 
 	/**
 	 * `backfillEarlyFills`: fills recorded before the order (the destination ran ahead) get the
 	 * `filled` accounting and points they skipped. Their volume was credited when they were
-	 * indexed. Tokens are read on this, the source, chain, as the TypeScript did.
+	 * indexed, and their points use the valuation the destination chain made then. SubQuery
+	 * re-read the destination's tokens on this, the source, chain, which failed the block when
+	 * a token had no code here.
 	 */
 	async fn backfill_early_fills(&self, commitment: &str) -> anyhow::Result<()> {
 		for kind in [FillKind::Partial, FillKind::Full] {
@@ -785,22 +819,24 @@ impl Gateway<'_> {
 					continue;
 				}
 				self.accumulate_filled(commitment, &outputs).await?;
-				let total = self.token_values_usd(&provided).await?;
-				if !Dec::parse(&total)?.is_positive() {
-					continue;
-				}
-				let filler: String = fill.get(1);
-				let transaction_hash: String = fill.get(2);
-				let timestamp: Numeric = fill.get(3);
-				self.award_fill_points(
-					commitment,
-					&filler,
-					&total,
-					&transaction_hash,
-					timestamp.as_str().parse()?,
-				)
-				.await?;
 			}
+		}
+		let deferred = self
+			.db
+			.query(
+				"DELETE FROM indexer.deferred_fill_points WHERE commitment = $1
+				 RETURNING id, filler, usd, transaction_hash, timestamp",
+				&[&commitment],
+			)
+			.await?;
+		let mut deferred: Vec<_> = deferred.into_iter().collect();
+		deferred.sort_by_key(|row| row.get::<_, String>(0));
+		for row in deferred {
+			let (filler, usd, transaction_hash): (String, String, String) =
+				(row.get(1), row.get(2), row.get(3));
+			let timestamp: i64 = row.get(4);
+			self.award_fill_points(commitment, &filler, &usd, &transaction_hash, timestamp as u64)
+				.await?;
 		}
 		Ok(())
 	}

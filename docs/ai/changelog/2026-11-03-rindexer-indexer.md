@@ -25,6 +25,8 @@ hyperbridge-indexer --config indexer/config/mainnet.toml --chains bsc-mainnet
 - `HYPERFX_ORDERBOOK_URL` prices tokens and serves the solver watchlist.
 - Every RPC must serve historic state at the event's block. On Ethereum and Arbitrum, that means
   an archive endpoint.
+- Index Substrate chains from our own archive node. The public Nexus and Gargantua endpoints
+  rate-limit hard: through them, the facade indexes about 100 blocks a minute.
 - `config/{mainnet,testnet}.toml` lists the chains. Soneium is left out. Each chain sets its
   reorg-safe distance: Ethereum 3, Arbitrum and Base 0, BSC and Polygon 4, Polkadot Hub 24,
   and Substrate chains 0, since the facade serves only finalized blocks.
@@ -58,7 +60,9 @@ compared. The deliberate differences:
 
 - Reads SubQuery made at the chain head are made at the event's block: state commitments,
   request fees, treasury balance, fee decimals, bandwidth allowance and token supply.
-  `ismp_queryRequests` has no block parameter and still reads the head.
+  `ismp_queryRequests` has no block parameter and still reads the head. So
+  `treasuries.total_balance` and `bridge_token_supplies.circulating_supply` differ from
+  SubQuery's by the few blocks SubQuery trailed the head.
 - RPC and database errors SubQuery swallowed now fail the batch and are retried. Reverts and
   malformed data are still logged and skipped.
 - The periodic pending flush only picks rows whose parent exists, so a row whose parent never
@@ -86,8 +90,8 @@ Bugs kept for parity, to decide on separately:
 
 ## Not included yet
 
-- **Live Substrate runs.** Nothing has run against a Hyperbridge node or facade. On EVM, Base was
-  indexed live and one order matched SubQuery field for field. BSC and Polkadot Hub ran cleanly;
-  Ethereum and Arbitrum need an archive RPC.
-- **Side-by-side comparison** of every table against SubQuery over an agreed block range.
+- **Side-by-side comparison** of every table against SubQuery over an agreed block range. Short
+  ranges on Nexus and Gargantua match SubQuery for the ISMP, filler bid, reward, treasury and
+  bandwidth tables, apart from the two columns above. On EVM, only Base has been compared, on one
+  order. Ethereum and Arbitrum need an archive RPC.
 - **Deployment and retirement:** a Docker image, compose and CI, and retiring SubQuery.

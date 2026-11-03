@@ -169,3 +169,48 @@ async fn token_prices_are_zero_on_testnets_and_stables_are_stored_at_one() {
 		.unwrap();
 	assert!(unpriced.is_zero());
 }
+
+#[tokio::test]
+async fn pending_statuses_wait_for_their_parent() {
+	use hyperbridge_indexer::{
+		services::pending::{
+			defer_status, flush_commitment, flush_ready, PendingEntity, PendingStatus,
+		},
+		store::timestamp_secs,
+	};
+	let Some(mut client) = database().await else { return };
+	let db = client.transaction().await.unwrap();
+	let pending = |commitment: &'static str| PendingStatus {
+		commitment,
+		entity: PendingEntity::Request,
+		status: "DESTINATION",
+		chain: "EVM-1",
+		timestamp: numeric(1_700_000_000u64),
+		block_number: "5".into(),
+		block_hash: "0xblock",
+		transaction_hash: "0xtx",
+		filler: None,
+		created_at: timestamp_secs(1_700_000_000),
+	};
+	defer_status(&db, &pending("0xparent")).await.unwrap();
+	defer_status(&db, &pending("0xorphan")).await.unwrap();
+	assert_eq!(flush_ready(&db, 10).await.unwrap(), 0, "no parent yet");
+
+	db.execute(
+		"INSERT INTO app.request_v2s (id, commitment, chain, \"from\", \"to\", nonce, body, fee, created_at)
+		 VALUES ('0xparent', '0xparent', 'EVM-56', '0xa', '0xb', 1, '0x', 0, now())",
+		&[],
+	)
+	.await
+	.unwrap();
+	assert_eq!(flush_commitment(&db, PendingEntity::Request, "0xparent").await.unwrap(), 1);
+	let status = text(
+		&db,
+		"SELECT status || ' ' || request_id FROM app.request_status_metadata WHERE id = '0xparent.DESTINATION'",
+	)
+	.await;
+	assert_eq!(status.as_deref(), Some("DESTINATION 0xparent"));
+	let left =
+		text(&db, "SELECT string_agg(commitment, ',') FROM app.pending_status_metadata").await;
+	assert_eq!(left.as_deref(), Some("0xorphan"));
+}

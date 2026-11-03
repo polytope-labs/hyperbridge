@@ -23,4 +23,6 @@ pub fn all() -> Handlers {
 }
 
 /** Background work that isn't tied to a chain's blocks, e.g. polling an HTTP endpoint. */
-pub fn spawn_tasks(_indexer: &Arc<Indexer>) {}
+pub fn spawn_tasks(indexer: &Arc<Indexer>) {
+	crate::services::pending::spawn_flusher(indexer.clone());
+}

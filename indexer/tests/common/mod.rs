@@ -7,6 +7,8 @@ pub async fn database() -> Option<Client> {
 	let url = std::env::var("INDEXER_TEST_DATABASE_URL").ok()?;
 	let (client, connection) = tokio_postgres::connect(&url, NoTls).await.unwrap();
 	tokio::spawn(connection);
+	// Test binaries run in parallel; the first to arrive migrates a fresh database.
+	client.execute("SELECT pg_advisory_lock(7171)", &[]).await.unwrap();
 	let migrated: bool = client
 		.query_one("SELECT to_regclass('app.request_v2s') IS NOT NULL", &[])
 		.await
@@ -21,6 +23,7 @@ pub async fn database() -> Option<Client> {
 			client.batch_execute(sql).await.unwrap();
 		}
 	}
+	client.execute("SELECT pg_advisory_unlock(7171)", &[]).await.unwrap();
 	Some(client)
 }
 

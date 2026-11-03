@@ -68,7 +68,8 @@ impl Source {
 			Source::IntentGatewayV3Legacy => "abis/IntentGatewayV3Legacy.abi.json".into(),
 			Source::YieldVaults => "abis/Erc4626.abi.json".into(),
 			Source::SupportedTokens => "abis/Erc20.abi.json".into(),
-			Source::Pallet(key) => format!("../modules/utils/substrate-eth-rpc/abis/{key}.abi.json"),
+			Source::Pallet(key) =>
+				format!("../modules/utils/substrate-eth-rpc/abis/{key}.abi.json"),
 		}
 	}
 
@@ -137,7 +138,6 @@ impl<H: EventHandler> LogHandler for H {
 		H::Event::SIGNATURE_HASH
 	}
 
-
 	async fn handle_log(&self, ctx: &EventContext<'_>, log: &Log) -> anyhow::Result<()> {
 		let event = H::Event::decode_log(log)
 			.with_context(|| format!("decoding {} at {:?}", H::Event::SIGNATURE, ctx.log))?;
@@ -181,14 +181,42 @@ pub fn stream_abi() -> String {
 	format!(r#"[{{"type":"event","name":"{STREAM_EVENT}","inputs":[],"anonymous":false}}]"#)
 }
 
+/** Where a chain's stream stands at the end of a batch: every log up to this block is applied. */
+pub struct BlockContext<'a> {
+	pub indexer: &'a Indexer,
+	pub chain: &'a Chain,
+	pub db: &'a Transaction<'a>,
+	pub block_number: u64,
+	/** Block timestamp in seconds. */
+	pub block_timestamp: u64,
+}
+
+/**
+ * Work SubQuery ran as a block handler. It runs after each batch's logs, in the batch's
+ * transaction, at the last block the batch applied. rindexer only calls back for ranges with
+ * logs, so a hook runs as often as its chain has logs we subscribe to.
+ */
+#[async_trait]
+pub trait BlockHook: Send + Sync + 'static {
+	/** Whether the hook runs on this chain. */
+	fn applies_to(&self, chain: &ChainConfig) -> bool;
+
+	async fn after_batch(&self, ctx: &BlockContext<'_>) -> anyhow::Result<()>;
+}
+
 /** A chain's handlers, keyed by the address and topic of the logs they take. */
 #[derive(Default)]
 pub struct ChainRoutes {
 	routes: HashMap<(Address, B256), Vec<Arc<dyn LogHandler>>>,
+	hooks: Vec<Arc<dyn BlockHook>>,
 }
 
 impl ChainRoutes {
-	pub fn new(chain: &ChainConfig, subscriptions: &[Subscription]) -> Self {
+	pub fn new(
+		chain: &ChainConfig,
+		subscriptions: &[Subscription],
+		hooks: &[Arc<dyn BlockHook>],
+	) -> Self {
 		let mut routes: HashMap<(Address, B256), Vec<Arc<dyn LogHandler>>> = HashMap::new();
 		for subscription in subscriptions {
 			for address in subscription.source.addresses(chain) {
@@ -198,7 +226,8 @@ impl ChainRoutes {
 					.push(subscription.handler.clone());
 			}
 		}
-		Self { routes }
+		let hooks = hooks.iter().filter(|hook| hook.applies_to(chain)).cloned().collect();
+		Self { routes, hooks }
 	}
 
 	pub fn addresses(&self) -> BTreeSet<Address> {
@@ -228,8 +257,10 @@ pub fn register_all(
 			return Err(anyhow!("contract {} must list exactly one network", contract.name));
 		};
 		let network = detail.network.clone();
-		let provider =
-			providers.get(&network).ok_or_else(|| anyhow!("no provider for {network}"))?.clone();
+		let provider = providers
+			.get(&network)
+			.ok_or_else(|| anyhow!("no provider for {network}"))?
+			.clone();
 		let chain_routes =
 			routes.get(&network).ok_or_else(|| anyhow!("no routes for {network}"))?.clone();
 
@@ -298,9 +329,9 @@ pub fn register_all(
 }
 
 /**
- * Runs a batch of one chain's logs in block order, in one database transaction together with the
- * chain's cursor. rindexer records its own progress after the callback returns, so a crash can
- * replay a batch; the cursor makes the replay skip logs that already committed.
+ * Runs a batch of one chain's logs in block order, in one database transaction together with
+ * the chain's cursor. rindexer records its own progress after the callback returns, so a crash
+ * can replay a batch; the cursor makes the replay skip logs that already committed.
  */
 async fn process_batch(
 	indexer: &Indexer,
@@ -325,6 +356,7 @@ async fn process_batch(
 		.map(|row| (row.get::<_, i64>(0) as u64, row.get::<_, i64>(1) as u64));
 
 	let mut last = cursor;
+	let mut applied_to = None;
 	for result in &results {
 		let info = &result.tx_information;
 		let position = (info.block_number, info.log_index.to::<u64>());
@@ -353,6 +385,14 @@ async fn process_batch(
 		let ctx = EventContext { indexer, chain, db: &tx, log: &meta };
 		for handler in handlers {
 			handler.handle_log(&ctx, &result.log.inner).await?;
+		}
+		applied_to = Some((meta.block_number, meta.block_timestamp));
+	}
+
+	if let Some((block_number, block_timestamp)) = applied_to {
+		let ctx = BlockContext { indexer, chain, db: &tx, block_number, block_timestamp };
+		for hook in &routes.hooks {
+			hook.after_batch(&ctx).await?;
 		}
 	}
 

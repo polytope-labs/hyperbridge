@@ -3,7 +3,10 @@ use std::path::PathBuf;
 use clap::Parser;
 
 #[derive(Parser)]
-#[command(name = "hyperbridge-indexer", about = "Indexes Hyperbridge into the tables omnihedron serves")]
+#[command(
+	name = "hyperbridge-indexer",
+	about = "Indexes Hyperbridge into the tables omnihedron serves"
+)]
 struct Cli {
 	/** Chain config, e.g. config/mainnet.toml. */
 	#[arg(long, env = "INDEXER_CONFIG")]

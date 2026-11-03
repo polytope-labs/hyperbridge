@@ -1,6 +1,8 @@
 # Chains the mainnet indexer follows. RPC URLs come from env vars named after each chain:
 # `bsc-mainnet` reads BSC_MAINNET. Substrate chains are read through substrate-eth-rpc.
 
+environment = "mainnet"
+
 [chains.hyperbridge-nexus]
 kind = "substrate"
 chain_id = 1000003367  # substrate-eth-rpc eth_chain_id
@@ -57,6 +59,7 @@ start_block = 25173062
 reorg_safe_distance = 3
 
 [chains.ethereum-mainnet.contracts]
+native_usd_feed = "0x5f4eC3Df9cbd43714FE2740f5E3616155c5b8419"
 ethereum_host = "0x620128E2B19193d6Bd244a3AC8D3bBa0541B19c3"
 handler_v2 = "0x2a18AB35DEa43474882E05A661e2F20fe89c0535"
 erc6160ext20 = "0x6B175474E89094C44Da98b954EedeAC495271d0F"
@@ -117,6 +120,7 @@ start_block = 466556461
 reorg_safe_distance = 0
 
 [chains.arbitrum-mainnet.contracts]
+native_usd_feed = "0x639Fe6ab55C921f74e7fac1ee960C0B6293ba612"
 ethereum_host = "0x620128E2B19193d6Bd244a3AC8D3bBa0541B19c3"
 handler_v2 = "0x2a18AB35DEa43474882E05A661e2F20fe89c0535"
 erc6160ext20 = "0xDA10009cBd5D07dd0CeCc66161FC93D7c9000da1"
@@ -150,9 +154,11 @@ kind = "evm"
 chain_id = 8453
 state_machine_id = "EVM-8453"
 start_block = 46466082
+op_stack = true
 reorg_safe_distance = 0
 
 [chains.base-mainnet.contracts]
+native_usd_feed = "0x71041dddad3595F9CEd3DcCFBe3D1F4b0a16Bb70"
 ethereum_host = "0x620128E2B19193d6Bd244a3AC8D3bBa0541B19c3"
 handler_v2 = "0x2a18AB35DEa43474882E05A661e2F20fe89c0535"
 erc6160ext20 = "0x50c5725949A6F0c72E6C4a641F24049A917DB0Cb"
@@ -210,6 +216,7 @@ start_block = 100369046
 reorg_safe_distance = 4
 
 [chains.bsc-mainnet.contracts]
+native_usd_feed = "0x0567F2323251f0Aab15c8dFb1967E4e8A7D42aeE"
 ethereum_host = "0x620128E2B19193d6Bd244a3AC8D3bBa0541B19c3"
 handler_v2 = "0x2a18AB35DEa43474882E05A661e2F20fe89c0535"
 erc6160ext20 = "0x1AF3F329e8BE154074D8769D1FFa4eE058B1DBc3"
@@ -254,6 +261,7 @@ start_block = 87418626
 reorg_safe_distance = 4
 
 [chains.polygon-mainnet.contracts]
+native_usd_feed = "0xAB594600376Ec9fD91F8e885dADF0CE036862dE0"
 ethereum_host = "0x620128E2B19193d6Bd244a3AC8D3bBa0541B19c3"
 handler_v2 = "0x2a18AB35DEa43474882E05A661e2F20fe89c0535"
 erc6160ext20 = "0x8f3cf7ad23cd3cadbd9735aff958023239c6a063"

@@ -5,6 +5,9 @@ pub mod handlers;
 pub mod manifest;
 pub mod provider;
 pub mod registry;
+pub mod services;
+pub mod store;
+pub mod substrate;
 
 use std::{
 	collections::{BTreeMap, HashMap},
@@ -29,6 +32,7 @@ pub struct Indexer {
 	pub db: Arc<PostgresClient>,
 	pub chains: BTreeMap<String, Chain>,
 	pub http: reqwest::Client,
+	pub orderbook: services::prices::Orderbook,
 }
 
 impl Indexer {
@@ -48,23 +52,31 @@ pub async fn run(config_path: &Path, run_dir: &Path) -> anyhow::Result<()> {
 	let db = Arc::new(PostgresClient::new().await.context("connecting to DATABASE_URL")?);
 	db::migrate(&db).await?;
 
+	let http = reqwest::Client::builder().build()?;
 	let mut chains = BTreeMap::new();
 	for (name, chain) in &config.chains {
-		chains.insert(name.clone(), Chain::connect(name, chain)?);
+		chains.insert(name.clone(), Chain::connect(name, chain, &http)?);
 	}
-	let rpc_urls: BTreeMap<String, String> =
-		chains.iter().map(|(name, chain)| (name.clone(), chain.rpc_url.clone())).collect();
+	let rpc_urls: BTreeMap<String, String> = chains
+		.iter()
+		.map(|(name, chain)| (name.clone(), chain.rpc_url.clone()))
+		.collect();
 
-	let subscriptions = handlers::subscriptions();
+	let handlers = handlers::all();
 	let routes: HashMap<String, Arc<registry::ChainRoutes>> = config
 		.chains
 		.iter()
-		.map(|(name, chain)| (name.clone(), Arc::new(registry::ChainRoutes::new(chain, &subscriptions))))
+		.map(|(name, chain)| {
+			let routes =
+				registry::ChainRoutes::new(chain, &handlers.subscriptions, &handlers.hooks);
+			(name.clone(), Arc::new(routes))
+		})
 		.collect();
 
 	let stream_abi = write_private(run_dir, "stream.abi.json", &registry::stream_abi())?;
 	let manifest = manifest::build(&config, &rpc_urls, &routes, &stream_abi);
-	let manifest_path = write_private(run_dir, "rindexer.yaml", &serde_yaml::to_string(&manifest)?)?;
+	let manifest_path =
+		write_private(run_dir, "rindexer.yaml", &serde_yaml::to_string(&manifest)?)?;
 	let manifest = read_manifest(&manifest_path).map_err(|e| anyhow!("rindexer manifest: {e}"))?;
 
 	let mut providers: HashMap<String, Arc<dyn ChainProvider>> = HashMap::new();
@@ -89,8 +101,14 @@ pub async fn run(config_path: &Path, run_dir: &Path) -> anyhow::Result<()> {
 		);
 	}
 
-	let indexer =
-		Arc::new(Indexer { config, db, chains, http: reqwest::Client::builder().build()? });
+	let indexer = Arc::new(Indexer {
+		config,
+		db,
+		chains,
+		orderbook: services::prices::Orderbook::from_env(http.clone()),
+		http,
+	});
+	handlers::spawn_tasks(&indexer);
 	let mut registry = EventCallbackRegistry::new();
 	registry::register_all(
 		&indexer,

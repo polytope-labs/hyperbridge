@@ -1,6 +1,8 @@
 # Chains the testnet indexer follows. RPC URLs come from env vars named after each chain:
 # `bsc-mainnet` reads BSC_MAINNET. Substrate chains are read through substrate-eth-rpc.
 
+environment = "testnet"
+
 [chains.hyperbridge-gargantua]
 kind = "substrate"
 chain_id = 1000004009  # substrate-eth-rpc eth_chain_id
@@ -49,6 +51,7 @@ start_block = 11172836
 reorg_safe_distance = 3
 
 [chains.sepolia.contracts]
+native_usd_feed = "0x694AA1769357215DE4FAC081bf1f309aDC325306"
 ethereum_host = "0x9AA003594d59C62EE17A73A569Fd7B1DbdBd71E1"
 handler_v2 = "0x53184b424971d4b5944fdf6f52f18c3fcc4d0925"
 erc6160ext20 = "0xBe97E73126d66188d72FBf99029126d0340a7f18"
@@ -61,6 +64,7 @@ start_block = 282668428
 reorg_safe_distance = 0
 
 [chains.arbitrum-sepolia.contracts]
+native_usd_feed = "0xd30e2101a97dcbAeBCBC04F14C3f624E67A35165"
 ethereum_host = "0x9AA003594d59C62EE17A73A569Fd7B1DbdBd71E1"
 handler_v2 = "0x53184b424971d4b5944fdf6f52f18c3fcc4d0925"
 erc6160ext20 = "0xBe97E73126d66188d72FBf99029126d0340a7f18"
@@ -70,9 +74,11 @@ kind = "evm"
 chain_id = 84532
 state_machine_id = "EVM-84532"
 start_block = 43528263
+op_stack = true
 reorg_safe_distance = 0
 
 [chains.base-sepolia.contracts]
+native_usd_feed = "0x4aDC67696bA383F43DD60A9e78F2C97Fbbfc7cb1"
 ethereum_host = "0x9AA003594d59C62EE17A73A569Fd7B1DbdBd71E1"
 handler_v2 = "0x53184b424971d4b5944fdf6f52f18c3fcc4d0925"
 erc6160ext20 = "0xBe97E73126d66188d72FBf99029126d0340a7f18"
@@ -85,6 +91,7 @@ start_block = 116402530
 reorg_safe_distance = 4
 
 [chains.bsc-chapel.contracts]
+native_usd_feed = "0x2514895c72f50D8bd4B4F9b1110F0D6bD2c97526"
 ethereum_host = "0x9AA003594d59C62EE17A73A569Fd7B1DbdBd71E1"
 handler_v2 = "0x53184b424971d4b5944fdf6f52f18c3fcc4d0925"
 erc6160ext20 = "0xBe97E73126d66188d72FBf99029126d0340a7f18"

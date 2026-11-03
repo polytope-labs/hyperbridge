@@ -13,10 +13,16 @@ alloy = { version = "2.0.4", features = ["sol-types", "json-abi", "provider-http
 alloy-chains = "0.2"
 anyhow = "1"
 async-trait = "0.1"
+bigdecimal = "0.4"
+blake2 = "0.10"
+bs58 = "0.5"
 chrono = { version = "0.4", features = ["serde"] }
 clap = { version = "4", features = ["derive", "env"] }
 futures = "0.3"
 hex = "0.4"
+ismp = { path = "../modules/ismp/core" }
+codec = { package = "parity-scale-codec", version = "3", features = ["derive"] }
+postgres-types = { version = "0.2", features = ["derive"] }
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 rustls = { version = "0.23", default-features = false, features = ["ring"] }
 rust_decimal = { version = "1.41", features = ["db-tokio-postgres"] }

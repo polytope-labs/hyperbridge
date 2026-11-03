@@ -441,35 +441,43 @@ pub fn spawn_idle_hooks(indexer: Arc<Indexer>, routes: &HashMap<String, Arc<Chai
 	}
 }
 
-/** rindexer's progress table for a chain's stream (`rindexer_internal.<indexer>_<contract>_<event>`). */
+/** rindexer's progress table for a chain's stream
+ * (`rindexer_internal.<indexer>_<contract>_<event>`). */
 fn progress_table(network: &str) -> String {
 	format!("hyperbridge_indexer_{}_all_events", stream_name(network).to_lowercase())
 }
 
-async fn run_idle_hooks(indexer: &Indexer, network: &str, routes: &ChainRoutes) -> anyhow::Result<()> {
+async fn run_idle_hooks(
+	indexer: &Indexer,
+	network: &str,
+	routes: &ChainRoutes,
+) -> anyhow::Result<()> {
 	let chain = indexer.chain(network)?;
 	let _writing = routes.writing.lock().await;
 	let mut conn = indexer.db.raw_connection().await?;
 	let tx = conn.transaction().await?;
 	let table = format!("rindexer_internal.{}", progress_table(network));
-	let exists: bool = tx
-		.query_one("SELECT to_regclass($1) IS NOT NULL", &[&table])
-		.await?
-		.get(0);
+	let exists: bool = tx.query_one("SELECT to_regclass($1) IS NOT NULL", &[&table]).await?.get(0);
 	if !exists {
 		// Before rindexer's first sync, or if a rindexer upgrade renamed the table.
 		tracing::debug!(%network, "no progress table {table} yet");
 		return Ok(());
 	}
 	let synced: Option<String> = tx
-		.query_opt(&format!("SELECT last_synced_block::text FROM {table} WHERE network = $1"), &[&network])
+		.query_opt(
+			&format!("SELECT last_synced_block::text FROM {table} WHERE network = $1"),
+			&[&network],
+		)
 		.await?
 		.and_then(|row| row.get(0));
 	let Some(synced) = synced.and_then(|s| s.parse::<u64>().ok()).filter(|b| *b > 0) else {
 		return Ok(());
 	};
 	let cursor: Option<i64> = tx
-		.query_opt("SELECT block_number FROM indexer.cursors WHERE network = $1 FOR UPDATE", &[&network])
+		.query_opt(
+			"SELECT block_number FROM indexer.cursors WHERE network = $1 FOR UPDATE",
+			&[&network],
+		)
 		.await?
 		.map(|row| row.get(0));
 	if cursor.is_some_and(|block| block as u64 >= synced) {

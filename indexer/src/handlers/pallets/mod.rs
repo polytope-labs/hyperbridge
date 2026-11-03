@@ -13,13 +13,13 @@ pub mod supply;
 use std::sync::Arc;
 
 use alloy::primitives::{keccak256, B256};
-use blake2::{Blake2b512, Digest};
 use chrono::{NaiveDateTime, NaiveTime};
 
 use crate::{
 	handlers::Handlers,
 	registry::{LogMeta, Source, Subscription},
 	store::timestamp_to_date,
+	substrate::encode_address,
 };
 
 pub fn register(handlers: &mut Handlers) {
@@ -64,23 +64,6 @@ fn extrinsic(log: &LogMeta) -> Option<(u64, B256)> {
 	let hash = log.transaction_hash;
 	(hash != synthetic(b"init") && hash != synthetic(b"final"))
 		.then_some((log.transaction_index, hash))
-}
-
-/**
- * `encodeAddress` from `@polkadot/util-crypto`: SS58 for keys of 1, 2, 4, 8, 32 or 33 bytes.
- * Any other length threw in TypeScript, and is `None` here.
- */
-fn encode_address(key: &[u8], prefix: u8) -> Option<String> {
-	if ![1, 2, 4, 8, 32, 33].contains(&key.len()) || prefix >= 64 {
-		return None;
-	}
-	let mut payload = Vec::with_capacity(key.len() + 3);
-	payload.push(prefix);
-	payload.extend_from_slice(key);
-	let checksum = Blake2b512::new().chain_update(b"SS58PRE").chain_update(&payload).finalize();
-	let checksum_len = if key.len() >= 32 { 2 } else { 1 };
-	payload.extend_from_slice(&checksum[..checksum_len]);
-	Some(bs58::encode(payload).into_string())
 }
 
 /** A little-endian `u128` at `offset`, or `None` if the bytes are too short. */

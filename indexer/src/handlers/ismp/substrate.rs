@@ -6,7 +6,6 @@ use std::sync::Arc;
 use alloy::primitives::{Bytes, B256};
 use anyhow::{anyhow, bail};
 use async_trait::async_trait;
-use blake2::{Blake2b512, Digest};
 use codec::{Compact, Decode};
 use serde_json::{json, Value};
 
@@ -28,6 +27,7 @@ use crate::{
 	registry::{EventContext, EventHandler},
 	services::pending::PendingEntity,
 	store::{numeric, Status},
+	substrate::encode_address,
 };
 
 /** The child trie the pallet keeps request metadata in. */
@@ -66,19 +66,6 @@ fn through_double(value: u128) -> u128 {
 	value as f64 as u128
 }
 
-/** SS58 as polkadot-js `encodeAddress` writes it, for the raw key lengths it accepts. */
-fn ss58_any(key: &[u8], prefix: u8) -> String {
-	let mut payload = vec![prefix];
-	payload.extend_from_slice(key);
-	let mut hasher = Blake2b512::new();
-	hasher.update(b"SS58PRE");
-	hasher.update(&payload);
-	let checksum = hasher.finalize();
-	let checksum_len = if matches!(key.len(), 32 | 33) { 2 } else { 1 };
-	payload.extend_from_slice(&checksum[..checksum_len]);
-	bs58::encode(payload).into_string()
-}
-
 /** A SCALE `Vec<u8>`, tolerating a short buffer the way scale-ts `Bytes()` did. */
 fn scale_bytes(input: &mut &[u8]) -> anyhow::Result<Vec<u8>> {
 	let len = Compact::<u32>::decode(input).map_err(|e| anyhow!("{e}"))?.0 as usize;
@@ -98,7 +85,7 @@ pub fn decode_relayer_address(bytes: &[u8]) -> anyhow::Result<String> {
 	match bytes.len() {
 		0 => return Ok(String::new()),
 		20 => return Ok(hex(bytes)),
-		1 | 2 | 4 | 8 | 32 => return Ok(ss58_any(bytes, 42)),
+		1 | 2 | 4 | 8 | 32 => return Ok(encode_address(bytes, 42).expect("length checked")),
 		len if len <= 32 => return Ok(hex(bytes)),
 		_ => {},
 	}
@@ -108,12 +95,9 @@ pub fn decode_relayer_address(bytes: &[u8]) -> anyhow::Result<String> {
 	let key = scale_bytes(&mut input)?;
 	match variant {
 		0 => Ok(hex(&key)),
-		1 | 2 => {
-			if !matches!(key.len(), 1 | 2 | 4 | 8 | 32 | 33) {
-				bail!("Invalid AccountId provided, expected 32 bytes, found {}", key.len());
-			}
-			Ok(ss58_any(&key, 42))
-		},
+		1 | 2 => encode_address(&key, 42).ok_or_else(|| {
+			anyhow!("Invalid AccountId provided, expected 32 bytes, found {}", key.len())
+		}),
 		other => bail!("unknown Signature variant {other}"),
 	}
 }

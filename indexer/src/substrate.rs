@@ -122,16 +122,27 @@ impl SubstrateRpc {
 
 /** SS58 address of a 32-byte account, for network prefixes below 64 (0 Polkadot, 42 generic). */
 pub fn ss58(account: &[u8; 32], prefix: u8) -> String {
-	assert!(prefix < 64, "two-byte SS58 prefixes are not used here");
-	let mut payload = Vec::with_capacity(35);
+	encode_address(account, prefix).expect("32-byte keys and prefixes below 64 encode")
+}
+
+/**
+ * `encodeAddress` from `@polkadot/util-crypto`: SS58 for keys of 1, 2, 4, 8, 32 or 33 bytes and
+ * prefixes below 64. polkadot-js threw for any other length; this returns `None`.
+ */
+pub fn encode_address(key: &[u8], prefix: u8) -> Option<String> {
+	if ![1, 2, 4, 8, 32, 33].contains(&key.len()) || prefix >= 64 {
+		return None;
+	}
+	let mut payload = Vec::with_capacity(key.len() + 3);
 	payload.push(prefix);
-	payload.extend_from_slice(account);
+	payload.extend_from_slice(key);
 	let mut hasher = Blake2b512::new();
 	hasher.update(b"SS58PRE");
 	hasher.update(&payload);
 	let checksum = hasher.finalize();
-	payload.extend_from_slice(&checksum[..2]);
-	bs58::encode(payload).into_string()
+	let checksum_len = if key.len() >= 32 { 2 } else { 1 };
+	payload.extend_from_slice(&checksum[..checksum_len]);
+	Some(bs58::encode(payload).into_string())
 }
 
 #[cfg(test)]

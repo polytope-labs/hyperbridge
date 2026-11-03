@@ -2553,126 +2553,6 @@ CREATE INDEX "0xfff64b5a7c32ab6d" ON app.get_responses USING btree (created_at);
 
 CREATE UNIQUE INDEX relayer_activities_relayer_id_uindex ON app.relayer_activities USING btree (relayer_id);
 
-ALTER TABLE ONLY app.bandwidth_app_daily_consumptions
-    ADD CONSTRAINT bandwidth_app_daily_consumptions_app_id_fkey FOREIGN KEY (app_id) REFERENCES app.bandwidth_apps(id) ON UPDATE CASCADE DEFERRABLE;
-
-ALTER TABLE ONLY app.bandwidth_app_tier_stats
-    ADD CONSTRAINT bandwidth_app_tier_stats_app_id_fkey FOREIGN KEY (app_id) REFERENCES app.bandwidth_apps(id) ON UPDATE CASCADE DEFERRABLE;
-
-ALTER TABLE ONLY app.bandwidth_subscriptions
-    ADD CONSTRAINT bandwidth_subscriptions_app_id_fkey FOREIGN KEY (app_id) REFERENCES app.bandwidth_apps(id) ON UPDATE CASCADE DEFERRABLE;
-
-ALTER TABLE ONLY app.get_request_status_metadata
-    ADD CONSTRAINT get_request_status_metadata_request_id_fkey FOREIGN KEY (request_id) REFERENCES app.get_request_v2s(id) ON UPDATE CASCADE ON DELETE CASCADE DEFERRABLE;
-
-COMMENT ON CONSTRAINT get_request_status_metadata_request_id_fkey ON app.get_request_status_metadata IS '@foreignFieldName statusMetadata';
-
-ALTER TABLE ONLY app.get_responses
-    ADD CONSTRAINT get_responses_request_id_fkey FOREIGN KEY (request_id) REFERENCES app.get_request_v2s(id) ON UPDATE CASCADE ON DELETE SET NULL DEFERRABLE;
-
-ALTER TABLE ONLY app.i_order_v3_cancellations
-    ADD CONSTRAINT i_order_v3_cancellations_order_id_fkey FOREIGN KEY (order_id) REFERENCES app.i_order_v3s(id) ON UPDATE CASCADE ON DELETE CASCADE DEFERRABLE;
-
-COMMENT ON CONSTRAINT i_order_v3_cancellations_order_id_fkey ON app.i_order_v3_cancellations IS '@foreignFieldName cancellations';
-
-ALTER TABLE ONLY app.i_order_v3_escrow_refund_tokens
-    ADD CONSTRAINT i_order_v3_escrow_refund_tokens_refund_id_fkey FOREIGN KEY (refund_id) REFERENCES app.i_order_v3_escrow_refunds(id) ON UPDATE CASCADE ON DELETE CASCADE DEFERRABLE;
-
-COMMENT ON CONSTRAINT i_order_v3_escrow_refund_tokens_refund_id_fkey ON app.i_order_v3_escrow_refund_tokens IS '@foreignFieldName tokens';
-
-ALTER TABLE ONLY app.i_order_v3_escrow_refunds
-    ADD CONSTRAINT i_order_v3_escrow_refunds_order_id_fkey FOREIGN KEY (order_id) REFERENCES app.i_order_v3s(id) ON UPDATE CASCADE ON DELETE CASCADE DEFERRABLE;
-
-COMMENT ON CONSTRAINT i_order_v3_escrow_refunds_order_id_fkey ON app.i_order_v3_escrow_refunds IS '@foreignFieldName escrowRefunds';
-
-ALTER TABLE ONLY app.i_order_v3_escrow_release_tokens
-    ADD CONSTRAINT i_order_v3_escrow_release_tokens_release_id_fkey FOREIGN KEY (release_id) REFERENCES app.i_order_v3_escrow_releases(id) ON UPDATE CASCADE ON DELETE CASCADE DEFERRABLE;
-
-COMMENT ON CONSTRAINT i_order_v3_escrow_release_tokens_release_id_fkey ON app.i_order_v3_escrow_release_tokens IS '@foreignFieldName tokens';
-
-ALTER TABLE ONLY app.i_order_v3_escrow_releases
-    ADD CONSTRAINT i_order_v3_escrow_releases_order_id_fkey FOREIGN KEY (order_id) REFERENCES app.i_order_v3s(id) ON UPDATE CASCADE ON DELETE CASCADE DEFERRABLE;
-
-COMMENT ON CONSTRAINT i_order_v3_escrow_releases_order_id_fkey ON app.i_order_v3_escrow_releases IS '@foreignFieldName escrowReleases';
-
-ALTER TABLE ONLY app.i_order_v3_fill_input_assets
-    ADD CONSTRAINT i_order_v3_fill_input_assets_fill_id_fkey FOREIGN KEY (fill_id) REFERENCES app.i_order_v3_fills(id) ON UPDATE CASCADE ON DELETE CASCADE DEFERRABLE;
-
-COMMENT ON CONSTRAINT i_order_v3_fill_input_assets_fill_id_fkey ON app.i_order_v3_fill_input_assets IS '@foreignFieldName inputAssets';
-
-ALTER TABLE ONLY app.i_order_v3_fill_output_assets
-    ADD CONSTRAINT i_order_v3_fill_output_assets_fill_id_fkey FOREIGN KEY (fill_id) REFERENCES app.i_order_v3_fills(id) ON UPDATE CASCADE ON DELETE CASCADE DEFERRABLE;
-
-COMMENT ON CONSTRAINT i_order_v3_fill_output_assets_fill_id_fkey ON app.i_order_v3_fill_output_assets IS '@foreignFieldName outputAssets';
-
-ALTER TABLE ONLY app.i_order_v3_fills
-    ADD CONSTRAINT i_order_v3_fills_order_id_fkey FOREIGN KEY (order_id) REFERENCES app.i_order_v3s(id) ON UPDATE CASCADE ON DELETE CASCADE DEFERRABLE;
-
-COMMENT ON CONSTRAINT i_order_v3_fills_order_id_fkey ON app.i_order_v3_fills IS '@foreignFieldName fills';
-
-ALTER TABLE ONLY app.i_order_v3_input_assets
-    ADD CONSTRAINT i_order_v3_input_assets_order_id_fkey FOREIGN KEY (order_id) REFERENCES app.i_order_v3s(id) ON UPDATE CASCADE ON DELETE CASCADE DEFERRABLE;
-
-COMMENT ON CONSTRAINT i_order_v3_input_assets_order_id_fkey ON app.i_order_v3_input_assets IS '@foreignFieldName inputAssets';
-
-ALTER TABLE ONLY app.i_order_v3_output_assets
-    ADD CONSTRAINT i_order_v3_output_assets_order_id_fkey FOREIGN KEY (order_id) REFERENCES app.i_order_v3s(id) ON UPDATE CASCADE ON DELETE CASCADE DEFERRABLE;
-
-COMMENT ON CONSTRAINT i_order_v3_output_assets_order_id_fkey ON app.i_order_v3_output_assets IS '@foreignFieldName outputAssets';
-
-ALTER TABLE ONLY app.i_order_v3_partial_fill_input_assets
-    ADD CONSTRAINT i_order_v3_partial_fill_input_assets_partial_fill_id_fkey FOREIGN KEY (partial_fill_id) REFERENCES app.i_order_v3_partial_fills(id) ON UPDATE CASCADE ON DELETE CASCADE DEFERRABLE;
-
-COMMENT ON CONSTRAINT i_order_v3_partial_fill_input_assets_partial_fill_id_fkey ON app.i_order_v3_partial_fill_input_assets IS '@foreignFieldName inputAssets';
-
-ALTER TABLE ONLY app.i_order_v3_partial_fill_output_assets
-    ADD CONSTRAINT i_order_v3_partial_fill_output_assets_partial_fill_id_fkey FOREIGN KEY (partial_fill_id) REFERENCES app.i_order_v3_partial_fills(id) ON UPDATE CASCADE ON DELETE CASCADE DEFERRABLE;
-
-COMMENT ON CONSTRAINT i_order_v3_partial_fill_output_assets_partial_fill_id_fkey ON app.i_order_v3_partial_fill_output_assets IS '@foreignFieldName outputAssets';
-
-ALTER TABLE ONLY app.i_order_v3_partial_fills
-    ADD CONSTRAINT i_order_v3_partial_fills_order_id_fkey FOREIGN KEY (order_id) REFERENCES app.i_order_v3s(id) ON UPDATE CASCADE ON DELETE CASCADE DEFERRABLE;
-
-COMMENT ON CONSTRAINT i_order_v3_partial_fills_order_id_fkey ON app.i_order_v3_partial_fills IS '@foreignFieldName partialFills';
-
-ALTER TABLE ONLY app.i_order_v3_predispatch_assets
-    ADD CONSTRAINT i_order_v3_predispatch_assets_order_id_fkey FOREIGN KEY (order_id) REFERENCES app.i_order_v3s(id) ON UPDATE CASCADE ON DELETE CASCADE DEFERRABLE;
-
-COMMENT ON CONSTRAINT i_order_v3_predispatch_assets_order_id_fkey ON app.i_order_v3_predispatch_assets IS '@foreignFieldName predispatchAssets';
-
-ALTER TABLE ONLY app.i_order_v3_protocol_fee_refunds
-    ADD CONSTRAINT i_order_v3_protocol_fee_refunds_order_id_fkey FOREIGN KEY (order_id) REFERENCES app.i_order_v3s(id) ON UPDATE CASCADE ON DELETE CASCADE DEFERRABLE;
-
-COMMENT ON CONSTRAINT i_order_v3_protocol_fee_refunds_order_id_fkey ON app.i_order_v3_protocol_fee_refunds IS '@foreignFieldName protocolFeeRefunds';
-
-ALTER TABLE ONLY app.i_order_v3_status_metadata
-    ADD CONSTRAINT i_order_v3_status_metadata_order_id_fkey FOREIGN KEY (order_id) REFERENCES app.i_order_v3s(id) ON UPDATE CASCADE ON DELETE SET NULL DEFERRABLE;
-
-COMMENT ON CONSTRAINT i_order_v3_status_metadata_order_id_fkey ON app.i_order_v3_status_metadata IS '@foreignFieldName statusMetadata';
-
-ALTER TABLE ONLY app.relayer_activities
-    ADD CONSTRAINT relayer_activities_relayer_id_fkey FOREIGN KEY (relayer_id) REFERENCES app.relayer_v2s(id) ON UPDATE CASCADE ON DELETE CASCADE DEFERRABLE;
-
-COMMENT ON CONSTRAINT relayer_activities_relayer_id_fkey ON app.relayer_activities IS '@singleForeignFieldName latestActivity';
-
-ALTER TABLE ONLY app.relayer_stats_per_chain_v2s
-    ADD CONSTRAINT relayer_stats_per_chain_v2s_relayer_id_fkey FOREIGN KEY (relayer_id) REFERENCES app.relayer_v2s(id) ON UPDATE CASCADE DEFERRABLE;
-
-COMMENT ON CONSTRAINT relayer_stats_per_chain_v2s_relayer_id_fkey ON app.relayer_stats_per_chain_v2s IS '@foreignFieldName perChainStats';
-
-ALTER TABLE ONLY app.request_status_metadata
-    ADD CONSTRAINT request_status_metadata_request_id_fkey FOREIGN KEY (request_id) REFERENCES app.request_v2s(id) ON UPDATE CASCADE ON DELETE CASCADE DEFERRABLE;
-
-COMMENT ON CONSTRAINT request_status_metadata_request_id_fkey ON app.request_status_metadata IS '@foreignFieldName statusMetadata';
-
-ALTER TABLE ONLY app.response_status_metadata
-    ADD CONSTRAINT response_status_metadata_response_id_fkey FOREIGN KEY (response_id) REFERENCES app.response_v2s(id) ON UPDATE CASCADE ON DELETE CASCADE DEFERRABLE;
-
-COMMENT ON CONSTRAINT response_status_metadata_response_id_fkey ON app.response_status_metadata IS '@foreignFieldName statusMetadata';
-
-ALTER TABLE ONLY app.response_v2s
-    ADD CONSTRAINT response_v2s_request_id_fkey FOREIGN KEY (request_id) REFERENCES app.request_v2s(id) ON UPDATE CASCADE ON DELETE SET NULL DEFERRABLE;
-
 CREATE TABLE app.solver_inventories (
     id text NOT NULL,
     chain text NOT NULL,
@@ -2745,6 +2625,58 @@ CREATE INDEX "0x7caf80aad1f608fb" ON app.solver_inventories USING gist (token_ad
 CREATE INDEX "0x993b3432cfc2996b" ON app.solver_inventories USING gist (solver, _block_range);
 
 CREATE INDEX "0xa7c0825e405a0152" ON app.solver_inventories USING btree (id);
+
+COMMENT ON TABLE app.bandwidth_app_daily_consumptions IS '@foreignKey (app_id) REFERENCES bandwidth_apps (id)';
+
+COMMENT ON TABLE app.bandwidth_app_tier_stats IS '@foreignKey (app_id) REFERENCES bandwidth_apps (id)';
+
+COMMENT ON TABLE app.bandwidth_subscriptions IS '@foreignKey (app_id) REFERENCES bandwidth_apps (id)';
+
+COMMENT ON TABLE app.get_request_status_metadata IS '@foreignKey (request_id) REFERENCES get_request_v2s (id)|@foreignFieldName statusMetadata';
+
+COMMENT ON TABLE app.get_responses IS '@foreignKey (request_id) REFERENCES get_request_v2s (id)';
+
+COMMENT ON TABLE app.i_order_v3_cancellations IS '@foreignKey (order_id) REFERENCES i_order_v3s (id)|@foreignFieldName cancellations';
+
+COMMENT ON TABLE app.i_order_v3_escrow_refund_tokens IS '@foreignKey (refund_id) REFERENCES i_order_v3_escrow_refunds (id)|@foreignFieldName tokens';
+
+COMMENT ON TABLE app.i_order_v3_escrow_refunds IS '@foreignKey (order_id) REFERENCES i_order_v3s (id)|@foreignFieldName escrowRefunds';
+
+COMMENT ON TABLE app.i_order_v3_escrow_release_tokens IS '@foreignKey (release_id) REFERENCES i_order_v3_escrow_releases (id)|@foreignFieldName tokens';
+
+COMMENT ON TABLE app.i_order_v3_escrow_releases IS '@foreignKey (order_id) REFERENCES i_order_v3s (id)|@foreignFieldName escrowReleases';
+
+COMMENT ON TABLE app.i_order_v3_fill_input_assets IS '@foreignKey (fill_id) REFERENCES i_order_v3_fills (id)|@foreignFieldName inputAssets';
+
+COMMENT ON TABLE app.i_order_v3_fill_output_assets IS '@foreignKey (fill_id) REFERENCES i_order_v3_fills (id)|@foreignFieldName outputAssets';
+
+COMMENT ON TABLE app.i_order_v3_fills IS '@foreignKey (order_id) REFERENCES i_order_v3s (id)|@foreignFieldName fills';
+
+COMMENT ON TABLE app.i_order_v3_input_assets IS '@foreignKey (order_id) REFERENCES i_order_v3s (id)|@foreignFieldName inputAssets';
+
+COMMENT ON TABLE app.i_order_v3_output_assets IS '@foreignKey (order_id) REFERENCES i_order_v3s (id)|@foreignFieldName outputAssets';
+
+COMMENT ON TABLE app.i_order_v3_partial_fill_input_assets IS '@foreignKey (partial_fill_id) REFERENCES i_order_v3_partial_fills (id)|@foreignFieldName inputAssets';
+
+COMMENT ON TABLE app.i_order_v3_partial_fill_output_assets IS '@foreignKey (partial_fill_id) REFERENCES i_order_v3_partial_fills (id)|@foreignFieldName outputAssets';
+
+COMMENT ON TABLE app.i_order_v3_partial_fills IS '@foreignKey (order_id) REFERENCES i_order_v3s (id)|@foreignFieldName partialFills';
+
+COMMENT ON TABLE app.i_order_v3_predispatch_assets IS '@foreignKey (order_id) REFERENCES i_order_v3s (id)|@foreignFieldName predispatchAssets';
+
+COMMENT ON TABLE app.i_order_v3_protocol_fee_refunds IS '@foreignKey (order_id) REFERENCES i_order_v3s (id)|@foreignFieldName protocolFeeRefunds';
+
+COMMENT ON TABLE app.i_order_v3_status_metadata IS '@foreignKey (order_id) REFERENCES i_order_v3s (id)|@foreignFieldName statusMetadata';
+
+COMMENT ON TABLE app.relayer_activities IS '@foreignKey (relayer_id) REFERENCES relayer_v2s (id)|@singleForeignFieldName latestActivity';
+
+COMMENT ON TABLE app.relayer_stats_per_chain_v2s IS '@foreignKey (relayer_id) REFERENCES relayer_v2s (id)|@foreignFieldName perChainStats';
+
+COMMENT ON TABLE app.request_status_metadata IS '@foreignKey (request_id) REFERENCES request_v2s (id)|@foreignFieldName statusMetadata';
+
+COMMENT ON TABLE app.response_status_metadata IS '@foreignKey (response_id) REFERENCES response_v2s (id)|@foreignFieldName statusMetadata';
+
+COMMENT ON TABLE app.response_v2s IS '@foreignKey (request_id) REFERENCES request_v2s (id)';
 
 CREATE TABLE app._metadata (
     key character varying(255) NOT NULL PRIMARY KEY,

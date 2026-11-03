@@ -1,0 +1,60 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 860 400" fill="none">
+  <rect width="860" height="400" rx="8" fill="#111"/>
+
+  <!-- Title and legend -->
+  <text x="40" y="34" fill="#ccc" font-family="ui-monospace, 'Cascadia Code', 'Source Code Pro', monospace" font-size="15" font-weight="600">Yield cycles</text>
+  <line x1="420" y1="30" x2="444" y2="30" stroke="#777" stroke-width="1.5" stroke-dasharray="4 3"/>
+  <text x="450" y="34" fill="#888" font-family="ui-monospace, monospace" font-size="10">vault balance</text>
+  <line x1="560" y1="30" x2="584" y2="30" stroke="#a99bf0" stroke-width="2"/>
+  <text x="590" y="34" fill="#888" font-family="ui-monospace, monospace" font-size="10">totalAssets</text>
+  <rect x="688" y="24" width="20" height="12" fill="#a99bf0" fill-opacity="0.18"/>
+  <text x="714" y="34" fill="#888" font-family="ui-monospace, monospace" font-size="10">lockedYield</text>
+
+  <!-- Event guides -->
+  <g stroke="#2c2c2c" stroke-width="1" stroke-dasharray="3 3">
+    <line x1="100" y1="64" x2="100" y2="312"/>
+    <line x1="380" y1="64" x2="380" y2="312"/>
+    <line x1="460" y1="64" x2="460" y2="312"/>
+    <line x1="500" y1="64" x2="500" y2="312"/>
+    <line x1="780" y1="64" x2="780" y2="312"/>
+  </g>
+
+  <!-- Axes -->
+  <line x1="60" y1="250" x2="830" y2="250" stroke="#333" stroke-width="1"/>
+  <text x="34" y="160" fill="#555" font-family="ui-monospace, monospace" font-size="9" text-anchor="middle" transform="rotate(-90 34 160)">cNGN in vault</text>
+
+  <!-- Locked yield: the gap between balance and totalAssets -->
+  <polygon points="100,170 100,220 380,170" fill="#a99bf0" fill-opacity="0.18"/>
+  <polygon points="500,120 500,170 780,120" fill="#a99bf0" fill-opacity="0.18"/>
+  <text x="112" y="196" fill="#b9aef2" font-family="ui-monospace, monospace" font-size="9">lockedYield</text>
+  <text x="512" y="146" fill="#b9aef2" font-family="ui-monospace, monospace" font-size="9">lockedYield</text>
+
+  <!-- Vault balance jumps when yield is added -->
+  <path d="M60 220 H100 V170 H500 V120 H830" stroke="#777" stroke-width="1.5" stroke-dasharray="4 3"/>
+
+  <!-- totalAssets (share price) ramps while the tranche vests -->
+  <path d="M60 220 H100 L380 170 H500 L780 120 H830" stroke="#a99bf0" stroke-width="2"/>
+
+  <!-- Deposit state band -->
+  <rect x="60" y="268" width="40" height="26" fill="#17261b" stroke="#2c4a33"/>
+  <rect x="100" y="268" width="280" height="26" fill="#2a1717" stroke="#4d2a2a"/>
+  <text x="240" y="285" text-anchor="middle" fill="#d08b8b" font-family="ui-monospace, monospace" font-size="10">deposits closed · VEST 22h</text>
+  <rect x="380" y="268" width="120" height="26" fill="#17261b" stroke="#2c4a33"/>
+  <text x="440" y="285" text-anchor="middle" fill="#8fc79c" font-family="ui-monospace, monospace" font-size="10">deposits open</text>
+  <rect x="500" y="268" width="280" height="26" fill="#2a1717" stroke="#4d2a2a"/>
+  <text x="640" y="285" text-anchor="middle" fill="#d08b8b" font-family="ui-monospace, monospace" font-size="10">deposits closed · VEST 22h</text>
+  <rect x="780" y="268" width="50" height="26" fill="#17261b" stroke="#2c4a33"/>
+
+  <!-- Event labels -->
+  <g font-family="ui-monospace, monospace" font-size="10" text-anchor="middle">
+    <text x="100" y="328" fill="#ddd">addYield</text>
+    <text x="380" y="328" fill="#ddd">vestedAt()</text>
+    <text x="500" y="328" fill="#ddd">addYield</text>
+    <text x="780" y="328" fill="#ddd">vestedAt()</text>
+    <text x="460" y="344" fill="#ddd">nextYieldAt()</text>
+  </g>
+
+  <!-- Guaranteed window -->
+  <path d="M380 356 V362 H460 V356" stroke="#666" stroke-width="1"/>
+  <text x="420" y="378" text-anchor="middle" fill="#777" font-family="ui-monospace, monospace" font-size="9">MIN_WINDOW 2h, guaranteed</text>
+</svg>

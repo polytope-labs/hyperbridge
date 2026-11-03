@@ -1,37 +1,246 @@
 ---
 title: StreamingYieldVault
-description: An ERC-4626 vault that distributes yield by streaming it linearly over time, neutralizing yield-sniping while keeping shares fully composable.
+description: An ERC-4626 vault that streams yield to holders over time. It backs ycNGN, the yield-bearing cNGN token on Base.
 ---
 
 # StreamingYieldVault
 
 `StreamingYieldVault` is an [ERC-4626](https://eips.ethereum.org/EIPS/eip-4626) tokenized vault in [`@hyperbridge/core`](https://github.com/polytope-labs/hyperbridge/tree/main/sdk/packages/core). It lets an issuer turn a manual, per-user yield-distribution process into a single periodic transfer: the owner streams yield into the vault and every holder's share value rises automatically. Holders receive a standard, non-rebasing, composable share token.
 
-It is a self-contained primitive with **no Hyperbridge/ISMP dependency** — it can be used on any EVM chain on its own.
+It is a self-contained primitive with no Hyperbridge or ISMP dependency. It can be used on any EVM chain on its own.
 
-<Callout type="info">
-The vault assumes a **standard ERC-20** asset: non-rebasing, non-fee-on-transfer, and without *automatic* transfer callbacks (no ERC-777 `tokensReceived` hooks). [ERC-1363](https://eips.ethereum.org/EIPS/eip-1363) assets are supported and let the owner fund yield in a single transaction (see [Adding yield](#adding-yield)). Wrap exotic tokens before using them as the underlying.
+## Yield Bearing cNGN (ycNGN)
+
+ycNGN is a `StreamingYieldVault` over cNGN on Base. Deposit cNGN to receive ycNGN. Redeem ycNGN to get your cNGN back, together with the yield it has earned.
+
+| Field | Value |
+| --- | --- |
+| Chain | Base (`EVM-8453`) |
+| Vault and share token (ycNGN) | [`0xa82A3531021317240Fb32E67f9c7bC091F737D3b`](https://basescan.org/address/0xa82A3531021317240Fb32E67f9c7bC091F737D3b) |
+| Underlying asset (cNGN) | [`0x46C85152bFe9f96829aA94755D9f915F9B10EF5F`](https://basescan.org/address/0x46C85152bFe9f96829aA94755D9f915F9B10EF5F) |
+| ycNGN decimals | 12 |
+| cNGN decimals | 6 |
+
+<Callout type="warn">
+ycNGN is not 1:1 with cNGN. Each share is worth more cNGN as yield vests. A share also has 6 more decimals than cNGN, from the vault's virtual-share offset. Price ycNGN with `convertToAssets` or `previewRedeem`, never by shifting decimals.
 </Callout>
+
+The deposit and redeem examples below use the ycNGN addresses. The same calls work for any `StreamingYieldVault`.
 
 ## How it works
 
-Yield is not recognized instantly. Instead, each contribution is recognized **linearly over a fixed window** (`VEST`, 22 hours). The exchange rate is:
+Yield is not recognized instantly. Each tranche the owner adds is recognized linearly over a fixed window, `VEST`, which is 22 hours. The exchange rate is:
 
 ```
 totalAssets = asset.balanceOf(vault) − lockedYield
 ```
 
-where `lockedYield` is the not-yet-vested portion of the current tranche. This design gives three properties:
+`lockedYield` is the part of the current tranche that has not vested yet. The vault exposes it as `lockedYield()`.
 
-- **No yield sniping.** Because recognition is keyed on `block.timestamp`, a deposit and withdrawal in the *same block* observe an identical share price and capture nothing. An attacker can only collect the dust that vests across blocks while bearing real exposure — so they can't sandwich a yield event.
-- **No instant jump.** Adding yield never moves `totalAssets` in the same block; it only raises the price as the tranche vests.
-- **No backlog.** `addYield` reverts until the previous tranche has fully vested, so tranches never overlap and no yield is left permanently locked.
-- **No mid-tranche dilution.** Deposits and mints are **disabled while a tranche is vesting** — `maxDeposit`/`maxMint` report `0` and `deposit`/`mint` revert. New capital can only enter *after* a tranche fully vests and *before* the next `addYield`, so a latecomer never shares yield meant for the holders already in.
-- **A guaranteed deposit window.** `addYield` must wait at least `MIN_WINDOW` (2 hours) past the end of vesting, so every cycle has a deposit window of at least `MIN_WINDOW` regardless of how promptly the keeper runs. The window is the interval `[vestedAt(), nextYieldAt()]`.
+![Two yield cycles: the vault balance jumps at each addYield, totalAssets ramps up over 22 hours, and deposits reopen at vestedAt()](./images/streaming-yield-cycle.svg)
 
-The first-depositor inflation/donation attack is mitigated with OpenZeppelin's virtual shares/assets (a non-zero decimals offset). A **seed-and-burn** at deployment is still recommended.
+When the owner calls `addYield`, the vault balance jumps but `totalAssets` does not. The new yield starts out fully locked. Over the next 22 hours it unlocks linearly, and the share price climbs with it. Deposits stay closed for that whole stretch. They reopen at `vestedAt()` and stay open at least until `nextYieldAt()`.
 
-## Deployment
+Vesting is keyed on `block.timestamp`, so a deposit and a withdrawal in the same block see the same share price. Nobody can sandwich a yield event. Adding yield never moves the price in the same block either. The price only rises as the tranche vests.
+
+Deposits and mints are closed while a tranche vests. New capital can only enter after a tranche has fully vested and before the next one starts. A latecomer never shares yield meant for the holders who were already in.
+
+`addYield` reverts until the previous tranche has vested, so tranches never overlap. It also has to wait `MIN_WINDOW`, 2 hours, past the end of vesting. That guarantees a deposit window of at least 2 hours every cycle, from `vestedAt()` to `nextYieldAt()`, however promptly the keeper runs.
+
+The first-depositor inflation attack is mitigated with OpenZeppelin's virtual shares and assets. A seed-and-burn at deployment is still recommended.
+
+## Depositing
+
+Deposits are not always open. Each time the owner adds yield, deposits close for 22 hours while that yield vests. Redemptions are not affected.
+
+So check `maxDeposit(receiver)` before every deposit. It returns `0` while deposits are closed and `type(uint256).max` while they are open. A deposit sent while they are closed reverts with `ERC4626ExceededMaxDeposit(receiver, assets, 0)`. `maxMint` follows the same rule for `mint`.
+
+<Callout type="warn">
+`previewDeposit` does not check whether deposits are open. It keeps quoting shares while they are closed. Only `maxDeposit` and `maxMint` show the lock.
+</Callout>
+
+<Steps>
+<Step>
+### Set up
+
+The examples use [viem](https://viem.sh), which ships the standard ERC-20 and ERC-4626 ABIs. Start with the two addresses, the vault ABI and a pair of clients. Redeeming uses the same setup.
+
+```typescript lineNumbers
+import {
+  createPublicClient, createWalletClient, http,
+  erc20Abi, erc4626Abi, parseAbi,
+  formatUnits, parseUnits,
+} from "viem"
+import { privateKeyToAccount } from "viem/accounts"
+import { base } from "viem/chains"
+
+const YCNGN = "0xa82A3531021317240Fb32E67f9c7bC091F737D3b"
+const CNGN = "0x46C85152bFe9f96829aA94755D9f915F9B10EF5F"
+
+// The standard ERC-4626 ABI, plus the vault's own vestedAt().
+const vaultAbi = [
+  ...erc4626Abi,
+  ...parseAbi(["function vestedAt() view returns (uint256)"]),
+]
+
+const account = privateKeyToAccount("0xYOUR_KEY")
+const transport = http("YOUR_RPC")
+const publicClient = createPublicClient({ chain: base, transport })
+const walletClient = createWalletClient({
+  account,
+  chain: base,
+  transport,
+})
+```
+</Step>
+<Step>
+### Check that deposits are open
+
+Read `maxDeposit` for the receiver. If it is below the amount, deposits are closed, and `vestedAt()` tells you when they reopen.
+
+```typescript lineNumbers
+const amount = parseUnits("100000", 6) // 100,000 cNGN
+
+const maxDeposit = await publicClient.readContract({
+  address: YCNGN,
+  abi: vaultAbi,
+  functionName: "maxDeposit",
+  args: [account.address],
+})
+
+if (maxDeposit < amount) {
+  const reopensAt = await publicClient.readContract({
+    address: YCNGN,
+    abi: vaultAbi,
+    functionName: "vestedAt",
+  })
+  const reopens = new Date(Number(reopensAt) * 1000).toISOString()
+  throw new Error(`ycNGN deposits reopen at ${reopens}`)
+}
+```
+
+Once deposits reopen, they stay open at least until `nextYieldAt()`. After that, the owner can add yield at any moment.
+</Step>
+<Step>
+### Approve the vault
+
+The vault pulls the cNGN from you. Approve it, and wait for the approval to land.
+
+```typescript lineNumbers
+const approval = await walletClient.writeContract({
+  address: CNGN,
+  abi: erc20Abi,
+  functionName: "approve",
+  args: [YCNGN, amount],
+})
+await publicClient.waitForTransactionReceipt({ hash: approval })
+```
+</Step>
+<Step>
+### Simulate, then deposit
+
+A deposit that passed the check can still revert if the owner adds yield before it lands. Simulating right before you send narrows that gap, but it cannot close it, so handle a revert.
+
+```typescript lineNumbers
+const deposit = await publicClient.simulateContract({
+  account,
+  address: YCNGN,
+  abi: vaultAbi,
+  functionName: "deposit",
+  args: [amount, account.address],
+})
+const depositHash = await walletClient.writeContract(deposit.request)
+await publicClient.waitForTransactionReceipt({ hash: depositHash })
+```
+</Step>
+</Steps>
+
+A Solidity contract makes the same check, and only deposits while deposits are open.
+
+```solidity lineNumbers
+import {StreamingYieldVault} from "@hyperbridge/core/vaults/StreamingYieldVault.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+
+StreamingYieldVault constant YCNGN = StreamingYieldVault(0xa82A3531021317240Fb32E67f9c7bC091F737D3b);
+IERC20 constant CNGN = IERC20(0x46C85152bFe9f96829aA94755D9f915F9B10EF5F);
+
+if (YCNGN.maxDeposit(receiver) >= amount) {
+    CNGN.approve(address(YCNGN), amount);
+    uint256 shares = YCNGN.deposit(amount, receiver);
+}
+```
+
+## Redeeming
+
+Redemptions are always open. The vesting lock only applies to deposits and mints.
+
+Redeeming while a tranche vests pays out the yield vested so far. The unvested rest stays in the vault for the holders who remain.
+
+<Steps>
+<Step>
+### Read the position
+
+`maxRedeem(owner)` is the owner's full ycNGN balance. Redeem all of it to exit completely.
+
+```typescript lineNumbers
+const shares = await publicClient.readContract({
+  address: YCNGN,
+  abi: vaultAbi,
+  functionName: "maxRedeem",
+  args: [account.address],
+})
+```
+</Step>
+<Step>
+### Quote the cNGN out
+
+`previewRedeem` returns the cNGN those shares are worth at the current price.
+
+```typescript lineNumbers
+const cngnOut = await publicClient.readContract({
+  address: YCNGN,
+  abi: vaultAbi,
+  functionName: "previewRedeem",
+  args: [shares],
+})
+const ycngnIn = formatUnits(shares, 12)
+const cngnOutText = formatUnits(cngnOut, 6)
+console.log(`Redeeming ${ycngnIn} ycNGN for ${cngnOutText} cNGN`)
+```
+</Step>
+<Step>
+### Redeem
+
+`redeem(shares, receiver, owner)` burns the shares and sends the cNGN to `receiver`. A caller other than `owner` needs a ycNGN allowance from the owner first.
+
+```typescript lineNumbers
+const redeem = await publicClient.simulateContract({
+  account,
+  address: YCNGN,
+  abi: vaultAbi,
+  functionName: "redeem",
+  args: [shares, account.address, account.address],
+})
+const redeemHash = await walletClient.writeContract(redeem.request)
+await publicClient.waitForTransactionReceipt({ hash: redeemHash })
+```
+</Step>
+</Steps>
+
+To take out an exact cNGN amount instead, use `withdraw(assets, receiver, owner)`. It burns however many shares that amount costs.
+
+From a Solidity contract, a full exit looks like this.
+
+```solidity lineNumbers
+uint256 shares = YCNGN.maxRedeem(owner);
+uint256 assets = YCNGN.redeem(shares, receiver, owner);
+```
+
+## Deploying your own vault
+
+<Callout type="info">
+The vault assumes a standard ERC-20 asset: non-rebasing, non-fee-on-transfer, and without *automatic* transfer callbacks (no ERC-777 `tokensReceived` hooks). [ERC-1363](https://eips.ethereum.org/EIPS/eip-1363) assets are supported and let the owner fund yield in a single transaction (see [Add yield](#add-yield)). Wrap exotic tokens before using them as the underlying.
+</Callout>
 
 <Steps>
 <Step>
@@ -88,88 +297,27 @@ vault.transfer(address(0xdead), shares); // burn
 ```
 </Step>
 <Step>
-### Schedule yield top-ups
+### Add yield
 
-Have your treasury/keeper call `addYield` on a regular cadence (e.g. daily). With `VEST = 22h` and `MIN_WINDOW = 2h` the minimum cadence is **24h**: `addYield` reverts until the prior tranche has vested *and* its 2h deposit window has elapsed, which keeps a deposit window open every cycle.
+`addYield(uint256 amount)` is owner-only. It pulls `amount` of the underlying from the caller and streams it over `VEST`. Have your treasury or keeper call it on a regular cadence, such as daily.
 
 ```solidity lineNumbers
 IERC20(USDC).approve(address(vault), amount);
-vault.addYield(amount); // owner only; reverts while the prior tranche vests or its deposit window is open
+vault.addYield(amount);
 ```
 
-Use `nextYieldAt()` for the earliest time the next `addYield` is allowed, and `vestedAt()` for when the deposit window opens.
+The minimum cadence is 24 hours, `VEST` plus `MIN_WINDOW`. `addYield` reverts with `YieldStillVesting(vestedAt)` while the previous tranche is still vesting. It reverts with `DepositWindowOpen(closesAt)` until `MIN_WINDOW` has passed since the vest end, which keeps a deposit window open every cycle. A zero amount reverts with `ZeroAmount()`. Each tranche emits `YieldAdded(amount, vestingStart)` when it starts vesting.
+
+Use `nextYieldAt()` for the earliest time the next `addYield` is allowed.
+
+Always fund yield through `addYield`. A plain transfer of the asset to the vault skips vesting and raises `totalAssets` at once.
+
+If the underlying asset is an [ERC-1363](https://eips.ethereum.org/EIPS/eip-1363) token, the owner can fund a tranche in one transaction with `transferAndCall`, with no separate `approve`. The asset moves the funds to the vault and calls its `onTransferReceived` hook, which starts the tranche.
+
+```solidity lineNumbers
+asset.transferAndCall(address(vault), amount); // same as approve + addYield
+```
+
+The same rules apply as for `addYield`. The funds must come from the owner's balance, and a top-up that `addYield` would reject reverts and rolls the transfer back. Only the asset can call `onTransferReceived`; any other caller gets `CallerNotAsset(caller)`.
 </Step>
 </Steps>
-
-## Depositing and withdrawing
-
-The vault is a standard ERC-4626, so integrators use the usual entrypoints. Depositors first approve the underlying asset, then deposit:
-
-```solidity lineNumbers
-asset.approve(address(vault), amount);
-uint256 shares = vault.deposit(amount, receiver); // fixed asset amount in
-```
-
-<Callout type="info">
-Deposits and mints are only open **between tranches** — after a tranche fully vests and before the next `addYield`. While a tranche is vesting, `maxDeposit`/`maxMint` return `0` and `deposit`/`mint` revert with the standard `ERC4626ExceededMaxDeposit`/`ERC4626ExceededMaxMint`. Check `maxDeposit(receiver)` (or `vestedAt()`/`nextYieldAt()`) to find the open window. Withdrawals and redeems are always available.
-</Callout>
-
-Exiting uses `redeem` (clean full exit) or `withdraw` (fixed asset amount out):
-
-```solidity lineNumbers
-// burn an exact share amount — idiomatic for fully exiting a position
-uint256 assets = vault.redeem(vault.balanceOf(owner), receiver, owner);
-
-// or withdraw an exact asset amount
-uint256 burned = vault.withdraw(assets, receiver, owner);
-```
-
-`convertToAssets(shares)` reports the current value of a share balance, which climbs as yield vests.
-
-## Adding yield
-
-`addYield(uint256 amount)` is **owner-only**. It pulls `amount` of the underlying from the caller and begins streaming it over `VEST`.
-
-```solidity lineNumbers
-function addYield(uint256 amount) external onlyOwner;
-```
-
-It reverts with `YieldStillVesting(vestedAt)` if the previous tranche has not fully vested, `DepositWindowOpen(closesAt)` if it is called during the guaranteed deposit window (before `MIN_WINDOW` has elapsed past the vest end), and `ZeroAmount()` for a zero amount.
-
-### Single-transaction top-ups (ERC-1363)
-
-If the underlying asset is an [ERC-1363](https://eips.ethereum.org/EIPS/eip-1363) ("payable") token, the owner can fund a tranche in **one transaction** via `transferAndCall` — no separate `approve` + `addYield`. The asset transfers to the vault and then calls the vault's `onTransferReceived` hook, which arms the tranche.
-
-```solidity lineNumbers
-asset.transferAndCall(address(vault), amount); // equivalent to approve + addYield
-```
-
-Authorization and guards mirror `addYield`: the funds must come from the **owner** (otherwise it reverts), and a top-up while a tranche is still vesting or inside the deposit window reverts — rolling the transfer back. `onTransferReceived` is callable only by the asset.
-
-## Reference
-
-| Member | Description |
-| --- | --- |
-| `VEST` | Vesting window per tranche (constant, `22 hours`). |
-| `MIN_WINDOW` | Minimum gap `addYield` must leave after the vest end (constant, `2 hours`); guarantees a deposit window each cycle. Minimum cadence is `VEST + MIN_WINDOW` (24h). |
-| `addYield(uint256)` | Owner-only; streams a yield tranche over `VEST`. |
-| `lockedYield()` | The not-yet-recognized portion of the active tranche. |
-| `vestedAt()` | Timestamp the active tranche finishes vesting and the deposit window opens. |
-| `nextYieldAt()` | Earliest time the next `addYield` is allowed; close of the guaranteed deposit window. |
-| `maxDeposit` / `maxMint` | `0` while a tranche is vesting (deposits closed), unbounded otherwise. |
-| `onTransferReceived(...)` | ERC-1363 hook; single-tx yield top-up via the asset's `transferAndCall`. Owner + asset only. |
-| `totalAssets()` | `balanceOf(vault) − lockedYield`. |
-| `YieldAdded(amount, vestingStart)` | Emitted when a tranche begins vesting. |
-| `YieldStillVesting(vestedAt)` | Reverts `addYield` while the prior tranche is vesting. |
-| `DepositWindowOpen(closesAt)` | Reverts `addYield` during the guaranteed deposit window. |
-| `CallerNotAsset(caller)` | Reverts `onTransferReceived` when the caller isn't the underlying asset. |
-| `ZeroAmount()` | Reverts `addYield` for a zero amount. |
-
-## Security considerations
-
-- **Standard ERC-20 only.** Fee-on-transfer and rebasing assets desync the vault's accounting; ERC-777 callbacks reintroduce reentrancy vectors the design otherwise avoids.
-- **Seed-and-burn at deploy.** Combined with the decimals offset, this removes the empty-vault inflation attack.
-- **Mind the cadence.** Minimum cadence is `VEST + MIN_WINDOW` (24h): `addYield` reverts until the prior tranche has vested *and* its deposit window has elapsed. Deposits are closed while a tranche vests, so capital enters in bursts during the window.
-- **Owner is trusted.** The owner supplies yield via `addYield` — use a multisig/timelock.
-
-The contract is covered by an extensive Foundry suite exercising the inflation attack, yield sniping, vesting math, the `addYield` guard, the deposit lock and guaranteed window, access control, and ERC-4626 rounding/preview parity.

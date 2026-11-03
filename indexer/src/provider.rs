@@ -15,6 +15,10 @@ use rindexer::{
 };
 use tokio::sync::broadcast::Sender;
 
+/** Public RPCs cap the addresses in one `eth_getLogs` (publicnode allows 10), so larger address
+ * sets are split into concurrent requests, as rindexer's own fetcher does. */
+const MAX_ADDRESSES_PER_REQUEST: usize = 10;
+
 /**
  * rindexer's provider, except that `eth_getLogs` asks for every topic the chain's handlers
  * subscribe to. rindexer then runs one stream per chain, and handlers see the chain's logs in
@@ -57,7 +61,7 @@ impl ChainProvider for AllTopicsProvider {
 	}
 
 	async fn get_logs(&self, filter: &RindexerEventFilter) -> Result<Vec<Log>, ProviderError> {
-		let addresses: Vec<_> = match filter.contract_addresses().await {
+		let mut addresses: Vec<_> = match filter.contract_addresses().await {
 			Some(addresses) if addresses.is_empty() => return Ok(vec![]),
 			Some(addresses) => addresses.into_iter().collect(),
 			None =>
@@ -65,12 +69,19 @@ impl ChainProvider for AllTopicsProvider {
 					"refusing an eth_getLogs with no address filter".into(),
 				)),
 		};
-		let request = Filter::new()
-			.address(addresses)
-			.event_signature(self.topics.clone())
-			.from_block(filter.from_block().to::<u64>())
-			.to_block(filter.to_block().to::<u64>());
-		Ok(self.rpc.get_logs(&request).await?)
+		addresses.sort();
+		let (from, to) = (filter.from_block().to::<u64>(), filter.to_block().to::<u64>());
+		let requests = addresses.chunks(MAX_ADDRESSES_PER_REQUEST).map(|chunk| {
+			let request = Filter::new()
+				.address(chunk.to_vec())
+				.event_signature(self.topics.clone())
+				.from_block(from)
+				.to_block(to);
+			async move { self.rpc.get_logs(&request).await }
+		});
+		let mut logs: Vec<Log> = futures::future::try_join_all(requests).await?.concat();
+		logs.sort_by_key(|log| (log.block_number, log.log_index));
+		Ok(logs)
 	}
 
 	async fn get_block_by_number_batch(

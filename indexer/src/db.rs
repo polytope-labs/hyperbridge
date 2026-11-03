@@ -7,9 +7,14 @@ const MIGRATIONS: &[(&str, &str)] = &[
 	("0002_deferred_fill_points", include_str!("../migrations/0002_deferred_fill_points.sql")),
 ];
 
-/** Applies the migrations that haven't run yet, each in its own transaction. */
+/** Applies the migrations that haven't run yet. */
 pub async fn migrate(db: &PostgresClient) -> anyhow::Result<()> {
 	let mut conn = db.raw_connection().await?;
+	apply_migrations(&mut conn).await
+}
+
+/** Applies the migrations `indexer.migrations` doesn't list yet, each in its own transaction. */
+pub async fn apply_migrations(conn: &mut tokio_postgres::Client) -> anyhow::Result<()> {
 	conn.batch_execute(
 		"CREATE SCHEMA IF NOT EXISTS indexer;
 		 CREATE TABLE IF NOT EXISTS indexer.migrations (

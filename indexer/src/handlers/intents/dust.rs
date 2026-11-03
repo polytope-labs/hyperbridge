@@ -12,6 +12,7 @@ use super::orders::lower_hex;
 use crate::{
 	chains::Chain,
 	config::Uniswap,
+	errors::is_transient,
 	services::{
 		decimal::{amount_value_in_usd, to_scaled_usd, Dec},
 		prices::native_currency_price,
@@ -108,45 +109,53 @@ pub async fn record_dust(
 }
 
 /**
- * The token's symbol and decimals for dust: `eth` with 18 for the native token, and `UNKNOWN`
- * with 18 when either read fails.
+ * A read that may fail for good: `None` when it does, as when a pool or a token's `symbol()`
+ * doesn't exist. A transient failure is an error, so the batch retries instead of moving on.
  */
-pub async fn dust_token(chain: &Chain, token: Address, block: u64) -> (String, u8) {
-	if token == Address::ZERO {
-		return ("eth".into(), 18);
-	}
-	match crate::services::prices::token_metadata(chain, token, block).await {
-		Ok(metadata) => metadata,
-		Err(err) => {
-			tracing::warn!("dust token {token} metadata: {err:#}");
-			("UNKNOWN".into(), 18)
-		},
+fn probe<T>(result: anyhow::Result<T>) -> anyhow::Result<Option<T>> {
+	match result {
+		Ok(value) => Ok(Some(value)),
+		Err(err) if is_transient(&err) => Err(err),
+		Err(_) => Ok(None),
 	}
 }
 
-/** `getTokenPriceInUSDUniswap(...).amountValueInUSD`. Never fails: errors price at "0". */
+/**
+ * The token's symbol and decimals for dust: `eth` with 18 for the native token, and `UNKNOWN`
+ * with 18 when either read fails for good.
+ */
+pub async fn dust_token(chain: &Chain, token: Address, block: u64) -> anyhow::Result<(String, u8)> {
+	if token == Address::ZERO {
+		return Ok(("eth".into(), 18));
+	}
+	let metadata = crate::services::prices::token_metadata(chain, token, block).await;
+	if let Err(err) = &metadata {
+		tracing::warn!("dust token {token} metadata: {err:#}");
+	}
+	Ok(probe(metadata)?.unwrap_or_else(|| ("UNKNOWN".into(), 18)))
+}
+
+/** `getTokenPriceInUSDUniswap(...).amountValueInUSD`: "0" when no price can be read. */
 pub async fn dust_usd_value(
 	chain: &Chain,
 	block: u64,
 	token: Address,
 	amount: U256,
 	decimals: u8,
-) -> String {
+) -> anyhow::Result<String> {
 	let price = if token == Address::ZERO {
-		match native_currency_price(chain, block).await {
-			Ok(native) => match Dec::from_u256(native).div(&Dec::pow10(18)) {
-				Ok(price) => price,
-				Err(_) => return "0".into(),
-			},
-			Err(err) => {
-				tracing::error!("native price on {}: {err:#}", chain.name);
-				return "0".into();
-			},
+		let native = native_currency_price(chain, block).await;
+		if let Err(err) = &native {
+			tracing::error!("native price on {}: {err:#}", chain.name);
+		}
+		match probe(native)?.map(|native| Dec::from_u256(native).div(&Dec::pow10(18))) {
+			Some(Ok(price)) => price,
+			_ => return Ok("0".into()),
 		}
 	} else {
-		uniswap_price(chain, block, token, decimals).await
+		uniswap_price(chain, block, token, decimals).await?
 	};
-	amount_value_in_usd(amount, decimals, &price)
+	Ok(amount_value_in_usd(amount, decimals, &price))
 }
 
 /**
@@ -155,42 +164,51 @@ pub async fn dust_usd_value(
  * divides raw reserves and V4 divides by the input token's decimals. Its V3 branch is skipped
  * because it could never return a price.
  */
-pub async fn uniswap_price(chain: &Chain, block: u64, token: Address, decimals: u8) -> Dec {
+pub async fn uniswap_price(
+	chain: &Chain,
+	block: u64,
+	token: Address,
+	decimals: u8,
+) -> anyhow::Result<Dec> {
 	let Some(uniswap) = chain.config.contracts.uniswap.as_ref() else {
 		tracing::error!("no Uniswap addresses for {}", chain.name);
-		return Dec::zero();
+		return Ok(Dec::zero());
 	};
 	let quotes = [uniswap.usdc, uniswap.usdt, uniswap.dai, uniswap.weth];
 	let at = BlockId::number(block);
 	let factory = UniswapV2Factory::new(uniswap.v2_factory, &chain.provider);
 	let pair_of = |a: Address, b: Address| {
 		let call = factory.getPair(a, b);
-		async move { call.block(at).call().await.ok().filter(|pair| *pair != Address::ZERO) }
+		async move {
+			let pair = probe(call.block(at).call().await.map_err(anyhow::Error::from))?;
+			anyhow::Ok(pair.filter(|pair| *pair != Address::ZERO))
+		}
 	};
 
 	for quote in quotes {
-		let Some(pair) = pair_of(token, quote).await else { continue };
-		let Ok(price) = pair_price(chain, at, pair, quote).await else { continue };
+		let Some(pair) = pair_of(token, quote).await? else { continue };
+		let Some(price) = probe(pair_price(chain, at, pair, quote).await)? else { continue };
 		if quote == uniswap.weth {
-			if let Some(weth_pair) = pair_of(uniswap.weth, uniswap.usdc).await {
-				match pair_price(chain, at, weth_pair, uniswap.usdc).await {
-					Ok(weth_price) => return price.mul(&weth_price),
-					Err(_) => continue,
+			if let Some(weth_pair) = pair_of(uniswap.weth, uniswap.usdc).await? {
+				match probe(pair_price(chain, at, weth_pair, uniswap.usdc).await)? {
+					Some(weth_price) => return Ok(price.mul(&weth_price)),
+					None => continue,
 				}
 			}
 		}
-		return price;
+		return Ok(price);
 	}
 
 	for quote in quotes {
 		for fee in [500u32, 3000, 10000] {
-			if let Ok(price) = v4_price(chain, at, uniswap, token, quote, fee, decimals).await {
-				return price;
+			let price = v4_price(chain, at, uniswap, token, quote, fee, decimals).await;
+			if let Some(price) = probe(price)? {
+				return Ok(price);
 			}
 		}
 	}
 	tracing::error!("no Uniswap V2 or V4 price for {token} on {}", chain.name);
-	Dec::zero()
+	Ok(Dec::zero())
 }
 
 /** `getPriceFromPair`: the quote token's raw reserve over the other's. */

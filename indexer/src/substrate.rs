@@ -10,12 +10,12 @@ use alloy::{
 	sol,
 	sol_types::{SolCall, SolValue},
 };
-use anyhow::{anyhow, bail, Context};
+use anyhow::{bail, Context};
 use blake2::{Blake2b512, Digest};
 use serde::de::DeserializeOwned;
 use serde_json::{json, Value};
 
-use crate::chains::Chain;
+use crate::{chains::Chain, errors::Retry};
 
 sol! {
 	interface SubstrateStorage {
@@ -109,15 +109,27 @@ impl SubstrateRpc {
 					delay *= 2;
 					attempt += 1;
 				},
-				Err(err) => return Err(anyhow!("{method}: {err}")),
+				Err(err) => return Err(anyhow::Error::new(err).context(method.to_string())),
 			}
 		};
 		if let Some(error) = response.get("error") {
+			if is_rate_limit(error) {
+				return Err(Retry(format!("{method}: {error}")).into());
+			}
 			bail!("{method}: {error}");
 		}
 		let result = response.get("result").cloned().unwrap_or(Value::Null);
 		serde_json::from_value(result).with_context(|| format!("decoding {method} result"))
 	}
+}
+
+/** A JSON-RPC error saying the node is busy, which goes away on a retry. */
+fn is_rate_limit(error: &Value) -> bool {
+	let code = error.get("code").and_then(Value::as_i64);
+	let message = error.get("message").and_then(Value::as_str).unwrap_or_default().to_lowercase();
+	matches!(code, Some(-32999 | -32005 | 429)) ||
+		message.contains("rate limit") ||
+		message.contains("too many requests")
 }
 
 /** SS58 address of a 32-byte account, for network prefixes below 64 (0 Polkadot, 42 generic). */
@@ -148,6 +160,20 @@ pub fn encode_address(key: &[u8], prefix: u8) -> Option<String> {
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	#[test]
+	fn busy_answers_are_rate_limits() {
+		assert!(is_rate_limit(&json!({ "code": -32999, "message": "RPC rate limit exceeded" })));
+		assert!(is_rate_limit(&json!({ "code": -32000, "message": "Too Many Requests" })));
+		assert!(!is_rate_limit(&json!({ "code": -32601, "message": "Method not found" })));
+	}
+
+	#[tokio::test]
+	async fn an_unreachable_node_is_transient() {
+		let rpc = SubstrateRpc::new("http://127.0.0.1:9", reqwest::Client::new());
+		let err = rpc.call::<Value>("chain_getHeader", json!([])).await.unwrap_err();
+		assert!(crate::errors::is_transient(&err), "{err:#}");
+	}
 
 	#[test]
 	fn storage_address_matches_the_facade() {

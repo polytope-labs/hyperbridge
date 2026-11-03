@@ -33,6 +33,7 @@ use super::{
 };
 use crate::{
 	chains::Chain,
+	errors::is_transient,
 	registry::{EventContext, EventHandler, Source, Subscription},
 	services::{decimal::Dec, prices::Orderbook, solvers::discover_solver_from_fill},
 	store::{numeric, OrderStatus},
@@ -175,6 +176,7 @@ async fn place_order(scope: &Scope<'_>, order: Order, graffiti: String) -> anyho
 	let commitment = order.commitment()?.to_string();
 	let fee_token = match host_fee_token(ctx.chain, ctx.log.block_number).await {
 		Ok(fee_token) => Some(fee_token),
+		Err(err) if is_transient(&err) => return Err(err),
 		Err(err) => {
 			tracing::warn!(commitment, "could not read the fee token: {err:#}");
 			None
@@ -183,6 +185,7 @@ async fn place_order(scope: &Scope<'_>, order: Order, graffiti: String) -> anyho
 	let sender = Address::from_slice(&order.user[12..]);
 	let user_op_hash = match receipt_logs(ctx.chain, ctx.log.transaction_hash).await {
 		Ok(logs) => placement_user_op_hash(&logs, sender, ctx.log.log_index).map(|h| h.to_string()),
+		Err(err) if is_transient(&err) => return Err(err),
 		Err(err) => {
 			tracing::warn!(commitment, "could not read the placement receipt: {err:#}");
 			None
@@ -243,6 +246,7 @@ impl EventHandler for LegacyOrderPlaced {
 		let hash = ctx.log.transaction_hash;
 		let mut decoded = match transaction_input(ctx.chain, hash).await {
 			Ok(input) => input.as_deref().and_then(hex_bytes).and_then(|i| decode_place_order(&i)),
+			Err(err) if is_transient(&err) => return Err(err),
 			Err(err) => {
 				tracing::info!(%hash, "no transaction input, trying nested calls: {err:#}");
 				None
@@ -336,6 +340,7 @@ async fn fill_receipt(
 ) -> anyhow::Result<FillReceipt> {
 	let logs = match receipt_logs(ctx.chain, ctx.log.transaction_hash).await {
 		Ok(logs) => logs,
+		Err(err) if is_transient(&err) => return Err(err),
 		Err(err) => {
 			tracing::warn!(%commitment, "could not read the fill receipt: {err:#}");
 			return Ok(FillReceipt::default());
@@ -523,8 +528,8 @@ async fn dust(
 	amount: alloy::primitives::U256,
 ) -> anyhow::Result<()> {
 	let block = ctx.log.block_number;
-	let (symbol, decimals) = dust::dust_token(ctx.chain, token, block).await;
-	let usd = dust::dust_usd_value(ctx.chain, block, token, amount, decimals).await;
+	let (symbol, decimals) = dust::dust_token(ctx.chain, token, block).await?;
+	let usd = dust::dust_usd_value(ctx.chain, block, token, amount, decimals).await?;
 	dust::record_dust(
 		ctx.db,
 		kind,

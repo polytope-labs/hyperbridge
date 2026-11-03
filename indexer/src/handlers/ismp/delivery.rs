@@ -153,7 +153,7 @@ pub async fn request_handled(
 				Award {
 					address: relayer,
 					chain,
-					points: 50,
+					points: alloy::primitives::U256::from(50),
 					earner: ProtocolParticipantType::Relayer,
 					activity: PointsActivityType::RewardPointsEarned,
 					transaction_hash: &format!("{:#x}", ctx.log.transaction_hash),

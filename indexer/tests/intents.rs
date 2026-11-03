@@ -109,9 +109,9 @@ async fn one(db: &Transaction<'_>, sql: &str) -> Option<String> {
 }
 
 /**
- * Lets rows reference an order that isn't indexed yet. The schema's foreign keys are DEFERRABLE
- * but immediate, so in production such a row fails its batch, which retries until the order is
- * indexed; these tests exercise the code paths for rows that arrive first.
+ * Lets rows reference an order that isn't indexed yet. The migration has no foreign key
+ * constraints (relations are `@foreignKey` comments), so this is a no-op there; it keeps the
+ * tests working against a database built with SubQuery's constraints.
  */
 async fn defer_foreign_keys(db: &Transaction<'_>) {
 	db.batch_execute("SET CONSTRAINTS ALL DEFERRED").await.unwrap();

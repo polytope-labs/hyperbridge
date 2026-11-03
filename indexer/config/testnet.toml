@@ -74,7 +74,6 @@ kind = "evm"
 chain_id = 84532
 state_machine_id = "EVM-84532"
 start_block = 43528263
-op_stack = true
 reorg_safe_distance = 0
 
 [chains.base-sepolia.contracts]

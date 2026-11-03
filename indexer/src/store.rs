@@ -144,14 +144,19 @@ impl<'a> FromSql<'a> for Numeric {
 
 /** A `timestamp without time zone` from Unix milliseconds, as SubQuery writes `Date` fields. */
 pub fn timestamp_ms(ms: u64) -> NaiveDateTime {
-	DateTime::from_timestamp_millis(ms as i64)
-		.expect("timestamp in range")
-		.naive_utc()
+	// Event data can carry any value. Out of range clamps rather than panicking the process.
+	match DateTime::from_timestamp_millis(i64::try_from(ms).unwrap_or(i64::MAX)) {
+		Some(date) => date.naive_utc(),
+		None => {
+			tracing::warn!(ms, "timestamp out of range; clamped");
+			NaiveDateTime::MAX
+		},
+	}
 }
 
 /** A `timestamp without time zone` from Unix seconds. */
 pub fn timestamp_secs(secs: u64) -> NaiveDateTime {
-	timestamp_ms(secs * 1000)
+	timestamp_ms(secs.saturating_mul(1000))
 }
 
 /** Declares a Rust enum for one of SubQuery's Postgres enum types (named by a hash). */
@@ -274,6 +279,13 @@ mod tests {
 	}
 
 	#[test]
+	fn out_of_range_timestamps_clamp() {
+		assert_eq!(timestamp_ms(u64::MAX), NaiveDateTime::MAX);
+		assert_eq!(timestamp_secs(u64::MAX), NaiveDateTime::MAX);
+		assert_eq!(timestamp_secs(1_700_000_000).to_string(), "2023-11-14 22:13:20");
+	}
+
+	#[test]
 	fn numeric_rejects_non_decimals() {
 		for value in ["", "-", "1e5", "0x10", "1.2.3", ".5"] {
 			assert!(Numeric::parse(value).is_err(), "{value}");
@@ -284,7 +296,7 @@ mod tests {
 /** `normalizeTimestamp`: values of 11 digits or fewer are seconds and become milliseconds. */
 pub fn normalize_timestamp(timestamp: u64) -> u64 {
 	if timestamp.to_string().len() <= 11 {
-		timestamp * 1000
+		timestamp.saturating_mul(1000)
 	} else {
 		timestamp
 	}

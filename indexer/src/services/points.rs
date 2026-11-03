@@ -1,5 +1,6 @@
 //! `PointsService`: reward points per earner, and a log row per awarding transaction.
 
+use alloy::primitives::U256;
 use tokio_postgres::Transaction;
 
 use crate::store::{numeric, timestamp_to_date, PointsActivityType, ProtocolParticipantType};
@@ -8,7 +9,7 @@ pub struct Award<'a> {
 	/** The earner as each caller formats it: lowercase for users, checksummed for fillers. */
 	pub address: &'a str,
 	pub chain: &'a str,
-	pub points: u64,
+	pub points: U256,
 	pub earner: ProtocolParticipantType,
 	pub activity: PointsActivityType,
 	pub transaction_hash: &'a str,

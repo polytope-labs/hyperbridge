@@ -28,7 +28,7 @@ async fn points_add_up_and_the_log_keeps_the_last_award() {
 			Award {
 				address: "0xabc",
 				chain: "EVM-56",
-				points,
+				points: alloy::primitives::U256::from(points),
 				earner: ProtocolParticipantType::Relayer,
 				activity: PointsActivityType::RewardPointsEarned,
 				transaction_hash: "0xtx",

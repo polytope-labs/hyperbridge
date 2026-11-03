@@ -129,8 +129,8 @@ pub fn decode_chain(value: &str) -> String {
 }
 
 /** The whole dollars of a non-negative `toFixed` amount: `truncated()` and `floor()`. */
-fn whole_dollars(usd: &str) -> u64 {
-	usd.split('.').next().unwrap_or("0").parse().unwrap_or(0)
+fn whole_dollars(usd: &str) -> U256 {
+	U256::from_str(usd.split('.').next().unwrap_or("0")).unwrap_or_default()
 }
 
 fn parse_u256(value: &Numeric) -> anyhow::Result<U256> {
@@ -458,7 +458,7 @@ impl Gateway<'_> {
 					Award {
 						address: &referrer,
 						chain: &decode_chain(&source_chain),
-						points: points / 2,
+						points: points / U256::from(2),
 						earner: ProtocolParticipantType::Referrer,
 						activity: PointsActivityType::OrderReferredPoints,
 						transaction_hash: &tx.transaction_hash,
@@ -713,7 +713,7 @@ impl Gateway<'_> {
 			return Ok(());
 		};
 		let points = whole_dollars(slice_usd);
-		if points == 0 {
+		if points.is_zero() {
 			return Ok(());
 		}
 		let dest_chain: String = row.get(0);
@@ -1247,7 +1247,9 @@ mod tests {
 		assert_eq!(bytes32_to_bytes20(short), short);
 		assert_eq!(decode_chain("0x45564d2d3536"), "EVM-56");
 		assert_eq!(decode_chain("EVM-56"), "EVM-56");
-		assert_eq!(whole_dollars("8256.869500000000000000"), 8256);
-		assert_eq!(whole_dollars("0.990000000000000000"), 0);
+		assert_eq!(whole_dollars("8256.869500000000000000"), U256::from(8256));
+		assert_eq!(whole_dollars("0.990000000000000000"), U256::ZERO);
+		// Above u64::MAX, as a $1-priced fake token can reach.
+		assert_eq!(whole_dollars("50000000000000000000.5").to_string(), "50000000000000000000");
 	}
 }

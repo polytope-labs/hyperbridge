@@ -308,7 +308,15 @@ async fn sync_active_counts(
 		.chain
 		.storage(&allowance_key(&state_machine, app), ctx.log.block_number)
 		.await?;
-	let tiers = allowance_tiers(&value)?;
+	// A decode failure repeats on every retry, so it must not fail the batch. SubQuery left the
+	// counts unchanged too.
+	let tiers = match allowance_tiers(&value) {
+		Ok(tiers) => tiers,
+		Err(err) => {
+			tracing::warn!(chain, "bandwidth: {err:#}; counts left unchanged");
+			return Ok(());
+		},
+	};
 	set_active_counts(ctx.db, chain, &hex::encode(app), &tiers, ms).await
 }
 

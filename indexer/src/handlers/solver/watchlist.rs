@@ -280,11 +280,13 @@ async fn poll_once(indexer: &Indexer, poller: &mut Poller) -> anyhow::Result<()>
 		.ok_or_else(|| anyhow::anyhow!("{hyperbridge} has no finalized block"))?;
 	let block = (head.header.number, head.header.timestamp);
 
-	let tracks = |state_machine: &str| {
-		indexer
-			.chain_by_state_machine(state_machine)
-			.is_some_and(|c| !c.config.contracts.yield_vaults.is_empty())
-	};
+	// From config, not the connected chains: a process may index only some of them.
+	let tracks =
+		|state_machine: &str| {
+			indexer.config.chains.values().any(|c| {
+				c.state_machine_id == state_machine && !c.contracts.yield_vaults.is_empty()
+			})
+		};
 	let mut conn = indexer.db.raw_connection().await?;
 	poller.poll(&mut conn, &indexer.http, &url, tracks, block).await
 }

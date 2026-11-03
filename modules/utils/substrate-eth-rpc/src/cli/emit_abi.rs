@@ -43,29 +43,47 @@ fn event(spec: &EventSpec) -> Event {
 }
 
 fn event_param(field: &FieldSpec) -> EventParam {
-	let (ty, components) = json_type(&field.ty);
-	EventParam {
-		name: field.name.into(),
-		indexed: field.indexed,
-		internal_type: InternalType::parse(&ty),
-		ty,
-		components,
-	}
+	let struct_name = pascal_case(field.name);
+	let (ty, internal_type, components) = json_type(&field.ty, &struct_name);
+	EventParam { name: field.name.into(), indexed: field.indexed, internal_type, ty, components }
 }
 
-fn param(name: &str, ty: &AbiType) -> Param {
-	let (ty, components) = json_type(ty);
-	Param { name: name.into(), internal_type: InternalType::parse(&ty), ty, components }
+fn param(name: &str, ty: &AbiType, struct_name: &str) -> Param {
+	let (ty, internal_type, components) = json_type(ty, struct_name);
+	Param { name: name.into(), internal_type, ty, components }
 }
 
-fn json_type(ty: &AbiType) -> (String, Vec<Param>) {
+/**
+ * Tuples are tagged `struct <Name>` like solc output, so ABI code generators can name them. The
+ * name is the field path in PascalCase: `stateMachineHeight.id` is `StateMachineHeightId`.
+ */
+fn json_type(ty: &AbiType, struct_name: &str) -> (String, Option<InternalType>, Vec<Param>) {
+	let tuple = |components| {
+		let internal_type = InternalType::Struct { contract: None, ty: struct_name.into() };
+		("tuple".to_string(), Some(internal_type), components)
+	};
 	match ty {
-		AbiType::Tuple(fields) =>
-			("tuple".into(), fields.iter().map(|f| param(f.name, &f.ty)).collect()),
-		AbiType::Option(inner) =>
-			("tuple".into(), vec![param("isSome", &AbiType::Bool), param("value", inner)]),
-		other => (other.sol_type(), Vec::new()),
+		AbiType::Tuple(fields) => tuple(
+			fields
+				.iter()
+				.map(|f| param(f.name, &f.ty, &format!("{struct_name}{}", pascal_case(f.name))))
+				.collect(),
+		),
+		AbiType::Option(inner) => tuple(vec![
+			param("isSome", &AbiType::Bool, ""),
+			param("value", inner, &format!("{struct_name}Value")),
+		]),
+		other => {
+			let ty = other.sol_type();
+			let internal_type = InternalType::parse(&ty);
+			(ty, internal_type, Vec::new())
+		},
 	}
+}
+
+fn pascal_case(name: &str) -> String {
+	let mut chars = name.chars();
+	chars.next().map(|c| c.to_ascii_uppercase().to_string() + chars.as_str()).unwrap_or_default()
 }
 
 #[cfg(test)]
@@ -85,5 +103,39 @@ mod tests {
 				json.contains("\"indexed\": true,\n        \"internalType\": \""),
 			"{json}"
 		);
+	}
+
+	/** Code generators declare one struct per name, so a name can't stand for two shapes. */
+	#[test]
+	fn struct_names_have_one_shape_per_pallet() {
+		fn collect(params: &[Param], shapes: &mut Vec<(String, String)>) {
+			for param in params {
+				if let Some(InternalType::Struct { ty, .. }) = &param.internal_type {
+					shapes.push((ty.clone(), serde_json::to_string(&param.components).unwrap()));
+				}
+				collect(&param.components, shapes);
+			}
+		}
+		for spec in all_pallets() {
+			let mut shapes = vec![];
+			for event in pallet_abi(&spec) {
+				let params: Vec<Param> = event
+					.inputs
+					.iter()
+					.map(|input| Param {
+						name: input.name.clone(),
+						ty: input.ty.clone(),
+						internal_type: input.internal_type.clone(),
+						components: input.components.clone(),
+					})
+					.collect();
+				collect(&params, &mut shapes);
+			}
+			let mut by_name = std::collections::BTreeMap::new();
+			for (name, shape) in shapes {
+				let first = by_name.entry(name.clone()).or_insert_with(|| shape.clone());
+				assert_eq!(*first, shape, "{}: struct {name} has two shapes", spec.key);
+			}
+		}
 	}
 }

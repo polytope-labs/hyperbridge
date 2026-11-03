@@ -19,12 +19,12 @@
         "name": "stateMachineHeight",
         "type": "tuple",
         "indexed": false,
-        "internalType": "tuple",
+        "internalType": "struct StateMachineHeight",
         "components": [
           {
             "name": "id",
             "type": "tuple",
-            "internalType": "tuple",
+            "internalType": "struct StateMachineHeightId",
             "components": [
               {
                 "name": "stateId",

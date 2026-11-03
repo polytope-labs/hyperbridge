@@ -1,5 +1,6 @@
 [workspace]
 resolver = "2"
+exclude = ["indexer"]
 members = [
     # runtime
     "parachain/runtimes/gargantua",

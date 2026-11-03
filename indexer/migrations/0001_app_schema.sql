@@ -2677,10 +2677,3 @@ COMMENT ON TABLE app.request_status_metadata IS '@foreignKey (request_id) REFERE
 COMMENT ON TABLE app.response_status_metadata IS '@foreignKey (response_id) REFERENCES response_v2s (id)|@foreignFieldName statusMetadata';
 
 COMMENT ON TABLE app.response_v2s IS '@foreignKey (request_id) REFERENCES request_v2s (id)';
-
-CREATE TABLE app._metadata (
-    key character varying(255) NOT NULL PRIMARY KEY,
-    value jsonb,
-    "createdAt" timestamp with time zone NOT NULL,
-    "updatedAt" timestamp with time zone NOT NULL
-);

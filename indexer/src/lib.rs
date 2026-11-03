@@ -4,6 +4,7 @@ pub mod db;
 pub mod errors;
 pub mod handlers;
 pub mod manifest;
+pub mod metadata;
 pub mod provider;
 pub mod registry;
 pub mod services;
@@ -66,7 +67,7 @@ pub async fn run(config_path: &Path, run_dir: &Path, selected: &[String]) -> any
 		.collect();
 
 	// Each chain's batch holds a connection for its transaction, and rindexer's default pool
-	// is 10. Leave room for the flusher, the watchlist and idle hooks.
+	// is 10. Leave room for each chain's upkeep, the flusher and the watchlist.
 	if std::env::var_os("DATABASE_POOL_SIZE").is_none() {
 		std::env::set_var("DATABASE_POOL_SIZE", (indexed.len() * 2 + 4).max(10).to_string());
 	}
@@ -77,6 +78,18 @@ pub async fn run(config_path: &Path, run_dir: &Path, selected: &[String]) -> any
 	let mut chains = BTreeMap::new();
 	for name in indexed {
 		chains.insert(name.clone(), Chain::connect(name, &config.chains[name], &http)?);
+	}
+	let mut names = Vec::new();
+	for (network, chain) in &chains {
+		names.push((network, metadata::chain_name(chain).await?));
+	}
+	{
+		let mut conn = db.raw_connection().await?;
+		let tx = conn.transaction().await?;
+		for (network, name) in &names {
+			metadata::register(&tx, network, name).await?;
+		}
+		tx.commit().await?;
 	}
 	let rpc_urls: BTreeMap<String, String> = chains
 		.iter()
@@ -140,7 +153,7 @@ pub async fn run(config_path: &Path, run_dir: &Path, selected: &[String]) -> any
 		&providers,
 		&mut registry,
 	)?;
-	registry::spawn_idle_hooks(indexer.clone(), &routes);
+	registry::spawn_upkeep(indexer.clone(), &routes);
 
 	start_rindexer(StartDetails {
 		manifest_path: &manifest_path,

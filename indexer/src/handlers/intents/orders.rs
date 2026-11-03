@@ -845,7 +845,10 @@ impl Gateway<'_> {
 		}
 		// Fills past the first 100 of a kind were never awarded by SubQuery either.
 		self.db
-			.execute("DELETE FROM indexer.deferred_fill_points WHERE commitment = $1", &[&commitment])
+			.execute(
+				"DELETE FROM indexer.deferred_fill_points WHERE commitment = $1",
+				&[&commitment],
+			)
 			.await?;
 		Ok(())
 	}

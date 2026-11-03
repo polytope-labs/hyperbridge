@@ -415,28 +415,30 @@ async fn process_batch(
 	Ok(())
 }
 
-/** How often a chain's hooks catch up when its stream has had no logs. */
-const IDLE_HOOK_INTERVAL: Duration = Duration::from_secs(15);
+/** How often each chain's idle hooks and metadata catch up. */
+const UPKEEP_INTERVAL: Duration = Duration::from_secs(15);
 
 /**
- * rindexer only calls back for ranges that have logs, so on a quiet chain the hooks would stop.
- * This runs them every [`IDLE_HOOK_INTERVAL`] at the block rindexer has synced to, when that is
- * past the chain's cursor. rindexer records that block only after the callbacks for every range
- * up to it returned, so every log up to it is applied.
+ * Work that follows the block rindexer has synced to rather than the logs, every
+ * [`UPKEEP_INTERVAL`] per chain. rindexer only calls back for ranges that have logs, so on a
+ * quiet chain the hooks would stop: they run here when the synced block is past the chain's
+ * cursor. Then the chain's metadata records how far it is indexed.
  */
-pub fn spawn_idle_hooks(indexer: Arc<Indexer>, routes: &HashMap<String, Arc<ChainRoutes>>) {
+pub fn spawn_upkeep(indexer: Arc<Indexer>, routes: &HashMap<String, Arc<ChainRoutes>>) {
 	for (network, chain_routes) in routes {
-		if chain_routes.hooks.is_empty() {
-			continue;
-		}
 		let (indexer, network, chain_routes) =
 			(indexer.clone(), network.clone(), chain_routes.clone());
 		tokio::spawn(async move {
-			let mut interval = tokio::time::interval(IDLE_HOOK_INTERVAL);
+			let mut interval = tokio::time::interval(UPKEEP_INTERVAL);
 			loop {
 				interval.tick().await;
-				if let Err(err) = run_idle_hooks(&indexer, &network, &chain_routes).await {
-					tracing::warn!(%network, "idle hooks failed: {err:#}");
+				if !chain_routes.hooks.is_empty() {
+					if let Err(err) = run_idle_hooks(&indexer, &network, &chain_routes).await {
+						tracing::warn!(%network, "idle hooks failed: {err:#}");
+					}
+				}
+				if let Err(err) = record_progress(&indexer, &network, &chain_routes).await {
+					tracing::warn!(%network, "metadata update failed: {err:#}");
 				}
 			}
 		});
@@ -468,6 +470,47 @@ async fn find_progress_table(
 	Ok(None)
 }
 
+/**
+ * The block rindexer has synced a chain to, or `None` before its first sync. rindexer records
+ * it only after the callbacks for every range up to it returned, so every log up to it is
+ * applied.
+ */
+async fn synced_block(
+	tx: &Transaction<'_>,
+	network: &str,
+	routes: &ChainRoutes,
+) -> anyhow::Result<Option<u64>> {
+	let table = match routes.progress_table.get() {
+		Some(table) => table.clone(),
+		None => match find_progress_table(tx, network).await? {
+			Some(table) => routes.progress_table.get_or_init(|| table).clone(),
+			None => {
+				// Expected before rindexer's first sync. After it, this is a rindexer change.
+				let cursor = tx
+					.query_opt("SELECT 1 FROM indexer.cursors WHERE network = $1", &[&network])
+					.await?;
+				if cursor.is_some() {
+					tracing::warn!(
+						%network,
+						"no rindexer progress table found; idle hooks and metadata are off"
+					);
+				}
+				return Ok(None);
+			},
+		},
+	};
+	let synced: Option<String> = tx
+		.query_opt(
+			&format!(
+				"SELECT last_synced_block::text FROM rindexer_internal.\"{table}\" WHERE network = $1"
+			),
+			&[&network],
+		)
+		.await?
+		.and_then(|row| row.get(0));
+	Ok(synced.and_then(|s| s.parse::<u64>().ok()).filter(|b| *b > 0))
+}
+
 async fn run_idle_hooks(
 	indexer: &Indexer,
 	network: &str,
@@ -477,33 +520,7 @@ async fn run_idle_hooks(
 	let _writing = routes.writing.lock().await;
 	let mut conn = indexer.db.raw_connection().await?;
 	let tx = conn.transaction().await?;
-	let table = match routes.progress_table.get() {
-		Some(table) => table.clone(),
-		None => match find_progress_table(&tx, network).await? {
-			Some(table) => routes.progress_table.get_or_init(|| table).clone(),
-			None => {
-				// Expected before rindexer's first sync. After it, this is a rindexer change.
-				let cursor = tx
-					.query_opt("SELECT 1 FROM indexer.cursors WHERE network = $1", &[&network])
-					.await?;
-				if cursor.is_some() {
-					tracing::warn!(%network, "no rindexer progress table found; idle hooks are off");
-				}
-				return Ok(());
-			},
-		},
-	};
-	let table = format!("rindexer_internal.\"{table}\"");
-	let synced: Option<String> = tx
-		.query_opt(
-			&format!("SELECT last_synced_block::text FROM {table} WHERE network = $1"),
-			&[&network],
-		)
-		.await?
-		.and_then(|row| row.get(0));
-	let Some(synced) = synced.and_then(|s| s.parse::<u64>().ok()).filter(|b| *b > 0) else {
-		return Ok(());
-	};
+	let Some(synced) = synced_block(&tx, network, routes).await? else { return Ok(()) };
 	let cursor: Option<i64> = tx
 		.query_opt(
 			"SELECT block_number FROM indexer.cursors WHERE network = $1 FOR UPDATE",
@@ -536,6 +553,26 @@ async fn run_idle_hooks(
 		&[&network, &(synced as i64), &i64::MAX],
 	)
 	.await?;
+	tx.commit().await?;
+	Ok(())
+}
+
+/**
+ * Records the synced block as the chain's `lastProcessedHeight`. Its `targetHeight` is the head
+ * less the reorg-safe distance, the last block rindexer indexes.
+ */
+async fn record_progress(
+	indexer: &Indexer,
+	network: &str,
+	routes: &ChainRoutes,
+) -> anyhow::Result<()> {
+	let chain = indexer.chain(network)?;
+	let head = chain.provider.get_block_number().await?;
+	let mut conn = indexer.db.raw_connection().await?;
+	let tx = conn.transaction().await?;
+	let Some(synced) = synced_block(&tx, network, routes).await? else { return Ok(()) };
+	let target = head.saturating_sub(chain.config.reorg_safe_distance).max(synced);
+	crate::metadata::record_progress(&tx, network, synced, target).await?;
 	tx.commit().await?;
 	Ok(())
 }

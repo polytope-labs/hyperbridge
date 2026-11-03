@@ -43,6 +43,12 @@ hyperbridge-indexer --config indexer/config/mainnet.toml --chains bsc-mainnet
 - **Block hooks.** SubQuery's block handlers are `BlockHook`s. They run after each batch at the
   last block it applied. On a chain with no logs, they run every 15 s at the block rindexer has
   synced.
+- **Metadata.** Each chain has its own `app._metadata_0x…` table, which omnihedron serves as one
+  `_metadatas` node, as SubQuery's multichain tables were. The explorer finds a chain by `chain`
+  and reads `lastProcessedHeight`. The SDK's CI waits until every chain is close to its
+  `targetHeight`. `chain` is the EVM chain id, or the Substrate node's `system_chain`, such as
+  "Hyperbridge (Nexus)". Every 15 s, `lastProcessedHeight` is set to the block rindexer has synced,
+  so it moves on chains with no logs too. `targetHeight` is the head less the reorg-safe distance.
 - **Pending statuses.** A status whose parent another chain hasn't indexed yet waits in
   `pending_status_metadata`. Each process's flusher moves it once the parent exists.
 - **Schema.** `migrations/0001_app_schema.sql` is the DDL SubQuery generates for `schema.graphql`,
@@ -72,6 +78,8 @@ compared. The deliberate differences:
   - the bridge token supply, which the next 3600-block run reads again.
 - The periodic pending flush only picks rows whose parent exists, so a row whose parent never
   arrives no longer blocks the rest.
+- Chain metadata holds only `chain`, `lastProcessedHeight` and `targetHeight`. SubQuery also wrote
+  keys such as `genesisHash`, `startHeight` and `indexerHealthy`, which nothing we run reads.
 - A token that doesn't answer `symbol()` and `decimals()` is worth $0 in order and fill values.
   SubQuery failed the block, and under rindexer's retries that would stop the chain.
 - Points for a fill indexed before its order use the destination chain's valuation, kept in

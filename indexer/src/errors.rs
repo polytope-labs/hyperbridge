@@ -125,7 +125,8 @@ mod tests {
 
 	#[test]
 	fn missing_code_and_bad_answers_are_not_transient() {
-		let zero_data = ContractError::ZeroData("symbol".into(), AbiError::Other("empty".into()).into());
+		let zero_data =
+			ContractError::ZeroData("symbol".into(), AbiError::Other("empty".into()).into());
 		assert!(!is_transient(&anyhow::Error::new(zero_data).context("token symbol()")));
 		let undecodable: anyhow::Error = ContractError::from(AbiError::Other("bad".into())).into();
 		assert!(!is_transient(&undecodable));

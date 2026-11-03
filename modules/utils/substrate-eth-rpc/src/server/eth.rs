@@ -180,17 +180,12 @@ impl ChainRpc {
 	async fn resolve_block_id(&self, id: BlockId) -> RpcResult<u64> {
 		match id {
 			BlockId::Number(tag) => self.resolve_tag(tag).await,
-			BlockId::Hash(hash) => {
-				let block = self
-					.service
-					.block_by_hash(hash.block_hash)
-					.await
-					.map_err(to_rpc_error)?
-					.ok_or_else(|| {
-						server_error(format!("block hash {} not found", hash.block_hash))
-					})?;
-				Ok(block.number)
-			},
+			BlockId::Hash(hash) => self
+				.service
+				.canonical_number(hash.block_hash)
+				.await
+				.map_err(to_rpc_error)?
+				.ok_or_else(|| server_error(format!("block hash {} not found", hash.block_hash))),
 		}
 	}
 }

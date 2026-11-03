@@ -821,6 +821,23 @@ mod tests {
 	}
 
 	#[test]
+	fn indexed_fields_are_words_or_hashed_strings() {
+		for pallet in all_pallets() {
+			for event in &pallet.events {
+				for field in event.fields.iter().filter(|field| field.indexed) {
+					assert!(
+						!matches!(field.ty, AbiType::Tuple(_) | AbiType::Option(_)),
+						"{}.{}.{} is an indexed tuple",
+						pallet.key,
+						event.name,
+						field.name
+					);
+				}
+			}
+		}
+	}
+
+	#[test]
 	fn unmapped_pallet_is_silent() {
 		let m = mapper();
 		let ev = event("System", "ExtrinsicSuccess", named(vec![]));

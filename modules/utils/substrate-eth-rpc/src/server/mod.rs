@@ -524,6 +524,30 @@ mod tests {
 		assert_eq!(sol_data::Bytes::abi_decode(&ret).unwrap(), TIMESTAMP_MS.encode());
 
 		let data =
+			SubstrateStorage::getStorageCall { key: timestamp_now_key().into() }.abi_encode();
+		let ret: Bytes = client
+			.request(
+				"eth_call",
+				rpc_params![
+					json!({ "to": storage_address(), "data": Bytes::from(data.clone()) }),
+					json!({ "blockHash": hash_of(100) })
+				],
+			)
+			.await
+			.unwrap();
+		assert_eq!(sol_data::Bytes::abi_decode(&ret).unwrap(), TIMESTAMP_MS.encode());
+		let err = call_error(
+			&client,
+			"eth_call",
+			rpc_params![
+				json!({ "to": storage_address(), "data": Bytes::from(data) }),
+				json!({ "blockHash": B256::repeat_byte(0xff) })
+			],
+		)
+		.await;
+		assert!(err.message().contains("not found"), "{}", err.message());
+
+		let data =
 			SubstrateStorage::getStorageCall { key: b"missing".to_vec().into() }.abi_encode();
 		let ret: Bytes = client
 			.request(

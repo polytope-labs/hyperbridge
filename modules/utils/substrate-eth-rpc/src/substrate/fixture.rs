@@ -318,7 +318,7 @@ mod tests {
 		assert_eq!(version.transaction_version, 1);
 
 		assert_eq!(rpc.metadata(HASH_2).await.unwrap(), b"meta".to_vec());
-		assert_eq!(rpc.block_by_number(2).await.unwrap(), raw);
+		assert_eq!(rpc.block(rpc.block_hash(2).await.unwrap().unwrap()).await.unwrap(), Some(raw));
 	}
 
 	#[tokio::test]
@@ -383,20 +383,6 @@ mod tests {
 
 		rpc.recover();
 		assert_eq!(rpc.header(HASH_2).await.unwrap(), Some(header));
-	}
-
-	#[tokio::test]
-	async fn batch_blocks_surfaces_failures() {
-		let rpc = fixture();
-		let blocks = rpc.batch_blocks(1..3).await.unwrap();
-		assert_eq!(blocks.iter().map(|block| block.number).collect::<Vec<_>>(), vec![1, 2]);
-
-		rpc.fail_at(2);
-		assert!(rpc.batch_blocks(1..3).await.is_err());
-		assert!(matches!(rpc.batch_blocks(1..4).await, Err(RpcError::Transport(_))));
-
-		rpc.recover();
-		assert!(matches!(rpc.batch_blocks(1..4).await, Err(RpcError::BlockNotFound(3))));
 	}
 
 	#[test]

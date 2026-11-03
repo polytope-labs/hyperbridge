@@ -7,16 +7,10 @@ use subxt_core::{
 use super::DecodeError;
 use crate::types::{DecodedEvent, Hasher, Phase, H256};
 
-#[derive(Debug, Clone)]
-pub struct EventRecordDecoded {
-	pub event: DecodedEvent,
-	pub topics: Vec<H256>,
-}
-
-pub fn decode_event_records(
+pub fn decode_events(
 	metadata: &Metadata,
 	events_bytes: &[u8],
-) -> Result<Vec<EventRecordDecoded>, DecodeError> {
+) -> Result<Vec<DecodedEvent>, DecodeError> {
 	let has_events_entry = metadata
 		.pallet_by_name("System")
 		.and_then(|system| system.storage())
@@ -43,16 +37,6 @@ pub fn decode_event_records(
 	Ok(records)
 }
 
-pub fn decode_events(
-	metadata: &Metadata,
-	events_bytes: &[u8],
-) -> Result<Vec<DecodedEvent>, DecodeError> {
-	Ok(decode_event_records(metadata, events_bytes)?
-		.into_iter()
-		.map(|record| record.event)
-		.collect())
-}
-
 pub fn extrinsic_hashes(hasher: Hasher, extrinsics: &[Vec<u8>]) -> Vec<H256> {
 	extrinsics.iter().map(|bytes| hasher.hash(bytes)).collect()
 }
@@ -60,7 +44,7 @@ pub fn extrinsic_hashes(hasher: Hasher, extrinsics: &[Vec<u8>]) -> Vec<H256> {
 fn decode_record(
 	index: u32,
 	details: EventDetails<SubstrateConfig>,
-) -> Result<EventRecordDecoded, DecodeError> {
+) -> Result<DecodedEvent, DecodeError> {
 	let pallet = details.pallet_name().to_string();
 	let variant = details.variant_name().to_string();
 	let fields = details.field_values().map_err(|source| DecodeError::EventFields {
@@ -74,9 +58,5 @@ fn decode_record(
 		SubxtPhase::Finalization => Phase::Finalization,
 		SubxtPhase::Initialization => Phase::Initialization,
 	};
-	let topics = details.topics().iter().map(|topic| H256::from(topic.0)).collect();
-	Ok(EventRecordDecoded {
-		event: DecodedEvent { pallet, variant, phase, event_index: index, fields },
-		topics,
-	})
+	Ok(DecodedEvent { pallet, variant, phase, event_index: index, fields })
 }

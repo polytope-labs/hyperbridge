@@ -1,7 +1,4 @@
-use std::ops::Range;
-
 use async_trait::async_trait;
-use futures::{stream, StreamExt, TryStreamExt};
 use sp_crypto_hashing::twox_128;
 
 use crate::types::H256;
@@ -20,8 +17,6 @@ pub use node::ClientRpc;
 pub enum RpcError {
 	#[error("rpc transport: {0}")]
 	Transport(String),
-	#[error("block {0} not found")]
-	BlockNotFound(u64),
 	#[error("block hash {0} not found")]
 	HashNotFound(H256),
 	#[error("decode: {0}")]
@@ -105,8 +100,6 @@ pub struct RuntimeVersion {
 	pub transaction_version: u32,
 }
 
-const BATCH_CONCURRENCY: usize = 16;
-
 #[async_trait]
 pub trait SubstrateRpc: Send + Sync {
 	async fn finalized_head(&self) -> Result<H256, RpcError>;
@@ -129,21 +122,6 @@ pub trait SubstrateRpc: Send + Sync {
 	async fn runtime_version(&self, at: H256) -> Result<RuntimeVersion, RpcError>;
 
 	async fn metadata(&self, at: H256) -> Result<Vec<u8>, RpcError>;
-
-	async fn block_by_number(&self, number: u64) -> Result<RawBlock, RpcError> {
-		let hash = self.block_hash(number).await?.ok_or(RpcError::BlockNotFound(number))?;
-		self.block(hash).await?.ok_or(RpcError::BlockNotFound(number))
-	}
-
-	async fn batch_blocks(&self, numbers: Range<u64>) -> Result<Vec<RawBlock>, RpcError> {
-		let mut blocks: Vec<RawBlock> = stream::iter(numbers)
-			.map(|number| self.block_by_number(number))
-			.buffer_unordered(BATCH_CONCURRENCY)
-			.try_collect()
-			.await?;
-		blocks.sort_by_key(|block| block.number);
-		Ok(blocks)
-	}
 }
 
 pub fn storage_prefix(pallet: &str, item: &str) -> Vec<u8> {
@@ -203,7 +181,6 @@ mod tests {
 			transport("block 5031 is 429x"),
 			RpcError::Decode("rate limit".into()),
 			RpcError::Fixture("timeout".into()),
-			RpcError::BlockNotFound(429),
 			RpcError::HashNotFound(H256::ZERO),
 		] {
 			assert!(!err.is_transient(), "{err}");

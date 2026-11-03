@@ -20,7 +20,9 @@ pub fn decode_metadata(raw: &[u8]) -> Result<Metadata, DecodeError> {
 	Metadata::decode(&mut &opaque[..]).map_err(DecodeError::Metadata)
 }
 
-pub fn spec_version(metadata: &Metadata) -> Option<u32> {
+/** Reads `System::Version.spec_version` from metadata; tests use it to check fixtures. */
+#[cfg(test)]
+pub(crate) fn spec_version(metadata: &Metadata) -> Option<u32> {
 	let constant = metadata.pallet_by_name("System")?.constant_by_name("Version")?;
 	let value =
 		scale_value::scale::decode_as_type(&mut constant.value(), constant.ty(), metadata.types())

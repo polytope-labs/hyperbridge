@@ -5,28 +5,19 @@ use scale_value::{Composite, Primitive, Value, ValueDef, Variant};
 
 use crate::mapping::{AbiType, FieldSpec, MappingError};
 
-pub fn encode_data<T>(fields: &[(&AbiType, &Value<T>)]) -> Result<Bytes, MappingError> {
-	let values = fields
-		.iter()
-		.map(|(ty, v)| to_dyn_value(ty, v))
-		.collect::<Result<Vec<_>, _>>()?;
-	Ok(encode_values(values))
-}
-
 pub fn encode_values(values: Vec<DynSolValue>) -> Bytes {
 	DynSolValue::Tuple(values).abi_encode_params().into()
 }
 
-pub fn encode_topic<T>(ty: &AbiType, v: &Value<T>) -> Result<B256, MappingError> {
-	topic_word(&to_dyn_value(ty, v)?)
-}
-
+/**
+ * Encodes an indexed field as Solidity does for word types, `bytes` and `string`.
+ * Indexed tuples are rejected: Solidity hashes them with an in-place encoding that
+ * this crate does not implement, and no mapped event indexes one.
+ */
 pub fn topic_word(value: &DynSolValue) -> Result<B256, MappingError> {
 	match value {
 		DynSolValue::Bytes(b) => Ok(keccak256(b)),
 		DynSolValue::String(s) => Ok(keccak256(s.as_bytes())),
-		DynSolValue::Tuple(_) | DynSolValue::Array(_) | DynSolValue::FixedArray(_) =>
-			Ok(keccak256(value.abi_encode_params())),
 		other => other.as_word().ok_or_else(|| MappingError::TypeMismatch {
 			expected: "word-sized value".into(),
 			got: format!("{other:?}"),
@@ -64,6 +55,11 @@ pub fn to_dyn_value<T>(ty: &AbiType, v: &Value<T>) -> Result<DynSolValue, Mappin
 	}
 }
 
+/**
+ * Decodes the variants `ismp::host::StateMachine` defines. `known_variants` below
+ * stops compiling when the `ismp` crate gains a variant or field, as a reminder to
+ * decode it here before a runtime can emit it.
+ */
 pub fn state_machine<T>(v: &Value<T>) -> Result<StateMachine, MappingError> {
 	let var = variant(v)?;
 	let values = var.values.values().collect::<Vec<_>>();
@@ -81,6 +77,22 @@ pub fn state_machine<T>(v: &Value<T>) -> Result<StateMachine, MappingError> {
 			Ok(StateMachine::Relay { relay: array4(relay)?, para_id: u32_of(para_id)? })
 		},
 		_ => Err(mismatch("StateMachine variant", v)),
+	}
+}
+
+/**
+ * Lists every `StateMachine` variant and field with no wildcard. A new variant or
+ * field is a compile error here; decode it in `state_machine`, then list it here.
+ */
+#[allow(dead_code)]
+fn known_variants(state_machine: &StateMachine) {
+	match state_machine {
+		StateMachine::Evm(_) |
+		StateMachine::Polkadot(_) |
+		StateMachine::Kusama(_) |
+		StateMachine::Substrate(_) |
+		StateMachine::Tendermint(_) |
+		StateMachine::Relay { relay: _, para_id: _ } => {},
 	}
 }
 
@@ -256,6 +268,18 @@ fn describe<T>(v: &Value<T>) -> String {
 mod tests {
 	use super::*;
 	use alloy_primitives::b256;
+
+	fn encode_data<T>(fields: &[(&AbiType, &Value<T>)]) -> Result<Bytes, MappingError> {
+		let values = fields
+			.iter()
+			.map(|(ty, v)| to_dyn_value(ty, v))
+			.collect::<Result<Vec<_>, _>>()?;
+		Ok(encode_values(values))
+	}
+
+	fn encode_topic<T>(ty: &AbiType, v: &Value<T>) -> Result<B256, MappingError> {
+		topic_word(&to_dyn_value(ty, v)?)
+	}
 
 	fn sm(name: &str, values: Vec<Value<()>>) -> Value<()> {
 		Value::unnamed_variant(name, values)

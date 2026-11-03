@@ -29,7 +29,7 @@ environment variable `NAME`; an unset variable is a startup error.
 | `chains[].pallets` | required | Pallet keys to map (see below); an unknown key is a startup error |
 | `chains[].max_block_range` | `500` | Largest `eth_getLogs` span, accepted when `toBlock - fromBlock <= max_block_range`, at least 1; set it equal to the rindexer manifest `max_block_range`, both mean `to - from <= N`; 100 to 200 for a cold sync against a slow archive node, the deadline hint below handles the rest |
 | `chains[].cache_blocks` | `4096` | Decoded blocks kept in the LRU cache |
-| `chains[].upstream_concurrency` | `8` | Blocks fetched from the Substrate node at once, at least 1 |
+| `chains[].upstream_concurrency` | `8` | Blocks fetched and decoded at once, at least 1 |
 | `chains[].upstream_retries` | `5` | Retries of a transient upstream error per call, after the first attempt |
 | `chains[].upstream_backoff_ms` | `250` | Delay before the first retry; doubles per retry, capped at 5 s, plus up to 25% jitter |
 | `chains[].rate_limit_cooldown_ms` | `10000` | After a rate-limit answer, each block fetch holds two concurrency permits for this long, halving the load on the node |
@@ -45,20 +45,21 @@ With the cargo feature `node`, the crate exposes `ClientRpc`, a `SubstrateRpc`
 implementation that reads blocks, storage, runtime versions and metadata straight from
 a Substrate node client (`HeaderBackend`, `BlockBackend`, `StorageProvider`,
 `CallApiAt` and the `Metadata` runtime API). The `hyperbridge` binary uses it to mount
-the same `eth_*` methods next to its `ismp_*`, `mmr_*` and intents RPCs:
+the same `eth_*` methods next to its `ismp_*`, `mmr_*` and intents RPCs. They are on by
+default. A node that serves an indexer runs as an archive node:
 
 ```sh
-hyperbridge --chain nexus --state-pruning=archive --blocks-pruning=archive --eth-rpc
+hyperbridge --chain nexus --state-pruning=archive --blocks-pruning=archive
 ```
 
 The flags are accepted by both `hyperbridge` and `hyperbridge simnode`.
 
 | Flag | Default | Meaning |
 |---|---|---|
-| `--eth-rpc` | off | Serve the facade on the node's RPC port |
+| `--no-eth-rpc` | off | Do not serve the facade on the node's RPC port |
 | `--eth-rpc-max-block-range` | `500` | Largest `eth_getLogs` span, accepted when `toBlock - fromBlock <= N` |
 | `--eth-rpc-cache-blocks` | `4096` | Decoded blocks kept in the LRU cache |
-| `--eth-rpc-concurrency` | `8` | Parallel block decodes per `eth_getLogs` |
+| `--eth-rpc-concurrency` | `8` | Blocks read and decoded at once |
 
 The methods are served on the node's normal RPC endpoint with no path, for example
 `http://<node>:9944`. Chain identity comes from the chain spec: `eth_chainId` is
@@ -70,10 +71,18 @@ apply; `range_deadline_ms` is fixed at 60 s. Request and response bodies are cap
 by the node at 150 MB (`hyperbridge simnode` keeps the 15 MB sc-cli default), more than the
 standalone's 32 MB.
 
-The node must run with `--state-pruning=archive --blocks-pruning=archive` so historic
-`System.Events`, `Timestamp.Now` and metadata are readable. Enable the flag on
-dedicated RPC nodes rather than collators: `eth_getLogs` decoding is CPU work on the
-node's RPC threads.
+Indexing needs every finalized block's state and body: `eth_getLogs` reads
+`System.Events` and `Timestamp.Now` from the block's state and hashes its extrinsics. So
+`--state-pruning` and `--blocks-pruning` must each be `archive` or `archive-canonical`.
+A pruned node still serves the facade, but logs a warning at startup, and ranges whose
+state or bodies it pruned fail with `-32000 block <n>: ...`. Pass `--state-pruning` on
+every start, even on an existing archive database: without the flag Substrate reads the
+mode from the database, so the node can't tell it is archived and warns anyway.
+
+Block bodies, storage reads, runtime calls and event decoding run on tokio's blocking
+pool, not the node's async workers. They still cost CPU, so point indexers at dedicated
+RPC nodes rather than collators. A collator whose RPC port is reachable can pass
+`--no-eth-rpc`.
 
 The rindexer manifest then points at the node directly:
 
@@ -130,8 +139,8 @@ For every event in `System.Events` whose pallet is configured, the mapping table
 field names. A match produces one log:
 
 - `topics[0]` is `keccak256` of the Solidity signature.
-- Indexed fields follow as topics (word-sized values as-is; `bytes`, `string` and tuples
-  are hashed with `keccak256`).
+- Indexed fields follow as topics (word-sized values as-is; `bytes` and `string` are
+  hashed with `keccak256`). Tuples cannot be indexed.
 - `data` is the ABI encoding of the non-indexed fields in signature order.
 - `logIndex` is the event's index in `System.Events`, so it has gaps where events were
   not mapped.
@@ -213,8 +222,8 @@ interface SubstrateStorage {
 return value is `abi.encode(bytes)` of the SCALE-encoded storage value at the requested
 block, or of empty bytes when the key is absent. `getStorage` maps to `state_getStorage`
 and `getChildStorage` to `childstate_getStorage`. The block parameter may be a number,
-a tag or a block hash; a hash that is not a finalized canonical block is `block not
-found`. Any other `to` address returns `-32602 only the storage address is
+a tag or a block hash. A number above the finalized head is `block <n> not found`; a
+hash that is not a finalized canonical block is `block hash <h> not found`. Any other `to` address returns `-32602 only the storage address is
 callable`; an unknown selector returns `-32602 unknown storage call: ...`.
 
 ## Errors
@@ -227,7 +236,8 @@ the whole request fails and no partial result is returned.
 | `-32000` | `this block range should work: [0x64, 0x65]` | `toBlock - fromBlock` larger than `max_block_range` (the hint ends at `fromBlock + max_block_range`), or the range missed `range_deadline_ms`; rindexer parses this hint and retries with the suggested range |
 | `-32000` | `toBlock 0x67 is beyond finalized head 0x66` | Range ends after the finalized head |
 | `-32000` | `block <n>: <cause>` | A block in the range failed to fetch or decode |
-| `-32000` | `block <n> not found` | `eth_call` at a block above the finalized head or at a hash that is not a finalized canonical block |
+| `-32000` | `block <n> not found` | `eth_call` at a block number above the finalized head |
+| `-32000` | `block hash <h> not found` | `eth_call` at a hash that is not a finalized canonical block |
 | `-32602` | `fromBlock <a> is after toBlock <b>` | Inverted range |
 | `-32602` | `blockHash filter not supported` | `eth_getLogs` with `blockHash` |
 | `-32602` | parameter errors | Bad `eth_call` target or selector, malformed params |
@@ -260,9 +270,12 @@ The events of block `N` are decoded with the runtime metadata of block `N-1`, th
 runtime that produced them, so blocks on either side of an upgrade keep decoding. An
 upgrade that renames or adds a top-level field of a mapped event makes that event
 unmapped: it is skipped and counted until the mapping table gains the new shape. An
-upgrade that changes a nested type the mapping depends on (`StateMachine` variants,
-`StateMachineId`, `TierConfig`, `TierIndex`) makes every block containing that event
-fail with `-32000` until the mapping table is updated and the service redeployed.
+upgrade that changes a nested type the mapping depends on (`StateMachineId`,
+`TierConfig`, `TierIndex`) makes every block containing that event fail with `-32000`
+until the mapping table is updated and the service redeployed. The same holds for a new
+`StateMachine` variant. For one added to this repo's `ismp` crate, `known_variants` in
+`src/abi.rs` stops compiling as a reminder to decode it. A chain running a newer `ismp`
+than this crate still fails at runtime.
 
 ## rindexer manifest
 

@@ -30,6 +30,18 @@ fn transport(err: impl ToString) -> RpcError {
 	RpcError::Transport(err.to_string())
 }
 
+/**
+ * Runs a client read on tokio's blocking pool. Trie reads, block bodies and runtime calls
+ * would otherwise stall the node's async workers, which also drive import and networking.
+ */
+async fn blocking<T: Send + 'static>(
+	read: impl FnOnce() -> Result<T, RpcError> + Send + 'static,
+) -> Result<T, RpcError> {
+	tokio::task::spawn_blocking(read)
+		.await
+		.map_err(|err| RpcError::Transport(format!("client read task: {err}")))?
+}
+
 fn hash(hash: polkadot_sdk::sp_core::H256) -> H256 {
 	H256::from(hash.0)
 }
@@ -79,27 +91,35 @@ where
 	}
 
 	async fn block(&self, at: H256) -> Result<Option<RawBlock>, RpcError> {
-		let Some(signed) = self.client.block(at.0.into()).map_err(transport)? else {
-			return Ok(None);
-		};
-		let header = block_header::<Block>(at, signed.block.header());
-		// `chain_getBlock` serialises each extrinsic as its SCALE encoding (length prefix
-		// included), so hashing these bytes matches the standalone service and SubQuery.
-		let extrinsics = signed.block.extrinsics().iter().map(Encode::encode).collect();
-		Ok(Some(RawBlock {
-			hash: at,
-			number: header.number,
-			parent_hash: header.parent_hash,
-			state_root: header.state_root,
-			extrinsics_root: header.extrinsics_root,
-			extrinsics,
-		}))
+		let client = self.client.clone();
+		blocking(move || {
+			let Some(signed) = client.block(at.0.into()).map_err(transport)? else {
+				return Ok(None);
+			};
+			let header = block_header::<Block>(at, signed.block.header());
+			// `chain_getBlock` serialises each extrinsic as its SCALE encoding (length prefix
+			// included), so hashing these bytes matches the standalone service and SubQuery.
+			let extrinsics = signed.block.extrinsics().iter().map(Encode::encode).collect();
+			Ok(Some(RawBlock {
+				hash: at,
+				number: header.number,
+				parent_hash: header.parent_hash,
+				state_root: header.state_root,
+				extrinsics_root: header.extrinsics_root,
+				extrinsics,
+			}))
+		})
+		.await
 	}
 
 	async fn storage(&self, key: &[u8], at: H256) -> Result<Option<Vec<u8>>, RpcError> {
-		let value =
-			self.client.storage(at.0.into(), &StorageKey(key.to_vec())).map_err(transport)?;
-		Ok(value.map(|StorageData(bytes)| bytes))
+		let client = self.client.clone();
+		let key = StorageKey(key.to_vec());
+		blocking(move || {
+			let value = client.storage(at.0.into(), &key).map_err(transport)?;
+			Ok(value.map(|StorageData(bytes)| bytes))
+		})
+		.await
 	}
 
 	async fn child_storage(
@@ -115,36 +135,44 @@ where
 			Some((ChildType::ParentKeyId, inner)) => ChildInfo::new_default(inner),
 			None => return Err(RpcError::Decode("invalid child storage key".into())),
 		};
-		let value = self
-			.client
-			.child_storage(at.0.into(), &child_info, &StorageKey(key.to_vec()))
-			.map_err(transport)?;
-		Ok(value.map(|StorageData(bytes)| bytes))
+		let client = self.client.clone();
+		let key = StorageKey(key.to_vec());
+		blocking(move || {
+			let value = client.child_storage(at.0.into(), &child_info, &key).map_err(transport)?;
+			Ok(value.map(|StorageData(bytes)| bytes))
+		})
+		.await
 	}
 
 	async fn runtime_version(&self, at: H256) -> Result<RuntimeVersion, RpcError> {
-		let version = self
-			.client
-			.runtime_version_at(at.0.into(), CallContext::Offchain)
-			.map_err(transport)?;
-		Ok(RuntimeVersion {
-			spec_name: version.spec_name.to_string(),
-			spec_version: version.spec_version,
-			transaction_version: version.transaction_version,
+		let client = self.client.clone();
+		blocking(move || {
+			let version =
+				client.runtime_version_at(at.0.into(), CallContext::Offchain).map_err(transport)?;
+			Ok(RuntimeVersion {
+				spec_name: version.spec_name.to_string(),
+				spec_version: version.spec_version,
+				transaction_version: version.transaction_version,
+			})
 		})
+		.await
 	}
 
 	async fn metadata(&self, at: H256) -> Result<Vec<u8>, RpcError> {
-		let api = self.client.runtime_api();
-		match api.metadata_at_version(at.0.into(), METADATA_VERSION) {
-			Ok(Some(metadata)) => return Ok(metadata.to_vec()),
-			Ok(None) => {},
-			Err(err) => {
-				tracing::debug!(%err, "Metadata_metadata_at_version unavailable, falling back")
-			},
-		}
-		let metadata = api.metadata(at.0.into()).map_err(transport)?;
-		Ok(metadata.to_vec())
+		let client = self.client.clone();
+		blocking(move || {
+			let api = client.runtime_api();
+			match api.metadata_at_version(at.0.into(), METADATA_VERSION) {
+				Ok(Some(metadata)) => return Ok(metadata.to_vec()),
+				Ok(None) => {},
+				Err(err) => {
+					tracing::debug!(%err, "Metadata_metadata_at_version unavailable, falling back")
+				},
+			}
+			let metadata = api.metadata(at.0.into()).map_err(transport)?;
+			Ok(metadata.to_vec())
+		})
+		.await
 	}
 }
 

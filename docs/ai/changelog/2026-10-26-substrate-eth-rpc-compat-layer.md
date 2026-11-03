@@ -1,89 +1,62 @@
 # 2026-10-26 — substrate-eth-rpc: Ethereum JSON-RPC over Substrate chains
 
-`modules/utils/substrate-eth-rpc` is a Rust crate that answers Ethereum JSON-RPC over
-Substrate chains, so rindexer can index them (polytope-labs/hyperbridge#1439). It runs
-standalone, one process serving many chains over their Substrate JSON-RPC, each at
-`http://<listen>/<chain name>`, or inside the Hyperbridge node (see "In-node mode").
-It serves `eth_chainId`, `net_version`, `eth_blockNumber`, `eth_getBlockByNumber`,
-`eth_getBlockByHash`, `eth_getLogs` and `eth_call`; everything else is `-32601`. The
-crate README documents configuration, log shape and the rindexer manifest.
+`modules/utils/substrate-eth-rpc` answers the Ethereum JSON-RPC calls rindexer makes,
+using a Substrate chain as the source. This is the first step of moving the indexer to
+rindexer (polytope-labs/hyperbridge#1439). The crate README is the reference for
+configuration, the log shape, the mapped events and the error codes.
 
-## In-node mode
+## What it serves
 
-- The cargo feature `node` adds `ClientRpc`, a `SubstrateRpc` implementation reading
-  directly from the node client (`HeaderBackend`, `BlockBackend`, `StorageProvider`,
-  `CallApiAt`, `Metadata` runtime API). `ChainConfig::in_node(..)` sets
-  `upstream_retries`, `upstream_backoff_ms` and `rate_limit_cooldown_ms` to 0;
-  `upstream_concurrency` still bounds parallel block decodes.
-- `hyperbridge --eth-rpc` (also under `simnode`) mounts the `eth_*` methods on the
-  node's RPC port next to `ismp_*`, `mmr_*` and intents. Knobs (`parachain/node/src/cli.rs`):
-  `--eth-rpc-max-block-range` (500), `--eth-rpc-cache-blocks` (4096), `--eth-rpc-concurrency` (8).
-- `eth_chainId` is `1_000_000_000 + para_id` from the chain spec (Nexus `1000003367`,
-  Gargantua `1000004009`); hasher keccak; all mapped pallets exposed. The rindexer
-  manifest `rpc` is the node URL itself, for example `http://<node>:9944`.
-- Requires `--state-pruning=archive --blocks-pruning=archive`; meant for dedicated RPC
-  nodes, not collators, since log decoding runs on the node's RPC threads. The node's
-  150 MB RPC body limit applies instead of the standalone's 32 MB.
-- This is the primary deployment for Nexus and Gargantua; the standalone binary stays
-  for chains whose node is run elsewhere and for `emit-abi` and `record-fixtures`.
-- Validated by the simnode test `parachain/simtests/src/eth_rpc.rs` ("Simnet Tests" CI job).
+- `eth_chainId`, `net_version`, `eth_blockNumber`, `eth_getBlockByNumber`,
+  `eth_getBlockByHash`, `eth_getLogs` and `eth_call`. Every other method is `-32601`.
+- Finalized blocks only. `latest`, `safe` and `pending` resolve to the finalized head.
+  Above it, `eth_getBlockBy*` answers `null` and `eth_call` answers `block <n> not found`.
+- Pallet events become logs. Each pallet is a contract at
+  `keccak256("substrate-pallet:" ++ key)[12..]`, and each event has a Solidity-style
+  signature. 18 events across `ismp`, `consensusIncentives`, `balances`, `relayer`,
+  `collatorManager`, `bandwidth` and `intentsCoprocessor` are mapped in `src/mapping/`.
+  `abis/` is generated from that table and pinned by `tests/abi_golden.rs`.
+- `eth_call` to `0x401e375f643e635ef3b498cedbc47931d2474364` reads raw storage with
+  `getStorage(bytes)` and `getChildStorage(bytes,bytes)`.
 
-## Interfaces later indexer work depends on
+## Two ways to run it
 
-- Pallet addresses: `keccak256("substrate-pallet:" ++ key)[12..]`; `ismp` is
-  `0xa2692e50566b4b43335b59fec7ebc738b47f8b50`. Storage target
-  `keccak256("substrate-storage")[12..]` is `0x401e375f643e635ef3b498cedbc47931d2474364`.
-- Event signatures, indexed fields and type rules live in `src/mapping/`, one module per
-  pallet (`ismp`, `consensusIncentives`, `balances`, `relayer`, `collatorManager`,
-  `bandwidth`, `intentsCoprocessor`; 18 events). `abis/<key>.abi.json` is generated from
-  that table by `emit-abi` and pinned by `tests/abi_golden.rs`.
-- `StateMachine` fields are strings in `ismp::host::StateMachine`'s `Display` form
-  (`EVM-1`, `POLKADOT-3367`). `Option<T>` is `(bool,T)`; fieldless enums are `uint8`.
-- Block `timestamp` and log `blockTimestamp` are seconds (`Timestamp.Now / 1000`).
-  Millisecond values come from `eth_call` to the storage target with
-  `SubstrateStorage.getStorage(bytes key)`; `getChildStorage(bytes childKey, bytes key)`
-  reads child tries. Both return `abi.encode(bytes)` of the SCALE value, empty when absent.
-- `logIndex` is the event's index in `System.Events`. `transactionHash` is the extrinsic
-  hash under the chain's `hasher`; `Initialization` and `Finalization` events use
-  `keccak256(block_hash ++ "init")` and `keccak256(block_hash ++ "final")` with
-  `transactionIndex` of `extrinsic count` and `extrinsic count + 1`.
-- Error contract: `eth_getLogs` is all or nothing. `-32000` with
-  `this block range should work: [0x.., 0x..]` when the range exceeds `max_block_range`
-  (rindexer parses it), `-32000 block <n>: ...` for a failed block, `-32602` for
-  inverted ranges, `blockHash` filters and bad `eth_call` targets.
+- In the Hyperbridge node, on by default; `--no-eth-rpc` turns it off. This is the
+  deployment for Nexus and Gargantua. The `eth_*` methods are merged into the node's own
+  RPC module and read the node's client directly. `eth_chainId` is
+  `1_000_000_000 + para_id`.
+- Indexing needs an archive node: `eth_getLogs` reads `System.Events` and
+  `Timestamp.Now` from each block's state, and extrinsic hashes from its body. A node
+  without `--state-pruning` and `--blocks-pruning` set to `archive` or
+  `archive-canonical` still serves the facade, but logs a warning at startup and fails
+  ranges whose state or bodies it pruned. `--state-pruning` must be passed on every
+  start, since Substrate otherwise reads the mode from the database and the node can't
+  check it.
+- As a standalone binary serving several chains by URL path over their Substrate RPC.
+  This is for chains whose node we don't run. The binary also carries the `emit-abi`
+  and `record-fixtures` tools.
 
 ## Constraints
 
-- Finalized blocks only; `latest`, `safe` and `pending` resolve to the finalized head.
-- The Substrate endpoint, or the node itself in in-node mode, must be an archive node:
-  historic `System.Events`, `Timestamp.Now`, `state_getRuntimeVersion` and metadata are
-  read per block.
-- Runtime upgrades: the events of block `N` are decoded with the runtime metadata of
-  block `N-1` (cached per spec version) and matched by pallet, variant and field set, so
-  a renamed or added field makes that shape unmapped until a new entry is added. Unmapped
-  shapes are skipped, counted and logged once; a changed nested type (`StateMachine`,
-  `StateMachineId`, `TierConfig`, `TierIndex`) fails the block with `-32000` until the
-  mapping is updated.
-- `eth_getBlockByHash` and hash-based `eth_call` answer only for finalized canonical
-  blocks; any other hash is `null` or `block not found`.
-- Upstream load is bounded by `upstream_concurrency` (default 8, halved for
-  `rate_limit_cooldown_ms` after a rate-limit answer); transient upstream errors (rate
-  limits, timeouts, lost connections, HTTP 5xx) are retried with exponential backoff.
-  In-node mode has no upstream, so retries and cooldowns are off and only the
-  concurrency bound remains.
-- An `eth_getLogs` range that misses `range_deadline_ms` (default 60 s) answers with the
-  same `this block range should work: [from, k]` hint, `k` being the end of the already
-  decoded prefix, while the running decodes finish into the cache; no partial logs.
+- `eth_getLogs` is all or nothing. A block that fails to fetch or decode fails the whole
+  range. Ranges over `max_block_range`, or slower than `range_deadline_ms`, answer with
+  the `this block range should work: [a, b]` hint rindexer retries with.
+- Block `N`'s events are decoded with block `N-1`'s metadata, so upgrade blocks decode.
+  A renamed or added event field makes that event unmapped until the table is updated.
+- A new variant or field in this repo's `ismp::host::StateMachine` is a compile error in
+  `known_variants` (`src/abi.rs`), a reminder to decode it. Until it is decoded, blocks
+  with that variant fail `eth_getLogs`.
+- Indexed fields must be word-sized, `bytes` or `string`. Tuples cannot be indexed.
+- `upstream_concurrency` (in-node: `--eth-rpc-concurrency`) bounds blocks being fetched
+  and decoded at once. Decoding, and in-node block bodies, storage and runtime calls, run
+  on tokio's blocking pool.
 
 ## Not included
 
-- The rindexer handler port, GraphQL serving and SubQuery retirement.
-- A Dockerfile.
-- `eth_getTransactionByHash`; the `BidPlaced` handler's extrinsic call arguments need it.
+- The rindexer handler port, GraphQL serving and retiring SubQuery.
+- `eth_getTransactionByHash`, which the `BidPlaced` handler needs for call arguments.
 - `messagingFees.FeeRewarded`, which does not exist in the runtime.
-- The three-field `BidPlaced` (no `bid`), which is skipped.
-- Configuration and fixtures for the other mainnet Substrate chains (Cere, Argon,
-  Hydration, zkVerify); only `hyperbridge-nexus` and `gargantua` are fixtured.
-- Recorded fixtures for `GetRequestTimeoutHandled`, `AccumulateFees`, `Withdraw`,
-  `BandwidthConsumed`, `SubscriptionEvicted`, `ForceCredited` and `TierSet`, which have
-  not been emitted on Nexus or Gargantua; unit tests with hand-built events cover them.
+- Fixtures for the other mainnet Substrate chains (Cere, Argon, Hydration, zkVerify).
+- Seven mapped events have never been emitted on Nexus or Gargantua and are covered by
+  unit tests only: `GetRequestTimeoutHandled`, `AccumulateFees`, `Withdraw`,
+  `BandwidthConsumed`, `SubscriptionEvicted`, `ForceCredited` and `TierSet`.

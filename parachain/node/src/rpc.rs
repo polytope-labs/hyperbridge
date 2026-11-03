@@ -49,7 +49,7 @@ pub struct FullDeps<C, P, B> {
 	pub backend: Arc<B>,
 	pub bid_cache: Arc<BidCache>,
 	pub bid_sender: broadcast::Sender<RpcBidInfo>,
-	/// Ethereum JSON-RPC facade, present when the node runs with `--eth-rpc`.
+	/// Ethereum JSON-RPC facade, present unless the node runs with `--no-eth-rpc`.
 	pub eth_rpc: Option<Arc<BlockService>>,
 }
 

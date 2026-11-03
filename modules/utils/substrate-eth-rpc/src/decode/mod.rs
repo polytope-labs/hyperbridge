@@ -1,8 +1,8 @@
 mod events;
 mod metadata;
 
-pub use events::{decode_event_records, decode_events, extrinsic_hashes, EventRecordDecoded};
-pub use metadata::{decode_metadata, spec_version, MetadataCache};
+pub use events::{decode_events, extrinsic_hashes};
+pub use metadata::{decode_metadata, MetadataCache};
 
 #[derive(Debug, thiserror::Error)]
 pub enum DecodeError {
@@ -141,6 +141,7 @@ mod tests {
 	use scale_value::Composite;
 
 	use super::{
+		metadata::spec_version,
 		testdata::{GARGANTUA, NEXUS},
 		*,
 	};
@@ -210,12 +211,11 @@ mod tests {
 	#[test]
 	fn gargantua_events_decode_with_block_metadata() {
 		let metadata = decode_metadata(GARGANTUA.metadata).unwrap();
-		let records = decode_event_records(&metadata, GARGANTUA.events).unwrap();
+		let records = decode_events(&metadata, GARGANTUA.events).unwrap();
 		assert_eq!(GARGANTUA.block_number(), 9709558);
 		assert_eq!(records.len(), 7);
-		assert!(records.iter().all(|r| r.topics.is_empty()));
 
-		let success = &records[0].event;
+		let success = &records[0];
 		assert_eq!(
 			(success.pallet.as_str(), success.variant.as_str()),
 			("System", "ExtrinsicSuccess")
@@ -224,7 +224,7 @@ mod tests {
 		let Composite::Named(fields) = &success.fields else { panic!("expected named fields") };
 		assert_eq!(fields[0].0, "dispatch_info");
 
-		let update = &records[2].event;
+		let update = &records[2];
 		assert_eq!(
 			(update.pallet.as_str(), update.variant.as_str()),
 			("Ismp", "StateMachineUpdated")
@@ -233,7 +233,7 @@ mod tests {
 		let Composite::Named(fields) = &update.fields else { panic!("expected named fields") };
 		assert_eq!(fields[1].1.as_u128(), Some(42805654));
 
-		let response = &records[4].event;
+		let response = &records[4];
 		assert_eq!((response.pallet.as_str(), response.variant.as_str()), ("Ismp", "Response"));
 		assert_eq!(response.phase, Phase::ApplyExtrinsic(3));
 		let Composite::Named(fields) = &response.fields else { panic!("expected named fields") };
@@ -244,7 +244,7 @@ mod tests {
 		);
 		assert_eq!(fields[2].1.as_u128(), Some(95));
 
-		let handled = &records[5].event;
+		let handled = &records[5];
 		assert_eq!(
 			(handled.pallet.as_str(), handled.variant.as_str()),
 			("Ismp", "GetRequestHandled")

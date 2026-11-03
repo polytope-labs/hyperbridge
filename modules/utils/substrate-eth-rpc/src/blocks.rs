@@ -23,7 +23,7 @@ use crate::{
 	decode::{decode_events, extrinsic_hashes, DecodeError, MetadataCache},
 	mapping::{pallets_for, Mapper, MappingError},
 	substrate::{system_events_key, timestamp_now_key, RawBlock, RpcError, SubstrateRpc},
-	types::{DecodedBlock, EthLog, Phase, H256},
+	types::{DecodedBlock, EthLog, Hasher, Phase, H256},
 };
 
 const DECODE_CONCURRENCY: usize = 16;
@@ -118,8 +118,12 @@ impl BlockService {
 		let (number, _) = self
 			.finalized
 			.get_or_refresh(async {
-				let hash = self.rpc.finalized_head().await?;
-				let header = self.rpc.header(hash).await?.ok_or(RpcError::HashNotFound(hash))?;
+				let at = "finalized head";
+				let hash = self.upstream(at, || self.rpc.finalized_head()).await?;
+				let header = self
+					.upstream(at, || self.rpc.header(hash))
+					.await?
+					.ok_or(RpcError::HashNotFound(hash))?;
 				Ok::<_, BlockError>((header.number, hash))
 			})
 			.await?;
@@ -163,7 +167,8 @@ impl BlockService {
 		if let Some(block) = self.cache.get_by_hash(hash) {
 			return Ok(Some(block.number));
 		}
-		let Some(header) = self.rpc.header(hash).await? else {
+		let Some(header) = self.upstream(&format!("block {hash}"), || self.rpc.header(hash)).await?
+		else {
 			return Ok(None);
 		};
 		let number = header.number;
@@ -224,7 +229,7 @@ impl BlockService {
 	}
 
 	pub async fn storage(&self, key: &[u8], at: u64) -> Result<Option<Vec<u8>>, BlockError> {
-		let hash = self.canonical_hash(at).await?;
+		let hash = self.finalized_hash(at).await?;
 		self.rpc.storage(key, hash).await.map_err(|e| BlockError::from(e).at(at))
 	}
 
@@ -234,7 +239,7 @@ impl BlockService {
 		key: &[u8],
 		at: u64,
 	) -> Result<Option<Vec<u8>>, BlockError> {
-		let hash = self.canonical_hash(at).await?;
+		let hash = self.finalized_hash(at).await?;
 		self.rpc
 			.child_storage(child_key, key, hash)
 			.await
@@ -245,6 +250,15 @@ impl BlockService {
 		(from..=to)
 			.take_while(|number| self.cache.get_by_number(*number).is_some())
 			.last()
+	}
+
+	// Storage reads take any block number, so a number above the finalized head is not
+	// found rather than resolved against the best chain. `range` checks its bound once.
+	async fn finalized_hash(&self, number: u64) -> Result<H256, BlockError> {
+		if number > self.finalized_number().await? {
+			return Err(BlockError::NotFound(number));
+		}
+		self.canonical_hash(number).await
 	}
 
 	async fn canonical_hash(&self, number: u64) -> Result<H256, BlockError> {
@@ -334,10 +348,17 @@ impl BlockService {
 				self.metadata.insert(version.spec_version, &raw_metadata)?
 			},
 		};
+		// Decoding is CPU work, so it runs on the blocking pool and keeps the permit, which
+		// makes `upstream_concurrency` the bound on parallel decodes too.
+		let mapper = self.mapper.clone();
+		let hasher = self.chain.hasher;
+		let spec_version = version.spec_version;
+		let block = tokio::task::spawn_blocking(move || {
+			build_block(&mapper, hasher, raw, spec_version, &events, timestamp_ms, &metadata)
+		})
+		.await
+		.map_err(|err| BlockError::Task(err.to_string()))??;
 		drop(permit);
-
-		let block =
-			self.build_block(raw, version.spec_version, &events, timestamp_ms, &metadata)?;
 		Ok(Some(Arc::new(block)))
 	}
 
@@ -395,68 +416,69 @@ impl BlockService {
 			tokio::time::sleep(delay).await;
 		}
 	}
+}
 
-	fn build_block(
-		&self,
-		raw: RawBlock,
-		spec_version: u32,
-		events: &[u8],
-		timestamp_ms: u64,
-		metadata: &subxt_core::Metadata,
-	) -> Result<DecodedBlock, BlockError> {
-		let hashes = extrinsic_hashes(self.chain.hasher, &raw.extrinsics);
-		let timestamp = timestamp_ms / 1000;
-		let init_hash = synthetic_tx_hash(raw.hash, b"init");
-		let final_hash = synthetic_tx_hash(raw.hash, b"final");
+fn build_block(
+	mapper: &Mapper,
+	hasher: Hasher,
+	raw: RawBlock,
+	spec_version: u32,
+	events: &[u8],
+	timestamp_ms: u64,
+	metadata: &subxt_core::Metadata,
+) -> Result<DecodedBlock, BlockError> {
+	let hashes = extrinsic_hashes(hasher, &raw.extrinsics);
+	let timestamp = timestamp_ms / 1000;
+	let init_hash = synthetic_tx_hash(raw.hash, b"init");
+	let final_hash = synthetic_tx_hash(raw.hash, b"final");
 
-		let mut logs = Vec::new();
-		for event in decode_events(metadata, events)? {
-			let Some(mapped) = self.mapper.map_event(&event)? else {
-				continue;
-			};
-			let (transaction_index, transaction_hash) = match event.phase {
-				Phase::ApplyExtrinsic(index) => {
-					let hash = hashes.get(index as usize).copied().ok_or_else(|| {
-						RpcError::Decode(format!(
-							"event {} at block {} references extrinsic {index} of {}",
-							event.event_index,
-							raw.number,
-							hashes.len()
-						))
-					})?;
-					(index as u64, hash)
-				},
-				Phase::Initialization => (hashes.len() as u64, init_hash),
-				Phase::Finalization => (hashes.len() as u64 + 1, final_hash),
-			};
-			logs.push(EthLog {
-				address: mapped.address,
-				topics: mapped.topics,
-				data: mapped.data,
-				block_hash: raw.hash,
-				block_number: raw.number,
-				block_timestamp: timestamp,
-				transaction_hash,
-				transaction_index,
-				log_index: event.event_index as u64,
-			});
-		}
-
-		let logs_bloom = block_bloom(&logs);
-		Ok(DecodedBlock {
-			hash: raw.hash,
-			parent_hash: raw.parent_hash,
-			number: raw.number,
-			timestamp,
-			timestamp_ms,
-			state_root: raw.state_root,
-			extrinsics_root: raw.extrinsics_root,
-			spec_version,
-			extrinsic_hashes: hashes,
-			logs,
-			logs_bloom,
-		})
+	let mut logs = Vec::new();
+	for event in decode_events(metadata, events)? {
+		let Some(mapped) = mapper.map_event(&event)? else {
+			continue;
+		};
+		let (transaction_index, transaction_hash) = match event.phase {
+			Phase::ApplyExtrinsic(index) => {
+				let hash = hashes.get(index as usize).copied().ok_or_else(|| {
+					RpcError::Decode(format!(
+						"event {} at block {} references extrinsic {index} of {}",
+						event.event_index,
+						raw.number,
+						hashes.len()
+					))
+				})?;
+				(index as u64, hash)
+			},
+			Phase::Initialization => (hashes.len() as u64, init_hash),
+			Phase::Finalization => (hashes.len() as u64 + 1, final_hash),
+		};
+		logs.push(EthLog {
+			address: mapped.address,
+			topics: mapped.topics,
+			data: mapped.data,
+			block_hash: raw.hash,
+			block_number: raw.number,
+			block_timestamp: timestamp,
+			transaction_hash,
+			transaction_index,
+			log_index: event.event_index as u64,
+		});
 	}
+
+	let logs_bloom = block_bloom(&logs);
+	Ok(DecodedBlock {
+		hash: raw.hash,
+		parent_hash: raw.parent_hash,
+		number: raw.number,
+		timestamp,
+		timestamp_ms,
+		state_root: raw.state_root,
+		extrinsics_root: raw.extrinsics_root,
+		spec_version,
+		extrinsic_hashes: hashes,
+		logs,
+		logs_bloom,
+	})
 }
 
 // Caching the block and clearing the in-flight entry happen under one lock so a request
@@ -832,6 +854,29 @@ mod tests {
 			Err(BlockError::NotFound(103))
 		));
 		assert_eq!(service.child_storage(b"child", b"key", 100).await.unwrap(), None);
+	}
+
+	#[tokio::test]
+	async fn storage_ignores_unfinalized_blocks() {
+		let blocks = vec![
+			fixture_block(102, Some(EVENTS), Some(TIMESTAMP_MS)),
+			fixture_block(103, Some(EVENTS), Some(TIMESTAMP_MS + 1)),
+		];
+		let metadata = HashMap::from([(SPEC_VERSION, METADATA.to_vec())]);
+		let rpc = Arc::new(FixtureRpc::from_blocks(blocks, metadata, FINALIZED));
+		let service = new_service(rpc, 1000);
+		assert!(matches!(
+			service.storage(&timestamp_now_key(), 103).await,
+			Err(BlockError::NotFound(103))
+		));
+		assert!(matches!(
+			service.child_storage(b"child", b"key", 103).await,
+			Err(BlockError::NotFound(103))
+		));
+		assert_eq!(
+			service.storage(&timestamp_now_key(), 102).await.unwrap(),
+			Some(TIMESTAMP_MS.encode())
+		);
 	}
 
 	#[tokio::test]

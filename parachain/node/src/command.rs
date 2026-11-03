@@ -362,14 +362,10 @@ pub fn run() -> Result<()> {
 			let config = runner.config_mut();
 			config.offchain_worker.indexing_enabled = true;
 			let tesseract_config = cmd.tesseract_config.clone();
-			let eth_rpc = if cmd.eth_rpc.eth_rpc {
-				let para_id = chain_spec::Extensions::try_get(&*config.chain_spec)
-					.map(|e| e.para_id)
-					.ok_or_else(|| "Could not find parachain ID in chain-spec.")?;
-				cmd.eth_rpc.to_config(config.chain_spec.id(), para_id)
-			} else {
-				None
-			};
+			let para_id = chain_spec::Extensions::try_get(&*config.chain_spec)
+				.map(|e| e.para_id)
+				.ok_or_else(|| "Could not find parachain ID in chain-spec.")?;
+			let eth_rpc = cmd.eth_rpc.to_config(config, para_id);
 
 			match config.chain_spec.id() {
 				chain if chain.contains("gargantua") || chain.contains("dev") => {
@@ -530,7 +526,7 @@ pub fn run() -> Result<()> {
 				info!("Parachain Account: {}", parachain_account);
 				info!("Is collating: {}", if config.role.is_authority() { "yes" } else { "no" });
 
-				let eth_rpc = cli.eth_rpc.to_config(config.chain_spec.id(), para_id);
+				let eth_rpc = cli.eth_rpc.to_config(&config, para_id);
 
 				crate::service::start_parachain_node(
 					config,

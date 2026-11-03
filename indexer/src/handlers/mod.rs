@@ -3,6 +3,7 @@
 pub mod abi;
 pub mod ismp;
 pub mod pallets;
+pub mod solver;
 
 use std::sync::Arc;
 
@@ -23,10 +24,12 @@ pub fn all() -> Handlers {
 	let mut handlers = Handlers::default();
 	ismp::register(&mut handlers);
 	pallets::register(&mut handlers);
+	solver::register(&mut handlers);
 	handlers
 }
 
 /** Background work that isn't tied to a chain's blocks, e.g. polling an HTTP endpoint. */
 pub fn spawn_tasks(indexer: &Arc<Indexer>) {
 	crate::services::pending::spawn_flusher(indexer.clone());
+	solver::spawn_tasks(indexer);
 }

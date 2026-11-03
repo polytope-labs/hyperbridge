@@ -79,7 +79,82 @@ pub struct SimnodeCommand {
 	#[arg(long)]
 	pub tesseract_config: Option<PathBuf>,
 	#[command(flatten)]
+	pub eth_rpc: EthRpcParams,
+	#[command(flatten)]
 	pub rest: sc_simnode::cli::SimnodeCli,
+}
+
+#[derive(Debug, Clone, clap::Args)]
+pub struct EthRpcParams {
+	#[arg(
+		long,
+		help = "Do not serve the Ethereum JSON-RPC facade (eth_getLogs, eth_getBlockByNumber, ...) that EVM indexers read from the node RPC port"
+	)]
+	pub no_eth_rpc: bool,
+	#[arg(
+		long,
+		default_value_t = 500,
+		help = "Largest eth_getLogs span accepted (toBlock - fromBlock)"
+	)]
+	pub eth_rpc_max_block_range: u64,
+	#[arg(long, default_value_t = 4096, help = "Decoded blocks kept in memory")]
+	pub eth_rpc_cache_blocks: usize,
+	#[arg(long, default_value_t = 8, help = "Blocks read and decoded at once")]
+	pub eth_rpc_concurrency: usize,
+}
+
+#[derive(Debug, Clone)]
+pub struct EthRpcConfig {
+	pub chain_name: String,
+	pub eth_chain_id: u64,
+	pub max_block_range: u64,
+	pub cache_blocks: usize,
+	pub concurrency: usize,
+}
+
+impl EthRpcParams {
+	/**
+	 * Builds the facade config unless `--no-eth-rpc` is set. A pruned node still serves
+	 * it, but only for blocks whose state and body it kept, so it warns at startup.
+	 */
+	pub fn to_config(
+		&self,
+		config: &sc_service::Configuration,
+		para_id: u32,
+	) -> Option<EthRpcConfig> {
+		if self.no_eth_rpc {
+			return None;
+		}
+		if !keeps_finalized_history(config.state_pruning.as_ref(), &config.blocks_pruning) {
+			log::warn!(
+				target: "eth-rpc",
+				"Ethereum JSON-RPC facade is on but this node prunes state or blocks, so \
+				eth_getLogs fails for pruned blocks; indexers need --state-pruning=archive \
+				(passed on every start) and --blocks-pruning=archive, or archive-canonical"
+			);
+		}
+		Some(self.config_for(config.chain_spec.id(), para_id))
+	}
+
+	fn config_for(&self, chain_name: &str, para_id: u32) -> EthRpcConfig {
+		EthRpcConfig {
+			chain_name: chain_name.to_string(),
+			eth_chain_id: 1_000_000_000 + para_id as u64,
+			max_block_range: self.eth_rpc_max_block_range,
+			cache_blocks: self.eth_rpc_cache_blocks,
+			concurrency: self.eth_rpc_concurrency,
+		}
+	}
+}
+
+/** True when state and block bodies are kept for every finalized block. */
+fn keeps_finalized_history(
+	state_pruning: Option<&sc_service::config::PruningMode>,
+	blocks_pruning: &sc_service::config::BlocksPruning,
+) -> bool {
+	use sc_service::config::{BlocksPruning, PruningMode};
+	matches!(state_pruning, Some(PruningMode::ArchiveAll | PruningMode::ArchiveCanonical)) &&
+		matches!(blocks_pruning, BlocksPruning::KeepAll | BlocksPruning::KeepFinalized)
 }
 
 #[derive(Debug, clap::Parser)]
@@ -119,6 +194,9 @@ pub struct Cli {
 	#[arg(long)]
 	pub tesseract_config: Option<PathBuf>,
 
+	#[command(flatten)]
+	pub eth_rpc: EthRpcParams,
+
 	/// Relay chain arguments
 	#[arg(raw = true)]
 	pub relay_chain_args: Vec<String>,
@@ -150,5 +228,46 @@ impl RelayChainCli {
 			chain_id,
 			base: clap::Parser::parse_from(relay_chain_args),
 		}
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::{keeps_finalized_history, EthRpcParams};
+	use polkadot_sdk::sc_service::config::{BlocksPruning, PruningMode};
+
+	fn params() -> EthRpcParams {
+		EthRpcParams {
+			no_eth_rpc: false,
+			eth_rpc_max_block_range: 500,
+			eth_rpc_cache_blocks: 4096,
+			eth_rpc_concurrency: 8,
+		}
+	}
+
+	#[test]
+	fn eth_rpc_config_derives_chain_id_from_para_id() {
+		let nexus = params().config_for("nexus", 3367);
+		assert_eq!(nexus.eth_chain_id, 1_000_003_367);
+		assert_eq!(nexus.chain_name, "nexus");
+		assert_eq!(nexus.max_block_range, 500);
+		assert_eq!(nexus.cache_blocks, 4096);
+		assert_eq!(nexus.concurrency, 8);
+
+		let gargantua = params().config_for("gargantua-4009", 4009);
+		assert_eq!(gargantua.eth_chain_id, 1_000_004_009);
+		assert_eq!(gargantua.chain_name, "gargantua-4009");
+	}
+
+	#[test]
+	fn eth_rpc_needs_finalized_state_and_blocks() {
+		let archive = Some(&PruningMode::ArchiveAll);
+		let canonical = Some(&PruningMode::ArchiveCanonical);
+		let pruned = PruningMode::blocks_pruning(256);
+		assert!(keeps_finalized_history(archive, &BlocksPruning::KeepAll));
+		assert!(keeps_finalized_history(canonical, &BlocksPruning::KeepFinalized));
+		assert!(!keeps_finalized_history(None, &BlocksPruning::KeepAll));
+		assert!(!keeps_finalized_history(Some(&pruned), &BlocksPruning::KeepAll));
+		assert!(!keeps_finalized_history(archive, &BlocksPruning::Some(256)));
 	}
 }

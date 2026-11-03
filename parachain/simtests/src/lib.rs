@@ -1,4 +1,5 @@
 mod base_call_filter;
+mod eth_rpc;
 mod intents_rpc;
 mod migration_test;
 mod pallet_beefy_consensus_proofs;

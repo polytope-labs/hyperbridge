@@ -9500,6 +9500,7 @@ dependencies = [
  "serde",
  "serde_json",
  "simnode-runtime-api",
+ "substrate-eth-rpc",
  "tokio",
 ]
 
@@ -24537,6 +24538,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sp-core",
+ "substrate-eth-rpc",
  "substrate-state-machine",
  "subxt 0.42.1",
  "subxt-signer 0.41.0",
@@ -27405,6 +27407,39 @@ name = "substrate-build-script-utils"
 version = "11.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cef974dcccff00efe83bcbbb73e5ac0c4e93d49f405b16976cd804fd63574a9f"
+
+[[package]]
+name = "substrate-eth-rpc"
+version = "0.1.0"
+dependencies = [
+ "alloy-consensus",
+ "alloy-dyn-abi",
+ "alloy-json-abi",
+ "alloy-primitives 1.5.7",
+ "alloy-rpc-types-eth",
+ "alloy-sol-types 1.5.7",
+ "anyhow",
+ "async-trait",
+ "clap",
+ "futures",
+ "ismp",
+ "jsonrpsee 0.24.11",
+ "lru 0.16.3",
+ "parity-scale-codec",
+ "polkadot-sdk",
+ "scale-value",
+ "serde",
+ "serde_json",
+ "sp-crypto-hashing",
+ "subxt 0.42.1",
+ "subxt-core 0.42.1",
+ "thiserror 2.0.18",
+ "tokio",
+ "toml 0.8.23",
+ "tower 0.4.13",
+ "tracing",
+ "tracing-subscriber 0.3.19",
+]
 
 [[package]]
 name = "substrate-frame-rpc-system"

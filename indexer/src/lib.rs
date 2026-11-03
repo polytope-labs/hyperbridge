@@ -46,16 +46,36 @@ impl Indexer {
 	}
 }
 
-/** Connects, migrates, and indexes until shutdown. */
-pub async fn run(config_path: &Path, run_dir: &Path) -> anyhow::Result<()> {
+/**
+ * Connects, migrates, and indexes `selected` chains (all when empty) until shutdown. rindexer
+ * finishes every chain's history before any chain goes live, so one process per chain keeps a
+ * slow or stuck chain from holding back the others.
+ */
+pub async fn run(config_path: &Path, run_dir: &Path, selected: &[String]) -> anyhow::Result<()> {
 	let config = Config::load(config_path)?;
+	for name in selected {
+		if !config.chains.contains_key(name) {
+			return Err(anyhow!("--chains: {name} is not in {}", config_path.display()));
+		}
+	}
+	let indexed: Vec<&String> = config
+		.chains
+		.keys()
+		.filter(|n| selected.is_empty() || selected.contains(n))
+		.collect();
+
+	// Each chain's batch holds a connection for its transaction, and rindexer's default pool
+	// is 10. Leave room for the flusher, the watchlist and idle hooks.
+	if std::env::var_os("DATABASE_POOL_SIZE").is_none() {
+		std::env::set_var("DATABASE_POOL_SIZE", (indexed.len() * 2 + 4).max(10).to_string());
+	}
 	let db = Arc::new(PostgresClient::new().await.context("connecting to DATABASE_URL")?);
 	db::migrate(&db).await?;
 
 	let http = reqwest::Client::builder().build()?;
 	let mut chains = BTreeMap::new();
-	for (name, chain) in &config.chains {
-		chains.insert(name.clone(), Chain::connect(name, chain, &http)?);
+	for name in indexed {
+		chains.insert(name.clone(), Chain::connect(name, &config.chains[name], &http)?);
 	}
 	let rpc_urls: BTreeMap<String, String> = chains
 		.iter()
@@ -66,6 +86,7 @@ pub async fn run(config_path: &Path, run_dir: &Path) -> anyhow::Result<()> {
 	let routes: HashMap<String, Arc<registry::ChainRoutes>> = config
 		.chains
 		.iter()
+		.filter(|(name, _)| chains.contains_key(*name))
 		.map(|(name, chain)| {
 			let routes =
 				registry::ChainRoutes::new(chain, &handlers.subscriptions, &handlers.hooks);

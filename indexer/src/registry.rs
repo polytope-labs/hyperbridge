@@ -213,6 +213,8 @@ pub struct ChainRoutes {
 	hooks: Vec<Arc<dyn BlockHook>>,
 	/** Held while a batch or an idle hook run writes, so the two never interleave. */
 	writing: tokio::sync::Mutex<()>,
+	/** rindexer's progress table for this chain, once found. */
+	progress_table: std::sync::OnceLock<String>,
 }
 
 impl ChainRoutes {
@@ -231,7 +233,7 @@ impl ChainRoutes {
 			}
 		}
 		let hooks = hooks.iter().filter(|hook| hook.applies_to(chain)).cloned().collect();
-		Self { routes, hooks, writing: Default::default() }
+		Self { routes, hooks, writing: Default::default(), progress_table: Default::default() }
 	}
 
 	pub fn addresses(&self) -> BTreeSet<Address> {
@@ -441,10 +443,29 @@ pub fn spawn_idle_hooks(indexer: Arc<Indexer>, routes: &HashMap<String, Arc<Chai
 	}
 }
 
-/** rindexer's progress table for a chain's stream
- * (`rindexer_internal.<indexer>_<contract>_<event>`). */
-fn progress_table(network: &str) -> String {
-	format!("hyperbridge_indexer_{}_all_events", stream_name(network).to_lowercase())
+/**
+ * rindexer's progress table for a chain's stream. Its name is derived from ours by rindexer's
+ * snake-casing and hashed when long, so it's found by the row it holds for the chain instead.
+ */
+async fn find_progress_table(
+	tx: &Transaction<'_>,
+	network: &str,
+) -> anyhow::Result<Option<String>> {
+	let candidates = tx
+		.query(
+			"SELECT table_name::text FROM information_schema.tables
+			 WHERE table_schema = 'rindexer_internal' AND table_name LIKE 'hyperbridge_indexer_chain%'",
+			&[],
+		)
+		.await?;
+	for row in candidates {
+		let table: String = row.get(0);
+		let sql = format!("SELECT 1 FROM rindexer_internal.\"{table}\" WHERE network = $1");
+		if tx.query_opt(&sql, &[&network]).await?.is_some() {
+			return Ok(Some(table));
+		}
+	}
+	Ok(None)
 }
 
 async fn run_idle_hooks(
@@ -456,13 +477,23 @@ async fn run_idle_hooks(
 	let _writing = routes.writing.lock().await;
 	let mut conn = indexer.db.raw_connection().await?;
 	let tx = conn.transaction().await?;
-	let table = format!("rindexer_internal.{}", progress_table(network));
-	let exists: bool = tx.query_one("SELECT to_regclass($1) IS NOT NULL", &[&table]).await?.get(0);
-	if !exists {
-		// Before rindexer's first sync, or if a rindexer upgrade renamed the table.
-		tracing::debug!(%network, "no progress table {table} yet");
-		return Ok(());
-	}
+	let table = match routes.progress_table.get() {
+		Some(table) => table.clone(),
+		None => match find_progress_table(&tx, network).await? {
+			Some(table) => routes.progress_table.get_or_init(|| table).clone(),
+			None => {
+				// Expected before rindexer's first sync. After it, this is a rindexer change.
+				let cursor = tx
+					.query_opt("SELECT 1 FROM indexer.cursors WHERE network = $1", &[&network])
+					.await?;
+				if cursor.is_some() {
+					tracing::warn!(%network, "no rindexer progress table found; idle hooks are off");
+				}
+				return Ok(());
+			},
+		},
+	};
+	let table = format!("rindexer_internal.\"{table}\"");
 	let synced: Option<String> = tx
 		.query_opt(
 			&format!("SELECT last_synced_block::text FROM {table} WHERE network = $1"),

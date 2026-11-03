@@ -63,24 +63,29 @@ pub async fn resolve_bid_source(
 ) -> anyhow::Result<BidSource> {
 	let rpc = chain.substrate()?;
 	let block: Value = rpc.call("chain_getBlock", json!([log.block_hash])).await?;
-	let extrinsics: Vec<Vec<u8>> = block
+	// A node that pruned the body answers null. That repeats on every retry, so fall back to
+	// `intents_getBidsForOrder` instead of failing the batch.
+	let extrinsics: Vec<Vec<u8>> = match block
 		.pointer("/block/extrinsics")
 		.and_then(Value::as_array)
-		.ok_or_else(|| anyhow::anyhow!("chain_getBlock {} has no extrinsics", log.block_hash))?
-		.iter()
-		.map(|e| hex::decode(e.as_str().unwrap_or_default().trim_start_matches("0x")))
-		.collect::<Result<_, _>>()?;
+	{
+		Some(extrinsics) => extrinsics
+			.iter()
+			.map(|e| hex::decode(e.as_str().unwrap_or_default().trim_start_matches("0x")))
+			.collect::<Result<_, _>>()?,
+		None => {
+			tracing::warn!(block = %log.block_hash, "chain_getBlock returned no body; bid data from the node's live bids");
+			vec![]
+		},
+	};
 	// The facade hashes extrinsics with the chain's hasher (keccak on Hyperbridge); prefer the
 	// extrinsic with the log's hash and fall back to its index.
 	let extrinsic = extrinsics
 		.iter()
 		.find(|e| keccak256(e) == log.transaction_hash)
 		.or_else(|| extrinsics.get(log.transaction_index as usize));
-	let Some(extrinsic) = extrinsic else {
-		return Ok(BidSource { bid_data: None, extrinsic_hash: None });
-	};
-	let extrinsic_hash = Some(log.transaction_hash.to_string());
-	if let Some(user_op) = extract_user_op(extrinsic, commitment, bid) {
+	let extrinsic_hash = extrinsic.map(|_| log.transaction_hash.to_string());
+	if let Some(user_op) = extrinsic.and_then(|e| extract_user_op(e, commitment, bid)) {
 		return Ok(BidSource {
 			bid_data: Some(format!("0x{}", hex::encode(user_op))),
 			extrinsic_hash,

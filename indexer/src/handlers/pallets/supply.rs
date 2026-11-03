@@ -63,10 +63,18 @@ impl BlockHook for BridgeTokenSupply {
 		let Some(block) = trigger_block(previous, start, ctx.block_number) else {
 			return Ok(());
 		};
-		let rpc = ctx.chain.substrate()?;
-		let Some(supply) = read_supply(rpc, block).await? else {
-			tracing::warn!(block, "bridge token supply: no TotalIssuance; not updated");
-			return Ok(());
+		// SubQuery caught every error here. A failure that repeats (a pruned node, a response
+		// limit) would otherwise stop all of Hyperbridge's events, not just the supply.
+		let supply = match read_supply(ctx.chain.substrate()?, block).await {
+			Ok(Some(supply)) => supply,
+			Ok(None) => {
+				tracing::warn!(block, "bridge token supply: no TotalIssuance; not updated");
+				return Ok(());
+			},
+			Err(err) => {
+				tracing::warn!(block, "bridge token supply: {err:#}; not updated");
+				return Ok(());
+			},
 		};
 		write_supply(ctx.db, &supply).await
 	}

@@ -72,8 +72,9 @@ impl Dec {
 	pub fn to_fixed(&self, places: u32) -> String {
 		let rounded = self.0.with_scale_round(places as i64, RoundingMode::HalfUp);
 		let text = rounded.to_plain_string();
-		if text.starts_with('-') && rounded == BigDecimal::from(0) {
-			text[1..].to_string()
+		// decimal.js writes "-0.00" for a negative value that rounds to zero.
+		if self.0 < BigDecimal::from(0) && !text.starts_with('-') {
+			format!("-{text}")
 		} else {
 			text
 		}
@@ -153,6 +154,7 @@ mod tests {
 		assert_eq!(Dec::parse("-1.5").unwrap().to_fixed(0), "-2");
 		assert_eq!(Dec::parse("0.1").unwrap().to_fixed(3), "0.100");
 		assert_eq!(Dec::zero().to_fixed(18), "0.000000000000000000");
+		assert_eq!(Dec::parse("-0.001").unwrap().to_fixed(2), "-0.00");
 	}
 
 	#[test]

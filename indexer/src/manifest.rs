@@ -26,6 +26,7 @@ pub fn build(
 	let networks: Vec<Value> = config
 		.chains
 		.iter()
+		.filter(|(name, _)| rpc_urls.contains_key(*name))
 		.map(|(name, chain)| {
 			let mut network = json!({
 				"name": name,

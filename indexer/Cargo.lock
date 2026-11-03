@@ -7360,6 +7360,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_yaml",
+ "sp-crypto-hashing",
  "tokio",
  "tokio-postgres",
  "toml",

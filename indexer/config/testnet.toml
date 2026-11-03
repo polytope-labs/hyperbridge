@@ -148,3 +148,14 @@ erc6160ext20 = "0xBe97E73126d66188d72FBf99029126d0340a7f18"
 description = "USDC — listed so the LP balance sweep tracks the raw ERC-20 balance"
 vaults = []
 
+# Uniswap contracts the intent gateway's dust is priced with, from the TypeScript indexer's
+# UNISWAP_ADDRESSES. Chains without an entry price dust at 0, as they did there.
+
+[chains.bsc-chapel.contracts.uniswap]
+v2_factory = "0x12e036669DA18F4A2777853d6e2136b32AceEC86"
+v4_quoter = "0x0000000000000000000000000000000000000000"
+weth = "0xae13d989daC2f0dEbFf460aC112a837C89BAa7cd"
+usdc = "0xC625ec7D30A4b1AAEfb1304610CdAcD0d606aC92"
+usdt = "0xc043f483373072f7f27420d6e7d7ad269c018e18"
+dai = "0x1938165569A5463327fb206bE06d8D9253aa06b7"
+

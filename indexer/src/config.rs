@@ -6,8 +6,28 @@ use serde::Deserialize;
 
 /** Every chain the indexer follows, keyed by network name (e.g. `bsc-mainnet`). */
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Config {
+	pub environment: Environment,
 	pub chains: BTreeMap<String, ChainConfig>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Environment {
+	Mainnet,
+	/** Prices read as 0 on testnets, as they did in SubQuery. */
+	Testnet,
+}
+
+impl Environment {
+	/** Hyperbridge's own state machine id. */
+	pub fn hyperbridge(&self) -> &'static str {
+		match self {
+			Environment::Mainnet => "POLKADOT-3367",
+			Environment::Testnet => "KUSAMA-4009",
+		}
+	}
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
@@ -32,6 +52,9 @@ pub struct ChainConfig {
 	/** Largest `eth_getLogs` span the RPC accepts. */
 	#[serde(default)]
 	pub max_block_range: Option<u64>,
+	/** An OP-stack chain, whose receipts carry an `l1Fee` paid on top of gas. */
+	#[serde(default)]
+	pub op_stack: bool,
 	#[serde(default)]
 	pub contracts: Contracts,
 }
@@ -43,6 +66,8 @@ pub struct Contracts {
 	pub handler_v2: Option<Address>,
 	pub erc6160ext20: Option<Address>,
 	pub intent_gateway_v3: Option<Address>,
+	/** Chainlink native-currency/USD feed, for pricing gas. */
+	pub native_usd_feed: Option<Address>,
 	#[serde(default)]
 	pub solver_accounts: Vec<Address>,
 	/** Tokens the solver inventory tracks, each with the ERC-4626 vaults that hold it. */

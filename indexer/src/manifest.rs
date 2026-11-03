@@ -12,9 +12,10 @@ use crate::{
 };
 
 /**
- * Builds the rindexer manifest: one stream per chain over every address its handlers watch, with
- * the chain's start block and reorg-safe distance. rindexer's table creation and reorg rollback
- * are off: handlers write the `app` tables themselves and only see blocks past the safe distance.
+ * Builds the rindexer manifest: one stream per chain over every address its handlers watch,
+ * with the chain's start block and reorg-safe distance. rindexer's table creation and reorg
+ * rollback are off: handlers write the `app` tables themselves and only see blocks past the
+ * safe distance.
  */
 pub fn build(
 	config: &Config,

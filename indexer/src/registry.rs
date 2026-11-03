@@ -1,4 +1,8 @@
-use std::{collections::HashMap, path::Path, sync::Arc};
+use std::{
+	collections::{BTreeSet, HashMap},
+	path::Path,
+	sync::Arc,
+};
 
 use alloy::{
 	primitives::{Address, Log, B256},
@@ -124,7 +128,6 @@ pub trait EventHandler: Send + Sync + 'static {
 #[async_trait]
 trait LogHandler: Send + Sync {
 	fn topic(&self) -> B256;
-	fn signature(&self) -> &'static str;
 	async fn handle_log(&self, ctx: &EventContext<'_>, log: &Log) -> anyhow::Result<()>;
 }
 
@@ -134,9 +137,6 @@ impl<H: EventHandler> LogHandler for H {
 		H::Event::SIGNATURE_HASH
 	}
 
-	fn signature(&self) -> &'static str {
-		H::Event::SIGNATURE
-	}
 
 	async fn handle_log(&self, ctx: &EventContext<'_>, log: &Log) -> anyhow::Result<()> {
 		let event = H::Event::decode_log(log)
@@ -158,129 +158,154 @@ impl Subscription {
 	}
 
 	/** The event name rindexer matches against the ABI, e.g. `PostRequestEvent`. */
-	pub fn event_name(&self) -> &'static str {
-		let signature = self.handler.signature();
-		&signature[..signature.find('(').unwrap_or(signature.len())]
-	}
-
 	pub fn topic(&self) -> B256 {
 		self.handler.topic()
 	}
 }
 
-/** The manifest name of a source on one network. Each network gets its own entry, so each can
- * have its own reorg-safe distance. */
-pub fn contract_name(source: &Source, network: &str) -> String {
-	format!("{}__{}", source.name(), network.replace('-', "_"))
+/** The one event each chain's rindexer stream is registered under. `AllTopicsProvider` widens
+ * its `eth_getLogs` to every topic the chain's handlers subscribe to. */
+pub const STREAM_EVENT: &str = "AllEvents";
+
+pub fn stream_topic() -> B256 {
+	alloy::primitives::keccak256(format!("{STREAM_EVENT}()"))
 }
 
-/** Registers every subscription on every network rindexer's manifest lists for its source. */
+/** The manifest contract name of a chain's stream. */
+pub fn stream_name(network: &str) -> String {
+	format!("Chain__{}", network.replace('-', "_"))
+}
+
+/** The ABI rindexer is given for every stream: one event with no inputs. */
+pub fn stream_abi() -> String {
+	format!(r#"[{{"type":"event","name":"{STREAM_EVENT}","inputs":[],"anonymous":false}}]"#)
+}
+
+/** A chain's handlers, keyed by the address and topic of the logs they take. */
+#[derive(Default)]
+pub struct ChainRoutes {
+	routes: HashMap<(Address, B256), Vec<Arc<dyn LogHandler>>>,
+}
+
+impl ChainRoutes {
+	pub fn new(chain: &ChainConfig, subscriptions: &[Subscription]) -> Self {
+		let mut routes: HashMap<(Address, B256), Vec<Arc<dyn LogHandler>>> = HashMap::new();
+		for subscription in subscriptions {
+			for address in subscription.source.addresses(chain) {
+				routes
+					.entry((address, subscription.topic()))
+					.or_default()
+					.push(subscription.handler.clone());
+			}
+		}
+		Self { routes }
+	}
+
+	pub fn addresses(&self) -> BTreeSet<Address> {
+		self.routes.keys().map(|(address, _)| *address).collect()
+	}
+
+	pub fn topics(&self) -> BTreeSet<B256> {
+		self.routes.keys().map(|(_, topic)| *topic).collect()
+	}
+
+	fn handlers(&self, address: Address, topic: B256) -> &[Arc<dyn LogHandler>] {
+		self.routes.get(&(address, topic)).map(Vec::as_slice).unwrap_or_default()
+	}
+}
+
+/** Registers each chain's stream with rindexer. */
 pub fn register_all(
 	indexer: &Arc<Indexer>,
 	manifest: &Manifest,
 	manifest_path: &Path,
-	subscriptions: &[Subscription],
+	routes: &HashMap<String, Arc<ChainRoutes>>,
 	providers: &HashMap<String, Arc<dyn ChainProvider>>,
 	registry: &mut EventCallbackRegistry,
 ) -> anyhow::Result<()> {
 	for contract in &manifest.contracts {
-		for subscription in subscriptions {
-			let [detail] = contract.details.as_slice() else {
-				return Err(anyhow!("contract {} must list exactly one network", contract.name));
-			};
-			if contract.name != contract_name(&subscription.source, &detail.network) {
-				continue;
-			}
-			let provider = providers
-				.get(&detail.network)
-				.ok_or_else(|| anyhow!("no provider for {}", detail.network))?
-				.clone();
-			let network = manifest
-				.networks
-				.iter()
-				.find(|n| n.name == detail.network)
-				.ok_or_else(|| anyhow!("network {} not in manifest", detail.network))?;
+		let [detail] = contract.details.as_slice() else {
+			return Err(anyhow!("contract {} must list exactly one network", contract.name));
+		};
+		let network = detail.network.clone();
+		let provider =
+			providers.get(&network).ok_or_else(|| anyhow!("no provider for {network}"))?.clone();
+		let chain_routes =
+			routes.get(&network).ok_or_else(|| anyhow!("no routes for {network}"))?.clone();
 
-			let network_contract = NetworkContract {
-				id: generate_random_id(10),
-				network: detail.network.clone(),
-				cached_provider: provider.clone(),
-				block_clock: BlockClock::new(
-					manifest.timestamps,
-					manifest.config.timestamp_sample_rate,
-					provider.clone(),
-				),
-				decoder: noop_decoder(),
-				indexing_contract_setup: detail.indexing_contract_setup(manifest_path),
-				start_block: detail.start_block,
-				end_block: detail.end_block,
-				disable_logs_bloom_checks: network.disable_logs_bloom_checks.unwrap_or_default(),
-			};
+		let network_contract = NetworkContract {
+			id: generate_random_id(10),
+			network: network.clone(),
+			cached_provider: provider.clone(),
+			block_clock: BlockClock::new(
+				manifest.timestamps,
+				manifest.config.timestamp_sample_rate,
+				provider.clone(),
+			),
+			decoder: noop_decoder(),
+			indexing_contract_setup: detail.indexing_contract_setup(manifest_path),
+			start_block: detail.start_block,
+			end_block: detail.end_block,
+			// The bloom pre-check only knows the stream's placeholder topic.
+			disable_logs_bloom_checks: true,
+		};
 
-			let processor = format!("{}:{}", contract.name, subscription.handler.signature());
-			let callback = {
+		let callback = {
+			let indexer = indexer.clone();
+			let network = network.clone();
+			Arc::new(move |results: Vec<EventResult>| {
 				let indexer = indexer.clone();
-				let handler = subscription.handler.clone();
-				let processor = processor.clone();
-				let network = detail.network.clone();
-				Arc::new(move |results: Vec<EventResult>| {
-					let indexer = indexer.clone();
-					let handler = handler.clone();
-					let processor = processor.clone();
-					let network = network.clone();
-					async move {
-						process_batch(&indexer, &processor, &network, handler.as_ref(), results)
-							.await
-							.map_err(|err| {
-								tracing::error!(%processor, "batch failed: {err:#}");
-								format!("{err:#}")
-							})
-					}
-					.boxed()
-				})
-			};
+				let network = network.clone();
+				let chain_routes = chain_routes.clone();
+				async move {
+					process_batch(&indexer, &network, &chain_routes, results).await.map_err(|err| {
+						tracing::error!(%network, "batch failed: {err:#}");
+						format!("{err:#}")
+					})
+				}
+				.boxed()
+			})
+		};
 
-			registry.register_event(EventCallbackRegistryInformation {
-				id: generate_random_id(10),
-				indexer_name: manifest.name.clone(),
-				event_name: subscription.event_name().to_string(),
-				index_event_in_order: true,
-				topic_id: subscription.topic(),
-				contract: ContractInformation {
-					name: contract.name.clone(),
-					details: vec![network_contract],
-					abi: contract.abi.clone(),
-					reorg_safe_distance: contract.reorg_safe_distance,
-				},
-				callback,
-				tables: Arc::new(vec![]),
-				reorg_sender: None,
-				streams_clients: Arc::new(None),
-				providers: Arc::new(HashMap::from([(detail.network.clone(), provider)])),
-				constants: Arc::new(manifest.constants.clone()),
-				multicall_addresses: Arc::new(
-					manifest
-						.networks
-						.iter()
-						.map(|n| (n.name.clone(), n.multicall3_address.clone()))
-						.collect(),
-				),
-			});
-		}
+		registry.register_event(EventCallbackRegistryInformation {
+			id: generate_random_id(10),
+			indexer_name: manifest.name.clone(),
+			event_name: STREAM_EVENT.to_string(),
+			index_event_in_order: true,
+			topic_id: stream_topic(),
+			contract: ContractInformation {
+				name: contract.name.clone(),
+				details: vec![network_contract],
+				abi: contract.abi.clone(),
+				reorg_safe_distance: contract.reorg_safe_distance,
+			},
+			callback,
+			tables: Arc::new(vec![]),
+			reorg_sender: None,
+			streams_clients: Arc::new(None),
+			providers: Arc::new(HashMap::from([(network.clone(), provider)])),
+			constants: Arc::new(manifest.constants.clone()),
+			multicall_addresses: Arc::new(
+				manifest
+					.networks
+					.iter()
+					.map(|n| (n.name.clone(), n.multicall3_address.clone()))
+					.collect(),
+			),
+		});
 	}
 	Ok(())
 }
 
 /**
- * Runs a batch in one database transaction, together with the processor's cursor. rindexer
- * records its own progress after the callback returns, so a crash can replay a batch; the cursor
- * makes the replay skip logs that already committed.
+ * Runs a batch of one chain's logs in block order, in one database transaction together with the
+ * chain's cursor. rindexer records its own progress after the callback returns, so a crash can
+ * replay a batch; the cursor makes the replay skip logs that already committed.
  */
 async fn process_batch(
 	indexer: &Indexer,
-	processor: &str,
 	network: &str,
-	handler: &dyn LogHandler,
+	routes: &ChainRoutes,
 	mut results: Vec<EventResult>,
 ) -> anyhow::Result<()> {
 	if results.is_empty() {
@@ -293,8 +318,8 @@ async fn process_batch(
 	let tx = conn.transaction().await?;
 	let cursor = tx
 		.query_opt(
-			"SELECT block_number, log_index FROM indexer.cursors WHERE processor = $1 FOR UPDATE",
-			&[&processor],
+			"SELECT block_number, log_index FROM indexer.cursors WHERE network = $1 FOR UPDATE",
+			&[&network],
 		)
 		.await?
 		.map(|row| (row.get::<_, i64>(0) as u64, row.get::<_, i64>(1) as u64));
@@ -302,6 +327,17 @@ async fn process_batch(
 	let mut last = cursor;
 	for result in &results {
 		let info = &result.tx_information;
+		let position = (info.block_number, info.log_index.to::<u64>());
+		if last.is_some_and(|done| position <= done) {
+			continue;
+		}
+		last = Some(position);
+		let Some(topic) = result.log.inner.topics().first().copied() else { continue };
+		// The request is every address crossed with every topic, so some logs match no route.
+		let handlers = routes.handlers(info.address, topic);
+		if handlers.is_empty() {
+			continue;
+		}
 		let meta = LogMeta {
 			address: info.address,
 			block_number: info.block_number,
@@ -312,22 +348,19 @@ async fn process_batch(
 				.ok_or_else(|| anyhow!("log at block {} has no timestamp", info.block_number))?,
 			transaction_hash: info.transaction_hash,
 			transaction_index: info.transaction_index,
-			log_index: info.log_index.to::<u64>(),
+			log_index: position.1,
 		};
-		let position = (meta.block_number, meta.log_index);
-		if last.is_some_and(|done| position <= done) {
-			continue;
-		}
 		let ctx = EventContext { indexer, chain, db: &tx, log: &meta };
-		handler.handle_log(&ctx, &result.log.inner).await?;
-		last = Some(position);
+		for handler in handlers {
+			handler.handle_log(&ctx, &result.log.inner).await?;
+		}
 	}
 
 	if let Some((block_number, log_index)) = last {
 		tx.execute(
-			"INSERT INTO indexer.cursors (processor, block_number, log_index) VALUES ($1, $2, $3)
-			 ON CONFLICT (processor) DO UPDATE SET block_number = $2, log_index = $3",
-			&[&processor, &(block_number as i64), &(log_index as i64)],
+			"INSERT INTO indexer.cursors (network, block_number, log_index) VALUES ($1, $2, $3)
+			 ON CONFLICT (network) DO UPDATE SET block_number = $2, log_index = $3",
+			&[&network, &(block_number as i64), &(log_index as i64)],
 		)
 		.await?;
 	}

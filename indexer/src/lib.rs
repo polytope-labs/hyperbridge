@@ -118,6 +118,7 @@ pub async fn run(config_path: &Path, run_dir: &Path) -> anyhow::Result<()> {
 		&providers,
 		&mut registry,
 	)?;
+	registry::spawn_idle_hooks(indexer.clone(), &routes);
 
 	start_rindexer(StartDetails {
 		manifest_path: &manifest_path,

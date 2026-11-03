@@ -2,10 +2,12 @@ use std::{
 	collections::{BTreeSet, HashMap},
 	path::Path,
 	sync::Arc,
+	time::Duration,
 };
 
 use alloy::{
 	primitives::{Address, Log, B256},
+	providers::Provider,
 	sol_types::SolEvent,
 };
 use anyhow::{anyhow, Context};
@@ -209,6 +211,8 @@ pub trait BlockHook: Send + Sync + 'static {
 pub struct ChainRoutes {
 	routes: HashMap<(Address, B256), Vec<Arc<dyn LogHandler>>>,
 	hooks: Vec<Arc<dyn BlockHook>>,
+	/** Held while a batch or an idle hook run writes, so the two never interleave. */
+	writing: tokio::sync::Mutex<()>,
 }
 
 impl ChainRoutes {
@@ -227,7 +231,7 @@ impl ChainRoutes {
 			}
 		}
 		let hooks = hooks.iter().filter(|hook| hook.applies_to(chain)).cloned().collect();
-		Self { routes, hooks }
+		Self { routes, hooks, writing: Default::default() }
 	}
 
 	pub fn addresses(&self) -> BTreeSet<Address> {
@@ -345,6 +349,7 @@ async fn process_batch(
 	let chain = indexer.chain(network)?;
 	results.sort_by_key(|r| (r.tx_information.block_number, r.tx_information.log_index));
 
+	let _writing = routes.writing.lock().await;
 	let mut conn = indexer.db.raw_connection().await?;
 	let tx = conn.transaction().await?;
 	let cursor = tx
@@ -404,6 +409,94 @@ async fn process_batch(
 		)
 		.await?;
 	}
+	tx.commit().await?;
+	Ok(())
+}
+
+/** How often a chain's hooks catch up when its stream has had no logs. */
+const IDLE_HOOK_INTERVAL: Duration = Duration::from_secs(15);
+
+/**
+ * rindexer only calls back for ranges that have logs, so on a quiet chain the hooks would stop.
+ * This runs them every [`IDLE_HOOK_INTERVAL`] at the block rindexer has synced to, when that is
+ * past the chain's cursor. rindexer records that block only after the callbacks for every range
+ * up to it returned, so every log up to it is applied.
+ */
+pub fn spawn_idle_hooks(indexer: Arc<Indexer>, routes: &HashMap<String, Arc<ChainRoutes>>) {
+	for (network, chain_routes) in routes {
+		if chain_routes.hooks.is_empty() {
+			continue;
+		}
+		let (indexer, network, chain_routes) =
+			(indexer.clone(), network.clone(), chain_routes.clone());
+		tokio::spawn(async move {
+			let mut interval = tokio::time::interval(IDLE_HOOK_INTERVAL);
+			loop {
+				interval.tick().await;
+				if let Err(err) = run_idle_hooks(&indexer, &network, &chain_routes).await {
+					tracing::warn!(%network, "idle hooks failed: {err:#}");
+				}
+			}
+		});
+	}
+}
+
+/** rindexer's progress table for a chain's stream (`rindexer_internal.<indexer>_<contract>_<event>`). */
+fn progress_table(network: &str) -> String {
+	format!("hyperbridge_indexer_{}_all_events", stream_name(network).to_lowercase())
+}
+
+async fn run_idle_hooks(indexer: &Indexer, network: &str, routes: &ChainRoutes) -> anyhow::Result<()> {
+	let chain = indexer.chain(network)?;
+	let _writing = routes.writing.lock().await;
+	let mut conn = indexer.db.raw_connection().await?;
+	let tx = conn.transaction().await?;
+	let table = format!("rindexer_internal.{}", progress_table(network));
+	let exists: bool = tx
+		.query_one("SELECT to_regclass($1) IS NOT NULL", &[&table])
+		.await?
+		.get(0);
+	if !exists {
+		// Before rindexer's first sync, or if a rindexer upgrade renamed the table.
+		tracing::debug!(%network, "no progress table {table} yet");
+		return Ok(());
+	}
+	let synced: Option<String> = tx
+		.query_opt(&format!("SELECT last_synced_block::text FROM {table} WHERE network = $1"), &[&network])
+		.await?
+		.and_then(|row| row.get(0));
+	let Some(synced) = synced.and_then(|s| s.parse::<u64>().ok()).filter(|b| *b > 0) else {
+		return Ok(());
+	};
+	let cursor: Option<i64> = tx
+		.query_opt("SELECT block_number FROM indexer.cursors WHERE network = $1 FOR UPDATE", &[&network])
+		.await?
+		.map(|row| row.get(0));
+	if cursor.is_some_and(|block| block as u64 >= synced) {
+		return Ok(());
+	}
+	let block = chain
+		.provider
+		.get_block_by_number(synced.into())
+		.await?
+		.ok_or_else(|| anyhow!("{network}: block {synced} not found"))?;
+	let ctx = BlockContext {
+		indexer,
+		chain,
+		db: &tx,
+		block_number: synced,
+		block_timestamp: block.header.timestamp,
+	};
+	for hook in &routes.hooks {
+		hook.after_batch(&ctx).await?;
+	}
+	// The whole block is applied, so its log index is the largest there is.
+	tx.execute(
+		"INSERT INTO indexer.cursors (network, block_number, log_index) VALUES ($1, $2, $3)
+		 ON CONFLICT (network) DO UPDATE SET block_number = $2, log_index = $3",
+		&[&network, &(synced as i64), &i64::MAX],
+	)
+	.await?;
 	tx.commit().await?;
 	Ok(())
 }

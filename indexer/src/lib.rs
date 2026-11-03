@@ -3,6 +3,7 @@ pub mod config;
 pub mod db;
 pub mod handlers;
 pub mod manifest;
+pub mod provider;
 pub mod registry;
 
 use std::{
@@ -42,7 +43,7 @@ impl Indexer {
 }
 
 /** Connects, migrates, and indexes until shutdown. */
-pub async fn run(config_path: &Path, abi_root: &Path, run_dir: &Path) -> anyhow::Result<()> {
+pub async fn run(config_path: &Path, run_dir: &Path) -> anyhow::Result<()> {
 	let config = Config::load(config_path)?;
 	let db = Arc::new(PostgresClient::new().await.context("connecting to DATABASE_URL")?);
 	db::migrate(&db).await?;
@@ -55,13 +56,20 @@ pub async fn run(config_path: &Path, abi_root: &Path, run_dir: &Path) -> anyhow:
 		chains.iter().map(|(name, chain)| (name.clone(), chain.rpc_url.clone())).collect();
 
 	let subscriptions = handlers::subscriptions();
-	let manifest = manifest::build(&config, &rpc_urls, &subscriptions, abi_root)?;
+	let routes: HashMap<String, Arc<registry::ChainRoutes>> = config
+		.chains
+		.iter()
+		.map(|(name, chain)| (name.clone(), Arc::new(registry::ChainRoutes::new(chain, &subscriptions))))
+		.collect();
+
+	let stream_abi = write_private(run_dir, "stream.abi.json", &registry::stream_abi())?;
+	let manifest = manifest::build(&config, &rpc_urls, &routes, &stream_abi);
 	let manifest_path = write_private(run_dir, "rindexer.yaml", &serde_yaml::to_string(&manifest)?)?;
 	let manifest = read_manifest(&manifest_path).map_err(|e| anyhow!("rindexer manifest: {e}"))?;
 
 	let mut providers: HashMap<String, Arc<dyn ChainProvider>> = HashMap::new();
 	for network in &manifest.networks {
-		let provider = create_client(
+		let inner = create_client(
 			&network.rpc,
 			network.chain_id,
 			network.compute_units_per_second,
@@ -73,7 +81,12 @@ pub async fn run(config_path: &Path, abi_root: &Path, run_dir: &Path) -> anyhow:
 		)
 		.await
 		.map_err(|e| anyhow!("rpc client for {}: {e}", network.name))?;
-		providers.insert(network.name.clone(), provider);
+		let topics = routes[&network.name].topics().into_iter().collect();
+		let rpc = chains[&network.name].provider.clone();
+		providers.insert(
+			network.name.clone(),
+			Arc::new(provider::AllTopicsProvider::new(inner, rpc, topics)),
+		);
 	}
 
 	let indexer =
@@ -83,7 +96,7 @@ pub async fn run(config_path: &Path, abi_root: &Path, run_dir: &Path) -> anyhow:
 		&indexer,
 		&manifest,
 		&manifest_path,
-		&subscriptions,
+		&routes,
 		&providers,
 		&mut registry,
 	)?;

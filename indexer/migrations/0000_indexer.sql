@@ -1,6 +1,6 @@
--- The last log each processor (one source on one network, one event) committed.
+-- The last log each chain's stream committed.
 CREATE TABLE indexer.cursors (
-    processor text PRIMARY KEY,
+    network text PRIMARY KEY,
     block_number bigint NOT NULL,
     log_index bigint NOT NULL
 );

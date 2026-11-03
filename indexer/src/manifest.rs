@@ -1,23 +1,27 @@
-use std::{collections::BTreeMap, path::Path};
+use std::{
+	collections::{BTreeMap, HashMap},
+	path::Path,
+	sync::Arc,
+};
 
 use serde_json::{json, Value};
 
 use crate::{
 	config::Config,
-	registry::{contract_name, Source, Subscription},
+	registry::{stream_name, ChainRoutes, STREAM_EVENT},
 };
 
 /**
- * Builds the rindexer manifest. Each source gets one contract entry per network, so each network
- * keeps its own start block and reorg-safe distance. rindexer's table creation and reorg rollback
+ * Builds the rindexer manifest: one stream per chain over every address its handlers watch, with
+ * the chain's start block and reorg-safe distance. rindexer's table creation and reorg rollback
  * are off: handlers write the `app` tables themselves and only see blocks past the safe distance.
  */
 pub fn build(
 	config: &Config,
 	rpc_urls: &BTreeMap<String, String>,
-	subscriptions: &[Subscription],
-	abi_root: &Path,
-) -> anyhow::Result<Value> {
+	routes: &HashMap<String, Arc<ChainRoutes>>,
+	stream_abi: &Path,
+) -> Value {
 	let networks: Vec<Value> = config
 		.chains
 		.iter()
@@ -26,6 +30,7 @@ pub fn build(
 				"name": name,
 				"chain_id": chain.chain_id,
 				"rpc": rpc_urls[name],
+				"disable_logs_bloom_checks": true,
 				"reorg_handling": { "enabled": false },
 			});
 			if let Some(range) = chain.max_block_range {
@@ -35,43 +40,35 @@ pub fn build(
 		})
 		.collect();
 
-	let mut events_by_source: BTreeMap<String, (Source, Vec<&'static str>)> = BTreeMap::new();
-	for subscription in subscriptions {
-		let entry = events_by_source
-			.entry(subscription.source.name())
-			.or_insert_with(|| (subscription.source, vec![]));
-		entry.1.push(subscription.event_name());
-	}
-
-	let mut contracts = vec![];
-	for (network, chain) in &config.chains {
-		for (source, events) in events_by_source.values() {
-			let addresses = source.addresses(chain);
+	let contracts: Vec<Value> = config
+		.chains
+		.iter()
+		.filter_map(|(network, chain)| {
+			let addresses = routes.get(network)?.addresses();
 			if addresses.is_empty() {
-				continue;
+				return None;
 			}
-			let addresses: Vec<String> = addresses.iter().map(|a| a.to_string()).collect();
-			contracts.push(json!({
-				"name": contract_name(source, network),
+			Some(json!({
+				"name": stream_name(network),
 				"details": [{
 					"network": network,
-					"address": addresses,
+					"address": addresses.iter().map(|a| a.to_string()).collect::<Vec<_>>(),
 					"start_block": chain.start_block.to_string(),
 				}],
-				"abi": abi_root.join(source.abi()).to_string_lossy(),
-				"include_events": events,
-				"index_event_in_order": events,
+				"abi": stream_abi.to_string_lossy(),
+				"include_events": [STREAM_EVENT],
+				"index_event_in_order": [STREAM_EVENT],
 				"reorg_safe_distance": chain.reorg_safe_distance,
-			}));
-		}
-	}
+			}))
+		})
+		.collect();
 
-	Ok(json!({
+	json!({
 		"name": "HyperbridgeIndexer",
 		"project_type": "rust",
 		"timestamps": true,
 		"networks": networks,
 		"storage": { "postgres": { "enabled": true, "disable_create_tables": true } },
 		"contracts": contracts,
-	}))
+	})
 }

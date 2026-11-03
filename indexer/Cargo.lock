@@ -4544,6 +4544,7 @@ name = "hyperbridge-indexer"
 version = "0.1.0"
 dependencies = [
  "alloy",
+ "alloy-chains",
  "anyhow",
  "async-trait",
  "chrono",
@@ -4553,6 +4554,7 @@ dependencies = [
  "reqwest 0.12.28",
  "rindexer",
  "rust_decimal",
+ "rustls 0.23.40",
  "serde",
  "serde_json",
  "serde_yaml",

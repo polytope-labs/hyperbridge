@@ -569,60 +569,69 @@ async fn get_requests_handled_before_they_are_indexed_get_a_skeleton() {
 	);
 }
 
-/** S4: the status depends on the request, and is dropped when it isn't indexed (BUG-P1). */
+/**
+ * S4, S5: a Hyperbridge status for a request no chain has indexed yet waits for the request.
+ * Once the request is indexed, a delivery to Hyperbridge itself is its `DESTINATION`. The
+ * delivery counts toward the relayer's stats right away. SubQuery dropped both statuses.
+ */
 #[tokio::test]
-async fn hyperbridge_deliveries_need_the_request() {
-	use hyperbridge_indexer::{
-		handlers::ismp::requests::{upsert_post_request, PostRequestRow},
-		store::numeric,
-	};
+async fn hyperbridge_statuses_wait_for_their_request() {
 	let Some(mut client) = database().await else { return };
 	let db = client.transaction().await.unwrap();
-	let nexus = Asserter::new();
-	let indexer = indexer(Environment::Mainnet, &[hyperbridge(&nexus)]).await;
-	let key = [0x58u8; 32];
-	let handler = substrate::PostRequestHandled(Arc::new(Shared::default()));
-	let missing = B256::repeat_byte(0x44);
-	let ms = 1_700_000_000_000u64;
-
-	nexus.push_success(&storage(&ms.to_le_bytes()));
-	let event = Ismp::PostRequestHandled { commitment: missing, relayer: key.to_vec().into() };
-	handle(&indexer, "nexus", &db, &log(9, 1_700_000_000, B256::repeat_byte(5)), &handler, event)
-		.await;
-	let written = text(&db, "SELECT count(*)::text FROM app.pending_status_metadata").await;
-	assert_eq!(written.as_deref(), Some("0"));
-
-	let commitment = format!("{:#x}", B256::repeat_byte(0x45));
-	upsert_post_request(
-		&db,
-		&PostRequestRow {
-			commitment: &commitment,
-			chain: "EVM-1",
-			source: "EVM-1",
-			dest: "POLKADOT-3367",
-			from: "0x",
-			to: "0x",
-			body: "0x",
-			nonce: numeric(1),
-			timeout_timestamp: numeric(0),
-			fee: numeric(0),
-			block_timestamp: 1_700_000_000,
-		},
-	)
-	.await
-	.unwrap();
-	let event = Ismp::PostRequestHandled {
-		commitment: B256::repeat_byte(0x45),
-		relayer: key.to_vec().into(),
-	};
-	handle(&indexer, "nexus", &db, &log(9, 1_700_000_000, B256::repeat_byte(5)), &handler, event)
-		.await;
-	let status = text(
-		&db,
-		&format!("SELECT status::text FROM app.request_status_metadata WHERE request_id = '{commitment}'"),
+	let (nexus, ethereum) = (Asserter::new(), Asserter::new());
+	let indexer = indexer(
+		Environment::Mainnet,
+		&[
+			hyperbridge(&nexus),
+			("ethereum", chain_config(ChainKind::Evm, "EVM-1", Some(HOST)), &ethereum),
+		],
 	)
 	.await;
-	assert_eq!(status.as_deref(), Some("DESTINATION"));
+	let key = [0x58u8; 32];
+	let ms = 1_700_000_000_000u64;
+	let to: Bytes = BENEFICIARY.parse().unwrap();
+	let body: Bytes = "0x1234".parse().unwrap();
+	let commitment = |dest: &str, nonce: u64| {
+		post_request_commitment(
+			"EVM-1",
+			dest,
+			nonce,
+			1_800_000_000,
+			address(GATEWAY).as_slice(),
+			&to,
+			&body,
+		)
+	};
+	let for_hyperbridge = commitment("POLKADOT-3367", 1);
+	let routed = commitment("EVM-137", 2);
+
+	nexus.push_success(&storage(&ms.to_le_bytes()));
+	let handled = substrate::PostRequestHandled(Arc::new(Shared::default()));
+	let event =
+		Ismp::PostRequestHandled { commitment: for_hyperbridge, relayer: key.to_vec().into() };
+	handle(&indexer, "nexus", &db, &log(9, 1_700_000_000, B256::repeat_byte(5)), &handled, event)
+		.await;
+	nexus.push_success(&storage(&ms.to_le_bytes()));
+	let timed_out = substrate::PostRequestTimeoutHandled(Arc::new(Shared::default()));
+	let event = Ismp::PostRequestTimeoutHandled {
+		commitment: routed,
+		source: "EVM-1".into(),
+		dest: "EVM-137".into(),
+	};
+	let meta = log(9, 1_700_000_000, B256::repeat_byte(6));
+	handle(&indexer, "nexus", &db, &meta, &timed_out, event).await;
+	let waiting = text(
+		&db,
+		"SELECT string_agg(status, ',' ORDER BY status) FROM app.pending_status_metadata",
+	)
+	.await;
+	assert_eq!(waiting.as_deref(), Some("HYPERBRIDGE_DELIVERED,HYPERBRIDGE_TIMED_OUT"));
+	let delivered = text(
+		&db,
+		"SELECT number_of_delivered_messages::text FROM app.hyper_bridge_stats WHERE id = 'POLKADOT-3367'",
+	)
+	.await;
+	assert_eq!(delivered.as_deref(), Some("1"));
 	let relayer = hyperbridge_indexer::substrate::ss58(&key, 42);
 	let activity = text(
 		&db,
@@ -630,12 +639,66 @@ async fn hyperbridge_deliveries_need_the_request() {
 	)
 	.await;
 	assert_eq!(activity, Some(ms.to_string()), "Substrate timestamps are milliseconds");
-	let delivered = text(
+
+	let dispatched = evm::PostRequestEvent(Arc::new(Shared::default()));
+	for (dest, nonce) in [("POLKADOT-3367", 1u8), ("EVM-137", 2)] {
+		ethereum.push_success(&empty_receipt());
+		let event = EthereumHost::PostRequestEvent {
+			source: "EVM-1".into(),
+			dest: dest.into(),
+			from: address(GATEWAY),
+			to: to.clone(),
+			nonce: U256::from(nonce),
+			timeoutTimestamp: U256::from(1_800_000_000u64),
+			body: body.clone(),
+			fee: U256::from(5_000_000u64),
+		};
+		let meta = log(10, 1_700_000_000, B256::repeat_byte(nonce));
+		handle(&indexer, "ethereum", &db, &meta, &dispatched, event).await;
+	}
+	for (commitment, expected) in [
+		(for_hyperbridge, "SOURCE@EVM-1,DESTINATION@POLKADOT-3367"),
+		(routed, "SOURCE@EVM-1,HYPERBRIDGE_TIMED_OUT@POLKADOT-3367"),
+	] {
+		let statuses = text(
+			&db,
+			&format!(
+				"SELECT string_agg(status || '@' || chain, ',' ORDER BY timestamp)
+				 FROM app.request_status_metadata WHERE request_id = '{commitment:#x}'"
+			),
+		)
+		.await;
+		assert_eq!(statuses.as_deref(), Some(expected));
+	}
+	let waiting = text(&db, "SELECT count(*)::text FROM app.pending_status_metadata").await;
+	assert_eq!(waiting.as_deref(), Some("0"));
+}
+
+/** `relayer.AccumulateFees` keeps the fees of a relayer named by an EVM address, which SubQuery
+ * dropped. It is named as `Withdraw` names it, in lowercase hex. */
+#[tokio::test]
+async fn accumulated_fees_keep_evm_relayers() {
+	use hyperbridge_indexer::handlers::{abi::pallets::Relayer, pallets::relayer};
+	let Some(mut client) = database().await else { return };
+	let db = client.transaction().await.unwrap();
+	let nexus = Asserter::new();
+	let indexer = indexer(Environment::Mainnet, &[hyperbridge(&nexus)]).await;
+	// `HostExecutive.FeeTokenDecimals(EVM-1)`: 6.
+	nexus.push_success(&storage(&[6]));
+	let event = Relayer::AccumulateFees {
+		relayer: "0xBC50B907000000000000000000000000000000AA".parse().unwrap(),
+		stateMachine: "EVM-1".into(),
+		amount: U256::from(5_000_000_000_000_000u64),
+	};
+	let meta = log(9, 1_700_000_000, B256::repeat_byte(5));
+	handle(&indexer, "nexus", &db, &meta, &relayer::AccumulateFees, event).await;
+	let fees = text(
 		&db,
-		"SELECT number_of_delivered_messages::text FROM app.hyper_bridge_stats WHERE id = 'POLKADOT-3367'",
+		"SELECT lifetime_fees || ' ' || relayer FROM app.accumulated_fees
+		 WHERE id = '0xbc50b907000000000000000000000000000000aa-EVM-1'",
 	)
 	.await;
-	assert_eq!(delivered.as_deref(), Some("1"), "the dropped delivery isn't counted");
+	assert_eq!(fees.as_deref(), Some("5000 0xbc50b907000000000000000000000000000000aa"));
 }
 
 /** S1: the commitment timestamp comes from `BoundedStateCommitments` at the event's block. */
@@ -672,9 +735,9 @@ async fn substrate_state_machine_updates_read_the_commitment() {
 	assert_eq!(row.as_deref(), Some("POLKADOT-3367 1234 0 1699999000 2023-11-14 22:13:20.5"));
 }
 
-/** E7: only Polkadot and Kusama state machines, read from the pre-#840 slot and divided by 1000. */
+/** E7: only Polkadot and Kusama state machines, with the timestamp of the host's commitment. */
 #[tokio::test]
-async fn evm_state_machine_updates_reproduce_the_old_slot_read() {
+async fn evm_state_machine_updates_read_the_hosts_commitment() {
 	let Some(mut client) = database().await else { return };
 	let db = client.transaction().await.unwrap();
 	let bsc = Asserter::new();
@@ -689,7 +752,9 @@ async fn evm_state_machine_updates_reproduce_the_old_slot_read() {
 	handle(&indexer, "bsc", &db, &log(40, 1_700_000_000, tx), &evm::StateMachineUpdated, ignored)
 		.await;
 
-	bsc.push_success(&U256::from(1_793_708_886_000u64));
+	// `stateMachineCommitment` returns (timestamp, overlayRoot, stateRoot).
+	let commitment = (U256::from(1_793_708_886u64), B256::repeat_byte(1), B256::repeat_byte(2));
+	bsc.push_success(&Bytes::from(commitment.abi_encode()));
 	let event = EthereumHost::StateMachineUpdated {
 		stateMachineId: "POLKADOT-3367".into(),
 		height: U256::from(12_597_213),

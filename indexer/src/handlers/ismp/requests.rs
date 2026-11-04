@@ -185,17 +185,6 @@ pub async fn post_request_route(
 		.map(|row| (row.get(0), row.get(1))))
 }
 
-/** The `source` of a GET request, if it is indexed. */
-pub async fn get_request_source(
-	db: &Transaction<'_>,
-	commitment: &str,
-) -> anyhow::Result<Option<String>> {
-	Ok(db
-		.query_opt("SELECT source FROM app.get_request_v2s WHERE id = $1", &[&commitment])
-		.await?
-		.map(|row| row.get(0)))
-}
-
 /**
  * `RequestService.updateStatus` / `GetRequestService.updateStatus`: the status row, or a
  * pending row while the request isn't indexed yet. Both are keyed by commitment and status.

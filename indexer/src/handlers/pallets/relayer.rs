@@ -35,11 +35,12 @@ impl EventHandler for AccumulateFees {
 		if !is_hyperbridge(ctx.chain.state_machine_id()) {
 			return Ok(());
 		}
-		// SubQuery's `encodeAddress` threw on 20-byte EVM addresses, dropping the event.
-		let Some(relayer) = encode_address(&event.relayer, RELAYER_PREFIX) else {
+		// Named as `Withdraw` names the relayer. SubQuery's `encodeAddress` threw on 20-byte EVM
+		// addresses, so it dropped their fees.
+		let Some(relayer) = relayer_address(&event.relayer) else {
 			tracing::warn!(
 				relayer = %event.relayer,
-				"AccumulateFees: relayer is not an SS58 key length; dropped as SubQuery did"
+				"AccumulateFees: relayer is not an EVM address or SS58 key; dropped"
 			);
 			return Ok(());
 		};
@@ -125,10 +126,10 @@ impl EventHandler for Withdraw {
 		if !is_hyperbridge(ctx.chain.state_machine_id()) {
 			return Ok(());
 		}
-		let Some(relayer) = withdraw_relayer(&event.relayer) else {
+		let Some(relayer) = relayer_address(&event.relayer) else {
 			tracing::warn!(
 				relayer = %event.relayer,
-				"Withdraw: relayer is not an SS58 key length; dropped as SubQuery did"
+				"Withdraw: relayer is not an EVM address or SS58 key; dropped as SubQuery did"
 			);
 			return Ok(());
 		};
@@ -138,8 +139,8 @@ impl EventHandler for Withdraw {
 	}
 }
 
-/** A 20-byte relayer as lowercase `0x` hex, anything else as SS58 with prefix 42. */
-pub fn withdraw_relayer(bytes: &[u8]) -> Option<String> {
+/** A pallet relayer: 20 bytes as lowercase `0x` hex, anything else as SS58 with prefix 42. */
+pub fn relayer_address(bytes: &[u8]) -> Option<String> {
 	if bytes.len() == 20 {
 		return Some(format!("0x{}", hex::encode(bytes)));
 	}
@@ -173,15 +174,15 @@ mod tests {
 	}
 
 	#[test]
-	fn withdraw_relayers_keep_evm_addresses_as_hex() {
+	fn relayers_keep_evm_addresses_as_hex() {
 		let evm = hex::decode("BC50B907000000000000000000000000000000AA").unwrap();
-		assert_eq!(withdraw_relayer(&evm).unwrap(), "0xbc50b907000000000000000000000000000000aa");
+		assert_eq!(relayer_address(&evm).unwrap(), "0xbc50b907000000000000000000000000000000aa");
 		let alice = hex::decode("d43593c715fdd31c61141abd04a99fd6822c8558854ccde39a5684e7a56da27d")
 			.unwrap();
 		assert_eq!(
-			withdraw_relayer(&alice).unwrap(),
+			relayer_address(&alice).unwrap(),
 			"5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY"
 		);
-		assert_eq!(withdraw_relayer(&[0u8; 21]), None);
+		assert_eq!(relayer_address(&[0u8; 21]), None);
 	}
 }

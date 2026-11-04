@@ -97,8 +97,8 @@ Rust 1.98 and later.
 
 ## Parity with SubQuery
 
-Handlers reproduce SubQuery's output, including its bugs, so the two indexers' tables can be
-compared. The deliberate differences:
+Handlers reproduce SubQuery's output, so the two indexers' tables can be compared. Bugs that
+lose data are fixed instead. The deliberate differences:
 
 - Reads SubQuery made at the chain head are made at the event's block: state commitments,
   request fees, treasury balance, fee decimals, bandwidth allowance and token supply.
@@ -135,6 +135,19 @@ compared. The deliberate differences:
   commitment and row id for such an order matched no order on chain.
 - A Hyperbridge request that has since timed out is read from the ISMP events of the block it
   was dispatched in. `ismp_queryRequests` reads the head, where that request is gone.
+- A Hyperbridge delivery or timeout whose request no chain has indexed yet waits in
+  `pending_status_metadata`, and the delivery counts toward the relayer's stats. SubQuery
+  dropped both. A waiting `HYPERBRIDGE_DELIVERED` becomes `DESTINATION` if the request turns
+  out to be for Hyperbridge.
+- EVM state commitment timestamps come from the host's `stateMachineCommitment` view at the
+  event's block, in seconds. SubQuery read a storage slot from an older host layout, so every
+  EVM-side row it wrote holds 0. The SDK's timeout flow for a request that never reached
+  Hyperbridge waits for one of these rows, so against SubQuery it never finishes.
+- `AccumulateFees` keeps relayers named by an EVM address, in lowercase hex as `Withdraw` names
+  them. SubQuery dropped their fees.
+- When one extrinsic rewards a relayer several times, the last reward keeps SubQuery's
+  `relayer_reward_transactions` id, and the earlier ones move to `<id>-1`, `<id>-2` and so on.
+  SubQuery overwrote them, so its row holds the last reward.
 - A fill indexed before its order, because the destination ran ahead, adds to the order's
   `filled` and pays its points when the order arrives. SubQuery's `--historical=timestamp`
   reads hid fills from blocks later than the placement's, which is nearly every fill, so its
@@ -145,13 +158,8 @@ compared. The deliberate differences:
 
 Bugs kept for parity, to decide on separately:
 
-- EVM state commitments read storage slot 5, not 3, and divide seconds by 1000. Every EVM
-  `commitment_timestamp` is 0.
-- Hyperbridge-side handled and timeout statuses are dropped when the request isn't indexed yet.
 - A batched delivery counts the whole transaction's gas once per event. Every transfer out of a
   host counts as relayer fees.
-- `AccumulateFees` drops 20-byte relayers. Several `RelayerRewarded` events in one extrinsic share
-  one id.
 - Bandwidth eviction looks at the first 100 rows only. Active counts include expired
   subscriptions.
 - The intent gateway: a zero referrer counts as a referrer, early fills leave the order `PLACED`,
@@ -160,8 +168,14 @@ Bugs kept for parity, to decide on separately:
 
 ## Not included yet
 
-- **Side-by-side comparison** of every table against SubQuery over an agreed block range. Short
-  ranges on Nexus and Gargantua match SubQuery for the ISMP, filler bid, reward, treasury and
-  bandwidth tables, apart from the two columns above. On EVM, only Base has been compared, on one
-  order. Ethereum and Arbitrum need an archive RPC.
+- **Cutover.** The indexer is to run over a copy of SubQuery's database, and SubQuery stops once
+  both indexers' tables match, apart from the differences above. The indexer can't start on such
+  a copy yet:
+  - Its migrations create the `app` tables, which the copy already has.
+  - SubQuery keeps history in every table (`_id`, `_block_range`), while these tables are keyed by
+    `id`.
+  - Each chain has to start after SubQuery's `lastProcessedHeight`, not at its `start_block`.
+- **Comparison so far.** Short ranges on Nexus and Gargantua match SubQuery for the ISMP, filler
+  bid, reward, treasury and bandwidth tables, apart from the two columns above. On EVM, only Base
+  has been compared, on one order.
 - **Deployment and retirement:** a Docker image, compose and CI, and retiring SubQuery.

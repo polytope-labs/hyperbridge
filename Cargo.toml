@@ -1,6 +1,7 @@
 [workspace]
-resolver = "2"
-exclude = ["indexer"]
+# Resolver 3 picks dependency versions our pinned toolchain can build. alloy 2.2 and later need a
+# newer Rust than rust-toolchain.toml pins.
+resolver = "3"
 members = [
     # runtime
     "parachain/runtimes/gargantua",
@@ -130,6 +131,8 @@ members = [
 
     "tesseract/relayer",
 
+    # indexer
+    "indexer",
 ]
 
 # Config for 'cargo dist'
@@ -202,19 +205,19 @@ alloy-rlp = { version = "0.3.13", default-features = false }
 alloy-rlp-derive = "0.3.13"
 alloy-sol-macro = { version = "1.5.7", features = ["json"] }
 alloy-sol-types = { version = "1.5.7", default-features = false }
-alloy = { version = "1.7.3", default-features = false }
-alloy-provider = { version = "1.7.3", default-features = false, features = ["reqwest", "reqwest-default-tls"] }
-alloy-transport = { version = "1.7.3", default-features = false }
-alloy-transport-http = { version = "1.7.3", default-features = false }
-alloy-signer = { version = "1.7.3", default-features = false }
-alloy-signer-local = { version = "1.7.3", default-features = false }
-alloy-contract = { version = "1.7.3", default-features = false }
-alloy-rpc-types = { version = "1.7.3", default-features = false }
-alloy-rpc-types-eth = { version = "1.7.3", default-features = false }
-alloy-json-rpc = { version = "1.7.3", default-features = false }
-alloy-network = { version = "1.7.3", default-features = false }
-alloy-consensus = { version = "1.7.3", default-features = false }
-alloy-eips = { version = "1.7.3", default-features = false }
+alloy = { version = "2.0.4", default-features = false }
+alloy-provider = { version = "2.0.4", default-features = false, features = ["reqwest", "reqwest-native-tls"] }
+alloy-transport = { version = "2.0.4", default-features = false }
+alloy-transport-http = { version = "2.0.4", default-features = false }
+alloy-signer = { version = "2.0.4", default-features = false }
+alloy-signer-local = { version = "2.0.4", default-features = false }
+alloy-contract = { version = "2.0.4", default-features = false }
+alloy-rpc-types = { version = "2.0.4", default-features = false }
+alloy-rpc-types-eth = { version = "2.0.4", default-features = false }
+alloy-json-rpc = { version = "2.0.4", default-features = false }
+alloy-network = { version = "2.0.4", default-features = false }
+alloy-consensus = { version = "2.0.4", default-features = false }
+alloy-eips = { version = "2.0.4", default-features = false }
 alloy-chains = { version = "0.2.30", default-features = false }
 json = { package = "serde_json", version = "1.0.99", default-features = false }
 hex = { version = "0.4.3", default-features = false }

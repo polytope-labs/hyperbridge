@@ -11,6 +11,9 @@ Substrate chains are read through `modules/utils/substrate-eth-rpc`.
 hyperbridge-indexer --config indexer/config/mainnet.toml --chains bsc-mainnet
 ```
 
+The indexer is a member of the root Cargo workspace, so build it from the repo root with
+`cargo build -p hyperbridge-indexer`. The workspace uses alloy 2.0, which rindexer requires.
+
 - Run one process per chain, all pointed at one database. rindexer finishes every chain's
   history before any chain goes live, so in one process, a slow or stuck chain would hold back
   the rest. `--chains` (or `INDEXER_CHAINS`) takes a comma-separated list, and indexes every

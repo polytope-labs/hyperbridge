@@ -1,5 +1,3 @@
-[workspace]
-
 [package]
 name = "hyperbridge-indexer"
 version = "0.1.0"

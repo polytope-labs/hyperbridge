@@ -249,6 +249,8 @@ pub fn to_rpc_block(block: &DecodedBlock) -> Block<B256> {
 		excess_blob_gas: None,
 		parent_beacon_block_root: None,
 		requests_hash: None,
+		block_access_list_hash: None,
+		slot_number: None,
 	};
 	Block {
 		header: Header { hash: block.hash, inner, total_difficulty: None, size: None },

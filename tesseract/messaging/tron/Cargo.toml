@@ -34,7 +34,7 @@ hmac = "0.12"
 base64 = "0.22"
 chrono = "0.4"
 
-alloy = { workspace = true, features = ["provider-http", "providers", "reqwest-default-tls"] }
+alloy = { workspace = true, features = ["provider-http", "providers", "reqwest-native-tls"] }
 primitive-types = { workspace = true, default-features = true }
 serde-hex-utils = { workspace = true, default-features = false }
 

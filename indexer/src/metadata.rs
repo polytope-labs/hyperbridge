@@ -4,11 +4,15 @@
 //! `targetHeight`.
 
 use alloy::{hex, primitives::keccak256};
-use anyhow::Context;
+use anyhow::{anyhow, Context};
 use serde_json::{json, Value};
 use tokio_postgres::Transaction;
 
-use crate::{chains::Chain, config::ChainKind};
+use crate::{
+	chains::Chain,
+	config::{ChainConfig, ChainKind},
+	substrate::SubstrateRpc,
+};
 
 /**
  * The metadata table for the chain named `chain`. omnihedron lists the tables whose name starts
@@ -23,13 +27,19 @@ pub fn table(chain: &str) -> String {
  * `system_chain`.
  */
 pub async fn chain_name(chain: &Chain) -> anyhow::Result<String> {
-	match chain.config.kind {
-		ChainKind::Evm => Ok(chain.config.chain_id.to_string()),
-		ChainKind::Substrate => chain
-			.substrate()?
-			.call("system_chain", json!([]))
-			.await
-			.with_context(|| chain.name.clone()),
+	let node = match chain.config.kind {
+		ChainKind::Substrate => Some(chain.substrate()?),
+		ChainKind::Evm => None,
+	};
+	name(&chain.config, node).await.with_context(|| chain.name.clone())
+}
+
+/** As [`chain_name`], from the chain's config and, for a Substrate chain, its node. */
+pub async fn name(config: &ChainConfig, node: Option<&SubstrateRpc>) -> anyhow::Result<String> {
+	match (config.kind, node) {
+		(ChainKind::Evm, _) => Ok(config.chain_id.to_string()),
+		(ChainKind::Substrate, Some(node)) => node.call("system_chain", json!([])).await,
+		(ChainKind::Substrate, None) => Err(anyhow!("a Substrate chain's name needs its node")),
 	}
 }
 

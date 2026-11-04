@@ -51,6 +51,35 @@ Rust 1.98 and later.
   0, BSC and Polygon 4, Polkadot Hub 24, and Substrate chains 0, since the facade serves only
   finalized blocks.
 
+## Starting from SubQuery's data
+
+The cutover runs the indexer over a copy of SubQuery's database. SubQuery stops once both
+indexers' tables match, apart from the differences listed below.
+
+1. Copy SubQuery's database into a new one, for example with `pg_dump` and `pg_restore`.
+2. Run `hyperbridge-indexer --config <config> import-subquery` with `DATABASE_URL` set to the
+   copy. A Substrate chain needs `<CHAIN>_SUBSTRATE` too.
+3. Start each chain's process on the copy, as usual.
+
+The import runs in one transaction, so a failure leaves the copy as it was.
+
+- Each table keeps each row's current version. `solver_inventories` keeps every version.
+- SubQuery's own `_global` and `_metadata_0x…` tables are dropped.
+- Each chain starts at the `lastProcessedHeight` in SubQuery's metadata, which names a chain by
+  its EVM chain id or its node's `system_chain`. The chain's cursor skips that block's logs.
+- The import refuses a database other clients use, so it can't touch SubQuery's live one. It
+  also refuses a copy taken mid-rewind, a table or column only one side has, and a chain
+  SubQuery has no height for.
+- A chain SubQuery never indexed, such as the Polkadex testnet, goes in `--new-chains`. It starts
+  at its start block.
+
+The new tables belong to the role that ran the import. Grant omnihedron's role access if it is
+another.
+
+SubQuery indexes Ethereum, Arbitrum and Base before their blocks are final. So a copy can end on
+a block that a reorg later replaces. Comparing the two indexers shows that; take a new copy if it
+does.
+
 ## How it indexes
 
 - **One stream per chain.** Each chain is one rindexer stream over every address its handlers
@@ -168,14 +197,7 @@ Bugs kept for parity, to decide on separately:
 
 ## Not included yet
 
-- **Cutover.** The indexer is to run over a copy of SubQuery's database, and SubQuery stops once
-  both indexers' tables match, apart from the differences above. The indexer can't start on such
-  a copy yet:
-  - Its migrations create the `app` tables, which the copy already has.
-  - SubQuery keeps history in every table (`_id`, `_block_range`), while these tables are keyed by
-    `id`.
-  - Each chain has to start after SubQuery's `lastProcessedHeight`, not at its `start_block`.
-- **Comparison so far.** Short ranges on Nexus and Gargantua match SubQuery for the ISMP, filler
-  bid, reward, treasury and bandwidth tables, apart from the two columns above. On EVM, only Base
-  has been compared, on one order.
+- **Parity check.** Nothing compares the two indexers' tables yet. Short ranges on Nexus and
+  Gargantua match SubQuery for the ISMP, filler bid, reward, treasury and bandwidth tables, apart
+  from the two columns above. On EVM, only Base has been compared, on one order.
 - **Deployment and retirement:** a Docker image, compose and CI, and retiring SubQuery.

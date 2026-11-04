@@ -32,7 +32,7 @@ fn chain_manifest(config: &Config, chain: &str, dir: &Path) -> (PathBuf, Manifes
 		)),
 	)]);
 	let rpc_urls = BTreeMap::from([(chain.to_string(), "http://127.0.0.1:9".to_string())]);
-	manifest::write(dir, config, &rpc_urls, &routes).unwrap()
+	manifest::write(dir, config, &rpc_urls, &BTreeMap::new(), &routes).unwrap()
 }
 
 /** What each process does at startup: `db::migrate`, then `start_rindexer`'s unlocked setup. */

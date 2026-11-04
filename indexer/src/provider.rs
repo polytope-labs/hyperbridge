@@ -1,4 +1,11 @@
-use std::{future::Future, sync::Arc, time::Duration};
+use std::{
+	future::Future,
+	sync::{
+		atomic::{AtomicU64, Ordering},
+		Arc,
+	},
+	time::Duration,
+};
 
 use alloy::{
 	network::{AnyRpcBlock, AnyTransactionReceipt},
@@ -15,7 +22,7 @@ use rindexer::{
 };
 use tokio::sync::broadcast::Sender;
 
-use crate::failover::Failover;
+use crate::{errors::is_answer, failover::Failover};
 
 /** Public RPCs cap the addresses in one `eth_getLogs` (publicnode allows 10), so larger address
  * sets are split into concurrent requests, as rindexer's own fetcher does. */
@@ -23,16 +30,22 @@ const MAX_ADDRESSES_PER_REQUEST: usize = 10;
 
 /**
  * Re-asks of a tip block that came back empty although its bloom says it can have our logs,
- * 250 ms more apart each time, as rindexer re-asks when its own bloom checks are on. rindexer
- * re-asks four times; a busy chain's bloom matches nearly anything, so Base would pay for every
- * re-ask on nearly every block.
+ * 250 ms more apart each time. rindexer's own check re-asks four times, over about 2 s; a busy
+ * chain's bloom matches nearly anything, so Base would pay for every re-ask on nearly every
+ * block.
  */
 const TIP_RETRIES: u32 = 2;
 const TIP_RETRY_DELAY: Duration = Duration::from_millis(250);
 
-/** How RPCs name a range they would serve, in wording rindexer reads (v0.43.4,
- * `retry_with_block_range`). */
-const RANGE_HINTS: &[&str] = &[
+/**
+ * How long one RPC gets to answer a call before the next is tried. rindexer's client retries a
+ * rate limit or a 503 for over an hour without returning, so a load balancer with no healthy
+ * node behind it would otherwise hold every call. It matches that client's request timeout.
+ */
+const ATTEMPT_TIMEOUT: Duration = Duration::from_secs(90);
+
+/** Wordings of an RPC that limits the blocks one `eth_getLogs` may span. */
+const RANGE_LIMITS: &[&str] = &[
 	"this block range should work",
 	"try with this block range",
 	"block range is too wide",
@@ -52,68 +65,133 @@ const RANGE_HINTS: &[&str] = &[
  */
 #[derive(Debug)]
 pub struct AllTopicsProvider {
-	/** rindexer's client for each of the chain's RPCs that answered at startup, in order. */
-	clients: Vec<Arc<JsonRpcCachedProvider>>,
+	/** rindexer's client for each of the chain's RPCs that answered at startup, with its
+	 * position among the chain's URLs. */
+	clients: Vec<(usize, Arc<JsonRpcCachedProvider>)>,
 	failover: Failover,
+	attempt_timeout: Duration,
 	topics: Vec<B256>,
 	reorg_safe_distance: u64,
+	/** The highest tip block seen. A window that ends below it is history, with no tip to
+	 * check. */
+	tip_seen: AtomicU64,
 }
 
 impl AllTopicsProvider {
 	/** A provider over `clients`, of which there is at least one. */
 	pub fn new(
-		clients: Vec<Arc<JsonRpcCachedProvider>>,
+		clients: Vec<(usize, Arc<JsonRpcCachedProvider>)>,
 		topics: Vec<B256>,
 		reorg_safe_distance: u64,
 	) -> Self {
 		assert!(!clients.is_empty(), "a chain needs an RPC");
-		Self { clients, failover: Failover::default(), topics, reorg_safe_distance }
+		Self {
+			clients,
+			failover: Failover::default(),
+			attempt_timeout: ATTEMPT_TIMEOUT,
+			topics,
+			reorg_safe_distance,
+			tip_seen: AtomicU64::new(0),
+		}
 	}
 
 	/**
 	 * Runs `call` with the client of the RPC that answered last, then with each other client in
-	 * turn while it fails. The first to answer is tried first from then on.
+	 * turn while it fails. The first to answer is tried first from then on. With several RPCs,
+	 * each gets [`ATTEMPT_TIMEOUT`]. When none answers, the error is the first RPC's answer
+	 * there was, such as a revert or a range limit, which says more than no answer.
 	 */
 	async fn first_answer<'a, T, F, Fut>(&'a self, call: F) -> Result<T, ProviderError>
 	where
 		F: Fn(&'a JsonRpcCachedProvider) -> Fut,
 		Fut: Future<Output = Result<T, ProviderError>>,
 	{
-		let mut last = None;
+		let several = self.clients.len() > 1;
+		let mut failure: Option<ProviderError> = None;
 		for index in self.failover.order(self.clients.len()) {
-			match call(&self.clients[index]).await {
+			let (position, client) = &self.clients[index];
+			let result = match several {
+				false => call(client).await,
+				true => tokio::time::timeout(self.attempt_timeout, call(client))
+					.await
+					.unwrap_or_else(|_| {
+						Err(ProviderError::CustomError(format!(
+							"no answer in {:?}",
+							self.attempt_timeout
+						)))
+					}),
+			};
+			match result {
 				Ok(value) => {
 					self.failover.answered(index);
 					return Ok(value);
 				},
 				Err(err) => {
-					if self.clients.len() > 1 {
-						tracing::warn!(rpc = index, "RPC failed, trying the next: {err}");
+					if several {
+						tracing::warn!(rpc = position, "RPC failed, trying the next: {err}");
 					}
-					last = Some(err);
+					let answered = |err: &ProviderError| matches!(err, ProviderError::RequestFailed(err) if is_answer(err));
+					if failure.as_ref().is_none_or(|kept| !answered(kept) && answered(&err)) {
+						failure = Some(err);
+					}
 				},
 			}
 		}
-		Err(last.expect("a chain has an RPC"))
+		Err(failure.expect("a chain has an RPC"))
+	}
+
+	/**
+	 * The logs `addresses` have from `from` to `to`. A short range an RPC says is too long is
+	 * fetched in halves: handed back to rindexer, it could stop the stream (see [`is_short`]).
+	 */
+	async fn range_logs(
+		&self,
+		addresses: &[Address],
+		from: u64,
+		to: u64,
+		short: bool,
+		tip: Option<&AnyRpcBlock>,
+	) -> Result<Vec<Log>, ProviderError> {
+		let mut ranges = vec![(from, to)];
+		let mut logs = vec![];
+		while let Some((from, to)) = ranges.pop() {
+			match self.request_logs(addresses, from, to, short, tip).await {
+				Ok(found) => logs.extend(found),
+				Err(err) if short && from < to && limits_the_range(&err) => {
+					let middle = from + (to - from) / 2;
+					ranges.push((middle + 1, to));
+					ranges.push((from, middle));
+				},
+				Err(err) => return Err(err),
+			}
+		}
+		Ok(logs)
 	}
 
 	/**
 	 * One request's logs. On a short range, errors are retried here instead of returned, after
-	 * 1 s, doubling up to 16 s. An error that names a range the RPC would serve still goes back
-	 * to rindexer, which fetches that range instead.
+	 * 1 s, doubling up to 16 s, except a range limit that halving can still meet.
 	 */
 	async fn request_logs(
 		&self,
-		request: &Filter,
+		addresses: &[Address],
+		from: u64,
+		to: u64,
 		short: bool,
 		tip: Option<&AnyRpcBlock>,
-		addresses: &[Address],
 	) -> Result<Vec<Log>, ProviderError> {
+		let request = Filter::new()
+			.address(addresses.to_vec())
+			.event_signature(self.topics.clone())
+			.from_block(from)
+			.to_block(to);
+		let tip = tip.filter(|tip| tip.header.number == to);
 		let (mut errors, mut tip_retries) = (0u32, 0u32);
 		loop {
 			let answer = self
-				.first_answer(|client| async move {
-					Ok(client.get_inner_provider().get_logs(request).await?)
+				.first_answer(|client| {
+					let request = &request;
+					async move { Ok(client.get_inner_provider().get_logs(request).await?) }
 				})
 				.await;
 			match answer {
@@ -129,11 +207,10 @@ impl AllTopicsProvider {
 					}
 					return Ok(logs);
 				},
-				Err(err) if short && !names_a_range(&err) => {
+				Err(err) if short && !(from < to && limits_the_range(&err)) => {
 					errors += 1;
 					let delay = Duration::from_secs(1 << (errors.min(5) - 1));
-					let blocks = &request.block_option;
-					tracing::warn!(?blocks, "eth_getLogs failed, retrying in {delay:?}: {err}");
+					tracing::warn!(from, to, "eth_getLogs failed, retrying in {delay:?}: {err}");
 					tokio::time::sleep(delay).await;
 				},
 				Err(err) => return Err(err),
@@ -156,8 +233,8 @@ fn is_short(from: u64, to: u64, reorg_safe_distance: u64) -> bool {
 	to.saturating_sub(from) < 2 * (reorg_safe_distance + 2)
 }
 
-/** Whether an `eth_getLogs` error names a range the RPC would serve, as rindexer reads it. */
-fn names_a_range(err: &ProviderError) -> bool {
+/** Whether an `eth_getLogs` error says the request spans too many blocks. */
+fn limits_the_range(err: &ProviderError) -> bool {
 	let text = match err {
 		ProviderError::RequestFailed(err) => match err.as_error_resp() {
 			Some(answer) => {
@@ -169,7 +246,7 @@ fn names_a_range(err: &ProviderError) -> bool {
 		other => other.to_string(),
 	};
 	let text = text.to_lowercase();
-	RANGE_HINTS.iter().any(|hint| text.contains(hint))
+	RANGE_LIMITS.iter().any(|limit| text.contains(limit))
 }
 
 /**
@@ -193,19 +270,23 @@ fn lacks_tip_logs(
 #[async_trait]
 impl ChainProvider for AllTopicsProvider {
 	fn chain(&self) -> Chain {
-		self.clients[0].chain()
+		self.clients[0].1.chain()
 	}
 
 	fn max_block_range(&self) -> Option<U64> {
-		self.clients[0].max_block_range()
+		self.clients[0].1.max_block_range()
 	}
 
 	fn chain_state_notification(&self) -> Option<Sender<ChainStateNotification>> {
-		self.clients[0].chain_state_notification()
+		self.clients[0].1.chain_state_notification()
 	}
 
 	async fn get_latest_block(&self) -> Result<Option<Arc<AnyRpcBlock>>, ProviderError> {
-		self.first_answer(|client| client.get_latest_block()).await
+		let block = self.first_answer(|client| client.get_latest_block()).await?;
+		if let Some(block) = &block {
+			self.tip_seen.fetch_max(block.header.number, Ordering::Relaxed);
+		}
+		Ok(block)
 	}
 
 	async fn get_block_number(&self) -> Result<U64, ProviderError> {
@@ -224,17 +305,14 @@ impl ChainProvider for AllTopicsProvider {
 		addresses.sort();
 		let (from, to) = (filter.from_block().to::<u64>(), filter.to_block().to::<u64>());
 		let short = is_short(from, to, self.reorg_safe_distance);
-		// A window that ends at the tip, which an RPC behind it answers empty, at any length.
-		let tip = self.get_latest_block().await.ok().flatten();
+		// A window that reaches the tip, which an RPC behind it answers empty, at any length.
+		// History windows end below the tip seen, and skip the lookup.
+		let reaches_tip = to >= self.tip_seen.load(Ordering::Relaxed);
+		let tip = if reaches_tip { self.get_latest_block().await.ok().flatten() } else { None };
 		let tip = tip.as_deref().filter(|tip| tip.header.number == to);
-		let requests = addresses.chunks(MAX_ADDRESSES_PER_REQUEST).map(|chunk| async move {
-			let request = Filter::new()
-				.address(chunk.to_vec())
-				.event_signature(self.topics.clone())
-				.from_block(from)
-				.to_block(to);
-			self.request_logs(&request, short, tip, chunk).await
-		});
+		let requests = addresses
+			.chunks(MAX_ADDRESSES_PER_REQUEST)
+			.map(|chunk| self.range_logs(chunk, from, to, short, tip));
 		let mut logs: Vec<Log> = futures::future::try_join_all(requests).await?.concat();
 		logs.sort_by_key(|log| (log.block_number, log.log_index));
 		Ok(logs)
@@ -305,6 +383,7 @@ impl ChainProvider for AllTopicsProvider {
 #[cfg(test)]
 mod tests {
 	use super::*;
+	use crate::failover::tests::{MockRpc, Reply};
 
 	/**
 	 * Where rindexer v0.43.4 caps its head, past `from`, after an error on `[from, from +
@@ -354,33 +433,71 @@ mod tests {
 		}
 	}
 
+	async fn client(url: &str) -> (usize, Arc<JsonRpcCachedProvider>) {
+		let headers = rindexer::HeaderMap::new();
+		let client =
+			rindexer::provider::create_client(url, 1, None, None, None, headers, None, None);
+		(0, client.await.unwrap())
+	}
+
 	#[tokio::test]
 	async fn calls_move_past_an_rpc_that_went_down() {
-		let (first, first_server) = crate::failover::tests::rpc_answering("0x1").await;
-		let (second, _second_server) = crate::failover::tests::rpc_answering("0x1").await;
-		let mut clients = vec![];
-		for url in [first, second] {
-			let headers = rindexer::HeaderMap::new();
-			let client =
-				rindexer::provider::create_client(&url, 1, None, None, None, headers, None, None);
-			clients.push(client.await.unwrap());
-		}
+		let first = MockRpc::start(Reply::Result("0x1")).await;
+		let second = MockRpc::start(Reply::Result("0x1")).await;
+		let clients = vec![client(&first.url).await, client(&second.url).await];
 		// The first RPC answered at startup, then went down.
-		first_server.abort();
-		let _ = first_server.await;
+		first.server.abort();
+		let _ = first.server.await;
 		let provider = AllTopicsProvider::new(clients, vec![], 0);
 		assert_eq!(provider.get_block_number().await.unwrap(), U64::from(1));
 		assert_eq!(provider.failover.order(2).collect::<Vec<_>>(), [1, 0]);
 	}
 
+	#[tokio::test]
+	async fn calls_move_past_an_rpc_whose_answers_rindexer_keeps_retrying() {
+		let first = MockRpc::start(Reply::Result("0x1")).await;
+		let second = MockRpc::start(Reply::Result("0x1")).await;
+		let clients = vec![client(&first.url).await, client(&second.url).await];
+		// A load balancer with no node behind it: rindexer's client retries its 503s for an hour.
+		first.set(Reply::Status(503));
+		let mut provider = AllTopicsProvider::new(clients, vec![], 0);
+		provider.attempt_timeout = Duration::from_millis(500);
+		assert_eq!(provider.get_block_number().await.unwrap(), U64::from(1));
+		assert_eq!(provider.failover.order(2).collect::<Vec<_>>(), [1, 0]);
+	}
+
+	#[tokio::test]
+	async fn a_short_range_an_rpc_says_is_too_long_is_fetched_in_halves() {
+		let limited = MockRpc::start(Reply::LogsWithin(3)).await;
+		let provider = AllTopicsProvider::new(vec![client(&limited.url).await], vec![], 4);
+		let address = [Address::repeat_byte(0x11)];
+		assert!(is_short(100, 109, 4));
+		let logs = tokio::time::timeout(
+			Duration::from_secs(10),
+			provider.range_logs(&address, 100, 109, true, None),
+		)
+		.await
+		.expect("halving meets the limit");
+		assert!(logs.unwrap().is_empty());
+		// A history range goes back to rindexer, which shrinks it itself.
+		assert!(provider.range_logs(&address, 0, 5_000, false, None).await.is_err());
+	}
+
 	#[test]
-	fn errors_that_name_a_range_go_back_to_rindexer() {
-		let named = |message: &str| names_a_range(&ProviderError::CustomError(message.into()));
-		assert!(named("this block range should work: [0x100, 0x109]"));
-		assert!(named("query exceeds max block range; Try with this block range [0x1, 0x2]"));
-		assert!(named("eth_getLogs is limited to a 10,000 block range"));
-		assert!(!named("rate limit exceeded"));
-		assert!(!named("error sending request for url: connection refused"));
+	fn errors_that_limit_the_range_are_recognised() {
+		let custom = |message: &str| limits_the_range(&ProviderError::CustomError(message.into()));
+		assert!(custom("this block range should work: [0x100, 0x109]"));
+		assert!(custom("eth_getLogs is limited to a 10,000 block range"));
+		assert!(custom("block range too large"));
+		assert!(!custom("rate limit exceeded"));
+		assert!(!custom("error sending request for url: connection refused"));
+		// A hint carried in the answer's data.
+		let answer = serde_json::from_str(
+			r#"{"code":-32000,"message":"query exceeds limits","data":"try with this block range [0x1, 0x2]"}"#,
+		)
+		.unwrap();
+		let err = ProviderError::RequestFailed(alloy::transports::RpcError::ErrorResp(answer));
+		assert!(limits_the_range(&err));
 	}
 
 	#[test]

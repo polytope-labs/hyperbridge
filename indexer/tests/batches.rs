@@ -84,7 +84,8 @@ impl BlockHook for Counter {
 	}
 }
 
-fn result(network: &str, block: u64, log_index: u64) -> EventResult {
+/** A log of `block`, from a fetch of `range`. */
+fn result(network: &str, range: (u64, u64), block: u64, log_index: u64) -> EventResult {
 	let mut log = alloy::rpc::types::Log::default();
 	log.inner = alloy::primitives::Log {
 		address: HOST,
@@ -104,7 +105,10 @@ fn result(network: &str, block: u64, log_index: u64) -> EventResult {
 			log_index: U256::from(log_index),
 			transaction_index: 0,
 		},
-		found_in_request: LogFoundInRequest { from_block: U64::from(1), to_block: U64::from(9) },
+		found_in_request: LogFoundInRequest {
+			from_block: U64::from(range.0),
+			to_block: U64::from(range.1),
+		},
 	}
 }
 
@@ -154,7 +158,8 @@ async fn a_failed_block_keeps_the_blocks_before_it_and_the_replay_runs_hooks_onc
 		&[Arc::new(counter.clone())],
 	);
 	let batch = || {
-		[(1, 0), (1, 1), (2, 0), (3, 0), (4, 0)].map(|(block, log)| result(&network, block, log))
+		[(1, 0), (1, 1), (2, 0), (3, 0), (4, 0)]
+			.map(|(block, log)| result(&network, (1, 4), block, log))
 	};
 	let cursor = || async {
 		let row = admin
@@ -182,6 +187,8 @@ async fn a_failed_block_keeps_the_blocks_before_it_and_the_replay_runs_hooks_onc
 	assert_eq!(cursor().await, Some((4, 0)));
 	assert_eq!(counter.runs.load(Ordering::SeqCst), 1);
 	assert_eq!(counter.block.load(Ordering::SeqCst), 4);
+	// The hooks still see the whole batch, though blocks 1 and 2 committed in the failed run.
+	assert_eq!(*counter.previous_block.lock().unwrap(), Some(0));
 
 	// A replay of a batch that committed runs nothing again, hooks included.
 	process_batch(&indexer, &network, &routes, batch().into()).await.unwrap();
@@ -189,7 +196,7 @@ async fn a_failed_block_keeps_the_blocks_before_it_and_the_replay_runs_hooks_onc
 	assert_eq!(counter.runs.load(Ordering::SeqCst), 1);
 
 	// Hooks see where the batch started, though each of its blocks has committed by then.
-	let next = [(5, 0), (6, 0), (7, 0)].map(|(block, log)| result(&network, block, log));
+	let next = [(5, 0), (6, 0), (7, 0)].map(|(block, log)| result(&network, (5, 7), block, log));
 	process_batch(&indexer, &network, &routes, next.into()).await.unwrap();
 	assert_eq!(handled(), [(5, 0), (6, 0), (7, 0)]);
 	assert_eq!(counter.block.load(Ordering::SeqCst), 7);

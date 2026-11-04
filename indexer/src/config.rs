@@ -120,8 +120,8 @@ pub fn env_key(name: &str) -> String {
 }
 
 /**
- * The comma-separated URLs in env var `key`, in the order to try them. Reads fail over between
- * them, as SubQuery did: see `failover`.
+ * The comma-separated URLs in env var `key`, in the order they're first tried. Reads fail over
+ * between them, as SubQuery did: see `failover`.
  */
 pub fn env_urls(key: &str) -> anyhow::Result<Vec<String>> {
 	let value = std::env::var(key).with_context(|| format!("{key} is not set"))?;

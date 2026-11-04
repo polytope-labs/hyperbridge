@@ -17,8 +17,8 @@ use crate::{
 	substrate::SubstrateRpc,
 };
 
-/** A read with no answer in this long fails, so a hung RPC can't hold a batch's transaction
- * open. */
+/** A read with no answer in this long moves on to the chain's next URL, or fails, so a hung RPC
+ * can't hold a batch's transaction open. With several URLs, a read can take this long at each. */
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 /** Retries of a rate-limited read, a second or more apart, before its batch fails and retries. */
 const RATE_LIMIT_RETRIES: u32 = 10;

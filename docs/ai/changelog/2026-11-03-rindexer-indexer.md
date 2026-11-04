@@ -45,9 +45,10 @@ Rust 1.98 and later.
   indexes: a null answer is retried until the RPC has caught up.
 - Index Substrate chains from our own archive node. The public Nexus and Gargantua endpoints
   rate-limit hard: through them, the facade indexes about 100 blocks a minute.
-- `config/{mainnet,testnet}.toml` lists the chains. Soneium is left out. Each chain sets its
-  reorg-safe distance: Ethereum 3, Arbitrum and Base 0, BSC and Polygon 4, Polkadot Hub 24,
-  and Substrate chains 0, since the facade serves only finalized blocks.
+- `config/{mainnet,testnet}.toml` lists the chains. Soneium, Bifrost, Cere, Argon, Hydration and
+  zkVerify are left out. Each chain sets its reorg-safe distance: Ethereum 3, Arbitrum and Base
+  0, BSC and Polygon 4, Polkadot Hub 24, and Substrate chains 0, since the facade serves only
+  finalized blocks.
 
 ## How it indexes
 

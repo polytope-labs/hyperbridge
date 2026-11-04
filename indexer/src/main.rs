@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use clap::Parser;
+use clap::{Parser, Subcommand};
 
 #[derive(Parser)]
 #[command(
@@ -18,6 +18,18 @@ struct Cli {
 	 * chain so a slow or stuck chain can't hold back the others. */
 	#[arg(long, env = "INDEXER_CHAINS", value_delimiter = ',')]
 	chains: Vec<String>,
+	#[command(subcommand)]
+	command: Option<Command>,
+}
+
+#[derive(Subcommand)]
+enum Command {
+	/** Turns a copy of SubQuery's database, at DATABASE_URL, into this indexer's. */
+	ImportSubquery {
+		/** Chains SubQuery never indexed, comma-separated. They start at their start block. */
+		#[arg(long, value_delimiter = ',')]
+		new_chains: Vec<String>,
+	},
 }
 
 #[tokio::main]
@@ -28,5 +40,9 @@ async fn main() -> anyhow::Result<()> {
 		.map_err(|_| anyhow::anyhow!("a rustls crypto provider was already installed"))?;
 	rindexer::setup_info_logger();
 	let cli = Cli::parse();
-	hyperbridge_indexer::run(&cli.config, &cli.run_dir, &cli.chains).await
+	match cli.command {
+		None => hyperbridge_indexer::run(&cli.config, &cli.run_dir, &cli.chains).await,
+		Some(Command::ImportSubquery { new_chains }) =>
+			hyperbridge_indexer::import_subquery(&cli.config, &new_chains).await,
+	}
 }

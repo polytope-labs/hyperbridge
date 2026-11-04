@@ -10,6 +10,7 @@ pub mod provider;
 pub mod registry;
 pub mod services;
 pub mod store;
+pub mod subquery;
 pub mod substrate;
 
 use std::{
@@ -26,7 +27,11 @@ use rindexer::{
 	StartDetails,
 };
 
-use crate::{chains::Chain, config::Config};
+use crate::{
+	chains::Chain,
+	config::{env_key, env_urls, ChainKind, Config},
+	substrate::SubstrateRpc,
+};
 
 /** How long each of a chain's several nodes gets at startup to answer the chain-id check of
  * rindexer's client. */
@@ -76,6 +81,12 @@ pub async fn run(config_path: &Path, run_dir: &Path, selected: &[String]) -> any
 		std::env::set_var("DATABASE_POOL_SIZE", (indexed.len() * 2 + 4).max(10).to_string());
 	}
 	let db = Arc::new(PostgresClient::new().await.context("connecting to DATABASE_URL")?);
+	// Each chain starts after its cursor, read before the manifest is written.
+	let cursors = {
+		let mut conn = db.raw_connection().await?;
+		db::apply_migrations(&mut conn).await?;
+		db::cursor_blocks(&conn).await?
+	};
 
 	let http = reqwest::Client::builder().build()?;
 	let mut chains = BTreeMap::new();
@@ -101,7 +112,8 @@ pub async fn run(config_path: &Path, run_dir: &Path, selected: &[String]) -> any
 		})
 		.collect();
 
-	let (manifest_path, manifest) = manifest::write(run_dir, &config, &rpc_urls, &routes)?;
+	let (manifest_path, manifest) =
+		manifest::write(run_dir, &config, &rpc_urls, &cursors, &routes)?;
 	db::migrate(&db, &manifest_path, &manifest).await?;
 
 	let mut providers: HashMap<String, Arc<dyn ChainProvider>> = HashMap::new();
@@ -188,4 +200,39 @@ pub async fn run(config_path: &Path, run_dir: &Path, selected: &[String]) -> any
 	})
 	.await
 	.map_err(|e| anyhow!("rindexer: {e:?}"))
+}
+
+/**
+ * Turns the copy of SubQuery's database at `DATABASE_URL` into this indexer's, so each chain
+ * continues after the last block SubQuery indexed. `new_chains` are the chains SubQuery never
+ * indexed, which start at their start block. A Substrate chain's node, at `<CHAIN>_SUBSTRATE`,
+ * gives the name SubQuery's metadata knows it by.
+ */
+pub async fn import_subquery(config_path: &Path, new_chains: &[String]) -> anyhow::Result<()> {
+	let config = Config::load(config_path)?;
+	let http = reqwest::Client::builder().build()?;
+	let mut names = BTreeMap::new();
+	for (network, chain) in &config.chains {
+		let node = match chain.kind {
+			ChainKind::Substrate => {
+				let urls = env_urls(&format!("{}_SUBSTRATE", env_key(network)))?;
+				Some(SubstrateRpc::new(&urls, http.clone()))
+			},
+			ChainKind::Evm => None,
+		};
+		let name = metadata::name(chain, node.as_ref()).await.with_context(|| network.clone())?;
+		names.insert(network.clone(), name);
+	}
+	// A pool of one, so every other session the import sees is another client's.
+	std::env::set_var("DATABASE_POOL_SIZE", "1");
+	let db = PostgresClient::new().await.context("connecting to DATABASE_URL")?;
+	let mut conn = db.raw_connection().await?;
+	let imported = subquery::import(&mut conn, &config, &names, new_chains).await?;
+	for (table, rows) in &imported.rows {
+		tracing::info!(table, rows, "copied");
+	}
+	for (network, block) in &imported.cursors {
+		tracing::info!(%network, block, "continues after SubQuery's last block");
+	}
+	Ok(())
 }

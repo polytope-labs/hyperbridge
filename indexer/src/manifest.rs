@@ -9,7 +9,7 @@ use rindexer::manifest::{core::Manifest, yaml::read_manifest};
 use serde_json::{json, Value};
 
 use crate::{
-	config::Config,
+	config::{ChainConfig, Config},
 	registry::{stream_abi, stream_name, ChainRoutes, STREAM_EVENT},
 };
 
@@ -24,11 +24,12 @@ pub fn write(
 	dir: &Path,
 	config: &Config,
 	rpc_urls: &BTreeMap<String, String>,
+	cursors: &BTreeMap<String, u64>,
 	routes: &HashMap<String, Arc<ChainRoutes>>,
 ) -> anyhow::Result<(PathBuf, Manifest)> {
 	let dir = dir.join(rpc_urls.keys().map(String::as_str).collect::<Vec<_>>().join("+"));
 	let abi = write_private(&dir, "stream.abi.json", &stream_abi())?;
-	let manifest = build(config, rpc_urls, routes, &abi);
+	let manifest = build(config, rpc_urls, cursors, routes, &abi);
 	// Written as JSON, which is valid YAML. serde_yaml writes numbers as maps when the build turns
 	// on serde_json's `arbitrary_precision`, as a build alongside the runtimes does.
 	let path = write_private(&dir, "rindexer.yaml", &serde_json::to_string_pretty(&manifest)?)?;
@@ -55,6 +56,7 @@ fn write_private(dir: &Path, name: &str, contents: &str) -> anyhow::Result<PathB
 pub fn build(
 	config: &Config,
 	rpc_urls: &BTreeMap<String, String>,
+	cursors: &BTreeMap<String, u64>,
 	routes: &HashMap<String, Arc<ChainRoutes>>,
 	stream_abi: &Path,
 ) -> Value {
@@ -90,7 +92,7 @@ pub fn build(
 				"details": [{
 					"network": network,
 					"address": addresses.iter().map(|a| a.to_string()).collect::<Vec<_>>(),
-					"start_block": chain.start_block.to_string(),
+					"start_block": start_block(chain, cursors.get(network)).to_string(),
 				}],
 				"abi": stream_abi.to_string_lossy(),
 				"include_events": [STREAM_EVENT],
@@ -108,6 +110,16 @@ pub fn build(
 		"storage": { "postgres": { "enabled": true, "disable_create_tables": true } },
 		"contracts": contracts,
 	})
+}
+
+/**
+ * Where rindexer starts a chain it has no progress for: the config's start block, or the
+ * chain's cursor block when that is later, as after a SubQuery import. The cursor skips the
+ * logs of its own block, and rindexer refuses a start past the node's head, which SubQuery's
+ * last block can be. With progress of its own, rindexer resumes from that instead.
+ */
+fn start_block(chain: &ChainConfig, cursor: Option<&u64>) -> u64 {
+	cursor.map_or(chain.start_block, |block| chain.start_block.max(*block))
 }
 
 #[cfg(test)]
@@ -138,7 +150,7 @@ mod tests {
 				.collect();
 			let dir =
 				std::env::temp_dir().join(format!("indexer-manifest-{env}-{}", std::process::id()));
-			let written = write(&dir, &config, &rpc_urls, &routes);
+			let written = write(&dir, &config, &rpc_urls, &BTreeMap::new(), &routes);
 			let _ = std::fs::remove_dir_all(&dir);
 			let (_, manifest) = written.unwrap();
 			assert_eq!(manifest.networks.len(), config.chains.len(), "{env}");
@@ -170,7 +182,7 @@ mod tests {
 				.iter()
 				.map(|name| (name.to_string(), "http://127.0.0.1:9".into()))
 				.collect();
-			write(&dir, &config, &rpc_urls, &routes)
+			write(&dir, &config, &rpc_urls, &BTreeMap::new(), &routes)
 		};
 		let bsc = write_for(&["bsc-mainnet"]);
 		let others = write_for(&["base-mainnet", "ethereum-mainnet"]);
@@ -184,5 +196,17 @@ mod tests {
 		};
 		assert_eq!(names(&bsc), ["bsc-mainnet"]);
 		assert_eq!(names(&others), ["base-mainnet", "ethereum-mainnet"]);
+	}
+
+	/** A chain whose cursor is past its start block, as after a SubQuery import, starts at the
+	 * cursor. */
+	#[test]
+	fn a_chain_starts_at_its_cursor() {
+		let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+		let config = Config::load(&root.join("config/mainnet.toml")).unwrap();
+		let chain = &config.chains["bsc-mainnet"];
+		assert_eq!(start_block(chain, None), chain.start_block);
+		assert_eq!(start_block(chain, Some(&(chain.start_block + 41))), chain.start_block + 41);
+		assert_eq!(start_block(chain, Some(&(chain.start_block - 1))), chain.start_block);
 	}
 }

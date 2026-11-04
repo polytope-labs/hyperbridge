@@ -1,8 +1,8 @@
-use std::path::Path;
+use std::{collections::BTreeMap, path::Path};
 
 use anyhow::Context;
 use rindexer::{manifest::core::Manifest, setup_postgres, PostgresClient};
-use tokio_postgres::Client;
+use tokio_postgres::{Client, Transaction};
 
 /** Schema migrations, applied in order. `app` holds the tables omnihedron serves. */
 const MIGRATIONS: &[(&str, &str)] = &[
@@ -61,9 +61,17 @@ async fn unlock(conn: &Client, result: anyhow::Result<()>) -> anyhow::Result<()>
 	Ok(())
 }
 
-/** Applies each pending migration in its own transaction. */
+/** Applies the pending migrations in one transaction. */
 async fn apply_pending(conn: &mut Client) -> anyhow::Result<()> {
-	conn.batch_execute(
+	let tx = conn.transaction().await?;
+	apply_in(&tx).await?;
+	tx.commit().await?;
+	Ok(())
+}
+
+/** Applies the migrations `indexer.migrations` doesn't list yet, in the caller's transaction. */
+pub async fn apply_in(tx: &Transaction<'_>) -> anyhow::Result<()> {
+	tx.batch_execute(
 		"CREATE SCHEMA IF NOT EXISTS indexer;
 		 CREATE TABLE IF NOT EXISTS indexer.migrations (
 			name text PRIMARY KEY,
@@ -72,7 +80,6 @@ async fn apply_pending(conn: &mut Client) -> anyhow::Result<()> {
 	)
 	.await?;
 	for (name, sql) in MIGRATIONS {
-		let tx = conn.transaction().await?;
 		let applied = tx
 			.query_opt("SELECT 1 FROM indexer.migrations WHERE name = $1", &[name])
 			.await?
@@ -82,7 +89,12 @@ async fn apply_pending(conn: &mut Client) -> anyhow::Result<()> {
 			tx.batch_execute(sql).await?;
 			tx.execute("INSERT INTO indexer.migrations (name) VALUES ($1)", &[name]).await?;
 		}
-		tx.commit().await?;
 	}
 	Ok(())
+}
+
+/** The block each chain's cursor is at. */
+pub async fn cursor_blocks(conn: &Client) -> anyhow::Result<BTreeMap<String, u64>> {
+	let rows = conn.query("SELECT network, block_number FROM indexer.cursors", &[]).await?;
+	Ok(rows.iter().map(|row| (row.get(0), row.get::<_, i64>(1) as u64)).collect())
 }

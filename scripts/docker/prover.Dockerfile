@@ -41,13 +41,13 @@ RUN rm -f /etc/apt/sources.list.d/cuda*.list /etc/apt/sources.list.d/nvidia-*.li
         golang-go \
  && rm -rf /var/lib/apt/lists/*
 
-# Rust toolchain (1.91 matches rust-toolchain.toml in hyperbridge).
+# Rust toolchain (1.99.1 matches rust-toolchain.toml in hyperbridge).
 ENV RUSTUP_HOME=/usr/local/rustup \
     CARGO_HOME=/usr/local/cargo \
     GOPROXY=https://proxy.golang.org,https://raw.githubusercontent.com/polytope-labs/gnark-ignition-verifier/goproxy,direct \
     PATH=/root/.foundry/bin:/usr/local/cargo/bin:/usr/local/go/bin:${PATH}
 RUN curl --proto "=https" --tlsv1.2 -sSf https://sh.rustup.rs \
-    | sh -s -- -y --default-toolchain 1.91.0 --profile minimal
+    | sh -s -- -y --default-toolchain 1.99.1 --profile minimal
 
 # Node.js 20 + pnpm (needed for @openzeppelin/contracts npm deps that the
 # EVM solidity sources import). Foundry (forge) for the solidity build.

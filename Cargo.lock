@@ -28798,9 +28798,9 @@ dependencies = [
 
 [[package]]
 name = "sp-runtime-interface-proc-macro"
-version = "21.0.0"
+version = "21.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c7d9650b5186fd32bf5198adfe08d8fecc76f2ebe8a8927f28aaf2a537d75b2e"
+checksum = "3218b42e2642a47eda4a41b2226e5804742e0626d66a8bfa8af6862099a7cd87"
 dependencies = [
  "Inflector",
  "expander",

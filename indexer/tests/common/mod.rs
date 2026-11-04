@@ -7,10 +7,7 @@ pub async fn database() -> Option<Client> {
 	let url = std::env::var("INDEXER_TEST_DATABASE_URL").ok()?;
 	let (mut client, connection) = tokio_postgres::connect(&url, NoTls).await.unwrap();
 	tokio::spawn(connection);
-	// Test binaries run in parallel, so one at a time applies what the database lacks.
-	client.execute("SELECT pg_advisory_lock(7171)", &[]).await.unwrap();
 	hyperbridge_indexer::db::apply_migrations(&mut client).await.unwrap();
-	client.execute("SELECT pg_advisory_unlock(7171)", &[]).await.unwrap();
 	Some(client)
 }
 

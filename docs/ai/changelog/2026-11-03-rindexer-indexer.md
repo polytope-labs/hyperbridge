@@ -17,8 +17,8 @@ hyperbridge-indexer --config indexer/config/mainnet.toml --chains bsc-mainnet
   chain in the config when unset. The solver watchlist poller runs in the process that indexes
   Hyperbridge.
 - `DATABASE_URL` is the Postgres database. `DATABASE_POOL_SIZE` defaults to twice the number of
-  chains the process indexes plus 4, and at least 10. Migrations run at startup: `indexer.*`
-  holds the cursors, and `app.*` holds the served tables.
+  chains the process indexes plus 4, and at least 10. Migrations run at startup, one process at
+  a time: `indexer.*` holds the cursors, and `app.*` holds the served tables.
 - Each chain's RPC URL comes from an env var named after the chain: `bsc-mainnet` reads
   `BSC_MAINNET`. For a Substrate chain, that is its substrate-eth-rpc URL. `<CHAIN>_SUBSTRATE`
   is the node's own RPC, and defaults to the same URL, which is right for the in-node facade.

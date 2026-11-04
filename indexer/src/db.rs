@@ -13,8 +13,26 @@ pub async fn migrate(db: &PostgresClient) -> anyhow::Result<()> {
 	apply_migrations(&mut conn).await
 }
 
-/** Applies the migrations `indexer.migrations` doesn't list yet, each in its own transaction. */
+/** The advisory lock a process holds while it migrates. */
+const MIGRATION_LOCK: i64 = 7171;
+
+/**
+ * Applies the migrations `indexer.migrations` doesn't list yet. Every chain's process migrates
+ * at startup, so they take turns under a lock: the first applies them, and the rest find them
+ * applied.
+ */
 pub async fn apply_migrations(conn: &mut tokio_postgres::Client) -> anyhow::Result<()> {
+	conn.execute("SELECT pg_advisory_lock($1)", &[&MIGRATION_LOCK]).await?;
+	let applied = apply_pending(conn).await;
+	// The connection may go back to a pool, so release the lock even when a migration failed.
+	let unlocked = conn.execute("SELECT pg_advisory_unlock($1)", &[&MIGRATION_LOCK]).await;
+	applied?;
+	unlocked?;
+	Ok(())
+}
+
+/** Applies each pending migration in its own transaction. */
+async fn apply_pending(conn: &mut tokio_postgres::Client) -> anyhow::Result<()> {
 	conn.batch_execute(
 		"CREATE SCHEMA IF NOT EXISTS indexer;
 		 CREATE TABLE IF NOT EXISTS indexer.migrations (

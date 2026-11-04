@@ -11212,7 +11212,6 @@ dependencies = [
  "rustls 0.23.36",
  "serde",
  "serde_json",
- "serde_yaml",
  "sp-crypto-hashing",
  "tokio",
  "tokio-postgres 0.7.18",

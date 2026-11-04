@@ -37,8 +37,9 @@ Rust 1.98 and later.
   limit, or a block it doesn't have yet). There is no failing back: the RPC that answers
   stays first until it fails.
 - At startup, rindexer's client for each `<CHAIN>` URL checks the node's chain id. A URL for
-  another chain stops the start. A node that doesn't answer within 30 s is left out of
-  rindexer's own calls until the next start; handler reads still use it.
+  another chain stops the start. With several URLs, a node that fails the check or doesn't
+  answer within 30 s is left out of rindexer's own calls until the next start, though handler
+  reads still use it; the start fails only if none answers. With one URL, the start waits.
 - `HYPERFX_ORDERBOOK_URL` prices tokens and serves the solver watchlist.
 - Every RPC must serve historic state at the event's block. On Ethereum and Arbitrum, that means
   an archive endpoint. It must also serve every receipt and transaction of the blocks it
@@ -65,9 +66,10 @@ Rust 1.98 and later.
   an error on a range as short as a live window, so `AllTopicsProvider` retries those errors
   itself. A short range an RPC says spans too many blocks is fetched in halves instead.
 - **Tip block.** When a window ends at the tip block, an answer with no log there is re-asked
-  twice, 250 ms apart, if the block's logs bloom says it can have our logs. rindexer's own
-  check, which the stream's placeholder topic rules out, re-asks four times over about 2 s. A
-  busy chain's bloom matches nearly anything, so Base would pay that on nearly every block.
+  twice, after 250 ms and then 500 ms, if the block's logs bloom says it can have our logs.
+  rindexer's own check, which the stream's placeholder topic rules out, re-asks four times over
+  about 2 s. A busy chain's bloom matches nearly anything, so Base would pay that on nearly every
+  block.
 - **Block hooks.** SubQuery's block handlers are `BlockHook`s. They run after each batch at the
   last block it applied. On a chain with no logs, they run every 15 s at the block rindexer has
   synced.

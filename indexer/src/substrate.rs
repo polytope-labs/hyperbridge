@@ -107,7 +107,8 @@ impl SubstrateRpc {
 		let mut attempt = 0;
 		let response: Value = 'answered: loop {
 			// A node that answers it can't serve the call hands it to the next, like one that
-			// doesn't answer. With none serving it, the first such answer is retried below.
+			// doesn't answer. With none serving it, the first such answer becomes a `Retry`
+			// below, so the batch retries.
 			let (mut unserved, mut failure) = (None, None);
 			for index in self.failover.order(self.urls.len()) {
 				match self.post(index, &body).await {

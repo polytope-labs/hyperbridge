@@ -358,8 +358,9 @@ pub async fn process_batch(
 	let blocks: Vec<&[EventResult]> = results
 		.chunk_by(|a, b| a.tx_information.block_number == b.tx_information.block_number)
 		.collect();
-	// rindexer fetched the batch's logs from where the last batch ended, and a replay fetches
-	// from there again, though some of its blocks committed in the run that failed.
+	// rindexer fetched the batch's logs from where the last batch ended. It retries a failed
+	// batch as it was, and refetches from there after a restart, though some of the batch's
+	// blocks may have committed in a run that failed.
 	let fetched_from = results.iter().map(|r| r.found_in_request.from_block.to::<u64>()).min();
 
 	let _writing = routes.writing.lock().await;

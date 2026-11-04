@@ -57,6 +57,9 @@ const NOT_SERVED: &[&str] = &[
 	"upstream",
 	// The ISMP RPC's answer for a block the node hasn't imported.
 	"invalid block number",
+	// A Substrate node's answers for state it pruned, and for a block it doesn't have.
+	"already discarded",
+	"unknownblock",
 ];
 
 /** JSON-RPC's "method not found": the node doesn't serve the method. */
@@ -73,7 +76,7 @@ fn failed_execution(answer: &ErrorPayload) -> bool {
 
 /** Whether a transport error is a node's answer that the execution failed. */
 pub fn is_failed_execution(err: &TransportError) -> bool {
-	matches!(err, RpcError::ErrorResp(answer) if failed_execution(answer))
+	error_answer(err).is_some_and(|answer| failed_execution(&answer))
 }
 
 /**
@@ -125,12 +128,11 @@ pub fn is_transient(err: &anyhow::Error) -> bool {
 }
 
 /** The node's error answer in `err`: a JSON-RPC error, or one sent with a 4xx status. */
-fn answer(err: &alloy::contract::Error) -> Option<ErrorPayload> {
+fn error_answer(err: &TransportError) -> Option<ErrorPayload> {
 	#[derive(Deserialize)]
 	struct Response {
 		error: ErrorPayload,
 	}
-	let alloy::contract::Error::TransportError(err) = err else { return None };
 	match err {
 		RpcError::ErrorResp(answer) => Some(answer.clone()),
 		RpcError::Transport(TransportErrorKind::HttpError(http))
@@ -138,6 +140,12 @@ fn answer(err: &alloy::contract::Error) -> Option<ErrorPayload> {
 			serde_json::from_str::<Response>(&http.body).ok().map(|response| response.error),
 		_ => None,
 	}
+}
+
+/** The node's error answer to a contract call: see [`error_answer`]. */
+fn answer(err: &alloy::contract::Error) -> Option<ErrorPayload> {
+	let alloy::contract::Error::TransportError(err) = err else { return None };
+	error_answer(err)
 }
 
 /**

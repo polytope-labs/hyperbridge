@@ -41,6 +41,11 @@ const TIP_RETRY_DELAY: Duration = Duration::from_millis(250);
  * How long one RPC gets to answer a call before the next is tried. rindexer's client retries a
  * rate limit or a 503 for over an hour without returning, so a load balancer with no healthy
  * node behind it would otherwise hold every call. It matches that client's request timeout.
+ *
+ * Two things a timeout leaves behind, both in rindexer's client, which this crate can't change:
+ * alloy's retry layer counts each call it starts until it returns, so every call cut short adds
+ * one for good, and past about 30 the node's later rate-limit retries wait longer; and a block
+ * batch's spawned chunk requests keep running against that node.
  */
 const ATTEMPT_TIMEOUT: Duration = Duration::from_secs(90);
 
@@ -461,9 +466,26 @@ mod tests {
 		// A load balancer with no node behind it: rindexer's client retries its 503s for an hour.
 		first.set(Reply::Status(503));
 		let mut provider = AllTopicsProvider::new(clients, vec![], 0);
-		provider.attempt_timeout = Duration::from_millis(500);
+		// Long enough for the healthy node on a busy machine, well short of rindexer's retries.
+		provider.attempt_timeout = Duration::from_secs(2);
 		assert_eq!(provider.get_block_number().await.unwrap(), U64::from(1));
 		assert_eq!(provider.failover.order(2).collect::<Vec<_>>(), [1, 0]);
+	}
+
+	#[tokio::test]
+	async fn with_no_rpc_answering_well_the_answer_beats_no_answer() {
+		let first = MockRpc::start(Reply::Result("0x1")).await;
+		let second = MockRpc::start(Reply::Result("0x1")).await;
+		let clients = vec![client(&first.url).await, client(&second.url).await];
+		first.server.abort();
+		let _ = first.server.await;
+		second.set(Reply::Error(-32602, "invalid params"));
+		let provider = AllTopicsProvider::new(clients, vec![], 0);
+		// The first RPC is tried first and doesn't answer; the second's answer is the error.
+		let err = provider.get_block_number().await.unwrap_err();
+		let answered =
+			matches!(&err, ProviderError::RequestFailed(err) if err.as_error_resp().is_some());
+		assert!(answered, "{err}");
 	}
 
 	#[tokio::test]

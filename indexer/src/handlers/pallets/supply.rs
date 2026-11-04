@@ -37,8 +37,8 @@ const KEYS_PAGE: usize = 1000;
 const QUERY_BATCH: usize = 100;
 
 /**
- * `handleBridgeTokenSupplyIndexing`. A batch that reaches a multiple of 3600 past the chain's
- * cursor runs the job once, at that block: the supply is read in that block's state and
+ * `handleBridgeTokenSupplyIndexing`. A batch that reaches a multiple of 3600 past the block it
+ * started from runs the job once, at that block: the supply is read in that block's state and
  * stamped with its `Timestamp.Now`.
  */
 pub struct BridgeTokenSupply;
@@ -50,17 +50,8 @@ impl BlockHook for BridgeTokenSupply {
 	}
 
 	async fn after_batch(&self, ctx: &BlockContext<'_>) -> anyhow::Result<()> {
-		// The cursor still holds the previous batch's last log: it is written after the hooks.
-		let previous = ctx
-			.db
-			.query_opt(
-				"SELECT block_number FROM indexer.cursors WHERE network = $1",
-				&[&ctx.chain.name],
-			)
-			.await?
-			.map(|row| row.get::<_, i64>(0) as u64);
 		let start = ctx.chain.config.start_block;
-		let Some(block) = trigger_block(previous, start, ctx.block_number) else {
+		let Some(block) = trigger_block(ctx.previous_block, start, ctx.block_number) else {
 			return Ok(());
 		};
 		// SubQuery caught every error here. A failure that repeats (a pruned node, a response
@@ -82,7 +73,7 @@ impl BlockHook for BridgeTokenSupply {
 
 /**
  * The block to run at: the last multiple of `INTERVAL` in `(previous, last]`, where `previous`
- * is the cursor's block, or the block before `start` on the first batch.
+ * is the block the batch started from, or the block before `start` on the first batch.
  */
 pub fn trigger_block(previous: Option<u64>, start: u64, last: u64) -> Option<u64> {
 	let block = last / INTERVAL * INTERVAL;
@@ -298,7 +289,7 @@ mod tests {
 	#[tokio::test]
 	async fn live_supply_is_sane() {
 		let Ok(url) = std::env::var("HYPERBRIDGE_NEXUS_RPC") else { return };
-		let rpc = SubstrateRpc::new(&url, reqwest::Client::new());
+		let rpc = SubstrateRpc::new(&[url], reqwest::Client::new());
 		let hash: String = rpc.call("chain_getFinalizedHead", json!([])).await.unwrap();
 		let header: serde_json::Value = rpc.call("chain_getHeader", json!([hash])).await.unwrap();
 		let number = header["number"].as_str().unwrap().trim_start_matches("0x");

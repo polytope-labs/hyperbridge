@@ -127,9 +127,9 @@ impl Config {
 }
 
 impl ChainConfig {
-	/** The RPC URL, read from the chain's env var: `bsc-mainnet` reads `BSC_MAINNET`. */
-	pub fn rpc_url(&self, name: &str) -> anyhow::Result<String> {
-		env_url(&env_key(name))
+	/** The RPC URLs, read from the chain's env var: `bsc-mainnet` reads `BSC_MAINNET`. */
+	pub fn rpc_urls(&self, name: &str) -> anyhow::Result<Vec<String>> {
+		env_urls(&env_key(name))
 	}
 }
 
@@ -138,19 +138,21 @@ pub fn env_key(name: &str) -> String {
 }
 
 /**
- * The one URL in env var `key`. rindexer takes one RPC per chain. So a comma-separated list,
- * which SubQuery failed over between, is refused rather than cut to its first URL.
+ * The comma-separated URLs in env var `key`, in the order to try them. Reads fail over between
+ * them, as SubQuery did: see `failover`.
  */
-pub fn env_url(key: &str) -> anyhow::Result<String> {
+pub fn env_urls(key: &str) -> anyhow::Result<Vec<String>> {
 	let value = std::env::var(key).with_context(|| format!("{key} is not set"))?;
-	let url = value.trim();
-	if url.is_empty() {
+	let urls: Vec<String> = value
+		.split(',')
+		.map(str::trim)
+		.filter(|url| !url.is_empty())
+		.map(String::from)
+		.collect();
+	if urls.is_empty() {
 		bail!("{key} is empty");
 	}
-	if url.contains(',') {
-		bail!("{key} lists several URLs, but the indexer takes one RPC per chain");
-	}
-	Ok(url.to_string())
+	Ok(urls)
 }
 
 #[cfg(test)]
@@ -158,16 +160,19 @@ mod tests {
 	use super::*;
 
 	#[test]
-	fn an_rpc_variable_holds_one_url() {
+	fn an_rpc_variable_lists_urls_in_order() {
 		let read = |value: &str| {
 			let key = format!("INDEXER_TEST_URL_{}", value.len());
 			std::env::set_var(&key, value);
-			env_url(&key).map_err(|e| e.to_string())
+			env_urls(&key).map_err(|e| e.to_string())
 		};
-		assert_eq!(read(" http://node:9944 ").unwrap(), "http://node:9944");
-		assert!(read("http://a:8545,http://b:8546").unwrap_err().contains("several URLs"));
-		assert!(read("  ").unwrap_err().contains("empty"));
-		assert!(env_url("INDEXER_TEST_URL_UNSET").unwrap_err().to_string().contains("not set"));
+		assert_eq!(read(" http://node:9944 ").unwrap(), ["http://node:9944"]);
+		assert_eq!(
+			read("http://a:8545, http://b:8546,").unwrap(),
+			["http://a:8545", "http://b:8546"]
+		);
+		assert!(read(" , ").unwrap_err().contains("empty"));
+		assert!(env_urls("INDEXER_TEST_URL_UNSET").unwrap_err().to_string().contains("not set"));
 	}
 
 	#[test]

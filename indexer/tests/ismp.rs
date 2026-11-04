@@ -74,7 +74,7 @@ async fn indexer(environment: Environment, chains: &[(&str, ChainConfig, &Assert
 			let chain = Chain {
 				name: name.to_string(),
 				config: config.clone(),
-				rpc_url: String::new(),
+				rpc_urls: vec![],
 				provider,
 				substrate: None,
 			};

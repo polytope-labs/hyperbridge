@@ -11,8 +11,9 @@ use alloy::{
 };
 
 use crate::{
-	config::{env_key, env_url, ChainConfig, ChainKind},
+	config::{env_key, env_urls, ChainConfig, ChainKind},
 	errors::is_failed_execution,
+	failover::FailoverTransport,
 	substrate::SubstrateRpc,
 };
 
@@ -29,11 +30,12 @@ const COMPUTE_UNITS_PER_SECOND: u64 = 660;
 pub struct Chain {
 	pub name: String,
 	pub config: ChainConfig,
-	pub rpc_url: String,
-	/** The chain's Ethereum JSON-RPC: the chain itself, or substrate-eth-rpc for Substrate. */
+	/** The chain's Ethereum JSON-RPC URLs, in the order reads fail over between them: the
+	 * chain's own, or substrate-eth-rpc's for a Substrate chain. */
+	pub rpc_urls: Vec<String>,
 	pub provider: DynProvider,
-	/** For Substrate chains, the node's own RPC, from `<CHAIN>_SUBSTRATE`. A standalone
-	 * substrate-eth-rpc serves only `eth_*`, so it has no default. */
+	/** For Substrate chains, the node's own RPCs, from `<CHAIN>_SUBSTRATE`. A standalone
+	 * substrate-eth-rpc serves only `eth_*`, so there is no default. */
 	pub substrate: Option<SubstrateRpc>,
 }
 
@@ -43,16 +45,16 @@ impl Chain {
 		config: &ChainConfig,
 		http: &reqwest::Client,
 	) -> anyhow::Result<Self> {
-		let rpc_url = config.rpc_url(name)?;
-		let provider = reader(&rpc_url)?;
+		let rpc_urls = config.rpc_urls(name)?;
+		let provider = reader(&rpc_urls)?;
 		let substrate = match config.kind {
 			ChainKind::Substrate => {
-				let url = env_url(&format!("{}_SUBSTRATE", env_key(name)))?;
-				Some(SubstrateRpc::new(&url, http.clone()))
+				let urls = env_urls(&format!("{}_SUBSTRATE", env_key(name)))?;
+				Some(SubstrateRpc::new(&urls, http.clone()))
 			},
 			ChainKind::Evm => None,
 		};
-		Ok(Self { name: name.to_string(), config: config.clone(), rpc_url, provider, substrate })
+		Ok(Self { name: name.to_string(), config: config.clone(), rpc_urls, provider, substrate })
 	}
 
 	pub fn state_machine_id(&self) -> &str {
@@ -66,12 +68,19 @@ impl Chain {
 	}
 }
 
-/** The client handlers read with: every request times out, and rate limits are retried. */
-fn reader(url: &str) -> anyhow::Result<DynProvider> {
+/**
+ * The client handlers read with: every request times out and fails over between the URLs, and
+ * rate limits are retried.
+ */
+fn reader(urls: &[String]) -> anyhow::Result<DynProvider> {
 	// alloy's own reqwest, which its HTTP transport takes.
 	let http = alloy::transports::http::reqwest::Client::builder()
 		.timeout(REQUEST_TIMEOUT)
 		.build()?;
+	let transports = urls
+		.iter()
+		.map(|url| Ok(Http::with_client(http.clone(), url.parse()?)))
+		.collect::<anyhow::Result<Vec<_>>>()?;
 	let retries = RetryBackoffLayer::new_with_policy(
 		RATE_LIMIT_RETRIES,
 		RETRY_BACKOFF_MS,
@@ -80,7 +89,7 @@ fn reader(url: &str) -> anyhow::Result<DynProvider> {
 	);
 	let client = ClientBuilder::default()
 		.layer(retries)
-		.transport(Http::with_client(http, url.parse()?), false);
+		.transport(FailoverTransport::new(transports), false);
 	Ok(ProviderBuilder::new().connect_client(client).erased())
 }
 

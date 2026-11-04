@@ -12,13 +12,20 @@ use super::orders::lower_hex;
 use crate::{
 	chains::Chain,
 	config::Uniswap,
-	errors::is_transient,
+	errors::{is_transient, untrusted_call_error},
 	services::{
 		decimal::{amount_value_in_usd, to_scaled_usd, Dec},
 		prices::native_currency_price,
 	},
 	store::{numeric, timestamp_to_date},
 };
+
+/**
+ * Gas for a V4 quote, which takes a few hundred thousand. Anyone can create a pool with
+ * liquidity spread over enough ticks to run a quote until the node's time limit; with this cap
+ * it runs out of gas first, so a timeout is the node's.
+ */
+const QUOTE_GAS: u64 = 2_000_000;
 
 sol! {
 	#[sol(rpc)]
@@ -245,7 +252,8 @@ async fn v4_quote(
 		exactAmount: amount,
 		hookData: Bytes::new(),
 	};
-	Ok(quoter.quoteExactInputSingle(params).block(at).call().await?.amountOut)
+	let quote = quoter.quoteExactInputSingle(params).block(at).gas(QUOTE_GAS).call().await;
+	Ok(quote.map_err(untrusted_call_error)?.amountOut)
 }
 
 fn pool_key(currency0: Address, currency1: Address, fee: u32) -> UniswapV4Quoter::PoolKey {

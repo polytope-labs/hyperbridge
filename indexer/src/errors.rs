@@ -46,11 +46,15 @@ const EXECUTION_FAILURES: &[&str] = &[
 const NOT_SERVED: &[&str] = &[
 	"timeout",
 	"timed out",
+	"not found",
 	"missing trie node",
 	"historical state",
 	"state not available",
 	"state is not available",
 	"unknown block",
+	"pruned",
+	"unavailable",
+	"upstream",
 ];
 
 /** JSON-RPC's "method not found": the node doesn't serve the method. */
@@ -208,6 +212,9 @@ mod tests {
 			// A precompile called as a token, and wording no list knows.
 			(-32000, "invalid input length"),
 			(-32000, "failed to run contract: ContractTrapped"),
+			// Polkadot Hub's answer for a precompile called as a token.
+			(-32000, "failed to run contract: Other(\"invalid input length\")"),
+			(-32000, "execution reverted: pool not found"),
 		] {
 			assert!(!call(answer(code, message)), "{code} {message}");
 		}
@@ -217,7 +224,11 @@ mod tests {
 
 		for (code, message) in [
 			(-32000, "header not found"),
+			(-32000, "Header not found"),
+			(-32000, "block 0x1f2e not found"),
 			(-32000, "missing trie node 1a2b (path )"),
+			(-32000, "required historical state unavailable"),
+			(-32603, "upstream connect error"),
 			(-32000, "request timed out"),
 			(-32000, "execution aborted (timeout = 5s)"),
 			(-32603, "internal error"),

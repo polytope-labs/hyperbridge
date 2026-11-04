@@ -62,11 +62,12 @@ impl EventHandler for Recorder {
 	}
 }
 
-/** Counts its runs, and the block of the last. */
+/** Counts its runs, and keeps the blocks of the last. */
 #[derive(Clone, Default)]
 struct Counter {
 	runs: Arc<AtomicUsize>,
 	block: Arc<AtomicU64>,
+	previous_block: Arc<Mutex<Option<u64>>>,
 }
 
 #[async_trait]
@@ -78,6 +79,7 @@ impl BlockHook for Counter {
 	async fn after_batch(&self, ctx: &BlockContext<'_>) -> anyhow::Result<()> {
 		self.runs.fetch_add(1, Ordering::SeqCst);
 		self.block.store(ctx.block_number, Ordering::SeqCst);
+		*self.previous_block.lock().unwrap() = ctx.previous_block;
 		Ok(())
 	}
 }
@@ -102,7 +104,7 @@ fn result(network: &str, block: u64, log_index: u64) -> EventResult {
 			log_index: U256::from(log_index),
 			transaction_index: 0,
 		},
-		found_in_request: LogFoundInRequest { from_block: U64::from(1), to_block: U64::from(4) },
+		found_in_request: LogFoundInRequest { from_block: U64::from(1), to_block: U64::from(9) },
 	}
 }
 
@@ -127,7 +129,7 @@ async fn a_failed_block_keeps_the_blocks_before_it_and_the_replay_runs_hooks_onc
 	let chain = Chain {
 		name: network.clone(),
 		config: chain_config.clone(),
-		rpc_url: "http://127.0.0.1:9".into(),
+		rpc_urls: vec!["http://127.0.0.1:9".into()],
 		provider: ProviderBuilder::new()
 			.connect_http("http://127.0.0.1:9".parse().unwrap())
 			.erased(),
@@ -185,6 +187,13 @@ async fn a_failed_block_keeps_the_blocks_before_it_and_the_replay_runs_hooks_onc
 	process_batch(&indexer, &network, &routes, batch().into()).await.unwrap();
 	assert!(handled().is_empty());
 	assert_eq!(counter.runs.load(Ordering::SeqCst), 1);
+
+	// Hooks see where the batch started, though each of its blocks has committed by then.
+	let next = [(5, 0), (6, 0), (7, 0)].map(|(block, log)| result(&network, block, log));
+	process_batch(&indexer, &network, &routes, next.into()).await.unwrap();
+	assert_eq!(handled(), [(5, 0), (6, 0), (7, 0)]);
+	assert_eq!(counter.block.load(Ordering::SeqCst), 7);
+	assert_eq!(*counter.previous_block.lock().unwrap(), Some(4));
 
 	admin
 		.execute("DELETE FROM indexer.cursors WHERE network = $1", &[&network])

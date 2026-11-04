@@ -39,8 +39,9 @@ fn chain_manifest(config: &Config, chain: &str, dir: &Path) -> (PathBuf, Manifes
 	let stream_abi = dir.join("stream.abi.json");
 	std::fs::write(&stream_abi, registry::stream_abi()).unwrap();
 	let path = dir.join("rindexer.yaml");
-	let yaml = serde_yaml::to_string(&manifest::build(config, &rpc_urls, &routes, &stream_abi));
-	std::fs::write(&path, yaml.unwrap()).unwrap();
+	let contents =
+		serde_json::to_string_pretty(&manifest::build(config, &rpc_urls, &routes, &stream_abi));
+	std::fs::write(&path, contents.unwrap()).unwrap();
 	let manifest = read_manifest(&path).unwrap();
 	(path, manifest)
 }

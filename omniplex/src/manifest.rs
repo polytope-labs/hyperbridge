@@ -103,7 +103,7 @@ pub fn build(
 		.collect();
 
 	json!({
-		"name": "HyperbridgeIndexer",
+		"name": "Omniplex",
 		"project_type": "rust",
 		"timestamps": true,
 		"networks": networks,

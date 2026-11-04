@@ -7,7 +7,7 @@ use std::{
 	time::Duration,
 };
 
-use hyperbridge_indexer::{config::Config, db, handlers, manifest, registry};
+use omniplex::{config::Config, db, handlers, manifest, registry};
 use rindexer::{manifest::core::Manifest, PostgresClient};
 use tokio_postgres::NoTls;
 

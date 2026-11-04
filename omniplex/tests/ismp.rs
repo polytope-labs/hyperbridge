@@ -12,7 +12,7 @@ use alloy::{
 	transports::mock::Asserter,
 };
 use common::{database, text};
-use hyperbridge_indexer::{
+use omniplex::{
 	chains::Chain,
 	config::{ChainConfig, ChainKind, Config, Contracts, Environment},
 	handlers::{
@@ -632,7 +632,7 @@ async fn hyperbridge_statuses_wait_for_their_request() {
 	)
 	.await;
 	assert_eq!(delivered.as_deref(), Some("1"));
-	let relayer = hyperbridge_indexer::substrate::ss58(&key, 42);
+	let relayer = omniplex::substrate::ss58(&key, 42);
 	let activity = text(
 		&db,
 		&format!("SELECT last_updated_at::text FROM app.relayer_activities WHERE id = '{relayer}'"),
@@ -678,7 +678,7 @@ async fn hyperbridge_statuses_wait_for_their_request() {
  * dropped. It is named as `Withdraw` names it, in lowercase hex. */
 #[tokio::test]
 async fn accumulated_fees_keep_evm_relayers() {
-	use hyperbridge_indexer::handlers::{abi::pallets::Relayer, pallets::relayer};
+	use omniplex::handlers::{abi::pallets::Relayer, pallets::relayer};
 	let Some(mut client) = database().await else { return };
 	let db = client.transaction().await.unwrap();
 	let nexus = Asserter::new();
@@ -774,7 +774,7 @@ async fn evm_state_machine_updates_read_the_hosts_commitment() {
  * response is written before the GET request it points at. */
 #[tokio::test]
 async fn a_get_response_keeps_its_request_before_the_request_is_indexed() {
-	use hyperbridge_indexer::{
+	use omniplex::{
 		handlers::ismp::requests::{insert_get_response, GetResponseRow},
 		store::numeric,
 	};

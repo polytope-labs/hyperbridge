@@ -3,7 +3,7 @@
 mod common;
 
 use common::{database, text};
-use hyperbridge_indexer::{
+use omniplex::{
 	config::Environment,
 	services::{
 		points::{award_points, Award},
@@ -172,7 +172,7 @@ async fn token_prices_are_zero_on_testnets_and_stables_are_stored_at_one() {
 
 #[tokio::test]
 async fn pending_statuses_wait_for_their_parent() {
-	use hyperbridge_indexer::{
+	use omniplex::{
 		services::pending::{
 			defer_status, flush_commitment, flush_ready, PendingEntity, PendingStatus,
 		},

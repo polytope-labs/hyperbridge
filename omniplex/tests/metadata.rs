@@ -3,7 +3,7 @@
 mod common;
 
 use common::{database, text};
-use hyperbridge_indexer::metadata::{record_progress, register, table};
+use omniplex::metadata::{record_progress, register, table};
 
 #[tokio::test]
 async fn each_chain_keeps_one_metadata_table_omnihedron_lists() {

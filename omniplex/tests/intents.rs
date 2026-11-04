@@ -9,7 +9,7 @@ use std::collections::HashMap;
 use alloy::primitives::{Address, Bytes, B256, U256};
 use async_trait::async_trait;
 use common::{database, text};
-use hyperbridge_indexer::{
+use omniplex::{
 	handlers::intents::{
 		bids::extract_user_op,
 		calls::{Order, TokenAmount},
@@ -695,7 +695,7 @@ struct FlakyMarket;
 #[async_trait]
 impl Market for FlakyMarket {
 	async fn token_metadata(&self, token: Address) -> anyhow::Result<(String, u8)> {
-		Err(anyhow::anyhow!(hyperbridge_indexer::errors::Retry(format!("{token}: timed out"))))
+		Err(anyhow::anyhow!(omniplex::errors::Retry(format!("{token}: timed out"))))
 	}
 
 	async fn usd_price(&self, _symbol: &str) -> Option<Dec> {

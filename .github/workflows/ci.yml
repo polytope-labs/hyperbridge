@@ -71,7 +71,7 @@ jobs:
             tendermint: ${{ steps.filter.outputs.tendermint }}
             bsc: ${{ steps.filter.outputs.bsc }}
             wasm: ${{ steps.filter.outputs.wasm }}
-            indexer: ${{ steps.filter.outputs.indexer }}
+            omniplex: ${{ steps.filter.outputs.omniplex }}
         steps:
             - uses: actions/checkout@v3
               with:
@@ -110,8 +110,8 @@ jobs:
                         - 'Cargo.lock'
                         - 'rust-toolchain.toml'
                         - '.github/workflows/ci.yml'
-                      indexer:
-                        - 'indexer/**'
+                      omniplex:
+                        - 'omniplex/**'
                         - 'modules/ismp/core/**'
                         - 'modules/utils/serde/**'
                         - 'modules/utils/substrate-eth-rpc/**'
@@ -363,11 +363,11 @@ jobs:
               run: |
                   cargo test --all-targets --locked
 
-    indexer-tests:
-        name: Indexer Tests
+    omniplex-tests:
+        name: Omniplex Tests
         runs-on: ubuntu-latest
         needs: detect-changes
-        if: github.event.pull_request.draft != true && needs.detect-changes.outputs.indexer == 'true'
+        if: github.event.pull_request.draft != true && needs.detect-changes.outputs.omniplex == 'true'
         services:
             postgres:
                 image: postgres:16
@@ -389,13 +389,13 @@ jobs:
 
             # The database tests return early without INDEXER_TEST_DATABASE_URL, so the unit test
             # job above runs them as no-ops. rust-toolchain.toml picks the toolchain.
-            - name: Run indexer tests against Postgres
+            - name: Run omniplex tests against Postgres
               env:
                   INDEXER_TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
                   # Full debug info makes each test binary about 0.8 GB, too much for the runner's disk.
                   CARGO_PROFILE_DEV_DEBUG: line-tables-only
               run: |
-                  cargo test -p hyperbridge-indexer --locked
+                  cargo test -p omniplex --locked
 
     simnet-tests:
         name: Simnet Tests

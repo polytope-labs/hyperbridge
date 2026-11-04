@@ -4,7 +4,7 @@
 #[allow(dead_code)]
 mod common;
 
-use hyperbridge_indexer::store::{Numeric, Status};
+use omniplex::store::{Numeric, Status};
 use tokio_postgres::NoTls;
 
 async fn client() -> Option<tokio_postgres::Client> {

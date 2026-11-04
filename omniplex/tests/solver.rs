@@ -21,7 +21,7 @@ use alloy::{
 };
 use async_trait::async_trait;
 use common::{database, text};
-use hyperbridge_indexer::{
+use omniplex::{
 	config::ChainConfig,
 	handlers::{
 		abi::Erc4626,

@@ -1,9 +1,9 @@
 [package]
-name = "hyperbridge-indexer"
+name = "omniplex"
 version = "0.1.0"
 edition = "2021"
 publish = false
-description = "Hyperbridge indexer: rindexer handlers writing the tables omnihedron serves"
+description = "Omniplex: the Hyperbridge indexer, rindexer handlers writing the tables omnihedron serves"
 
 [dependencies]
 rindexer = { git = "https://github.com/joshstevens19/rindexer", tag = "v0.43.4" }

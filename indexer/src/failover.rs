@@ -19,7 +19,7 @@ use alloy::{
 };
 use tower_service::Service;
 
-use crate::errors::{is_answer, not_served};
+use crate::errors::{is_answer, is_failed_execution, not_served};
 
 /** Which of a chain's RPCs to try first: the one that answered last. */
 #[derive(Debug, Default)]
@@ -43,8 +43,9 @@ impl Failover {
 /**
  * An alloy transport over a chain's HTTP RPCs. A request moves to the next RPC when one doesn't
  * answer, answers with an HTTP error, or answers that it can't serve the request, such as a
- * rate limit or a block it doesn't have. When no RPC serves it, the caller gets the first
- * answer there was, which says more than an RPC that didn't answer.
+ * rate limit or a block it doesn't have. A revert is final, even sent with an HTTP error. When
+ * no RPC serves the request, the caller gets the first can't-serve answer, else the first HTTP
+ * error, else the first failure: an answer says more than an RPC that didn't answer.
  */
 #[derive(Clone)]
 pub struct FailoverTransport {
@@ -91,6 +92,10 @@ impl Service<RequestPacket> for FailoverTransport {
 							unserved.get_or_insert(response);
 						},
 					},
+					Err(err) if is_failed_execution(&err) => {
+						this.failover.answered(index);
+						return Err(err);
+					},
 					Err(err) => {
 						if several {
 							tracing::warn!(rpc = index, "RPC failed, trying the next: {err}");
@@ -128,6 +133,8 @@ pub mod tests {
 		Result(&'static str),
 		Error(i64, &'static str),
 		Status(u16),
+		/** A JSON-RPC error sent with an HTTP error status. */
+		Rejected(u16, i64, &'static str),
 		/** No logs for an `eth_getLogs` of at most this many blocks, and a range limit for a
 		 * longer one. Anything else gets `0x1`. */
 		LogsWithin(u64),
@@ -200,6 +207,14 @@ pub mod tests {
 				}),
 			),
 			Reply::Status(status) => (status, serde_json::json!({})),
+			Reply::Rejected(status, code, message) => (
+				status,
+				serde_json::json!({
+					"jsonrpc": "2.0",
+					"id": request["id"],
+					"error": { "code": code, "message": message },
+				}),
+			),
 			Reply::LogsWithin(most) => {
 				let block = |field: &str| {
 					let hex = request["params"][0][field].as_str().unwrap_or("0x0");
@@ -275,10 +290,15 @@ pub mod tests {
 		let (provider, _) = provider_over(&[&closed_url().await, &limited.url]);
 		let err = provider.get_block_number().await.unwrap_err();
 		assert!(err.as_error_resp().is_some_and(|answer| answer.code == -32005), "{err}");
-		// A revert sent with an HTTP status is an answer too, and says more than a dead RPC.
+		// An HTTP error is an answer too, and says more than a dead RPC tried before it.
 		let refused = MockRpc::start(Reply::Status(400)).await;
-		let (provider, _) = provider_over(&[&refused.url, &closed_url().await]);
+		let (provider, _) = provider_over(&[&closed_url().await, &refused.url]);
 		let err = provider.get_block_number().await.unwrap_err();
 		assert!(is_answer(&err), "{err}");
+		// A revert is final, even with an HTTP error, so it beats an earlier RPC's rate limit.
+		let reverted = MockRpc::start(Reply::Rejected(400, 3, "execution reverted")).await;
+		let (provider, _) = provider_over(&[&limited.url, &reverted.url]);
+		let err = provider.get_block_number().await.unwrap_err();
+		assert!(is_failed_execution(&err), "{err}");
 	}
 }

@@ -28,7 +28,8 @@ use rindexer::{
 
 use crate::{chains::Chain, config::Config};
 
-/** How long a node gets at startup to answer the chain-id check of rindexer's client. */
+/** How long each of a chain's several nodes gets at startup to answer the chain-id check of
+ * rindexer's client. */
 const CLIENT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
 
 /** Services shared by every handler. */
@@ -120,9 +121,15 @@ pub async fn run(config_path: &Path, run_dir: &Path, selected: &[String]) -> any
 				None,
 			);
 			// rindexer's client checks the node's chain id when it's built, and retries a 503
-			// for an hour. So a node that doesn't answer in time is left out until the next
-			// start, while a node of another chain is a mistake in the config.
-			match tokio::time::timeout(CLIENT_TIMEOUT, client).await {
+			// for an hour. With several URLs, a node that doesn't answer in time is left out
+			// until the next start; with one, the start waits for it. A node of another chain
+			// is a mistake in the config.
+			let client = if chain.rpc_urls.len() > 1 {
+				tokio::time::timeout(CLIENT_TIMEOUT, client).await
+			} else {
+				Ok(client.await)
+			};
+			match client {
 				Ok(Ok(client)) => clients.push((position, client)),
 				Ok(Err(e @ RetryClientError::InvalidClientChainId(..))) =>
 					return Err(anyhow!("rpc client for {}: {e}", network.name)),

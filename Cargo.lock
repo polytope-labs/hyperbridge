@@ -21930,7 +21930,7 @@ dependencies = [
 [[package]]
 name = "prisma-client-rust"
 version = "0.6.11"
-source = "git+https://github.com/Brendonovich/prisma-client-rust.git?tag=0.6.11#3ac68d0052533d3ae0332d93a56a8ad169c2ee18"
+source = "git+https://github.com/polytope-labs/prisma-client-rust.git?tag=0.6.11-polytope.1#5a29183dd144266eda5c42d04ff4f17b67c4b628"
 dependencies = [
  "base64 0.13.1",
  "bigdecimal 0.3.1",
@@ -21964,7 +21964,7 @@ dependencies = [
 [[package]]
 name = "prisma-client-rust-cli"
 version = "0.6.11"
-source = "git+https://github.com/Brendonovich/prisma-client-rust.git?tag=0.6.11#3ac68d0052533d3ae0332d93a56a8ad169c2ee18"
+source = "git+https://github.com/polytope-labs/prisma-client-rust.git?tag=0.6.11-polytope.1#5a29183dd144266eda5c42d04ff4f17b67c4b628"
 dependencies = [
  "directories 4.0.1",
  "flate2",
@@ -21984,7 +21984,7 @@ dependencies = [
 [[package]]
 name = "prisma-client-rust-macros"
 version = "0.6.11"
-source = "git+https://github.com/Brendonovich/prisma-client-rust.git?tag=0.6.11#3ac68d0052533d3ae0332d93a56a8ad169c2ee18"
+source = "git+https://github.com/polytope-labs/prisma-client-rust.git?tag=0.6.11-polytope.1#5a29183dd144266eda5c42d04ff4f17b67c4b628"
 dependencies = [
  "convert_case 0.6.0",
  "proc-macro2",
@@ -21995,7 +21995,7 @@ dependencies = [
 [[package]]
 name = "prisma-client-rust-sdk"
 version = "0.6.11"
-source = "git+https://github.com/Brendonovich/prisma-client-rust.git?tag=0.6.11#3ac68d0052533d3ae0332d93a56a8ad169c2ee18"
+source = "git+https://github.com/polytope-labs/prisma-client-rust.git?tag=0.6.11-polytope.1#5a29183dd144266eda5c42d04ff4f17b67c4b628"
 dependencies = [
  "convert_case 0.5.0",
  "dml",

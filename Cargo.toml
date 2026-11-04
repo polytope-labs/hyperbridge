@@ -1,6 +1,5 @@
 [workspace]
-# Resolver 3 picks dependency versions our pinned toolchain can build. alloy 2.2 and later need a
-# newer Rust than rust-toolchain.toml pins.
+# Resolver 3 picks dependency versions the toolchain in rust-toolchain.toml can build.
 resolver = "3"
 members = [
     # runtime

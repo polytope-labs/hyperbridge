@@ -13,6 +13,9 @@ hyperbridge-indexer --config indexer/config/mainnet.toml --chains bsc-mainnet
 
 The indexer is a member of the root Cargo workspace, so build it from the repo root with
 `cargo build -p hyperbridge-indexer`. The workspace uses alloy 2.0, which rindexer requires.
+The workspace builds with Rust 1.99.1. The relayer's fee database uses prisma-client-rust, which
+comes from our fork, polytope-labs/prisma-client-rust: the archived upstream doesn't compile on
+Rust 1.98 and later.
 
 - Run one process per chain, all pointed at one database. rindexer finishes every chain's
   history before any chain goes live, so in one process, a slow or stuck chain would hold back

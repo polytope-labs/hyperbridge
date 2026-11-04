@@ -530,20 +530,9 @@ async fn dust(
 	token: Address,
 	amount: alloy::primitives::U256,
 ) -> anyhow::Result<()> {
-	let block = ctx.log.block_number;
-	let (symbol, decimals) = dust::dust_token(ctx.chain, token, block).await?;
-	let usd = dust::dust_usd_value(ctx.chain, block, token, amount, decimals).await?;
-	dust::record_dust(
-		ctx.db,
-		kind,
-		ctx.chain.state_machine_id(),
-		token,
-		amount,
-		ctx.log.block_timestamp,
-		&symbol,
-		&usd,
-	)
-	.await
+	let symbol = dust::dust_symbol(ctx.chain, token, ctx.log.block_number).await?;
+	let chain = ctx.chain.state_machine_id();
+	dust::record_dust(ctx.db, kind, chain, token, amount, ctx.log.block_timestamp, &symbol).await
 }
 
 struct DustCollected;

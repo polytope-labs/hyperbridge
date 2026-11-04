@@ -101,9 +101,8 @@ compared. The deliberate differences:
 - RPC and database errors SubQuery swallowed now fail the batch and are retried. Reverts, other
   failed executions and malformed data are still logged and skipped. A token's `symbol()` and
   `decimals()` run code anyone can deploy, so any error answer from them is final, unless the
-  node couldn't serve the call. So is a Uniswap V4 quote's, since anyone can shape a pool.
-  Those calls get a gas cap (500k, and 2M for a quote), so a timeout is the node's. Four reads
-  stay best-effort and only log a failure:
+  node couldn't serve the call. Those calls get 500k gas, so a timeout is the node's. Four
+  reads stay best-effort and only log a failure:
   - the `debug_traceTransaction` fallback for an order's calldata, which many RPCs don't serve;
   - HyperFX orderbook prices;
   - yield vault reads, which a later block retries until the day's snapshot completes;
@@ -114,6 +113,9 @@ compared. The deliberate differences:
   keys such as `genesisHash`, `startHeight` and `indexerHealthy`, which nothing we run reads.
 - A token that doesn't answer `symbol()` and `decimals()` is worth $0 in order and fill values.
   SubQuery failed the block, and under rindexer's retries that would stop the chain.
+- Dust isn't valued. The dust rows keep each token's symbol and raw amount, and the per-chain
+  dust USD totals stay empty. SubQuery priced dust with Uniswap quotes, which run in pools
+  anyone can create. hyperfx-app, the one reader of dust, prices the raw amounts itself.
 - Some event data SubQuery failed the block on is stored instead, since a retry would fail the
   same way:
   - Strings lose any NUL, which Postgres text can't hold, and token symbols are cut to 256
@@ -146,7 +148,7 @@ Bugs kept for parity, to decide on separately:
 - Bandwidth eviction looks at the first 100 rows only. Active counts include expired
   subscriptions.
 - The intent gateway: a zero referrer counts as a referrer, early fills leave the order `PLACED`,
-  and statuses can move backwards. Dust USD from Uniswap V2 and V4 ignores token decimals.
+  and statuses can move backwards.
 - Comments in the handlers mark where a bug is kept for parity.
 
 ## Not included yet

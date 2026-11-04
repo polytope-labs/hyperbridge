@@ -20,11 +20,13 @@ use hyperbridge_indexer::handlers::pallets::{
 /** 2026-11-03T13:06:36Z, a Nexus block. */
 const MS: u64 = 1_793_711_196_000;
 
+/** The last reward in an extrinsic keeps SubQuery's id; the earlier ones, which SubQuery
+ * overwrote, move to numbered ids in order. */
 #[tokio::test]
-async fn relayer_rewards_sum_and_one_extrinsic_keeps_the_last_transaction() {
+async fn relayer_rewards_sum_and_keep_every_transaction_in_one_extrinsic() {
 	let Some(mut client) = database().await else { return };
 	let db = client.transaction().await.unwrap();
-	for amount in [100, 250] {
+	for amount in [100, 50, 250] {
 		let reward = RelayerReward {
 			relayer: "14ERRjLB".into(),
 			amount,
@@ -42,13 +44,20 @@ async fn relayer_rewards_sum_and_one_extrinsic_keeps_the_last_transaction() {
 		 FROM app.hyperbridge_relayer_rewards WHERE id = '14ERRjLB'",
 	)
 	.await;
-	assert_eq!(totals.as_deref(), Some("350 350 true true"));
+	assert_eq!(totals.as_deref(), Some("400 400 true true"));
 	let daily = text(
 		&db,
 		"SELECT daily_reward_amount || ' ' || date FROM app.daily_treasury_relayer_rewards WHERE id = '2026-11-03'",
 	)
 	.await;
-	assert_eq!(daily.as_deref(), Some("350 2026-11-03 00:00:00"));
+	assert_eq!(daily.as_deref(), Some("400 2026-11-03 00:00:00"));
+	let earlier = text(
+		&db,
+		"SELECT string_agg(id || '=' || amount, ',' ORDER BY id) FROM app.relayer_reward_transactions
+		 WHERE id LIKE '14ERRjLB-12597592-2-%'",
+	)
+	.await;
+	assert_eq!(earlier.as_deref(), Some("14ERRjLB-12597592-2-1=100,14ERRjLB-12597592-2-2=50"));
 	let transaction = text(
 		&db,
 		"SELECT amount || ' ' || chain || ' ' || reward_type || ' ' || block_timestamp || ' ' ||

@@ -28,19 +28,28 @@ impl PendingEntity {
 		}
 	}
 
-	/** Moves this entity's pending rows whose parent exists into its status table. `$1` is an
-	 * optional commitment filter, `$2` the row limit. */
+	/**
+	 * Moves this entity's pending rows whose parent exists into its status table. `$1` is an
+	 * optional commitment filter, `$2` the row limit. Hyperbridge's `PostRequestHandled` can't
+	 * tell a request for Hyperbridge from one it routes until the request is indexed, so a
+	 * `HYPERBRIDGE_DELIVERED` that waited becomes `DESTINATION` when Hyperbridge is the
+	 * request's `dest`, as the handler decides for an indexed request.
+	 */
 	fn flush_sql(&self) -> &'static str {
 		match self {
 			PendingEntity::Request => concat!(
 				"WITH ready AS (DELETE FROM app.pending_status_metadata p WHERE p.id IN (
 				   SELECT p.id FROM app.pending_status_metadata p JOIN app.request_v2s r ON r.id = p.commitment
 				   WHERE p.entity_type = 'RequestV2' AND ($1::text IS NULL OR p.commitment = $1) LIMIT $2)
-				 RETURNING p.*)
+				 RETURNING p.*),
+				 resolved AS (SELECT ready.*, CASE
+				   WHEN ready.status = 'HYPERBRIDGE_DELIVERED' AND ready.chain = r.dest THEN 'DESTINATION'
+				   ELSE ready.status END AS resolved_status
+				   FROM ready JOIN app.request_v2s r ON r.id = ready.commitment)
 				 INSERT INTO app.request_status_metadata
 				   (id, status, chain, timestamp, block_number, block_hash, transaction_hash, request_id, created_at)
-				 SELECT commitment || '.' || status, status::app.\"167d3578e1\", chain, timestamp, block_number,
-				   block_hash, transaction_hash, commitment, created_at FROM ready",
+				 SELECT commitment || '.' || resolved_status, resolved_status::app.\"167d3578e1\", chain,
+				   timestamp, block_number, block_hash, transaction_hash, commitment, created_at FROM resolved",
 				" ON CONFLICT (id) DO UPDATE SET status = EXCLUDED.status, chain = EXCLUDED.chain,
 				   timestamp = EXCLUDED.timestamp, block_number = EXCLUDED.block_number,
 				   block_hash = EXCLUDED.block_hash, transaction_hash = EXCLUDED.transaction_hash,

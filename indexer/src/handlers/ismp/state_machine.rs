@@ -3,8 +3,7 @@
 
 use alloy::{
 	eips::BlockId,
-	primitives::{keccak256, Address, B256, U256},
-	providers::Provider,
+	primitives::{Address, U256},
 };
 use anyhow::{anyhow, bail};
 use blake2::{
@@ -121,28 +120,31 @@ pub async fn substrate_commitment_timestamp(
 	Ok(Some(u64::from_le_bytes(timestamp)))
 }
 
-/**
- * The storage slot `fetchStateCommitmentsEVM` reads the timestamp from. It is the pre-#840
- * `EvmHost` layout; the live host keeps `_stateCommitments` at slot 3, so this reads 0 there.
- * Kept for parity with the rows SubQuery wrote.
- */
-const STATE_COMMITMENT_SLOT: u64 = 5;
+alloy::sol! {
+	#[sol(rpc)]
+	interface StateCommitments {
+		struct StateMachineHeight {
+			uint256 stateMachineId;
+			uint256 height;
+		}
 
-/** `generateStateCommitmentKeys`: the timestamp slot of `_stateCommitments[paraId][height]`. */
-pub fn evm_commitment_slot(para_id: u32, height: u64) -> B256 {
-	let mut parent = [0u8; 64];
-	parent[..32].copy_from_slice(&U256::from(para_id).to_be_bytes::<32>());
-	parent[32..].copy_from_slice(&U256::from(STATE_COMMITMENT_SLOT).to_be_bytes::<32>());
-	let parent = keccak256(parent);
-	let mut base = [0u8; 64];
-	base[..32].copy_from_slice(&U256::from(height).to_be_bytes::<32>());
-	base[32..].copy_from_slice(parent.as_slice());
-	keccak256(base)
+		struct StateCommitment {
+			uint256 timestamp;
+			bytes32 overlayRoot;
+			bytes32 stateRoot;
+		}
+
+		function stateMachineCommitment(StateMachineHeight memory height)
+			external
+			view
+			returns (StateCommitment memory);
+	}
 }
 
 /**
  * `fetchStateCommitmentsEVM`: `None` unless the state machine is a Polkadot or Kusama
- * parachain; otherwise the host's storage at `block`, divided by 1000 as the TypeScript did.
+ * parachain; otherwise the timestamp, in seconds, of the commitment the host holds at `block`.
+ * SubQuery read a storage slot from an older host layout, so every row it wrote holds 0.
  */
 pub async fn evm_commitment_timestamp(
 	chain: &Chain,
@@ -155,13 +157,16 @@ pub async fn evm_commitment_timestamp(
 		StateId::Polkadot(id) | StateId::Kusama(id) => id,
 		_ => return Ok(None),
 	};
-	let slot = evm_commitment_slot(para_id, height);
-	let value = chain
-		.provider
-		.get_storage_at(host, slot.into())
-		.block_id(BlockId::number(block))
+	let height = StateCommitments::StateMachineHeight {
+		stateMachineId: U256::from(para_id),
+		height: U256::from(height),
+	};
+	let commitment = StateCommitments::new(host, &chain.provider)
+		.stateMachineCommitment(height)
+		.block(BlockId::number(block))
+		.call()
 		.await?;
-	Ok(Some(value / U256::from(1000)))
+	Ok(Some(commitment.timestamp))
 }
 
 /** One `state_machine_update_events` row. */
@@ -239,18 +244,5 @@ mod tests {
 		expected.extend(blake2_128(&1234u64.encode()));
 		expected.extend(1234u64.encode());
 		assert_eq!(key, expected);
-	}
-
-	#[test]
-	fn evm_slot_follows_solidity_mapping_layout() {
-		// keccak256(pad32(height) ++ keccak256(pad32(paraId) ++ pad32(5)))
-		let slot = evm_commitment_slot(3367, 12_597_213);
-		let parent = keccak256(
-			[U256::from(3367).to_be_bytes::<32>(), U256::from(5).to_be_bytes::<32>()].concat(),
-		);
-		let expected = keccak256(
-			[U256::from(12_597_213).to_be_bytes::<32>().to_vec(), parent.to_vec()].concat(),
-		);
-		assert_eq!(slot, expected);
 	}
 }

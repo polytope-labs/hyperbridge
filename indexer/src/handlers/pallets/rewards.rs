@@ -59,7 +59,9 @@ pub struct RelayerReward<'a> {
 
 /**
  * Adds a consensus reward to the relayer's totals and the day's, and writes the reward
- * transaction. Several rewards to one relayer in one extrinsic share an id, so the last wins.
+ * transaction. SubQuery gave every reward to one relayer in one extrinsic the same id, so only
+ * the last survived. The last still takes that id, and each earlier one moves to `<id>-<n>`, in
+ * the order they came.
  */
 pub async fn record_relayer_reward(
 	db: &Transaction<'_>,
@@ -88,6 +90,14 @@ pub async fn record_relayer_reward(
 
 	let index = reward.extrinsic.map_or(0, |(index, _)| index);
 	let hash = reward.extrinsic.map(|(_, hash)| hash.to_string());
+	let id = format!("{}-{}-{index}", reward.relayer, reward.block_number);
+	db.execute(
+		"UPDATE app.relayer_reward_transactions SET id = $1 || '-' || (1 + (
+		   SELECT count(*) FROM app.relayer_reward_transactions WHERE starts_with(id, $1 || '-')))
+		 WHERE id = $1",
+		&[&id],
+	)
+	.await?;
 	db.execute(
 		"INSERT INTO app.relayer_reward_transactions
 		   (id, relayer, chain, amount, reward_type, block_number, block_timestamp, extrinsic_hash, created_at)
@@ -98,7 +108,7 @@ pub async fn record_relayer_reward(
 		   block_timestamp = EXCLUDED.block_timestamp, extrinsic_hash = EXCLUDED.extrinsic_hash,
 		   created_at = EXCLUDED.created_at",
 		&[
-			&format!("{}-{}-{index}", reward.relayer, reward.block_number),
+			&id,
 			&reward.relayer,
 			&reward.chain,
 			&amount,

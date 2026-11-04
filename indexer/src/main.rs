@@ -11,7 +11,7 @@ struct Cli {
 	/** Chain config, e.g. config/mainnet.toml. */
 	#[arg(long, env = "INDEXER_CONFIG")]
 	config: PathBuf,
-	/** Where the generated rindexer manifest is written. */
+	/** Where the generated rindexer manifest is written, in a folder per set of chains. */
 	#[arg(long, env = "INDEXER_RUN_DIR", default_value = "/tmp/hyperbridge-indexer")]
 	run_dir: PathBuf,
 	/** Chains to index, comma-separated; all of the config's when unset. Run one process per

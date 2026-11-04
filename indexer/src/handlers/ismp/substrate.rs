@@ -13,9 +13,8 @@ use super::{
 	delivery::request_handled,
 	extrinsic_hash, from_extrinsic, is_hyperbridge, is_substrate_chain, non_critical,
 	requests::{
-		ensure_get_request, get_request_source, insert_get_response, insert_status,
-		post_request_route, update_status, upsert_post_request, GetResponseRow, PostRequestRow,
-		StatusUpdate,
+		ensure_get_request, insert_get_response, insert_status, post_request_route, update_status,
+		upsert_post_request, GetResponseRow, PostRequestRow, StatusUpdate,
 	},
 	state_machine::{
 		save_state_machine_update, substrate_commitment_timestamp, StateMachineUpdate,
@@ -387,11 +386,10 @@ impl EventHandler for PostRequestHandled {
 		let host = ctx.chain.state_machine_id();
 		let timestamp = self.0.substrate_timestamp_ms(ctx).await?;
 		let commitment = hex_hash(&event.commitment);
-		// The TypeScript dropped the status when the request wasn't indexed yet.
-		let Some((_, dest)) = post_request_route(ctx.db, &commitment).await? else {
-			tracing::warn!(%commitment, "PostRequestHandled for a request that isn't indexed");
-			return Ok(());
-		};
+		// A request another chain hasn't indexed yet waits as `HYPERBRIDGE_DELIVERED`, and the
+		// flush makes it `DESTINATION` if the request is for Hyperbridge. The TypeScript dropped
+		// the status.
+		let dest = post_request_route(ctx.db, &commitment).await?.and_then(|(_, dest)| dest);
 		let status = if dest.as_deref() == Some(host) {
 			Status::Destination
 		} else {
@@ -425,11 +423,10 @@ impl EventHandler for PostRequestTimeoutHandled {
 		let host = ctx.chain.state_machine_id();
 		let timestamp = self.0.substrate_timestamp_ms(ctx).await?;
 		let commitment = hex_hash(&event.commitment);
-		let Some((source, _)) = post_request_route(ctx.db, &commitment).await? else {
-			tracing::warn!(%commitment, "PostRequestTimeoutHandled for a request that isn't indexed");
-			return Ok(());
-		};
-		let status = if source.as_deref() == Some(host) {
+		// The event names the request's source, so a request that isn't indexed yet can wait with
+		// its status. The TypeScript read the source from the request, and dropped the status
+		// while the request wasn't indexed.
+		let status = if format_chain(&event.source) == host {
 			Status::TimedOut
 		} else {
 			Status::HyperbridgeTimedOut
@@ -484,11 +481,12 @@ impl EventHandler for GetRequestTimeoutHandled {
 		}
 		let host = ctx.chain.state_machine_id();
 		let commitment = hex_hash(&event.commitment);
-		let Some(source) = get_request_source(ctx.db, &commitment).await? else {
-			tracing::warn!(%commitment, "GetRequestTimeoutHandled for a request that isn't indexed");
-			return Ok(());
+		// As in `PostRequestTimeoutHandled`, the status comes from the event's source.
+		let status = if format_chain(&event.source) == host {
+			Status::TimedOut
+		} else {
+			Status::HyperbridgeTimedOut
 		};
-		let status = if source == host { Status::TimedOut } else { Status::HyperbridgeTimedOut };
 		let timestamp = self.0.substrate_timestamp_ms(ctx).await?;
 		let block_hash = hex_hash(&ctx.log.block_hash);
 		let tx = extrinsic_hash(ctx.log);

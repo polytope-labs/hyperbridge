@@ -14,9 +14,11 @@ use crate::{
 };
 
 /**
- * Writes the rindexer manifest and the stream ABI it names to `dir`, and reads the manifest
- * back as rindexer will. Only this user can read them: the manifest holds RPC URLs, which can
- * carry keys.
+ * Writes the rindexer manifest and the stream ABI it names, and reads the manifest back as
+ * rindexer will. They go in a folder of `dir` named after the chains in `rpc_urls`: rindexer
+ * reads the manifest again when it starts, so processes that share `dir` must not overwrite
+ * each other's. Only this user can read them: the manifest holds RPC URLs, which can carry
+ * keys.
  */
 pub fn write(
 	dir: &Path,
@@ -24,11 +26,12 @@ pub fn write(
 	rpc_urls: &BTreeMap<String, String>,
 	routes: &HashMap<String, Arc<ChainRoutes>>,
 ) -> anyhow::Result<(PathBuf, Manifest)> {
-	let abi = write_private(dir, "stream.abi.json", &stream_abi())?;
+	let dir = dir.join(rpc_urls.keys().map(String::as_str).collect::<Vec<_>>().join("+"));
+	let abi = write_private(&dir, "stream.abi.json", &stream_abi())?;
 	let manifest = build(config, rpc_urls, routes, &abi);
 	// Written as JSON, which is valid YAML. serde_yaml writes numbers as maps when the build turns
 	// on serde_json's `arbitrary_precision`, as a build alongside the runtimes does.
-	let path = write_private(dir, "rindexer.yaml", &serde_json::to_string_pretty(&manifest)?)?;
+	let path = write_private(&dir, "rindexer.yaml", &serde_json::to_string_pretty(&manifest)?)?;
 	let manifest = read_manifest(&path).map_err(|e| anyhow!("rindexer manifest: {e}"))?;
 	Ok((path, manifest))
 }
@@ -144,5 +147,42 @@ mod tests {
 				assert_eq!(network.chain_id, chain.chain_id, "{env} {}", network.name);
 			}
 		}
+	}
+
+	/** Processes for different chains can share a run dir: each gets its own manifest. */
+	#[test]
+	fn each_set_of_chains_gets_its_own_manifest() {
+		let handlers = handlers::all();
+		let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+		let config = Config::load(&root.join("config/mainnet.toml")).unwrap();
+		let dir =
+			std::env::temp_dir().join(format!("indexer-manifest-sets-{}", std::process::id()));
+		let write_for = |names: &[&str]| {
+			let routes = names
+				.iter()
+				.map(|name| {
+					let chain = &config.chains[*name];
+					let routes = ChainRoutes::new(chain, &handlers.subscriptions, &handlers.hooks);
+					(name.to_string(), Arc::new(routes))
+				})
+				.collect();
+			let rpc_urls = names
+				.iter()
+				.map(|name| (name.to_string(), "http://127.0.0.1:9".into()))
+				.collect();
+			write(&dir, &config, &rpc_urls, &routes)
+		};
+		let bsc = write_for(&["bsc-mainnet"]);
+		let others = write_for(&["base-mainnet", "ethereum-mainnet"]);
+		let _ = std::fs::remove_dir_all(&dir);
+		let ((bsc_path, bsc), (others_path, others)) = (bsc.unwrap(), others.unwrap());
+		assert_ne!(bsc_path, others_path);
+		let names = |manifest: &Manifest| {
+			let mut names: Vec<_> = manifest.networks.iter().map(|n| n.name.clone()).collect();
+			names.sort();
+			names
+		};
+		assert_eq!(names(&bsc), ["bsc-mainnet"]);
+		assert_eq!(names(&others), ["base-mainnet", "ethereum-mainnet"]);
 	}
 }

@@ -583,63 +583,40 @@ async fn protocol_fee_refunds_keep_their_first_write_without_an_order() {
 }
 
 #[tokio::test]
-async fn dust_adds_amounts_and_priced_usd() {
+async fn dust_adds_raw_amounts_per_token_without_valuing_them() {
 	let Some(mut client) = database().await else { return };
 	let db = client.transaction().await.unwrap();
-	record_dust(
-		&db,
-		Dust::Collected,
-		"EVM-8453",
-		Address::ZERO,
-		U256::from(60),
-		1_000,
-		"eth",
-		"60.000000000000000000",
-	)
-	.await
-	.unwrap();
-	let row = one(
-		&db,
-		"SELECT d.token_symbol || ' ' || d.amount || ' ' || c.amount_u_s_d || ' ' || c.last_updated_at
-		 FROM app.protocol_dust_collecteds d JOIN app.cumulative_dust_collected_per_chains c ON c.id = d.chain
-		 WHERE d.id = 'EVM-8453-0x0000000000000000000000000000000000000000'",
-	)
-	.await;
-	assert_eq!(row.as_deref(), Some("eth 60 60000000000000000000 1000"));
-
-	// Unpriced dust keeps its amount out of the USD total.
-	record_dust(&db, Dust::Collected, "EVM-8453", Address::ZERO, U256::from(5), 2_000, "eth", "0")
+	record_dust(&db, Dust::Collected, "EVM-8453", Address::ZERO, U256::from(60), 1_000, "eth")
 		.await
 		.unwrap();
-	record_dust(
-		&db,
-		Dust::Swept,
-		"EVM-8453",
-		USDC,
-		U256::from(7),
-		2_000,
-		"USDC",
-		"0.000007000000000000",
-	)
-	.await
-	.unwrap();
+	record_dust(&db, Dust::Collected, "EVM-8453", Address::ZERO, U256::from(5), 2_000, "eth")
+		.await
+		.unwrap();
+	record_dust(&db, Dust::Swept, "EVM-8453", USDC, U256::from(7), 2_000, "USDC")
+		.await
+		.unwrap();
 	let collected = one(
 		&db,
-		"SELECT d.amount || ' ' || c.amount_u_s_d FROM app.protocol_dust_collecteds d
-		 JOIN app.cumulative_dust_collected_per_chains c ON c.id = d.chain",
+		"SELECT token_symbol || ' ' || amount || ' ' || last_updated FROM app.protocol_dust_collecteds
+		 WHERE id = 'EVM-8453-0x0000000000000000000000000000000000000000'",
 	)
 	.await;
-	assert_eq!(collected.as_deref(), Some("65 60000000000000000000"));
-	let swept = one(
-		&db,
-		"SELECT d.id || ' ' || c.amount_u_s_d FROM app.protocol_dust_swepts d
-		 JOIN app.cumulative_dust_swept_per_chains c ON c.id = d.chain",
-	)
-	.await;
+	// The second amount's time, 2,000 s.
+	assert_eq!(collected.as_deref(), Some("eth 65 1970-01-01 00:33:20"));
+	let swept =
+		one(&db, "SELECT id || ' ' || token_symbol || ' ' || amount FROM app.protocol_dust_swepts")
+			.await;
 	assert_eq!(
 		swept.as_deref(),
-		Some("EVM-8453-0x833589fcd6edb6e08f4c7c32d4f71b54bda02913 7000000000000")
+		Some("EVM-8453-0x833589fcd6edb6e08f4c7c32d4f71b54bda02913 USDC 7")
 	);
+	let totals = one(
+		&db,
+		"SELECT (SELECT count(*) FROM app.cumulative_dust_collected_per_chains) +
+		   (SELECT count(*) FROM app.cumulative_dust_swept_per_chains) || ''",
+	)
+	.await;
+	assert_eq!(totals.as_deref(), Some("0"));
 }
 
 #[tokio::test]

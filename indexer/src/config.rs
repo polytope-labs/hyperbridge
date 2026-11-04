@@ -75,24 +75,6 @@ pub struct Contracts {
 	pub yield_vaults: BTreeMap<Address, YieldVaults>,
 	#[serde(default)]
 	pub token_slots: BTreeMap<Address, TokenSlots>,
-	/** Uniswap contracts and quote tokens, for pricing the intent gateway's protocol dust. */
-	#[serde(default)]
-	pub uniswap: Option<Uniswap>,
-}
-
-/**
- * `UNISWAP_ADDRESSES` from the TypeScript indexer, with zero addresses kept as listed there.
- * Its V3 contracts are left out: that quote never succeeded (the struct field was misnamed).
- */
-#[derive(Debug, Clone, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct Uniswap {
-	pub v2_factory: Address,
-	pub v4_quoter: Address,
-	pub weth: Address,
-	pub usdc: Address,
-	pub usdt: Address,
-	pub dai: Address,
 }
 
 #[derive(Debug, Clone, Deserialize)]

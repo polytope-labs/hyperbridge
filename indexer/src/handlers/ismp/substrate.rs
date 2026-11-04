@@ -199,14 +199,19 @@ impl EventHandler for Request {
 			.await?;
 		let request = match requests.into_iter().next() {
 			Some(request) => Some(request),
-			None if source_chain.name == ctx.chain.name =>
-				dispatched_request(
-					ctx.chain,
-					ctx.log.block_number,
-					&event.sourceChain,
-					event.requestNonce,
-				)
-				.await?,
+			None if source_chain.name == ctx.chain.name => {
+				let block = ctx.log.block_number;
+				match dispatched_request(ctx.chain, block, &event.sourceChain, event.requestNonce)
+					.await
+				{
+					Ok(request) => request,
+					Err(err) if super::is_transient(&err) => return Err(err),
+					Err(err) => {
+						tracing::warn!(%commitment, "reading the Request from block {block}: {err:#}");
+						return Ok(());
+					},
+				}
+			},
 			None => None,
 		};
 		let Some(request) = request else {

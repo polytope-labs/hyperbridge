@@ -1,6 +1,6 @@
 //! Reads from Substrate chains: storage through substrate-eth-rpc, other RPCs directly.
 
-use std::time::Duration;
+use std::{sync::Arc, time::Duration};
 
 use alloy::{
 	eips::BlockId,
@@ -15,7 +15,7 @@ use blake2::{Blake2b512, Digest};
 use serde::de::DeserializeOwned;
 use serde_json::{json, Value};
 
-use crate::{chains::Chain, errors::Retry};
+use crate::{chains::Chain, errors::Retry, failover::Failover};
 
 sol! {
 	interface SubstrateStorage {
@@ -64,24 +64,33 @@ impl Chain {
 
 /**
  * JSON-RPC over HTTP to a Substrate node, for methods substrate-eth-rpc doesn't carry
- * (`ismp_queryRequests`, `chain_getBlock`, ...). Retries transport failures three times.
+ * (`ismp_queryRequests`, `chain_getBlock`, ...). A request fails over between the node's URLs,
+ * and is retried three times when none answers.
  */
 #[derive(Clone)]
 pub struct SubstrateRpc {
-	url: String,
+	urls: Arc<Vec<String>>,
+	failover: Arc<Failover>,
 	http: reqwest::Client,
 }
 
 impl SubstrateRpc {
-	pub fn new(url: &str, http: reqwest::Client) -> Self {
-		let url = if let Some(rest) = url.strip_prefix("wss://") {
-			format!("https://{rest}")
-		} else if let Some(rest) = url.strip_prefix("ws://") {
-			format!("http://{rest}")
-		} else {
-			url.to_string()
-		};
-		Self { url, http }
+	/** A client for these URLs, of which there is at least one. */
+	pub fn new(urls: &[impl AsRef<str>], http: reqwest::Client) -> Self {
+		let urls = urls
+			.iter()
+			.map(|url| {
+				let url = url.as_ref();
+				if let Some(rest) = url.strip_prefix("wss://") {
+					format!("https://{rest}")
+				} else if let Some(rest) = url.strip_prefix("ws://") {
+					format!("http://{rest}")
+				} else {
+					url.to_string()
+				}
+			})
+			.collect();
+		Self { urls: Arc::new(urls), failover: Default::default(), http }
 	}
 
 	pub async fn call<T: DeserializeOwned>(
@@ -92,25 +101,33 @@ impl SubstrateRpc {
 		let body = json!({ "jsonrpc": "2.0", "id": 1, "method": method, "params": params });
 		let mut delay = Duration::from_millis(100);
 		let mut attempt = 0;
-		let response: Value = loop {
-			let sent = self
-				.http
-				.post(&self.url)
-				.timeout(Duration::from_secs(30))
-				.json(&body)
-				.send()
-				.await
-				.and_then(|r| r.error_for_status());
-			match sent {
-				Ok(response) => break response.json().await?,
-				Err(err) if attempt < 3 => {
-					tracing::warn!(method, "substrate rpc failed, retrying: {err}");
-					tokio::time::sleep(delay).await;
-					delay *= 2;
-					attempt += 1;
-				},
-				Err(err) => return Err(anyhow::Error::new(err).context(method.to_string())),
+		let response: Value = 'answered: loop {
+			let mut last = None;
+			for index in self.failover.order(self.urls.len()) {
+				let sent = self
+					.http
+					.post(&self.urls[index])
+					.timeout(Duration::from_secs(30))
+					.json(&body)
+					.send()
+					.await
+					.and_then(|r| r.error_for_status());
+				match sent {
+					Ok(response) => {
+						self.failover.answered(index);
+						break 'answered response.json().await?;
+					},
+					Err(err) => last = Some(err),
+				}
 			}
+			let err = last.expect("a Substrate RPC has a URL");
+			if attempt == 3 {
+				return Err(anyhow::Error::new(err).context(method.to_string()));
+			}
+			tracing::warn!(method, "substrate rpc failed, retrying: {err}");
+			tokio::time::sleep(delay).await;
+			delay *= 2;
+			attempt += 1;
 		};
 		if let Some(error) = response.get("error") {
 			if is_rate_limit(error) {
@@ -169,8 +186,17 @@ mod tests {
 	}
 
 	#[tokio::test]
+	async fn a_call_moves_past_a_node_that_is_down() {
+		let (live, _server) = crate::failover::tests::rpc_answering("Hyperbridge (Nexus)").await;
+		let rpc = SubstrateRpc::new(&["http://127.0.0.1:9", live.as_str()], reqwest::Client::new());
+		let name: String = rpc.call("system_chain", json!([])).await.unwrap();
+		assert_eq!(name, "Hyperbridge (Nexus)");
+		assert_eq!(rpc.failover.order(2).collect::<Vec<_>>(), [1, 0]);
+	}
+
+	#[tokio::test]
 	async fn an_unreachable_node_is_transient() {
-		let rpc = SubstrateRpc::new("http://127.0.0.1:9", reqwest::Client::new());
+		let rpc = SubstrateRpc::new(&["http://127.0.0.1:9"], reqwest::Client::new());
 		let err = rpc.call::<Value>("chain_getHeader", json!([])).await.unwrap_err();
 		assert!(crate::errors::is_transient(&err), "{err:#}");
 	}

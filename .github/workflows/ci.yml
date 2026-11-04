@@ -113,6 +113,7 @@ jobs:
                       indexer:
                         - 'indexer/**'
                         - 'modules/ismp/core/**'
+                        - 'modules/utils/serde/**'
                         - 'modules/utils/substrate-eth-rpc/**'
                         - 'evm/rust/**'
                         - 'Cargo.toml'
@@ -391,6 +392,8 @@ jobs:
             - name: Run indexer tests against Postgres
               env:
                   INDEXER_TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
+                  # Full debug info makes each test binary about 0.8 GB, too much for the runner's disk.
+                  CARGO_PROFILE_DEV_DEBUG: line-tables-only
               run: |
                   cargo test -p hyperbridge-indexer --locked
 

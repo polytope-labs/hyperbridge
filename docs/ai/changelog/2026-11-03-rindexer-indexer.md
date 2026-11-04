@@ -31,9 +31,10 @@ Rust 1.98 and later.
 - A Substrate chain also needs `<CHAIN>_SUBSTRATE`, the node's own RPC. For the facade inside
   the Hyperbridge node, it is the same URL. A standalone facade serves only `eth_*`, so there is
   no default.
-- Each of these variables holds one URL. rindexer takes one RPC per chain, so the
-  comma-separated lists SubQuery failed over between are refused. For failover, put a load
-  balancer in front of the nodes.
+- Each of these variables can list several comma-separated URLs, as SubQuery's did. A request
+  goes to the RPC that answered last, and moves on to the next one when that doesn't answer.
+  rindexer's client checks a node's chain id when it is built, so a node that is down at
+  startup joins only at the next start.
 - `HYPERFX_ORDERBOOK_URL` prices tokens and serves the solver watchlist.
 - Every RPC must serve historic state at the event's block. On Ethereum and Arbitrum, that means
   an archive endpoint. It must also serve every receipt and transaction of the blocks it
@@ -57,8 +58,11 @@ Rust 1.98 and later.
 - **RPC errors.** Handler reads time out after 30 s, and rate limits are retried in place.
   `eth_getLogs` goes through rindexer's own client. rindexer's live loop stops for good after
   an error on a range as short as a live window, so `AllTopicsProvider` retries those errors
-  itself. It also re-asks the tip block when the answer is empty but the block's logs bloom
-  says it can have our logs, as rindexer does when its own bloom checks are on.
+  itself. An error that names a range the RPC would serve still goes back to rindexer, which
+  fetches that range instead.
+- **Tip block.** When a window ends at the tip block, an answer with no log there is re-asked
+  twice if the block's logs bloom says it can have our logs. rindexer does the same when its
+  own bloom checks are on, which the stream's placeholder topic rules out.
 - **Block hooks.** SubQuery's block handlers are `BlockHook`s. They run after each batch at the
   last block it applied. On a chain with no logs, they run every 15 s at the block rindexer has
   synced.
@@ -97,8 +101,9 @@ compared. The deliberate differences:
 - RPC and database errors SubQuery swallowed now fail the batch and are retried. Reverts, other
   failed executions and malformed data are still logged and skipped. A token's `symbol()` and
   `decimals()` run code anyone can deploy, so any error answer from them is final, unless the
-  node couldn't serve the call. Those calls get 500k gas, so a timeout is the node's. Four
-  reads stay best-effort and only log a failure:
+  node couldn't serve the call. So is a Uniswap V4 quote's, since anyone can shape a pool.
+  Those calls get a gas cap (500k, and 2M for a quote), so a timeout is the node's. Four reads
+  stay best-effort and only log a failure:
   - the `debug_traceTransaction` fallback for an order's calldata, which many RPCs don't serve;
   - HyperFX orderbook prices;
   - yield vault reads, which a later block retries until the day's snapshot completes;
@@ -113,19 +118,21 @@ compared. The deliberate differences:
   same way:
   - Strings lose any NUL, which Postgres text can't hold, and token symbols are cut to 256
     bytes, so their indexes can hold them.
-  - An order destination that starts with `0x` but isn't hex is hashed as text.
   - A Hyperbridge `PostRequestHandled` whose relayer doesn't decode keeps its status, without
     relayer stats.
   - Delivery calldata unwraps `batchCall`s 8 deep.
+- An order destination that starts with `0x` but isn't hex is hashed as text, the bytes the
+  gateway hashed. viem hashed its own hex encoding of the order instead, so SubQuery's
+  commitment and row id for such an order matched no order on chain.
 - A Hyperbridge request that has since timed out is read from the ISMP events of the block it
   was dispatched in. `ismp_queryRequests` reads the head, where that request is gone.
-- Points for a fill indexed before its order use the destination chain's valuation, kept in
-  `indexer.deferred_fill_points` until the order arrives. SubQuery re-read the destination's
-  tokens on the source chain, which failed the block when a token had no code there.
-- Reads of rows other chains write see only rows from blocks no later than the current block's
-  time, as SubQuery's `--historical=timestamp` reads did. This applies to the early-fill
-  backfill and to the solver watchlist. A chain still in its history doesn't consume a
-  watchlist version until its blocks reach the poll that wrote it.
+- A fill indexed before its order, because the destination ran ahead, adds to the order's
+  `filled` and pays its points when the order arrives. SubQuery's `--historical=timestamp`
+  reads hid fills from blocks later than the placement's, which is nearly every fill, so its
+  backfill never ran. The points use the destination chain's valuation, kept in
+  `indexer.deferred_fill_points` until the order arrives.
+- A chain still in its history doesn't consume a solver watchlist version until its blocks
+  reach the time of the poll that wrote it, as SubQuery's time-bounded reads did.
 
 Bugs kept for parity, to decide on separately:
 
@@ -140,8 +147,6 @@ Bugs kept for parity, to decide on separately:
   subscriptions.
 - The intent gateway: a zero referrer counts as a referrer, early fills leave the order `PLACED`,
   and statuses can move backwards. Dust USD from Uniswap V2 and V4 ignores token decimals.
-- A fill indexed before its order is almost always from a later block, so the order's backfill
-  doesn't see it: the order's `filled` stays unset and the fill earns no points.
 - Comments in the handlers mark where a bug is kept for parity.
 
 ## Not included yet

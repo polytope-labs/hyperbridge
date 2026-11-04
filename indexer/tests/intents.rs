@@ -333,7 +333,7 @@ async fn an_early_fill_is_backfilled_when_the_order_arrives() {
 }
 
 #[tokio::test]
-async fn a_fill_from_a_later_block_than_the_placement_is_not_backfilled() {
+async fn a_fill_from_a_later_block_than_the_placement_is_backfilled() {
 	let Some(mut client) = database().await else { return };
 	let db = client.transaction().await.unwrap();
 	defer_foreign_keys(&db).await;
@@ -341,8 +341,8 @@ async fn a_fill_from_a_later_block_than_the_placement_is_not_backfilled() {
 	let g = gateway(&db, &market);
 	let order = order(vec![token(USDC, 5_000_000)], vec![token(WETH, 1000)], 11);
 	let c = order.commitment().to_string();
-	// Indexed first, as when the destination runs ahead, but from a later block than the
-	// placement: SubQuery's historical filter hid it from the placement's backfill.
+	// Indexed first, as when the destination runs ahead, and from a later block than the
+	// placement, as fills are. SubQuery's historical filter hid such fills from its backfill.
 	let later = tx(0xcf, 110, 4);
 	g.record_fill(
 		FillKind::Full,
@@ -359,18 +359,16 @@ async fn a_fill_from_a_later_block_than_the_placement_is_not_backfilled() {
 
 	let filled = one(
 		&db,
-		&format!(
-			"SELECT COALESCE(filled::text, 'none') FROM app.i_order_v3_output_assets WHERE id = '{c}-output-0'"
-		),
+		&format!("SELECT filled::text FROM app.i_order_v3_output_assets WHERE id = '{c}-output-0'"),
 	)
 	.await;
-	assert_eq!(filled.as_deref(), Some("none"));
+	assert_eq!(filled.as_deref(), Some("1000"));
 	let points = one(
 		&db,
 		&format!("SELECT points::text FROM app.rewards WHERE id = '{FILLER}-EVM-8453-FILLER'"),
 	)
 	.await;
-	assert_eq!(points, None);
+	assert_eq!(points.as_deref(), Some("3000"));
 	let deferred =
 		one(&db, &format!("SELECT id FROM indexer.deferred_fill_points WHERE commitment = '{c}'"))
 			.await;
@@ -690,7 +688,7 @@ async fn order_volume_prices_stables_and_keeps_unpriced_amounts() {
 #[tokio::test]
 async fn bid_payload_matches_the_live_indexer() {
 	let Ok(url) = std::env::var("INDEXER_TEST_NEXUS_RPC") else { return };
-	let rpc = SubstrateRpc::new(&url, reqwest::Client::new());
+	let rpc = SubstrateRpc::new(&[url], reqwest::Client::new());
 	// Nexus block 12597100, event 7: filler_bids row
 	// 0x1e5aac55…-12hJWxswyBApyLeoiwzyLDScSrK3MLe5KAKVSdMd7MJLmdjc-12597100-7.
 	let hash: String = rpc.call("chain_getBlockHash", serde_json::json!([12597100])).await.unwrap();

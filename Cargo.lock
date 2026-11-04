@@ -11216,6 +11216,7 @@ dependencies = [
  "tokio",
  "tokio-postgres 0.7.18",
  "toml 0.8.23",
+ "tower-service",
  "tracing",
 ]
 

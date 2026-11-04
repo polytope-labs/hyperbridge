@@ -2,6 +2,7 @@ pub mod chains;
 pub mod config;
 pub mod db;
 pub mod errors;
+pub mod failover;
 pub mod handlers;
 pub mod manifest;
 pub mod metadata;
@@ -77,9 +78,11 @@ pub async fn run(config_path: &Path, run_dir: &Path, selected: &[String]) -> any
 	for name in indexed {
 		chains.insert(name.clone(), Chain::connect(name, &config.chains[name], &http)?);
 	}
+	// rindexer's manifest names one RPC per chain. It builds no client from it: every call goes
+	// through `AllTopicsProvider`, which fails over between all of them.
 	let rpc_urls: BTreeMap<String, String> = chains
 		.iter()
-		.map(|(name, chain)| (name.clone(), chain.rpc_url.clone()))
+		.map(|(name, chain)| (name.clone(), chain.rpc_urls[0].clone()))
 		.collect();
 
 	let handlers = handlers::all();
@@ -99,23 +102,40 @@ pub async fn run(config_path: &Path, run_dir: &Path, selected: &[String]) -> any
 
 	let mut providers: HashMap<String, Arc<dyn ChainProvider>> = HashMap::new();
 	for network in &manifest.networks {
-		let inner = create_client(
-			&network.rpc,
-			network.chain_id,
-			network.compute_units_per_second,
-			network.max_block_range,
-			network.block_poll_frequency,
-			HeaderMap::new(),
-			None,
-			None,
-		)
-		.await
-		.map_err(|e| anyhow!("rpc client for {}: {e}", network.name))?;
+		let chain = &chains[&network.name];
+		let mut clients = vec![];
+		let mut failure = None;
+		for (index, url) in chain.rpc_urls.iter().enumerate() {
+			let client = create_client(
+				url,
+				network.chain_id,
+				network.compute_units_per_second,
+				network.max_block_range,
+				network.block_poll_frequency,
+				HeaderMap::new(),
+				None,
+				None,
+			)
+			.await;
+			match client {
+				Ok(client) => clients.push(client),
+				// rindexer's client checks the chain id when it's built, so an RPC that's down
+				// now joins at the next start.
+				Err(e) => {
+					tracing::warn!(network = %network.name, rpc = index, "RPC left out: {e}");
+					failure = Some(e);
+				},
+			}
+		}
+		if clients.is_empty() {
+			let failure = failure.map(|e| e.to_string()).unwrap_or_default();
+			return Err(anyhow!("rpc client for {}: {failure}", network.name));
+		}
 		let topics = routes[&network.name].topics().into_iter().collect();
-		let distance = chains[&network.name].config.reorg_safe_distance;
+		let distance = chain.config.reorg_safe_distance;
 		providers.insert(
 			network.name.clone(),
-			Arc::new(provider::AllTopicsProvider::new(inner, topics, distance)),
+			Arc::new(provider::AllTopicsProvider::new(clients, topics, distance)),
 		);
 	}
 

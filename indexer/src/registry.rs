@@ -112,7 +112,7 @@ pub struct LogMeta {
 	pub log_index: u64,
 }
 
-/** What a handler sees for one log: shared services, its chain, and the batch's transaction. */
+/** What a handler sees for one log: shared services, its chain, and its block's transaction. */
 pub struct EventContext<'a> {
 	pub indexer: &'a Indexer,
 	pub chain: &'a Chain,
@@ -120,7 +120,7 @@ pub struct EventContext<'a> {
 	pub log: &'a LogMeta,
 }
 
-/** Handles one decoded event. Writes go through `ctx.db`, which commits with the batch. */
+/** Handles one decoded event. Writes go through `ctx.db`, which commits with the log's block. */
 #[async_trait]
 pub trait EventHandler: Send + Sync + 'static {
 	type Event: SolEvent + Send + Sync + 'static;
@@ -191,12 +191,15 @@ pub struct BlockContext<'a> {
 	pub block_number: u64,
 	/** Block timestamp in seconds. */
 	pub block_timestamp: u64,
+	/** The chain's cursor block before this batch: where the last batch or idle run ended.
+	 * `None` before the chain's first. */
+	pub previous_block: Option<u64>,
 }
 
 /**
- * Work SubQuery ran as a block handler. It runs after each batch's logs, in the batch's
- * transaction, at the last block the batch applied. rindexer only calls back for ranges with
- * logs, so a hook runs as often as its chain has logs we subscribe to.
+ * Work SubQuery ran as a block handler. It runs after each batch's logs, in the transaction of
+ * the batch's last block, at the last block the batch applied. rindexer only calls back for
+ * ranges with logs, so a hook runs as often as its chain has logs we subscribe to.
  */
 #[async_trait]
 pub trait BlockHook: Send + Sync + 'static {
@@ -355,17 +358,10 @@ pub async fn process_batch(
 	let blocks: Vec<&[EventResult]> = results
 		.chunk_by(|a, b| a.tx_information.block_number == b.tx_information.block_number)
 		.collect();
-	// The hooks run once, after the batch's logs, at the last block with logs to handle. They
-	// commit with the batch's last block, so they ran if a replay finds that block committed.
-	let hooks_at = results.iter().rev().find_map(|result| {
-		let info = &result.tx_information;
-		let topic = result.log.inner.topics().first().copied()?;
-		let routed = !routes.handlers(info.address, topic).is_empty();
-		routed.then(|| (info.block_number, info.block_timestamp.map(|t| t.to::<u64>())))
-	});
 
 	let _writing = routes.writing.lock().await;
 	let mut conn = indexer.db.raw_connection().await?;
+	let (mut previous_block, mut applied_to) = (None, None);
 	for (index, block) in blocks.iter().enumerate() {
 		let tx = conn.transaction().await?;
 		let cursor = tx
@@ -375,6 +371,9 @@ pub async fn process_batch(
 			)
 			.await?
 			.map(|row| (row.get::<_, i64>(0) as u64, row.get::<_, i64>(1) as u64));
+		if index == 0 {
+			previous_block = cursor.map(|(block, _)| block);
+		}
 
 		let mut last = cursor;
 		for result in *block {
@@ -405,13 +404,20 @@ pub async fn process_batch(
 			for handler in handlers {
 				handler.handle_log(&ctx, &result.log.inner).await?;
 			}
+			applied_to = Some((meta.block_number, meta.block_timestamp));
 		}
 
-		if index + 1 == blocks.len() && last != cursor {
-			if let Some((block_number, block_timestamp)) = hooks_at {
-				let block_timestamp = block_timestamp
-					.ok_or_else(|| anyhow!("log at block {block_number} has no timestamp"))?;
-				let ctx = BlockContext { indexer, chain, db: &tx, block_number, block_timestamp };
+		// The hooks run once, after the batch's logs, at the last block this run applied.
+		if index + 1 == blocks.len() {
+			if let Some((block_number, block_timestamp)) = applied_to {
+				let ctx = BlockContext {
+					indexer,
+					chain,
+					db: &tx,
+					block_number,
+					block_timestamp,
+					previous_block,
+				};
 				for hook in &routes.hooks {
 					hook.after_batch(&ctx).await?;
 				}
@@ -568,6 +574,7 @@ async fn run_idle_hooks(
 		db: &tx,
 		block_number: synced,
 		block_timestamp: block.header.timestamp,
+		previous_block: cursor.map(|block| block as u64),
 	};
 	for hook in &routes.hooks {
 		hook.after_batch(&ctx).await?;

@@ -130,8 +130,8 @@ members = [
 
     "tesseract/relayer",
 
-    # indexer
-    "indexer",
+    # omniplex: the indexer
+    "omniplex",
 ]
 
 # Config for 'cargo dist'

@@ -19,7 +19,7 @@ use alloy::{
 	sol_types::SolEvent,
 };
 use async_trait::async_trait;
-use hyperbridge_indexer::{
+use omniplex::{
 	chains::Chain,
 	config::{ChainConfig, ChainKind, Config, Contracts, Environment},
 	errors::Retry,

@@ -5,7 +5,7 @@ mod common;
 
 use alloy::primitives::{B256, U256};
 use common::{database, text};
-use hyperbridge_indexer::handlers::pallets::{
+use omniplex::handlers::pallets::{
 	bandwidth::{
 		apply_tier_set, record_consumption, record_credit, record_eviction, set_active_counts,
 		Credit,

@@ -495,7 +495,7 @@ async fn find_progress_table(
 	let candidates = tx
 		.query(
 			"SELECT table_name::text FROM information_schema.tables
-			 WHERE table_schema = 'rindexer_internal' AND table_name LIKE 'hyperbridge_indexer_chain%'",
+			 WHERE table_schema = 'rindexer_internal' AND table_name LIKE 'omniplex_chain%'",
 			&[],
 		)
 		.await?;

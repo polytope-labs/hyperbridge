@@ -1,18 +1,18 @@
-# 2026-11-03 — indexer: rindexer handlers for every SubQuery handler
+# 2026-11-03 — omniplex: rindexer handlers for every SubQuery handler
 
-`indexer/` is a Rust indexer built on rindexer v0.43.4. It replaces the SubQuery handlers in
-`sdk/packages/indexer` (polytope-labs/hyperbridge#1439). It writes the same Postgres `app`
-tables, and GraphQL stays on omnihedron, so the SDK and simplex queries are unchanged.
+Omniplex (`omniplex/`) is a Rust indexer built on rindexer v0.43.4. It replaces the SubQuery
+handlers in `sdk/packages/indexer` (polytope-labs/hyperbridge#1439). It writes the same Postgres
+`app` tables, and GraphQL stays on omnihedron, so the SDK and simplex queries are unchanged.
 Substrate chains are read through `modules/utils/substrate-eth-rpc`.
 
 ## Running it
 
 ```
-hyperbridge-indexer --config indexer/config/mainnet.toml --chains bsc-mainnet
+omniplex --config omniplex/config/mainnet.toml --chains bsc-mainnet
 ```
 
-The indexer is a member of the root Cargo workspace, so build it from the repo root with
-`cargo build -p hyperbridge-indexer`. The workspace uses alloy 2.0, which rindexer requires.
+Omniplex is a member of the root Cargo workspace, so build it from the repo root with
+`cargo build -p omniplex`. The workspace uses alloy 2.0, which rindexer requires.
 The workspace builds with Rust 1.99.1. The relayer's fee database uses prisma-client-rust, which
 comes from our fork, polytope-labs/prisma-client-rust: the archived upstream doesn't compile on
 Rust 1.98 and later.
@@ -57,7 +57,7 @@ The cutover runs the indexer over a copy of SubQuery's database. SubQuery stops 
 indexers' tables match, apart from the differences listed below.
 
 1. Copy SubQuery's database into a new one, for example with `pg_dump` and `pg_restore`.
-2. Run `hyperbridge-indexer --config <config> import-subquery` with `DATABASE_URL` set to the
+2. Run `omniplex --config <config> import-subquery` with `DATABASE_URL` set to the
    copy. A Substrate chain needs `<CHAIN>_SUBSTRATE` too.
 3. Start each chain's process on the copy, as usual.
 

@@ -7,7 +7,7 @@ pub async fn database() -> Option<Client> {
 	let url = std::env::var("INDEXER_TEST_DATABASE_URL").ok()?;
 	let (mut client, connection) = tokio_postgres::connect(&url, NoTls).await.unwrap();
 	tokio::spawn(connection);
-	hyperbridge_indexer::db::apply_migrations(&mut client).await.unwrap();
+	omniplex::db::apply_migrations(&mut client).await.unwrap();
 	Some(client)
 }
 

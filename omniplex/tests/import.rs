@@ -2,7 +2,7 @@
 
 use std::collections::BTreeMap;
 
-use hyperbridge_indexer::{config::Config, subquery};
+use omniplex::{config::Config, subquery};
 use tokio_postgres::{Client, NoTls};
 
 async fn connect(url: &str) -> Client {

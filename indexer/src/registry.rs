@@ -335,11 +335,13 @@ pub fn register_all(
 }
 
 /**
- * Runs a batch of one chain's logs in block order, in one database transaction together with
- * the chain's cursor. rindexer records its own progress after the callback returns, so a crash
- * can replay a batch; the cursor makes the replay skip logs that already committed.
+ * Runs a batch of one chain's logs in block order. Each block commits in one database
+ * transaction together with the chain's cursor, as SubQuery flushed each block. So rows other
+ * chains' processes also write, such as a relayer's, stay locked for one block's work rather
+ * than a whole batch's. rindexer records its own progress after the callback returns, so a
+ * crash or a failed block can replay a batch; the cursor makes the replay skip committed logs.
  */
-async fn process_batch(
+pub async fn process_batch(
 	indexer: &Indexer,
 	network: &str,
 	routes: &ChainRoutes,
@@ -350,68 +352,82 @@ async fn process_batch(
 	}
 	let chain = indexer.chain(network)?;
 	results.sort_by_key(|r| (r.tx_information.block_number, r.tx_information.log_index));
+	let blocks: Vec<&[EventResult]> = results
+		.chunk_by(|a, b| a.tx_information.block_number == b.tx_information.block_number)
+		.collect();
+	// The hooks run once, after the batch's logs, at the last block with logs to handle. They
+	// commit with the batch's last block, so they ran if a replay finds that block committed.
+	let hooks_at = results.iter().rev().find_map(|result| {
+		let info = &result.tx_information;
+		let topic = result.log.inner.topics().first().copied()?;
+		let routed = !routes.handlers(info.address, topic).is_empty();
+		routed.then(|| (info.block_number, info.block_timestamp.map(|t| t.to::<u64>())))
+	});
 
 	let _writing = routes.writing.lock().await;
 	let mut conn = indexer.db.raw_connection().await?;
-	let tx = conn.transaction().await?;
-	let cursor = tx
-		.query_opt(
-			"SELECT block_number, log_index FROM indexer.cursors WHERE network = $1 FOR UPDATE",
-			&[&network],
-		)
-		.await?
-		.map(|row| (row.get::<_, i64>(0) as u64, row.get::<_, i64>(1) as u64));
+	for (index, block) in blocks.iter().enumerate() {
+		let tx = conn.transaction().await?;
+		let cursor = tx
+			.query_opt(
+				"SELECT block_number, log_index FROM indexer.cursors WHERE network = $1 FOR UPDATE",
+				&[&network],
+			)
+			.await?
+			.map(|row| (row.get::<_, i64>(0) as u64, row.get::<_, i64>(1) as u64));
 
-	let mut last = cursor;
-	let mut applied_to = None;
-	for result in &results {
-		let info = &result.tx_information;
-		let position = (info.block_number, info.log_index.to::<u64>());
-		if last.is_some_and(|done| position <= done) {
-			continue;
+		let mut last = cursor;
+		for result in *block {
+			let info = &result.tx_information;
+			let position = (info.block_number, info.log_index.to::<u64>());
+			if last.is_some_and(|done| position <= done) {
+				continue;
+			}
+			last = Some(position);
+			let Some(topic) = result.log.inner.topics().first().copied() else { continue };
+			// The request is every address crossed with every topic, so some logs match no route.
+			let handlers = routes.handlers(info.address, topic);
+			if handlers.is_empty() {
+				continue;
+			}
+			let meta = LogMeta {
+				address: info.address,
+				block_number: info.block_number,
+				block_hash: info.block_hash,
+				block_timestamp: info.block_timestamp.map(|t| t.to::<u64>()).ok_or_else(|| {
+					anyhow!("log at block {} has no timestamp", info.block_number)
+				})?,
+				transaction_hash: info.transaction_hash,
+				transaction_index: info.transaction_index,
+				log_index: position.1,
+			};
+			let ctx = EventContext { indexer, chain, db: &tx, log: &meta };
+			for handler in handlers {
+				handler.handle_log(&ctx, &result.log.inner).await?;
+			}
 		}
-		last = Some(position);
-		let Some(topic) = result.log.inner.topics().first().copied() else { continue };
-		// The request is every address crossed with every topic, so some logs match no route.
-		let handlers = routes.handlers(info.address, topic);
-		if handlers.is_empty() {
-			continue;
-		}
-		let meta = LogMeta {
-			address: info.address,
-			block_number: info.block_number,
-			block_hash: info.block_hash,
-			block_timestamp: info
-				.block_timestamp
-				.map(|t| t.to::<u64>())
-				.ok_or_else(|| anyhow!("log at block {} has no timestamp", info.block_number))?,
-			transaction_hash: info.transaction_hash,
-			transaction_index: info.transaction_index,
-			log_index: position.1,
-		};
-		let ctx = EventContext { indexer, chain, db: &tx, log: &meta };
-		for handler in handlers {
-			handler.handle_log(&ctx, &result.log.inner).await?;
-		}
-		applied_to = Some((meta.block_number, meta.block_timestamp));
-	}
 
-	if let Some((block_number, block_timestamp)) = applied_to {
-		let ctx = BlockContext { indexer, chain, db: &tx, block_number, block_timestamp };
-		for hook in &routes.hooks {
-			hook.after_batch(&ctx).await?;
+		if index + 1 == blocks.len() && last != cursor {
+			if let Some((block_number, block_timestamp)) = hooks_at {
+				let block_timestamp = block_timestamp
+					.ok_or_else(|| anyhow!("log at block {block_number} has no timestamp"))?;
+				let ctx = BlockContext { indexer, chain, db: &tx, block_number, block_timestamp };
+				for hook in &routes.hooks {
+					hook.after_batch(&ctx).await?;
+				}
+			}
 		}
-	}
 
-	if let Some((block_number, log_index)) = last {
-		tx.execute(
-			"INSERT INTO indexer.cursors (network, block_number, log_index) VALUES ($1, $2, $3)
-			 ON CONFLICT (network) DO UPDATE SET block_number = $2, log_index = $3",
-			&[&network, &(block_number as i64), &(log_index as i64)],
-		)
-		.await?;
+		if let Some((block_number, log_index)) = last.filter(|_| last != cursor) {
+			tx.execute(
+				"INSERT INTO indexer.cursors (network, block_number, log_index) VALUES ($1, $2, $3)
+				 ON CONFLICT (network) DO UPDATE SET block_number = $2, log_index = $3",
+				&[&network, &(block_number as i64), &(log_index as i64)],
+			)
+			.await?;
+		}
+		tx.commit().await?;
 	}
-	tx.commit().await?;
 	Ok(())
 }
 

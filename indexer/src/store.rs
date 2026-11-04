@@ -44,6 +44,18 @@ pub fn numeric(value: impl fmt::Display) -> Numeric {
 	Numeric::parse(&text).unwrap_or_else(|_| panic!("{text:?} is not a decimal number"))
 }
 
+/**
+ * A string as a `text` column can hold it. Postgres text can't hold NUL, and event strings can
+ * carry anything, so they're stored without it. Otherwise the write would fail on every retry.
+ */
+pub fn postgres_text(value: &str) -> std::borrow::Cow<'_, str> {
+	if value.contains('\0') {
+		value.replace('\0', "").into()
+	} else {
+		value.into()
+	}
+}
+
 const NUMERIC_POS: u16 = 0x0000;
 const NUMERIC_NEG: u16 = 0x4000;
 

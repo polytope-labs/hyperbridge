@@ -197,7 +197,23 @@ impl EventHandler for Request {
 			.substrate()?
 			.call("ismp_queryRequests", json!([[{ "commitment": commitment }]]))
 			.await?;
-		let Some(post) = requests.first().and_then(|r| r.get("Post")) else { return Ok(()) };
+		let request = match requests.into_iter().next() {
+			Some(request) => Some(request),
+			None if source_chain.name == ctx.chain.name =>
+				dispatched_request(
+					ctx.chain,
+					ctx.log.block_number,
+					&event.sourceChain,
+					event.requestNonce,
+				)
+				.await?,
+			None => None,
+		};
+		let Some(request) = request else {
+			tracing::warn!(%commitment, "Request event for a request its chain doesn't have");
+			return Ok(());
+		};
+		let Some(post) = request.get("Post") else { return Ok(()) };
 		let text = |field: &str| post.get(field).and_then(Value::as_str).unwrap_or_default();
 
 		let mut key = b"RequestCommitments".to_vec();
@@ -247,6 +263,32 @@ impl EventHandler for Request {
 		)
 		.await
 	}
+}
+
+/**
+ * The request dispatched in `block` from `source` with `nonce`, as `ismp_queryRequests` returns
+ * one. That reads the head, where a request that timed out is gone: a timeout deletes the
+ * request's commitment, but not the request itself, so the block's ISMP events still have it.
+ */
+async fn dispatched_request(
+	chain: &crate::chains::Chain,
+	block: u64,
+	source: &str,
+	nonce: u64,
+) -> anyhow::Result<Option<Value>> {
+	let events: std::collections::HashMap<String, Vec<Value>> =
+		chain.substrate()?.call("ismp_queryEvents", json!([block, block])).await?;
+	Ok(events.into_values().flatten().find_map(|event| {
+		let (kind, request) = event.as_object()?.iter().next()?;
+		let kind = match kind.as_str() {
+			"PostRequest" => "Post",
+			"GetRequest" => "Get",
+			_ => return None,
+		};
+		let dispatched =
+			request.get("source")?.as_str()? == source && request.get("nonce")?.as_u64()? == nonce;
+		dispatched.then(|| json!({ kind: request }))
+	}))
 }
 
 /** S3 `handleSubstrateResponseEvent`: GET responses. POST responses are not stored. */
@@ -337,7 +379,6 @@ impl EventHandler for PostRequestHandled {
 		if !from_extrinsic(ctx.log) {
 			return Ok(());
 		}
-		let relayer = decode_relayer_address(&event.relayer)?;
 		let host = ctx.chain.state_machine_id();
 		let timestamp = self.0.substrate_timestamp_ms(ctx).await?;
 		let commitment = hex_hash(&event.commitment);
@@ -355,10 +396,13 @@ impl EventHandler for PostRequestHandled {
 		let tx = extrinsic_hash(ctx.log);
 		let update = status_update(ctx, &commitment, status, timestamp, &block_hash, &tx);
 		update_status(ctx.db, PendingEntity::Request, &update).await?;
-		non_critical(
-			request_handled(ctx, &relayer, host, timestamp, None).await,
-			"PostRequestHandled stats",
-		)
+		// The relayer picks the bytes it's named by, so bytes that don't decode lose only the
+		// stats. The TypeScript decoded them first and failed the block.
+		let stats = async {
+			let relayer = decode_relayer_address(&event.relayer)?;
+			request_handled(ctx, &relayer, host, timestamp, None).await
+		};
+		non_critical(stats.await, "PostRequestHandled stats")
 	}
 }
 

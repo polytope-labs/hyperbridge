@@ -1,7 +1,12 @@
 //! Which errors a batch should fail on. rindexer retries a failed batch forever, so only an
 //! error that can go away on a retry may fail one; anything else would stop the chain.
 
-use alloy::transports::{RpcError, TransportError};
+use alloy::{
+	rpc::json_rpc::ErrorPayload,
+	transports::{RpcError, TransportError, TransportErrorKind},
+};
+use anyhow::anyhow;
+use serde::Deserialize;
 
 /** An error worth failing the batch for: it should go away on a retry. */
 #[derive(Debug)]
@@ -18,7 +23,8 @@ impl std::error::Error for Retry {}
 /**
  * Messages a node answers an `eth_call` with when the execution itself failed, which it does
  * again on every retry. Only a revert has its own code (3). geth sends the other halts as
- * -32000 with the VM error, and reth as "EVM error …".
+ * -32000 with the VM error, reth as "EVM error …", and Polkadot Hub as "failed to run
+ * contract".
  */
 const EXECUTION_FAILURES: &[&str] = &[
 	"revert",
@@ -30,12 +36,39 @@ const EXECUTION_FAILURES: &[&str] = &[
 	"write protection",
 	"return data out of bounds",
 	"max call depth",
-	"execution aborted",
+	"gas uint64 overflow",
 	"evm error",
+	"failed to run contract",
+];
+
+/** Messages of a node that couldn't serve a call: it ran out of time, or lacks the block or
+ * state. */
+const NOT_SERVED: &[&str] = &[
+	"timeout",
+	"timed out",
+	"missing trie node",
+	"historical state",
+	"state not available",
+	"state is not available",
+	"unknown block",
 ];
 
 /** JSON-RPC's "method not found": the node doesn't serve the method. */
 const METHOD_NOT_FOUND: i64 = -32601;
+
+/** JSON-RPC's "internal error": the node failed, not the call. */
+const INTERNAL_ERROR: i64 = -32603;
+
+/** Whether a node's error answer says the execution failed. */
+fn failed_execution(answer: &ErrorPayload) -> bool {
+	let message = answer.message.to_lowercase();
+	answer.code == 3 || EXECUTION_FAILURES.iter().any(|failure| message.contains(failure))
+}
+
+/** Whether a transport error is a node's answer that the execution failed. */
+pub fn is_failed_execution(err: &TransportError) -> bool {
+	matches!(err, RpcError::ErrorResp(answer) if failed_execution(answer))
+}
 
 /**
  * Whether an error is transient: a database error, which aborts the batch's transaction, or an
@@ -45,13 +78,8 @@ const METHOD_NOT_FOUND: i64 = -32601;
 pub fn is_transient(err: &anyhow::Error) -> bool {
 	fn transport(err: &TransportError) -> bool {
 		match err {
-			RpcError::ErrorResp(payload) => {
-				let message = payload.message.to_lowercase();
-				let deterministic = payload.code == 3 ||
-					payload.code == METHOD_NOT_FOUND ||
-					EXECUTION_FAILURES.iter().any(|failure| message.contains(failure));
-				!deterministic
-			},
+			RpcError::ErrorResp(answer) =>
+				!(failed_execution(answer) || answer.code == METHOD_NOT_FOUND),
 			RpcError::UnsupportedFeature(_) | RpcError::LocalUsageError(_) => false,
 			_ => true,
 		}
@@ -70,6 +98,45 @@ pub fn is_transient(err: &anyhow::Error) -> bool {
 		}
 		cause.downcast_ref::<TransportError>().is_some_and(transport)
 	})
+}
+
+/** The node's error answer in `err`: a JSON-RPC error, or one sent with a 4xx status. */
+fn answer(err: &alloy::contract::Error) -> Option<ErrorPayload> {
+	#[derive(Deserialize)]
+	struct Response {
+		error: ErrorPayload,
+	}
+	let alloy::contract::Error::TransportError(err) = err else { return None };
+	match err {
+		RpcError::ErrorResp(answer) => Some(answer.clone()),
+		RpcError::Transport(TransportErrorKind::HttpError(http))
+			if (400..500).contains(&http.status) && !matches!(http.status, 408 | 429) =>
+			serde_json::from_str::<Response>(&http.body).ok().map(|response| response.error),
+		_ => None,
+	}
+}
+
+/**
+ * The error of a call into code anyone can deploy, such as a token's `symbol()`. When the node
+ * answers with an error, the call ran, and it fails again on a retry. Clients word failures
+ * their own way, and a revert reason is the contract's own text, so a list of failures can't
+ * be complete. Instead, an answer is final unless it says the node couldn't serve the call.
+ * The caller caps the call's gas well below what the node's time limit allows, so a timeout
+ * is the node's, not the code's.
+ */
+pub fn untrusted_call_error(err: alloy::contract::Error) -> anyhow::Error {
+	let final_answer = answer(&err).is_some_and(|answer| {
+		let message = answer.message.to_lowercase();
+		let not_served = answer.is_retry_err() ||
+			answer.code == INTERNAL_ERROR ||
+			NOT_SERVED.iter().any(|reason| message.contains(reason));
+		failed_execution(&answer) || !not_served
+	});
+	if final_answer {
+		anyhow!("{err}")
+	} else {
+		err.into()
+	}
 }
 
 #[cfg(test)]
@@ -98,8 +165,9 @@ mod tests {
 			(-32000, "out of gas"),
 			(-32000, "invalid jump destination"),
 			(-32000, "stack underflow (0 <=> 1)"),
-			(-32000, "execution aborted (timeout = 5s)"),
+			(-32000, "gas uint64 overflow"),
 			(-32000, "EVM error InvalidFEOpcode"),
+			(-32000, "failed to run contract: InvalidInstruction"),
 			(-32601, "the method debug_traceTransaction does not exist/is not available"),
 		] {
 			assert!(!is_transient(&node_error(code, message)), "{code} {message}");
@@ -110,6 +178,8 @@ mod tests {
 	fn unanswered_calls_are_transient() {
 		for (code, message) in [
 			(-32000, "header not found"),
+			// A busy node times out calls to trusted contracts, which never run that long.
+			(-32000, "execution aborted (timeout = 5s)"),
 			(-32005, "rate limit exceeded"),
 			(-32603, "internal error"),
 			(429, "Too Many Requests"),
@@ -121,6 +191,43 @@ mod tests {
 				.into();
 		assert!(is_transient(&timeout));
 		assert!(is_transient(&anyhow::Error::new(Retry("no receipt".into()))));
+	}
+
+	#[test]
+	fn token_code_failures_are_final_unless_the_node_could_not_serve() {
+		let call = |err: TransportError| is_transient(&untrusted_call_error(err.into()));
+		let answer = |code: i64, message: &str| {
+			TransportError::ErrorResp(
+				serde_json::from_value(json!({ "code": code, "message": message })).unwrap(),
+			)
+		};
+		for (code, message) in [
+			(3, "execution reverted"),
+			// A revert reason is the token's own text.
+			(-32000, "execution reverted: rate limit exceeded"),
+			// A precompile called as a token, and wording no list knows.
+			(-32000, "invalid input length"),
+			(-32000, "failed to run contract: ContractTrapped"),
+		] {
+			assert!(!call(answer(code, message)), "{code} {message}");
+		}
+		let reverted =
+			r#"{"jsonrpc":"2.0","id":1,"error":{"code":3,"message":"execution reverted"}}"#;
+		assert!(!call(TransportErrorKind::http_error(400, reverted.into())));
+
+		for (code, message) in [
+			(-32000, "header not found"),
+			(-32000, "missing trie node 1a2b (path )"),
+			(-32000, "request timed out"),
+			(-32000, "execution aborted (timeout = 5s)"),
+			(-32603, "internal error"),
+			(429, "Too Many Requests"),
+		] {
+			assert!(call(answer(code, message)), "{code} {message}");
+		}
+		assert!(call(TransportErrorKind::http_error(503, "unavailable".into())));
+		assert!(call(TransportErrorKind::http_error(400, "<html>bad gateway</html>".into())));
+		assert!(call(TransportErrorKind::custom_str("request timed out")));
 	}
 
 	#[test]

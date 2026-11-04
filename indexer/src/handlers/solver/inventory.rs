@@ -244,7 +244,11 @@ async fn cache_tracked_solver(
 
 // ─── Discovery ──────────────────────────────────────────────────────────────────────────────────
 
-/** `consumeWatchlist`: turns the requests queued for this chain into PENDING solvers. */
+/**
+ * `consumeWatchlist`: turns the requests queued for this chain into PENDING solvers. SubQuery
+ * read the watchlist through its historical filter, which hid a version written after the
+ * block's time, so a chain still in its history doesn't consume one yet.
+ */
 pub async fn consume_watchlist(
 	db: &Transaction<'_>,
 	chain: &SolverChain,
@@ -253,8 +257,8 @@ pub async fn consume_watchlist(
 ) -> anyhow::Result<()> {
 	let Some(watchlist) = db
 		.query_opt(
-			"SELECT version FROM app.solver_watchlists WHERE chain = $1 LIMIT 1",
-			&[&chain.id],
+			"SELECT version FROM app.solver_watchlists WHERE chain = $1 AND updated_at <= $2 LIMIT 1",
+			&[&chain.id, &timestamp_to_date(timestamp)],
 		)
 		.await?
 	else {

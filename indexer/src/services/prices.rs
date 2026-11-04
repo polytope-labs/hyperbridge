@@ -19,8 +19,9 @@ use tokio_postgres::Transaction;
 use crate::{
 	chains::Chain,
 	config::Environment,
+	errors::untrusted_call_error,
 	services::decimal::Dec,
-	store::{normalize_timestamp, numeric, timestamp_to_date},
+	store::{normalize_timestamp, numeric, postgres_text, timestamp_to_date},
 };
 
 sol! {
@@ -46,6 +47,18 @@ const FETCH_TIMEOUT: Duration = Duration::from_secs(5);
 const PRICE_TTL: Duration = Duration::from_secs(60);
 const FAILURE_TTL: Duration = Duration::from_secs(5);
 const MAX_SYMBOL_LENGTH: usize = 32;
+/**
+ * The most bytes of a symbol stored. `token_symbol` columns are indexed, and a btree index
+ * can't hold a value over about 2.7 KB, so a longer symbol would fail its insert on every
+ * retry.
+ */
+const MAX_STORED_SYMBOL_BYTES: usize = 256;
+/**
+ * Gas for a token's `symbol()` or `decimals()`, which take a few thousand (Polkadot Hub's take
+ * about 1,200). Tokens are anyone's code: with this cap, one can't run until the node's time
+ * limit, so a node that times the call out is busy, and a retry can succeed.
+ */
+const TOKEN_CALL_GAS: u64 = 500_000;
 /** How old a stored `token_prices` row may be before it's priced again. */
 const PRICE_REFRESH_INTERVAL_MS: u64 = 600_000;
 
@@ -304,7 +317,10 @@ pub async fn native_currency_price(chain: &Chain, block: u64) -> anyhow::Result<
 	Ok(answer * U256::from(10).pow(U256::from(18u8.saturating_sub(decimals))))
 }
 
-/** An ERC-20's `symbol()` and `decimals()` as of `block`. */
+/**
+ * An ERC-20's `symbol()` and `decimals()` as of `block`. Anyone can deploy a token, so a call
+ * that fails is final unless the node couldn't serve it: see [`untrusted_call_error`].
+ */
 pub async fn token_metadata(
 	chain: &Chain,
 	token: Address,
@@ -315,17 +331,33 @@ pub async fn token_metadata(
 	let symbol = erc20
 		.symbol()
 		.block(at)
+		.gas(TOKEN_CALL_GAS)
 		.call()
 		.await
+		.map_err(untrusted_call_error)
 		.with_context(|| format!("{token} symbol()"))?;
 	let decimals = erc20
 		.decimals()
 		.block(at)
+		.gas(TOKEN_CALL_GAS)
 		.call()
 		.await
+		.map_err(untrusted_call_error)
 		.with_context(|| format!("{token} decimals()"))?;
-	// Postgres text can't hold NUL, so a symbol padded with it would fail every write.
-	Ok((symbol.replace('\0', ""), decimals))
+	Ok((stored_symbol(&symbol), decimals))
+}
+
+/** A symbol as a `token_symbol` column can hold it: without NUL, and cut to the stored maximum. */
+fn stored_symbol(symbol: &str) -> String {
+	let mut symbol = postgres_text(symbol).into_owned();
+	if symbol.len() > MAX_STORED_SYMBOL_BYTES {
+		let mut end = MAX_STORED_SYMBOL_BYTES;
+		while !symbol.is_char_boundary(end) {
+			end -= 1;
+		}
+		symbol.truncate(end);
+	}
+	symbol
 }
 
 #[cfg(test)]
@@ -360,6 +392,16 @@ mod tests {
 		let other = json!({ "base": "WETH", "quote": "DAI", "rate": "1" });
 		assert!(usd_price(&other, "USDC").is_none());
 		assert!(usd_price(&json!({ "base": "X", "quote": "USDC", "rate": "0" }), "USDC").is_none());
+	}
+
+	#[test]
+	fn symbols_are_stored_as_postgres_can_index_them() {
+		assert_eq!(stored_symbol("USDC"), "USDC");
+		assert_eq!(stored_symbol("US\0DC\0"), "USDC");
+		let long = "€".repeat(200);
+		let stored = stored_symbol(&long);
+		assert!(stored.len() <= MAX_STORED_SYMBOL_BYTES && long.starts_with(&stored));
+		assert_eq!(stored.chars().count(), MAX_STORED_SYMBOL_BYTES / 3);
 	}
 
 	#[test]

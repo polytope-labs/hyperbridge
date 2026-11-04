@@ -7,7 +7,7 @@ description = "Hyperbridge indexer: rindexer handlers writing the tables omnihed
 
 [dependencies]
 rindexer = { git = "https://github.com/joshstevens19/rindexer", tag = "v0.43.4" }
-alloy = { version = "2.0.4", features = ["sol-types", "json-abi", "provider-http", "rpc-types", "contract"] }
+alloy = { version = "2.0.4", features = ["sol-types", "json-abi", "json-rpc", "provider-http", "rpc-types", "contract"] }
 alloy-chains = "0.2"
 anyhow = "1"
 async-trait = "0.1"

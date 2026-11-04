@@ -1,4 +1,8 @@
-use rindexer::PostgresClient;
+use std::path::Path;
+
+use anyhow::Context;
+use rindexer::{manifest::core::Manifest, setup_postgres, PostgresClient};
+use tokio_postgres::Client;
 
 /** Schema migrations, applied in order. `app` holds the tables omnihedron serves. */
 const MIGRATIONS: &[(&str, &str)] = &[
@@ -7,32 +11,58 @@ const MIGRATIONS: &[(&str, &str)] = &[
 	("0002_deferred_fill_points", include_str!("../migrations/0002_deferred_fill_points.sql")),
 ];
 
-/** Applies the migrations that haven't run yet. */
-pub async fn migrate(db: &PostgresClient) -> anyhow::Result<()> {
-	let mut conn = db.raw_connection().await?;
-	apply_migrations(&mut conn).await
-}
-
-/** The advisory lock a process holds while it migrates. */
+/** The advisory lock a process holds while it sets up the database. */
 const MIGRATION_LOCK: i64 = 7171;
 
 /**
- * Applies the migrations `indexer.migrations` doesn't list yet. Every chain's process migrates
- * at startup, so they take turns under a lock: the first applies them, and the rest find them
- * applied.
+ * Applies our migrations, then creates rindexer's tables. Every chain's process does this at
+ * startup, so they take turns under a lock: the first does the work, and the rest find it done.
+ * `start_rindexer` creates rindexer's tables again, without a lock, and finds them there. That
+ * holds while the manifest sets `disable_create_tables`: rindexer's setup then only creates
+ * what is missing.
  */
-pub async fn apply_migrations(conn: &mut tokio_postgres::Client) -> anyhow::Result<()> {
-	conn.execute("SELECT pg_advisory_lock($1)", &[&MIGRATION_LOCK]).await?;
+pub async fn migrate(
+	db: &PostgresClient,
+	manifest_path: &Path,
+	manifest: &Manifest,
+) -> anyhow::Result<()> {
+	let project = manifest_path.parent().context("the manifest has no directory")?;
+	let mut conn = db.raw_connection().await?;
+	lock(&conn).await?;
+	let migrated = async {
+		apply_pending(&mut conn).await?;
+		setup_postgres(project, manifest).await.context("creating rindexer's tables")?;
+		anyhow::Ok(())
+	}
+	.await;
+	unlock(&conn, migrated).await
+}
+
+/** Applies the migrations `indexer.migrations` doesn't list yet, under the same lock. */
+pub async fn apply_migrations(conn: &mut Client) -> anyhow::Result<()> {
+	lock(conn).await?;
 	let applied = apply_pending(conn).await;
-	// The connection may go back to a pool, so release the lock even when a migration failed.
+	unlock(conn, applied).await
+}
+
+async fn lock(conn: &Client) -> anyhow::Result<()> {
+	conn.execute("SELECT pg_advisory_lock($1)", &[&MIGRATION_LOCK]).await?;
+	Ok(())
+}
+
+/**
+ * Releases the lock, then returns `result`. The connection may go back to a pool, so this runs
+ * after a failure too.
+ */
+async fn unlock(conn: &Client, result: anyhow::Result<()>) -> anyhow::Result<()> {
 	let unlocked = conn.execute("SELECT pg_advisory_unlock($1)", &[&MIGRATION_LOCK]).await;
-	applied?;
+	result?;
 	unlocked?;
 	Ok(())
 }
 
 /** Applies each pending migration in its own transaction. */
-async fn apply_pending(conn: &mut tokio_postgres::Client) -> anyhow::Result<()> {
+async fn apply_pending(conn: &mut Client) -> anyhow::Result<()> {
 	conn.batch_execute(
 		"CREATE SCHEMA IF NOT EXISTS indexer;
 		 CREATE TABLE IF NOT EXISTS indexer.migrations (

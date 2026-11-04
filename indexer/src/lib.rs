@@ -72,7 +72,6 @@ pub async fn run(config_path: &Path, run_dir: &Path, selected: &[String]) -> any
 		std::env::set_var("DATABASE_POOL_SIZE", (indexed.len() * 2 + 4).max(10).to_string());
 	}
 	let db = Arc::new(PostgresClient::new().await.context("connecting to DATABASE_URL")?);
-	db::migrate(&db).await?;
 
 	let http = reqwest::Client::builder().build()?;
 	let mut chains = BTreeMap::new();
@@ -101,6 +100,7 @@ pub async fn run(config_path: &Path, run_dir: &Path, selected: &[String]) -> any
 	let manifest_path =
 		write_private(run_dir, "rindexer.yaml", &serde_yaml::to_string(&manifest)?)?;
 	let manifest = read_manifest(&manifest_path).map_err(|e| anyhow!("rindexer manifest: {e}"))?;
+	db::migrate(&db, &manifest_path, &manifest).await?;
 
 	let mut providers: HashMap<String, Arc<dyn ChainProvider>> = HashMap::new();
 	for network in &manifest.networks {

@@ -32,9 +32,13 @@ Rust 1.98 and later.
   the Hyperbridge node, it is the same URL. A standalone facade serves only `eth_*`, so there is
   no default.
 - Each of these variables can list several comma-separated URLs, as SubQuery's did. A request
-  goes to the RPC that answered last, and moves on to the next one when that doesn't answer.
-  rindexer's client checks a node's chain id when it is built, so a node that is down at
-  startup joins only at the next start.
+  goes to the RPC that answered last, and moves on to the next one when that one doesn't
+  answer, answers with an HTTP error, or answers that it can't serve the request (a rate
+  limit, or a block it doesn't have yet). There is no failing back: the RPC that answers
+  stays first until it fails.
+- At startup, rindexer's client for each `<CHAIN>` URL checks the node's chain id. A URL for
+  another chain stops the start. A node that doesn't answer within 30 s is left out of
+  rindexer's own calls until the next start; handler reads still use it.
 - `HYPERFX_ORDERBOOK_URL` prices tokens and serves the solver watchlist.
 - Every RPC must serve historic state at the event's block. On Ethereum and Arbitrum, that means
   an archive endpoint. It must also serve every receipt and transaction of the blocks it
@@ -58,11 +62,11 @@ Rust 1.98 and later.
 - **RPC errors.** Handler reads time out after 30 s, and rate limits are retried in place.
   `eth_getLogs` goes through rindexer's own client. rindexer's live loop stops for good after
   an error on a range as short as a live window, so `AllTopicsProvider` retries those errors
-  itself. An error that names a range the RPC would serve still goes back to rindexer, which
-  fetches that range instead.
+  itself. A short range an RPC says spans too many blocks is fetched in halves instead.
 - **Tip block.** When a window ends at the tip block, an answer with no log there is re-asked
-  twice if the block's logs bloom says it can have our logs. rindexer does the same when its
-  own bloom checks are on, which the stream's placeholder topic rules out.
+  twice, 250 ms apart, if the block's logs bloom says it can have our logs. rindexer's own
+  check, which the stream's placeholder topic rules out, re-asks four times over about 2 s. A
+  busy chain's bloom matches nearly anything, so Base would pay that on nearly every block.
 - **Block hooks.** SubQuery's block handlers are `BlockHook`s. They run after each batch at the
   last block it applied. On a chain with no logs, they run every 15 s at the block rindexer has
   synced.

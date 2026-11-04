@@ -191,8 +191,8 @@ pub struct BlockContext<'a> {
 	pub block_number: u64,
 	/** Block timestamp in seconds. */
 	pub block_timestamp: u64,
-	/** The chain's cursor block before this batch: where the last batch or idle run ended.
-	 * `None` before the chain's first. */
+	/** The block before this batch: where the last batch or idle run ended, even when the
+	 * batch is a replay. `None` before the chain's first. */
 	pub previous_block: Option<u64>,
 }
 
@@ -358,6 +358,9 @@ pub async fn process_batch(
 	let blocks: Vec<&[EventResult]> = results
 		.chunk_by(|a, b| a.tx_information.block_number == b.tx_information.block_number)
 		.collect();
+	// rindexer fetched the batch's logs from where the last batch ended, and a replay fetches
+	// from there again, though some of its blocks committed in the run that failed.
+	let fetched_from = results.iter().map(|r| r.found_in_request.from_block.to::<u64>()).min();
 
 	let _writing = routes.writing.lock().await;
 	let mut conn = indexer.db.raw_connection().await?;
@@ -372,7 +375,10 @@ pub async fn process_batch(
 			.await?
 			.map(|row| (row.get::<_, i64>(0) as u64, row.get::<_, i64>(1) as u64));
 		if index == 0 {
-			previous_block = cursor.map(|(block, _)| block);
+			previous_block = cursor.map(|(block, _)| match fetched_from {
+				Some(from) => block.min(from.saturating_sub(1)),
+				None => block,
+			});
 		}
 
 		let mut last = cursor;

@@ -6,7 +6,7 @@ use alloy::{
 	eips::BlockId,
 	primitives::{keccak256, Address, Bytes},
 	providers::Provider,
-	rpc::types::TransactionRequest,
+	rpc::{json_rpc::ErrorPayload, types::TransactionRequest},
 	sol,
 	sol_types::{SolCall, SolValue},
 };
@@ -15,7 +15,11 @@ use blake2::{Blake2b512, Digest};
 use serde::de::DeserializeOwned;
 use serde_json::{json, Value};
 
-use crate::{chains::Chain, errors::Retry, failover::Failover};
+use crate::{
+	chains::Chain,
+	errors::{not_served, Retry},
+	failover::Failover,
+};
 
 sol! {
 	interface SubstrateStorage {
@@ -102,25 +106,27 @@ impl SubstrateRpc {
 		let mut delay = Duration::from_millis(100);
 		let mut attempt = 0;
 		let response: Value = 'answered: loop {
-			let mut last = None;
+			// A node that answers it can't serve the call hands it to the next, like one that
+			// doesn't answer. With none serving it, the first such answer is retried below.
+			let (mut unserved, mut failure) = (None, None);
 			for index in self.failover.order(self.urls.len()) {
-				let sent = self
-					.http
-					.post(&self.urls[index])
-					.timeout(Duration::from_secs(30))
-					.json(&body)
-					.send()
-					.await
-					.and_then(|r| r.error_for_status());
-				match sent {
+				match self.post(index, &body).await {
+					Ok(response) if response.get("error").is_some_and(could_not_serve) => {
+						unserved.get_or_insert(response);
+					},
 					Ok(response) => {
 						self.failover.answered(index);
-						break 'answered response.json().await?;
+						break 'answered response;
 					},
-					Err(err) => last = Some(err),
+					Err(err) => {
+						failure.get_or_insert(err);
+					},
 				}
 			}
-			let err = last.expect("a Substrate RPC has a URL");
+			if let Some(response) = unserved {
+				break 'answered response;
+			}
+			let err = failure.expect("a Substrate RPC has a URL");
 			if attempt == 3 {
 				return Err(anyhow::Error::new(err).context(method.to_string()));
 			}
@@ -130,7 +136,7 @@ impl SubstrateRpc {
 			attempt += 1;
 		};
 		if let Some(error) = response.get("error") {
-			if is_rate_limit(error) {
+			if could_not_serve(error) {
 				return Err(Retry(format!("{method}: {error}")).into());
 			}
 			bail!("{method}: {error}");
@@ -138,6 +144,21 @@ impl SubstrateRpc {
 		let result = response.get("result").cloned().unwrap_or(Value::Null);
 		serde_json::from_value(result).with_context(|| format!("decoding {method} result"))
 	}
+
+	async fn post(&self, index: usize, body: &Value) -> reqwest::Result<Value> {
+		let request = self.http.post(&self.urls[index]).timeout(Duration::from_secs(30));
+		request.json(body).send().await?.error_for_status()?.json().await
+	}
+}
+
+/**
+ * Whether a node's JSON-RPC error says it couldn't serve the call, as when it is busy or hasn't
+ * imported the block yet. Another node, or a retry, can answer it.
+ */
+fn could_not_serve(error: &Value) -> bool {
+	let code = error.get("code").and_then(Value::as_i64).unwrap_or_default();
+	let message = error.get("message").and_then(Value::as_str).unwrap_or_default().to_string();
+	is_rate_limit(error) || not_served(&ErrorPayload { code, message: message.into(), data: None })
 }
 
 /** A JSON-RPC error saying the node is busy, which goes away on a retry. */
@@ -186,17 +207,30 @@ mod tests {
 	}
 
 	#[tokio::test]
-	async fn a_call_moves_past_a_node_that_is_down() {
-		let (live, _server) = crate::failover::tests::rpc_answering("Hyperbridge (Nexus)").await;
-		let rpc = SubstrateRpc::new(&["http://127.0.0.1:9", live.as_str()], reqwest::Client::new());
-		let name: String = rpc.call("system_chain", json!([])).await.unwrap();
-		assert_eq!(name, "Hyperbridge (Nexus)");
-		assert_eq!(rpc.failover.order(2).collect::<Vec<_>>(), [1, 0]);
+	async fn a_call_moves_past_a_node_that_is_down_or_behind() {
+		use crate::failover::tests::{closed_url, MockRpc, Reply};
+		let live = MockRpc::start(Reply::Result("Hyperbridge (Nexus)")).await;
+		let behind = MockRpc::start(Reply::Error(9876, "Invalid block number provided")).await;
+		for first in [closed_url().await, behind.url.clone()] {
+			let rpc = SubstrateRpc::new(&[&first, &live.url], reqwest::Client::new());
+			let name: String = rpc.call("system_chain", json!([])).await.unwrap();
+			assert_eq!(name, "Hyperbridge (Nexus)");
+			assert_eq!(rpc.failover.order(2).collect::<Vec<_>>(), [1, 0]);
+		}
+		// With no node serving it, the call is retried rather than given up.
+		let rpc = SubstrateRpc::new(&[&behind.url], reqwest::Client::new());
+		let err = rpc.call::<Value>("ismp_queryEvents", json!([1, 1])).await.unwrap_err();
+		assert!(crate::errors::is_transient(&err), "{err:#}");
+		let failed = MockRpc::start(Reply::Error(9876, "failed to read block events")).await;
+		let rpc = SubstrateRpc::new(&[&failed.url], reqwest::Client::new());
+		let err = rpc.call::<Value>("ismp_queryEvents", json!([1, 1])).await.unwrap_err();
+		assert!(!crate::errors::is_transient(&err), "{err:#}");
 	}
 
 	#[tokio::test]
 	async fn an_unreachable_node_is_transient() {
-		let rpc = SubstrateRpc::new(&["http://127.0.0.1:9"], reqwest::Client::new());
+		let closed = crate::failover::tests::closed_url().await;
+		let rpc = SubstrateRpc::new(&[&closed], reqwest::Client::new());
 		let err = rpc.call::<Value>("chain_getHeader", json!([])).await.unwrap_err();
 		assert!(crate::errors::is_transient(&err), "{err:#}");
 	}

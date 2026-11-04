@@ -21,12 +21,15 @@ use std::{
 use anyhow::{anyhow, Context};
 use rindexer::{
 	event::callback_registry::{EventCallbackRegistry, TraceCallbackRegistry},
-	provider::{create_client, ChainProvider},
+	provider::{create_client, ChainProvider, RetryClientError},
 	start_rindexer, GraphqlOverrideSettings, HeaderMap, IndexingDetails, PostgresClient,
 	StartDetails,
 };
 
 use crate::{chains::Chain, config::Config};
+
+/** How long a node gets at startup to answer the chain-id check of rindexer's client. */
+const CLIENT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
 
 /** Services shared by every handler. */
 pub struct Indexer {
@@ -105,7 +108,7 @@ pub async fn run(config_path: &Path, run_dir: &Path, selected: &[String]) -> any
 		let chain = &chains[&network.name];
 		let mut clients = vec![];
 		let mut failure = None;
-		for (index, url) in chain.rpc_urls.iter().enumerate() {
+		for (position, url) in chain.rpc_urls.iter().enumerate() {
 			let client = create_client(
 				url,
 				network.chain_id,
@@ -115,20 +118,27 @@ pub async fn run(config_path: &Path, run_dir: &Path, selected: &[String]) -> any
 				HeaderMap::new(),
 				None,
 				None,
-			)
-			.await;
-			match client {
-				Ok(client) => clients.push(client),
-				// rindexer's client checks the chain id when it's built, so an RPC that's down
-				// now joins at the next start.
-				Err(e) => {
-					tracing::warn!(network = %network.name, rpc = index, "RPC left out: {e}");
+			);
+			// rindexer's client checks the node's chain id when it's built, and retries a 503
+			// for an hour. So a node that doesn't answer in time is left out until the next
+			// start, while a node of another chain is a mistake in the config.
+			match tokio::time::timeout(CLIENT_TIMEOUT, client).await {
+				Ok(Ok(client)) => clients.push((position, client)),
+				Ok(Err(e @ RetryClientError::InvalidClientChainId(..))) =>
+					return Err(anyhow!("rpc client for {}: {e}", network.name)),
+				Ok(Err(e)) => {
+					tracing::warn!(network = %network.name, rpc = position, "RPC left out: {e}");
+					failure = Some(e.to_string());
+				},
+				Err(_) => {
+					let e = format!("no answer in {CLIENT_TIMEOUT:?}");
+					tracing::warn!(network = %network.name, rpc = position, "RPC left out: {e}");
 					failure = Some(e);
 				},
 			}
 		}
 		if clients.is_empty() {
-			let failure = failure.map(|e| e.to_string()).unwrap_or_default();
+			let failure = failure.unwrap_or_default();
 			return Err(anyhow!("rpc client for {}: {failure}", network.name));
 		}
 		let topics = routes[&network.name].topics().into_iter().collect();

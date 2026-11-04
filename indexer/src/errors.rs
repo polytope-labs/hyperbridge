@@ -55,6 +55,8 @@ const NOT_SERVED: &[&str] = &[
 	"pruned",
 	"unavailable",
 	"upstream",
+	// The ISMP RPC's answer for a block the node hasn't imported.
+	"invalid block number",
 ];
 
 /** JSON-RPC's "method not found": the node doesn't serve the method. */
@@ -72,6 +74,24 @@ fn failed_execution(answer: &ErrorPayload) -> bool {
 /** Whether a transport error is a node's answer that the execution failed. */
 pub fn is_failed_execution(err: &TransportError) -> bool {
 	matches!(err, RpcError::ErrorResp(answer) if failed_execution(answer))
+}
+
+/**
+ * Whether a node's error answer says it couldn't serve the call: it is rate-limited or busy, or
+ * lacks the block or state. Another RPC, or a retry, can answer it. A failed execution never
+ * counts, as its revert reason is the contract's own text.
+ */
+pub fn not_served(answer: &ErrorPayload) -> bool {
+	let message = answer.message.to_lowercase();
+	!failed_execution(answer) &&
+		(answer.is_retry_err() ||
+			answer.code == INTERNAL_ERROR ||
+			NOT_SERVED.iter().any(|reason| message.contains(reason)))
+}
+
+/** Whether the node answered, with a JSON-RPC error or an HTTP error, rather than not at all. */
+pub fn is_answer(err: &TransportError) -> bool {
+	matches!(err, RpcError::ErrorResp(_) | RpcError::Transport(TransportErrorKind::HttpError(_)))
 }
 
 /**
@@ -129,14 +149,7 @@ fn answer(err: &alloy::contract::Error) -> Option<ErrorPayload> {
  * is the node's, not the code's.
  */
 pub fn untrusted_call_error(err: alloy::contract::Error) -> anyhow::Error {
-	let final_answer = answer(&err).is_some_and(|answer| {
-		let message = answer.message.to_lowercase();
-		let not_served = answer.is_retry_err() ||
-			answer.code == INTERNAL_ERROR ||
-			NOT_SERVED.iter().any(|reason| message.contains(reason));
-		failed_execution(&answer) || !not_served
-	});
-	if final_answer {
+	if answer(&err).is_some_and(|answer| !not_served(&answer)) {
 		anyhow!("{err}")
 	} else {
 		err.into()

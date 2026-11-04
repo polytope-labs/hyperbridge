@@ -95,7 +95,7 @@ fn tx(byte: u8, block_number: u64, log_index: u64) -> TxMeta {
 }
 
 async fn place(g: &Gateway<'_>, order: &Order, tx: &TxMeta) -> String {
-	let commitment = order.commitment().unwrap().to_string();
+	let commitment = order.commitment().to_string();
 	let fee = FeeToken { address: format!("{:#x}", USDC), decimals: 6 };
 	g.get_or_create_order(order, &commitment, REFERRER, Some(&fee), Some("0xop"), tx)
 		.await
@@ -254,7 +254,7 @@ async fn an_early_fill_is_backfilled_when_the_order_arrives() {
 	let market = TestMarket::new();
 	let g = gateway(&db, &market);
 	let order = order(vec![token(USDC, 5_000_000)], vec![token(WETH, 1000)], 3);
-	let c = order.commitment().unwrap().to_string();
+	let c = order.commitment().to_string();
 	let filled = tx(0xcc, 90, 9);
 	let receipt = FillReceipt {
 		user_op_hash: Some("0xfillop".into()),
@@ -333,6 +333,51 @@ async fn an_early_fill_is_backfilled_when_the_order_arrives() {
 }
 
 #[tokio::test]
+async fn a_fill_from_a_later_block_than_the_placement_is_not_backfilled() {
+	let Some(mut client) = database().await else { return };
+	let db = client.transaction().await.unwrap();
+	defer_foreign_keys(&db).await;
+	let market = TestMarket::new();
+	let g = gateway(&db, &market);
+	let order = order(vec![token(USDC, 5_000_000)], vec![token(WETH, 1000)], 11);
+	let c = order.commitment().to_string();
+	// Indexed first, as when the destination runs ahead, but from a later block than the
+	// placement: SubQuery's historical filter hid it from the placement's backfill.
+	let later = tx(0xcf, 110, 4);
+	g.record_fill(
+		FillKind::Full,
+		&c,
+		FILLER,
+		&[token(WETH, 1000)],
+		&[],
+		&later,
+		&Default::default(),
+	)
+	.await
+	.unwrap();
+	place(&g, &order, &tx(0xab, 100, 3)).await;
+
+	let filled = one(
+		&db,
+		&format!(
+			"SELECT COALESCE(filled::text, 'none') FROM app.i_order_v3_output_assets WHERE id = '{c}-output-0'"
+		),
+	)
+	.await;
+	assert_eq!(filled.as_deref(), Some("none"));
+	let points = one(
+		&db,
+		&format!("SELECT points::text FROM app.rewards WHERE id = '{FILLER}-EVM-8453-FILLER'"),
+	)
+	.await;
+	assert_eq!(points, None);
+	let deferred =
+		one(&db, &format!("SELECT id FROM indexer.deferred_fill_points WHERE commitment = '{c}'"))
+			.await;
+	assert_eq!(deferred, None);
+}
+
+#[tokio::test]
 async fn partial_fills_take_the_order_beneficiary_or_a_zero_address() {
 	let Some(mut client) = database().await else { return };
 	let db = client.transaction().await.unwrap();
@@ -340,7 +385,7 @@ async fn partial_fills_take_the_order_beneficiary_or_a_zero_address() {
 	let market = TestMarket::new();
 	let g = gateway(&db, &market);
 	let order = order(vec![token(USDC, 5_000_000)], vec![token(WETH, 1000)], 4);
-	let c = order.commitment().unwrap().to_string();
+	let c = order.commitment().to_string();
 	let early = tx(0xd1, 90, 1);
 	g.record_fill(
 		FillKind::Partial,
@@ -452,7 +497,7 @@ async fn cancellations_write_metadata_never_the_order_row() {
 	let g = gateway(&db, &market);
 	let canceller = "0x7f929bC0C702370d5E94e00240ba3E6b1e69f605";
 	let order = order(vec![token(USDC, 100)], vec![token(WETH, 1)], 6);
-	let c = order.commitment().unwrap().to_string();
+	let c = order.commitment().to_string();
 	let event = TxMeta {
 		transaction_hash: B256::repeat_byte(0xf1).to_string(),
 		block_number: 123,
@@ -716,7 +761,7 @@ async fn an_early_fill_keeps_the_destination_chains_valuation() {
 
 	let mut order = order(vec![token(USDC, 5_000_000)], vec![token(WETH, 1000)], 7);
 	order.source = "EVM-56".into();
-	let c = order.commitment().unwrap().to_string();
+	let c = order.commitment().to_string();
 	let filled = tx(0xce, 90, 2);
 	destination
 		.record_fill(
@@ -760,7 +805,7 @@ async fn early_fills_in_one_transaction_are_awarded_partials_first() {
 
 	let mut order = order(vec![token(USDC, 5_000_000)], vec![token(WETH, 1000)], 8);
 	order.source = "EVM-56".into();
-	let c = order.commitment().unwrap().to_string();
+	let c = order.commitment().to_string();
 	// Log 12 sorts before log 5 as text, which is how the deferred rows' ids compare.
 	for (kind, amount, log_index) in [(FillKind::Partial, 400, 5), (FillKind::Full, 600, 12)] {
 		destination

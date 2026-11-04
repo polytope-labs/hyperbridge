@@ -6,7 +6,7 @@ use tokio_postgres::Transaction;
 
 use crate::{
 	services::pending::{defer_status, flush_commitment, PendingEntity, PendingStatus},
-	store::{numeric, timestamp_to_date, Numeric, Status},
+	store::{numeric, postgres_text, timestamp_to_date, Numeric, Status},
 };
 
 /** A status event for a POST or GET request. */
@@ -56,8 +56,8 @@ pub async fn upsert_post_request(
 			&[
 				&row.commitment,
 				&row.chain,
-				&row.source,
-				&row.dest,
+				&postgres_text(row.source),
+				&postgres_text(row.dest),
 				&row.timeout_timestamp,
 				&row.from,
 				&row.to,
@@ -119,8 +119,8 @@ pub async fn upsert_get_request(
 			 RETURNING (xmax = 0)",
 			&[
 				&row.commitment,
-				&row.source,
-				&row.dest,
+				&postgres_text(row.source),
+				&postgres_text(row.dest),
 				&row.from,
 				&keys,
 				&row.nonce,

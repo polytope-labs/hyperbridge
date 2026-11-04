@@ -8,10 +8,7 @@ use std::{
 };
 
 use hyperbridge_indexer::{config::Config, db, handlers, manifest, registry};
-use rindexer::{
-	manifest::{core::Manifest, yaml::read_manifest},
-	PostgresClient,
-};
+use rindexer::{manifest::core::Manifest, PostgresClient};
 use tokio_postgres::NoTls;
 
 const CHAINS: [&str; 6] = [
@@ -35,15 +32,7 @@ fn chain_manifest(config: &Config, chain: &str, dir: &Path) -> (PathBuf, Manifes
 		)),
 	)]);
 	let rpc_urls = BTreeMap::from([(chain.to_string(), "http://127.0.0.1:9".to_string())]);
-	std::fs::create_dir_all(dir).unwrap();
-	let stream_abi = dir.join("stream.abi.json");
-	std::fs::write(&stream_abi, registry::stream_abi()).unwrap();
-	let path = dir.join("rindexer.yaml");
-	let contents =
-		serde_json::to_string_pretty(&manifest::build(config, &rpc_urls, &routes, &stream_abi));
-	std::fs::write(&path, contents.unwrap()).unwrap();
-	let manifest = read_manifest(&path).unwrap();
-	(path, manifest)
+	manifest::write(dir, config, &rpc_urls, &routes).unwrap()
 }
 
 /** What each process does at startup: `db::migrate`, then `start_rindexer`'s unlocked setup. */

@@ -25,15 +25,27 @@ pub enum MessageFunction {
 }
 
 /**
+ * How deep `batchCall`s are unwrapped. Relayers batch once. A relayer can send calldata nested
+ * thousands of levels deep through a contract of its own, and unwrapping all of it would
+ * overflow the stack.
+ */
+const MAX_BATCH_DEPTH: usize = 8;
+
+/**
  * `decodeHandlerCalls`: the handler calls in `calldata`, in order, with every `batchCall`
- * unwrapped. Calldata that is no handler call is no calls.
+ * unwrapped. Calldata that is no handler call is no calls, and so are batches nested deeper
+ * than [`MAX_BATCH_DEPTH`].
  */
 pub fn decode_handler_calls(calldata: &[u8]) -> Vec<HandlerV2Calls> {
+	decode_nested(calldata, MAX_BATCH_DEPTH)
+}
+
+fn decode_nested(calldata: &[u8], depth: usize) -> Vec<HandlerV2Calls> {
 	match HandlerV2Calls::abi_decode(calldata) {
-		Ok(HandlerV2Calls::batchCall(batch)) =>
-			batch.calls.iter().flat_map(|inner| decode_handler_calls(inner)).collect(),
+		Ok(HandlerV2Calls::batchCall(batch)) if depth > 0 =>
+			batch.calls.iter().flat_map(|inner| decode_nested(inner, depth - 1)).collect(),
+		Ok(HandlerV2Calls::batchCall(_)) | Err(_) => vec![],
 		Ok(call) => vec![call],
-		Err(_) => vec![],
 	}
 }
 
@@ -198,6 +210,16 @@ mod tests {
 		let inner = batch(vec![post_requests(&[GATEWAY])]);
 		let outer = batch(vec![consensus(), inner]);
 		assert_eq!(names(&outer), ["handleConsensus", "handlePostRequests"]);
+	}
+
+	#[test]
+	fn batches_nested_too_deep_are_no_calls() {
+		let nest = |levels: usize| {
+			(0..levels).fold(post_requests(&[GATEWAY]), |inner, _| batch(vec![inner]))
+		};
+		assert_eq!(names(&nest(MAX_BATCH_DEPTH)), ["handlePostRequests"]);
+		assert!(names(&nest(MAX_BATCH_DEPTH + 1)).is_empty());
+		assert!(names(&nest(1_000)).is_empty());
 	}
 
 	#[test]

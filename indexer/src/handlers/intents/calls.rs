@@ -7,10 +7,10 @@ use alloy::{
 	sol,
 	sol_types::{SolCall, SolValue},
 };
-use anyhow::{anyhow, Context};
+use anyhow::anyhow;
 use serde_json::{json, Value};
 
-use crate::chains::Chain;
+use crate::{chains::Chain, errors::Retry};
 
 sol! {
 	#[sol(all_derives)]
@@ -81,20 +81,29 @@ fn sol_tokens(tokens: &[TokenAmount]) -> Vec<TokenInfo> {
 	tokens.iter().map(|t| TokenInfo { token: t.token, amount: t.amount }).collect()
 }
 
-/** `computeOrderCommitment`'s `toBytes`: hex stays hex, anything else is its UTF-8 bytes. */
-fn chain_bytes(value: &str) -> anyhow::Result<Bytes> {
-	match value.strip_prefix("0x") {
-		Some(hex) => Ok(hex::decode(hex).with_context(|| format!("chain id {value:?}"))?.into()),
-		None => Ok(Bytes::copy_from_slice(value.as_bytes())),
+/**
+ * `computeOrderCommitment`'s `toBytes`: hex stays hex, anything else is its UTF-8 bytes. viem
+ * right-pads odd-length hex, so `0x1` is the byte `0x10`. A string that starts with `0x` but
+ * isn't hex is hashed as text: viem hashed garbage for it, and failing would stop the chain.
+ */
+fn chain_bytes(value: &str) -> Bytes {
+	match value
+		.strip_prefix("0x")
+		.filter(|hex| hex.bytes().all(|b| b.is_ascii_hexdigit()))
+	{
+		Some(hex) if hex.len() % 2 == 1 =>
+			hex::decode(format!("{hex}0")).unwrap_or_default().into(),
+		Some(hex) => hex::decode(hex).unwrap_or_default().into(),
+		None => Bytes::copy_from_slice(value.as_bytes()),
 	}
 }
 
 impl Order {
-	pub fn to_sol(&self) -> anyhow::Result<SolOrder> {
-		Ok(SolOrder {
+	pub fn to_sol(&self) -> SolOrder {
+		SolOrder {
 			user: self.user,
-			source: chain_bytes(&self.source)?,
-			destination: chain_bytes(&self.destination)?,
+			source: chain_bytes(&self.source),
+			destination: chain_bytes(&self.destination),
 			deadline: self.deadline,
 			nonce: self.nonce,
 			fees: self.fees,
@@ -109,12 +118,12 @@ impl Order {
 				assets: sol_tokens(&self.outputs),
 				call: self.output_call.clone(),
 			},
-		})
+		}
 	}
 
 	/** `keccak256(abi.encode(order))`, as the gateway computes it. */
-	pub fn commitment(&self) -> anyhow::Result<B256> {
-		Ok(commitment(&self.to_sol()?))
+	pub fn commitment(&self) -> B256 {
+		commitment(&self.to_sol())
 	}
 }
 
@@ -173,25 +182,35 @@ impl ReceiptLog {
 	}
 }
 
-/** The logs of a transaction's receipt. Fails when the receipt is unavailable. */
+/**
+ * The logs of a transaction's receipt. The transaction is in an indexed block, so a null
+ * receipt is an RPC that hasn't caught up, and the batch retries.
+ */
 pub async fn receipt_logs(chain: &Chain, transaction: B256) -> anyhow::Result<Vec<ReceiptLog>> {
 	let receipt: Value = chain
 		.provider
 		.raw_request("eth_getTransactionReceipt".into(), (transaction,))
 		.await?;
+	if receipt.is_null() {
+		return Err(Retry(format!("no receipt yet for {transaction}")).into());
+	}
 	let logs = receipt
 		.get("logs")
 		.and_then(Value::as_array)
-		.ok_or_else(|| anyhow!("no receipt for {transaction}"))?;
+		.ok_or_else(|| anyhow!("receipt for {transaction} has no logs"))?;
 	Ok(logs.iter().filter_map(ReceiptLog::from_json).collect())
 }
 
-/** The input of a transaction, if the RPC returns it. */
+/** The input of a transaction, if the RPC returns it. A null transaction retries, as a receipt
+ * does. */
 pub async fn transaction_input(chain: &Chain, transaction: B256) -> anyhow::Result<Option<String>> {
 	let tx: Value = chain
 		.provider
 		.raw_request("eth_getTransactionByHash".into(), (transaction,))
 		.await?;
+	if tx.is_null() {
+		return Err(Retry(format!("no transaction {transaction}")).into());
+	}
 	Ok(tx.get("input").and_then(Value::as_str).map(str::to_string))
 }
 
@@ -706,7 +725,19 @@ mod tests {
 			outputs: vec![TokenAmount { token: pad(TOKEN_B), amount: U256::from(200) }],
 			output_call: Bytes::new(),
 		};
-		assert_eq!(order.commitment().unwrap(), commitment(&sol));
+		assert_eq!(order.commitment(), commitment(&sol));
+	}
+
+	#[test]
+	fn chain_strings_become_the_bytes_viem_hashed() {
+		assert_eq!(chain_bytes("EVM-56"), Bytes::from_static(b"EVM-56"));
+		assert_eq!(chain_bytes("0x45564d2d3536"), Bytes::from_static(b"EVM-56"));
+		assert_eq!(chain_bytes("0x"), Bytes::new());
+		// Anyone can place an order with these destinations; none of them may fail.
+		assert_eq!(chain_bytes("0x1"), Bytes::from_static(&[0x10]));
+		assert_eq!(chain_bytes("0xabc"), Bytes::from_static(&[0xab, 0xc0]));
+		assert_eq!(chain_bytes("0xzz"), Bytes::from_static(b"0xzz"));
+		assert_eq!(chain_bytes("0x1 "), Bytes::from_static(b"0x1 "));
 	}
 
 	#[test]
@@ -735,7 +766,7 @@ mod tests {
 			output_call: Bytes::new(),
 		};
 		assert_eq!(
-			order.commitment().unwrap().to_string(),
+			order.commitment().to_string(),
 			"0x1e5aac55b5069b58d6a053f332b737a26d4b7d3837cdcecc5a4485f460927307"
 		);
 	}

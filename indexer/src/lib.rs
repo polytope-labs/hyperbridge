@@ -13,14 +13,13 @@ pub mod substrate;
 
 use std::{
 	collections::{BTreeMap, HashMap},
-	path::{Path, PathBuf},
+	path::Path,
 	sync::Arc,
 };
 
 use anyhow::{anyhow, Context};
 use rindexer::{
 	event::callback_registry::{EventCallbackRegistry, TraceCallbackRegistry},
-	manifest::yaml::read_manifest,
 	provider::{create_client, ChainProvider},
 	start_rindexer, GraphqlOverrideSettings, HeaderMap, IndexingDetails, PostgresClient,
 	StartDetails,
@@ -95,13 +94,7 @@ pub async fn run(config_path: &Path, run_dir: &Path, selected: &[String]) -> any
 		})
 		.collect();
 
-	let stream_abi = write_private(run_dir, "stream.abi.json", &registry::stream_abi())?;
-	let manifest = manifest::build(&config, &rpc_urls, &routes, &stream_abi);
-	// Written as JSON, which is valid YAML. serde_yaml writes numbers as maps when the build turns
-	// on serde_json's `arbitrary_precision`, as a build alongside the runtimes does.
-	let manifest_path =
-		write_private(run_dir, "rindexer.yaml", &serde_json::to_string_pretty(&manifest)?)?;
-	let manifest = read_manifest(&manifest_path).map_err(|e| anyhow!("rindexer manifest: {e}"))?;
+	let (manifest_path, manifest) = manifest::write(run_dir, &config, &rpc_urls, &routes)?;
 	db::migrate(&db, &manifest_path, &manifest).await?;
 
 	let mut providers: HashMap<String, Arc<dyn ChainProvider>> = HashMap::new();
@@ -119,10 +112,10 @@ pub async fn run(config_path: &Path, run_dir: &Path, selected: &[String]) -> any
 		.await
 		.map_err(|e| anyhow!("rpc client for {}: {e}", network.name))?;
 		let topics = routes[&network.name].topics().into_iter().collect();
-		let rpc = chains[&network.name].provider.clone();
+		let distance = chains[&network.name].config.reorg_safe_distance;
 		providers.insert(
 			network.name.clone(),
-			Arc::new(provider::AllTopicsProvider::new(inner, rpc, topics)),
+			Arc::new(provider::AllTopicsProvider::new(inner, topics, distance)),
 		);
 	}
 
@@ -158,15 +151,4 @@ pub async fn run(config_path: &Path, run_dir: &Path, selected: &[String]) -> any
 	})
 	.await
 	.map_err(|e| anyhow!("rindexer: {e:?}"))
-}
-
-/** Writes a file only this user can read: the manifest holds RPC URLs, which can carry keys. */
-fn write_private(dir: &Path, name: &str, contents: &str) -> anyhow::Result<PathBuf> {
-	use std::{fs, os::unix::fs::PermissionsExt};
-	fs::create_dir_all(dir)?;
-	fs::set_permissions(dir, fs::Permissions::from_mode(0o700))?;
-	let path = dir.join(name);
-	fs::write(&path, contents)?;
-	fs::set_permissions(&path, fs::Permissions::from_mode(0o600))?;
-	Ok(path)
 }

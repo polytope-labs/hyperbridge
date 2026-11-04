@@ -17,7 +17,7 @@ use crate::{
 		volume::update_volume,
 	},
 	store::{
-		numeric, timestamp_to_date, Numeric, OrderStatus, PointsActivityType,
+		numeric, postgres_text, timestamp_to_date, Numeric, OrderStatus, PointsActivityType,
 		ProtocolParticipantType,
 	},
 };
@@ -121,11 +121,14 @@ pub fn bytes32_to_bytes20(value: &str) -> String {
 	lower_hex(&bytes[bytes.len().saturating_sub(20)..])
 }
 
-/** `decodeChain`: chain ids stored as hex bytes read back as text. */
+/** `decodeChain`: chain ids stored as hex bytes read back as text, which a `text` column holds. */
 pub fn decode_chain(value: &str) -> String {
 	match value.strip_prefix("0x") {
-		Some(hex) => String::from_utf8_lossy(&hex::decode(hex).unwrap_or_default()).into_owned(),
-		None => value.to_string(),
+		Some(hex) => {
+			let text = String::from_utf8_lossy(&hex::decode(hex).unwrap_or_default()).into_owned();
+			postgres_text(&text).into_owned()
+		},
+		None => postgres_text(value).into_owned(),
 	}
 }
 
@@ -233,8 +236,8 @@ impl Gateway<'_> {
 						&[
 							&commitment,
 							&user,
-							&order.source,
-							&order.destination,
+							&postgres_text(&order.source),
+							&postgres_text(&order.destination),
 							&numeric(order.deadline),
 							&numeric(order.nonce),
 							&numeric(order.fees),
@@ -255,7 +258,7 @@ impl Gateway<'_> {
 					.await?;
 				self.save_assets(order, commitment).await?;
 				flush_commitment(self.db, ENTITY, commitment).await?;
-				self.backfill_early_fills(commitment).await?;
+				self.backfill_early_fills(commitment, tx.timestamp).await?;
 				self.award_placement(order, commitment, &user, &input_usd, tx).await?;
 
 				let activity =
@@ -282,8 +285,8 @@ impl Gateway<'_> {
 						&[
 							&commitment,
 							&user,
-							&order.source,
-							&order.destination,
+							&postgres_text(&order.source),
+							&postgres_text(&order.destination),
 							&numeric(order.deadline),
 							&numeric(order.nonce),
 							&numeric(order.fees),
@@ -771,22 +774,24 @@ impl Gateway<'_> {
 
 	/**
 	 * `backfillEarlyFills`: fills recorded before the order (the destination ran ahead) get the
-	 * `filled` accounting and points they skipped. Their volume was credited when they were
-	 * indexed, and their points use the valuation the destination chain made then. SubQuery
-	 * re-read the destination's tokens on this, the source, chain, which failed the block when
-	 * a token had no code here.
+	 * `filled` accounting and points they skipped. SubQuery read through its historical filter,
+	 * which hid fills from blocks later than the placement's, so this skips those too. As a
+	 * fill follows its order, that is nearly every fill: bugs kept for parity. The points use
+	 * the valuation the destination chain made when it indexed the fill. SubQuery re-read the
+	 * destination's tokens on this, the source, chain, which failed the block when a token had
+	 * no code here.
 	 */
-	async fn backfill_early_fills(&self, commitment: &str) -> anyhow::Result<()> {
+	async fn backfill_early_fills(&self, commitment: &str, placed_at: u64) -> anyhow::Result<()> {
 		for kind in [FillKind::Partial, FillKind::Full] {
 			let fills = self
 				.db
 				.query(
 					&format!(
-						"SELECT id, filler, transaction_hash, timestamp FROM app.{} WHERE order_id = $1
-						 ORDER BY id LIMIT 100",
+						"SELECT id, filler, transaction_hash, timestamp FROM app.{}
+						 WHERE order_id = $1 AND timestamp <= $2 ORDER BY id LIMIT 100",
 						kind.table()
 					),
-					&[&commitment],
+					&[&commitment, &numeric(placed_at)],
 				)
 				.await?;
 			for fill in fills {

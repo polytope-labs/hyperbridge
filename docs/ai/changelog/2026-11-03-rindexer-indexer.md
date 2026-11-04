@@ -27,11 +27,17 @@ Rust 1.98 and later.
   the migrations and create rindexer's tables, so they can all start at once on a fresh
   database. `indexer.*` holds the cursors, and `app.*` holds the served tables.
 - Each chain's RPC URL comes from an env var named after the chain: `bsc-mainnet` reads
-  `BSC_MAINNET`. For a Substrate chain, that is its substrate-eth-rpc URL. `<CHAIN>_SUBSTRATE`
-  is the node's own RPC, and defaults to the same URL, which is right for the in-node facade.
+  `BSC_MAINNET`. For a Substrate chain, that is its substrate-eth-rpc URL.
+- A Substrate chain also needs `<CHAIN>_SUBSTRATE`, the node's own RPC. For the facade inside
+  the Hyperbridge node, it is the same URL. A standalone facade serves only `eth_*`, so there is
+  no default.
+- Each of these variables holds one URL. rindexer takes one RPC per chain, so the
+  comma-separated lists SubQuery failed over between are refused. For failover, put a load
+  balancer in front of the nodes.
 - `HYPERFX_ORDERBOOK_URL` prices tokens and serves the solver watchlist.
 - Every RPC must serve historic state at the event's block. On Ethereum and Arbitrum, that means
-  an archive endpoint.
+  an archive endpoint. It must also serve every receipt and transaction of the blocks it
+  indexes: a null answer is retried until the RPC has caught up.
 - Index Substrate chains from our own archive node. The public Nexus and Gargantua endpoints
   rate-limit hard: through them, the facade indexes about 100 blocks a minute.
 - `config/{mainnet,testnet}.toml` lists the chains. Soneium is left out. Each chain sets its
@@ -44,9 +50,15 @@ Rust 1.98 and later.
   watch. `AllTopicsProvider` widens that stream's `eth_getLogs` to every subscribed topic, so
   handlers see a chain's logs in (block, log index) order, as SubQuery delivered them.
   rindexer's per-event streams would not keep that order.
-- **Batches.** A batch runs in one transaction together with the chain's cursor. A batch that
-  rindexer replays after a crash skips logs that already committed. A handler error fails the
-  batch, and rindexer retries it.
+- **Batches.** Each block of a batch commits in one transaction together with the chain's
+  cursor, as SubQuery flushed each block. So rows that several chains' processes write, such
+  as a relayer's, stay locked for one block's work. A handler error fails the batch, and
+  rindexer retries it. The replay skips the blocks that already committed.
+- **RPC errors.** Handler reads time out after 30 s, and rate limits are retried in place.
+  `eth_getLogs` goes through rindexer's own client. rindexer's live loop stops for good after
+  an error on a range as short as a live window, so `AllTopicsProvider` retries those errors
+  itself. It also re-asks the tip block when the answer is empty but the block's logs bloom
+  says it can have our logs, as rindexer does when its own bloom checks are on.
 - **Block hooks.** SubQuery's block handlers are `BlockHook`s. They run after each batch at the
   last block it applied. On a chain with no logs, they run every 15 s at the block rindexer has
   synced.
@@ -83,8 +95,10 @@ compared. The deliberate differences:
   `treasuries.total_balance` and `bridge_token_supplies.circulating_supply` differ from
   SubQuery's by the few blocks SubQuery trailed the head.
 - RPC and database errors SubQuery swallowed now fail the batch and are retried. Reverts, other
-  failed executions and malformed data are still logged and skipped. Four reads stay
-  best-effort and only log a failure:
+  failed executions and malformed data are still logged and skipped. A token's `symbol()` and
+  `decimals()` run code anyone can deploy, so any error answer from them is final, unless the
+  node couldn't serve the call. Those calls get 500k gas, so a timeout is the node's. Four
+  reads stay best-effort and only log a failure:
   - the `debug_traceTransaction` fallback for an order's calldata, which many RPCs don't serve;
   - HyperFX orderbook prices;
   - yield vault reads, which a later block retries until the day's snapshot completes;
@@ -95,9 +109,23 @@ compared. The deliberate differences:
   keys such as `genesisHash`, `startHeight` and `indexerHealthy`, which nothing we run reads.
 - A token that doesn't answer `symbol()` and `decimals()` is worth $0 in order and fill values.
   SubQuery failed the block, and under rindexer's retries that would stop the chain.
+- Some event data SubQuery failed the block on is stored instead, since a retry would fail the
+  same way:
+  - Strings lose any NUL, which Postgres text can't hold, and token symbols are cut to 256
+    bytes, so their indexes can hold them.
+  - An order destination that starts with `0x` but isn't hex is hashed as text.
+  - A Hyperbridge `PostRequestHandled` whose relayer doesn't decode keeps its status, without
+    relayer stats.
+  - Delivery calldata unwraps `batchCall`s 8 deep.
+- A Hyperbridge request that has since timed out is read from the ISMP events of the block it
+  was dispatched in. `ismp_queryRequests` reads the head, where that request is gone.
 - Points for a fill indexed before its order use the destination chain's valuation, kept in
   `indexer.deferred_fill_points` until the order arrives. SubQuery re-read the destination's
   tokens on the source chain, which failed the block when a token had no code there.
+- Reads of rows other chains write see only rows from blocks no later than the current block's
+  time, as SubQuery's `--historical=timestamp` reads did. This applies to the early-fill
+  backfill and to the solver watchlist. A chain still in its history doesn't consume a
+  watchlist version until its blocks reach the poll that wrote it.
 
 Bugs kept for parity, to decide on separately:
 
@@ -112,6 +140,8 @@ Bugs kept for parity, to decide on separately:
   subscriptions.
 - The intent gateway: a zero referrer counts as a referrer, early fills leave the order `PLACED`,
   and statuses can move backwards. Dust USD from Uniswap V2 and V4 ignores token decimals.
+- A fill indexed before its order is almost always from a later block, so the order's backfill
+  doesn't see it: the order's `filled` stays unset and the fill earns no points.
 - Comments in the handlers mark where a bug is kept for parity.
 
 ## Not included yet

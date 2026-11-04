@@ -1,5 +1,9 @@
 //! Checks the Postgres encodings against a real server. Set `INDEXER_TEST_DATABASE_URL` to run.
 
+// Only `database` is used here.
+#[allow(dead_code)]
+mod common;
+
 use hyperbridge_indexer::store::{Numeric, Status};
 use tokio_postgres::NoTls;
 
@@ -41,16 +45,8 @@ async fn numeric_matches_postgres() {
 
 #[tokio::test]
 async fn enums_bind_to_subquery_types() {
-	let Some(db) = client().await else { return };
-	// Needs the app schema from migrations/0001.
-	let exists: bool = db
-		.query_one("SELECT EXISTS (SELECT 1 FROM pg_type WHERE typname = '167d3578e1')", &[])
-		.await
-		.unwrap()
-		.get(0);
-	if !exists {
-		return;
-	}
+	// With the migrations applied, which create the enum types.
+	let Some(db) = common::database().await else { return };
 	let back: Status = db
 		.query_one("SELECT $1::app.\"167d3578e1\"", &[&Status::HyperbridgeDelivered])
 		.await

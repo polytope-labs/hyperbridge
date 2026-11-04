@@ -173,7 +173,7 @@ async fn host_fee_token(chain: &Chain, block: u64) -> anyhow::Result<FeeToken> {
 /** The rest of `handleOrderPlacedEventV3`, once the order is complete. */
 async fn place_order(scope: &Scope<'_>, order: Order, graffiti: String) -> anyhow::Result<()> {
 	let ctx = scope.ctx;
-	let commitment = order.commitment()?.to_string();
+	let commitment = order.commitment().to_string();
 	let fee_token = match host_fee_token(ctx.chain, ctx.log.block_number).await {
 		Ok(fee_token) => Some(fee_token),
 		Err(err) if is_transient(&err) => return Err(err),
@@ -314,10 +314,13 @@ async fn resolve_beneficiary(
 			.then(|| Address::from_slice(&order.output.beneficiary[12..]))
 	};
 	let hash = ctx.log.transaction_hash;
-	if let Ok(Some(input)) = transaction_input(ctx.chain, hash).await {
-		if let Some(beneficiary) = from_calldata(&input) {
-			return Ok(Some(beneficiary));
-		}
+	match transaction_input(ctx.chain, hash).await {
+		Ok(input) =>
+			if let Some(beneficiary) = input.as_deref().and_then(from_calldata) {
+				return Ok(Some(beneficiary));
+			},
+		Err(err) if is_transient(&err) => return Err(err),
+		Err(err) => tracing::warn!(%commitment, "could not read the fill transaction: {err:#}"),
 	}
 	match nested_call_inputs(ctx.chain, hash, ctx.log.address).await {
 		Ok(inputs) =>

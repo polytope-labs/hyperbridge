@@ -465,6 +465,25 @@ async fn watchlist_requests_become_tracked_solvers_one_version_at_a_time() {
 	assert_eq!(cursor.as_deref(), Some("2"));
 }
 
+#[tokio::test]
+async fn a_watchlist_version_waits_until_the_chain_reaches_its_time() {
+	let Some(mut client) = database().await else { return };
+	let db = client.transaction().await.unwrap();
+	let t = Inventories::new("EVM-T23");
+	t.queue_watchlist(&db, 1, &[SOLVER]).await;
+	// A poll at the head wrote it, while this chain was still in its history.
+	db.execute(
+		"UPDATE app.solver_watchlists SET updated_at = $2 WHERE id = $1",
+		&[&t.id(), &timestamp_secs(T0 + 60)],
+	)
+	.await
+	.unwrap();
+	t.block(&db, 101, T0).await;
+	assert_eq!(t.status(&db, SOLVER).await, None);
+	t.block(&db, 102, T0 + 60).await;
+	assert_eq!(t.status(&db, SOLVER).await.as_deref(), Some("TRACKED 102"));
+}
+
 // ─── Genesis ────────────────────────────────────────────────────────────────────────────────────
 
 #[tokio::test]

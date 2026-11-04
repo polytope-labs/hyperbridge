@@ -1,0 +1,193 @@
+//! A batch commits block by block. Set `INDEXER_TEST_DATABASE_URL` to run.
+
+// Only `database` is used here.
+#[allow(dead_code)]
+mod common;
+
+use std::{
+	collections::BTreeMap,
+	sync::{
+		atomic::{AtomicU64, AtomicUsize, Ordering},
+		Arc, Mutex,
+	},
+};
+
+use alloy::{
+	primitives::{Address, Bytes, LogData, B256, U256, U64},
+	providers::{Provider, ProviderBuilder},
+	sol,
+	sol_types::SolEvent,
+};
+use async_trait::async_trait;
+use hyperbridge_indexer::{
+	chains::Chain,
+	config::{ChainConfig, ChainKind, Config, Contracts, Environment},
+	errors::Retry,
+	registry::{
+		process_batch, BlockContext, BlockHook, ChainRoutes, EventContext, EventHandler, Source,
+		Subscription,
+	},
+	services::prices::Orderbook,
+	Indexer,
+};
+use rindexer::{
+	event::callback_registry::{EventResult, LogFoundInRequest, TxInformation},
+	PostgresClient,
+};
+
+sol! {
+	event Ping();
+}
+
+const HOST: Address = Address::repeat_byte(0x11);
+
+/** Records the logs it handles, and fails the first log of `fail_at` while it is set. */
+#[derive(Clone, Default)]
+struct Recorder {
+	handled: Arc<Mutex<Vec<(u64, u64)>>>,
+	fail_at: Arc<AtomicU64>,
+}
+
+#[async_trait]
+impl EventHandler for Recorder {
+	type Event = Ping;
+
+	async fn handle(&self, ctx: &EventContext<'_>, _: Ping) -> anyhow::Result<()> {
+		let position = (ctx.log.block_number, ctx.log.log_index);
+		self.handled.lock().unwrap().push(position);
+		if self.fail_at.load(Ordering::SeqCst) == ctx.log.block_number {
+			return Err(Retry("the RPC failed".into()).into());
+		}
+		Ok(())
+	}
+}
+
+/** Counts its runs, and the block of the last. */
+#[derive(Clone, Default)]
+struct Counter {
+	runs: Arc<AtomicUsize>,
+	block: Arc<AtomicU64>,
+}
+
+#[async_trait]
+impl BlockHook for Counter {
+	fn applies_to(&self, _: &ChainConfig) -> bool {
+		true
+	}
+
+	async fn after_batch(&self, ctx: &BlockContext<'_>) -> anyhow::Result<()> {
+		self.runs.fetch_add(1, Ordering::SeqCst);
+		self.block.store(ctx.block_number, Ordering::SeqCst);
+		Ok(())
+	}
+}
+
+fn result(network: &str, block: u64, log_index: u64) -> EventResult {
+	let mut log = alloy::rpc::types::Log::default();
+	log.inner = alloy::primitives::Log {
+		address: HOST,
+		data: LogData::new_unchecked(vec![Ping::SIGNATURE_HASH], Bytes::new()),
+	};
+	EventResult {
+		log,
+		decoded_data: Arc::new(()),
+		tx_information: TxInformation {
+			chain_id: 1,
+			network: network.to_string(),
+			address: HOST,
+			block_hash: B256::repeat_byte(block as u8),
+			block_number: block,
+			block_timestamp: Some(U256::from(1_750_000_000 + block)),
+			transaction_hash: B256::repeat_byte(0xaa),
+			log_index: U256::from(log_index),
+			transaction_index: 0,
+		},
+		found_in_request: LogFoundInRequest { from_block: U64::from(1), to_block: U64::from(4) },
+	}
+}
+
+#[tokio::test]
+async fn a_failed_block_keeps_the_blocks_before_it_and_the_replay_runs_hooks_once() {
+	let Some(admin) = common::database().await else { return };
+	// As in `main`: rindexer connects to `DATABASE_URL`, over rustls.
+	let _ = rustls::crypto::ring::default_provider().install_default();
+	std::env::set_var("DATABASE_URL", std::env::var("INDEXER_TEST_DATABASE_URL").unwrap());
+	let network = format!("batch-test-{}", std::process::id());
+
+	let chain_config = ChainConfig {
+		kind: ChainKind::Evm,
+		chain_id: 1,
+		state_machine_id: "EVM-1".into(),
+		start_block: 0,
+		reorg_safe_distance: 0,
+		max_block_range: None,
+		op_stack: false,
+		contracts: Contracts { ethereum_host: Some(HOST), ..Default::default() },
+	};
+	let chain = Chain {
+		name: network.clone(),
+		config: chain_config.clone(),
+		rpc_url: "http://127.0.0.1:9".into(),
+		provider: ProviderBuilder::new()
+			.connect_http("http://127.0.0.1:9".parse().unwrap())
+			.erased(),
+		substrate: None,
+	};
+	let http = reqwest::Client::new();
+	let indexer = Indexer {
+		config: Config {
+			environment: Environment::Testnet,
+			chains: BTreeMap::from([(network.clone(), chain_config.clone())]),
+		},
+		db: Arc::new(PostgresClient::new().await.unwrap()),
+		chains: BTreeMap::from([(network.clone(), chain)]),
+		orderbook: Orderbook::from_env(http.clone()),
+		http,
+	};
+	let recorder = Recorder::default();
+	let counter = Counter::default();
+	let routes = ChainRoutes::new(
+		&chain_config,
+		&[Subscription::new(Source::EthereumHost, recorder.clone())],
+		&[Arc::new(counter.clone())],
+	);
+	let batch = || {
+		[(1, 0), (1, 1), (2, 0), (3, 0), (4, 0)].map(|(block, log)| result(&network, block, log))
+	};
+	let cursor = || async {
+		let row = admin
+			.query_opt(
+				"SELECT block_number, log_index FROM indexer.cursors WHERE network = $1",
+				&[&network],
+			)
+			.await
+			.unwrap();
+		row.map(|row| (row.get::<_, i64>(0), row.get::<_, i64>(1)))
+	};
+	let handled = || std::mem::take(&mut *recorder.handled.lock().unwrap());
+
+	recorder.fail_at.store(3, Ordering::SeqCst);
+	let failed = process_batch(&indexer, &network, &routes, batch().into()).await;
+	assert!(failed.is_err());
+	assert_eq!(handled(), [(1, 0), (1, 1), (2, 0), (3, 0)]);
+	assert_eq!(cursor().await, Some((2, 0)));
+	assert_eq!(counter.runs.load(Ordering::SeqCst), 0);
+
+	// rindexer retries the batch: blocks 1 and 2 committed, so only 3 and 4 run.
+	recorder.fail_at.store(0, Ordering::SeqCst);
+	process_batch(&indexer, &network, &routes, batch().into()).await.unwrap();
+	assert_eq!(handled(), [(3, 0), (4, 0)]);
+	assert_eq!(cursor().await, Some((4, 0)));
+	assert_eq!(counter.runs.load(Ordering::SeqCst), 1);
+	assert_eq!(counter.block.load(Ordering::SeqCst), 4);
+
+	// A replay of a batch that committed runs nothing again, hooks included.
+	process_batch(&indexer, &network, &routes, batch().into()).await.unwrap();
+	assert!(handled().is_empty());
+	assert_eq!(counter.runs.load(Ordering::SeqCst), 1);
+
+	admin
+		.execute("DELETE FROM indexer.cursors WHERE network = $1", &[&network])
+		.await
+		.unwrap();
+}

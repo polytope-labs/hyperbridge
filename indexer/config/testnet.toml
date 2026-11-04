@@ -11,30 +11,6 @@ start_block = 8731862
 reorg_safe_distance = 0
 max_block_range = 500
 
-[chains.bifrost-paseo]
-kind = "substrate"
-chain_id = 1000002030  # substrate-eth-rpc eth_chain_id
-state_machine_id = "KUSAMA-2030"
-start_block = 6213793
-reorg_safe_distance = 0
-max_block_range = 500
-
-[chains.zkverify-testnet]
-kind = "substrate"
-chain_id = 2000000003  # substrate-eth-rpc eth_chain_id
-state_machine_id = "SUBSTRATE-zkv_"
-start_block = 1
-reorg_safe_distance = 0
-max_block_range = 500
-
-[chains.hydration-paseo]
-kind = "substrate"
-chain_id = 1000002034  # substrate-eth-rpc eth_chain_id
-state_machine_id = "KUSAMA-2034"
-start_block = 34996
-reorg_safe_distance = 0
-max_block_range = 500
-
 [chains.polkadex-testnet]
 kind = "substrate"
 chain_id = 2000000004  # substrate-eth-rpc eth_chain_id

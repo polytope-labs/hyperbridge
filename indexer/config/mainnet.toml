@@ -11,46 +11,6 @@ start_block = 10190400
 reorg_safe_distance = 0
 max_block_range = 500
 
-[chains.bifrost-mainnet]
-kind = "substrate"
-chain_id = 1000002030  # substrate-eth-rpc eth_chain_id
-state_machine_id = "POLKADOT-2030"
-start_block = 12398615
-reorg_safe_distance = 0
-max_block_range = 500
-
-[chains.cere-mainnet]
-kind = "substrate"
-chain_id = 2000000001  # substrate-eth-rpc eth_chain_id
-state_machine_id = "SUBSTRATE-cere"
-start_block = 25722657
-reorg_safe_distance = 0
-max_block_range = 500
-
-[chains.argon-mainnet]
-kind = "substrate"
-chain_id = 2000000002  # substrate-eth-rpc eth_chain_id
-state_machine_id = "SUBSTRATE-argn"
-start_block = 753851
-reorg_safe_distance = 0
-max_block_range = 500
-
-[chains.hydration-mainnet]
-kind = "substrate"
-chain_id = 1000002034  # substrate-eth-rpc eth_chain_id
-state_machine_id = "POLKADOT-2034"
-start_block = 10305620
-reorg_safe_distance = 0
-max_block_range = 500
-
-[chains.zkverify-mainnet]
-kind = "substrate"
-chain_id = 2000000003  # substrate-eth-rpc eth_chain_id
-state_machine_id = "SUBSTRATE-zkv_"
-start_block = 124841
-reorg_safe_distance = 0
-max_block_range = 500
-
 [chains.ethereum-mainnet]
 kind = "evm"
 chain_id = 1

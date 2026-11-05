@@ -619,6 +619,46 @@ async fn dust_adds_raw_amounts_per_token_without_valuing_them() {
 	assert_eq!(totals.as_deref(), Some("0"));
 }
 
+/** Crafted amounts that sum past U256 saturate rather than wrap, so the order still ends
+ * REDEEMED and the volume stays at the most it can hold. */
+#[tokio::test]
+async fn amounts_past_u256_saturate() {
+	let Some(mut client) = database().await else { return };
+	let db = client.transaction().await.unwrap();
+	let market = TestMarket::new();
+	let g = gateway(&db, &market);
+	let fake = Address::repeat_byte(0x66);
+	let amount = |amount: U256| TokenAmount { token: fake.into_word(), amount };
+	let half = U256::from(1) << 255;
+	let order = order(vec![amount(U256::MAX)], vec![token(WETH, 1)], 6);
+	let c = place(&g, &order, &tx(0xab, 100, 3)).await;
+	for (hash, block) in [(0xe3, 110), (0xe4, 120)] {
+		g.record_escrow_release(&c, Some(FILLER), &[amount(half)], &tx(hash, block, 2))
+			.await
+			.unwrap();
+	}
+	let row = one(
+		&db,
+		&format!(
+			"SELECT a.released || ' ' || o.status FROM app.i_order_v3_input_assets a
+			 JOIN app.i_order_v3s o ON o.id = a.order_id WHERE a.id = '{c}-input-0'"
+		),
+	)
+	.await;
+	assert_eq!(row, Some(format!("{} REDEEMED", U256::MAX)));
+
+	// cNGN has metadata but no price, so only its amount is summed.
+	let cngn = |amount: U256| TokenAmount { token: CNGN.into_word(), amount };
+	g.record_order_volume("FILLED", &[cngn(half), cngn(half)], 7).await.unwrap();
+	let volume = one(
+		&db,
+		"SELECT amount::text FROM app.intent_gateway_token_volumes
+		 WHERE id = 'EVM-8453-0x46c85152bfe9f96829aa94755d9f915f9b10ef5f-FILLED'",
+	)
+	.await;
+	assert_eq!(volume, Some(U256::MAX.to_string()));
+}
+
 #[tokio::test]
 async fn order_volume_prices_stables_and_keeps_unpriced_amounts() {
 	let Some(mut client) = database().await else { return };

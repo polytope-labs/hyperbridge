@@ -55,16 +55,46 @@ pub struct ReceiptLog {
 	pub transaction_hash: Option<B256>,
 }
 
-/** A transaction's receipt and calldata, each fetched on first use. */
+/** What a delivery transaction cost its relayer, priced at its block. */
+pub struct Fee {
+	pub gas_used: U256,
+	/** In the native token's smallest unit, with an OP-stack chain's L1 data fee. */
+	pub gas_fee: U256,
+	/** In USD, at 18 decimals. */
+	pub usd_fee: U256,
+}
+
+/** A transaction's receipt, calldata and fee, each fetched on first use. */
 pub struct TxData {
 	hash: B256,
 	receipt: OnceCell<Receipt>,
 	input: OnceCell<Bytes>,
+	fee: OnceCell<Fee>,
 }
 
 impl TxData {
 	pub fn new(hash: B256) -> Self {
-		Self { hash, receipt: OnceCell::new(), input: OnceCell::new() }
+		Self { hash, receipt: OnceCell::new(), input: OnceCell::new(), fee: OnceCell::new() }
+	}
+
+	/** The transaction's [`Fee`], read once for all the messages it delivers. */
+	pub async fn fee(&self, ctx: &EventContext<'_>) -> anyhow::Result<&Fee> {
+		self.fee
+			.get_or_try_init(|| async {
+				let receipt = self.receipt(ctx).await?;
+				let gas_used = receipt.gas_used.ok_or_else(|| anyhow!("receipt has no gasUsed"))?;
+				let gas_price = receipt
+					.effective_gas_price
+					.ok_or_else(|| anyhow!("receipt has no effectiveGasPrice"))?;
+				let native_price = native_currency_price(ctx.chain, ctx.log.block_number).await?;
+				let mut gas_fee = gas_price * gas_used;
+				if ctx.chain.config.op_stack {
+					gas_fee += receipt.l1_fee.unwrap_or_default();
+				}
+				let usd_fee = gas_fee * native_price / U256::from(10).pow(U256::from(18));
+				Ok(Fee { gas_used, gas_fee, usd_fee })
+			})
+			.await
 	}
 
 	pub async fn receipt(&self, ctx: &EventContext<'_>) -> anyhow::Result<&Receipt> {
@@ -105,6 +135,9 @@ impl TxData {
  * `HyperBridgeService.handleRequestHandledEvent`: a delivered message on `chain`, and the
  * relayer's stats. With the delivery transaction (EVM), the stats include the whole
  * transaction's gas and 50 points; in a batched delivery every message adds them again.
+ *
+ * The fee is read before any write. Other chains' processes write the relayer's rows too, and
+ * a row stays locked until the block commits.
  */
 pub async fn request_handled(
 	ctx: &EventContext<'_>,
@@ -114,40 +147,24 @@ pub async fn request_handled(
 	transaction: Option<&TxData>,
 ) -> anyhow::Result<()> {
 	let db = ctx.db;
+	let fee = match transaction {
+		Some(transaction) => Some(transaction.fee(ctx).await),
+		None => None,
+	};
 	add_chain_stats(
 		db,
 		chain,
 		&ChainStatsDelta { delivered_messages: numeric(1), ..Default::default() },
 	)
 	.await?;
-	// `findOrCreate` saved the stats row before the receipt was read.
-	add_relayer_stats(db, relayer, chain, &RelayerStatsDelta::default()).await?;
-	match transaction {
-		Some(transaction) => {
-			let receipt = transaction.receipt(ctx).await?;
-			let gas_used = receipt.gas_used.ok_or_else(|| anyhow!("receipt has no gasUsed"))?;
-			let gas_price = receipt
-				.effective_gas_price
-				.ok_or_else(|| anyhow!("receipt has no effectiveGasPrice"))?;
-			let native_price = native_currency_price(ctx.chain, ctx.log.block_number).await?;
-			let mut gas_fee = gas_price * gas_used;
-			if ctx.chain.config.op_stack {
-				gas_fee += receipt.l1_fee.unwrap_or_default();
-			}
-			let usd_fee = gas_fee * native_price / U256::from(10).pow(U256::from(18));
-			add_relayer_stats(
-				db,
-				relayer,
-				chain,
-				&RelayerStatsDelta {
-					messages_delivered: numeric(1),
-					gas_used: numeric(gas_used),
-					gas_fee: numeric(gas_fee),
-					usd_gas_fee: numeric(usd_fee),
-					..Default::default()
-				},
-			)
-			.await?;
+	let delta = match fee {
+		None => RelayerStatsDelta { messages_delivered: numeric(1), ..Default::default() },
+		Some(Err(err)) => {
+			// `findOrCreate` saved the stats row before the receipt was read.
+			add_relayer_stats(db, relayer, chain, &RelayerStatsDelta::default()).await?;
+			return Err(err);
+		},
+		Some(Ok(fee)) => {
 			award_points(
 				db,
 				Award {
@@ -162,12 +179,16 @@ pub async fn request_handled(
 				},
 			)
 			.await?;
+			RelayerStatsDelta {
+				messages_delivered: numeric(1),
+				gas_used: numeric(fee.gas_used),
+				gas_fee: numeric(fee.gas_fee),
+				usd_gas_fee: numeric(fee.usd_fee),
+				..Default::default()
+			}
 		},
-		None => {
-			let delta = RelayerStatsDelta { messages_delivered: numeric(1), ..Default::default() };
-			add_relayer_stats(db, relayer, chain, &delta).await?;
-		},
-	}
+	};
+	add_relayer_stats(db, relayer, chain, &delta).await?;
 	touch_relayer_activity(db, relayer, timestamp).await
 }
 
@@ -191,8 +212,53 @@ pub async fn sweep_transfers(
 	timestamp: u64,
 	attribution: Attribution<'_>,
 ) -> anyhow::Result<()> {
+	let sweep = read_transfers(ctx, transaction, timestamp, attribution).await;
+	store_transfers(ctx, sweep).await
+}
+
+/** A transfer the sweep stores, with what was read for it. */
+struct SweptTransfer {
+	id: String,
+	value: U256,
+	from: String,
+	to: String,
+	symbol: String,
+	usd: String,
+	/** The module whose volume the transfer adds to, if any. */
+	contract: Option<String>,
+}
+
+/**
+ * The sweep's reads, made before any of its writes. `stopped` is the error that ended them
+ * early. The transfers read before it are still stored, as the loop stored them before it
+ * threw.
+ */
+pub struct Sweep {
+	timestamp: u64,
+	transfers: Vec<SweptTransfer>,
+	stopped: Option<anyhow::Error>,
+}
+
+/** The sweep's reads: the transaction, and each new transfer's token and price. */
+pub async fn read_transfers(
+	ctx: &EventContext<'_>,
+	transaction: &TxData,
+	timestamp: u64,
+	attribution: Attribution<'_>,
+) -> Sweep {
+	let mut transfers = vec![];
+	let stopped = read_into(ctx, transaction, timestamp, attribution, &mut transfers).await.err();
+	Sweep { timestamp, transfers, stopped }
+}
+
+async fn read_into(
+	ctx: &EventContext<'_>,
+	transaction: &TxData,
+	timestamp: u64,
+	attribution: Attribution<'_>,
+	transfers: &mut Vec<SweptTransfer>,
+) -> anyhow::Result<()> {
 	let db = ctx.db;
-	let chain = ctx.chain.state_machine_id();
 	let modules = match attribution {
 		Attribution::Modules(function) =>
 			handler_message_modules(transaction.input(ctx).await?, function),
@@ -205,8 +271,8 @@ pub async fn sweep_transfers(
 		}
 		let value = transfer_amount(&log.data)?;
 		let tx_hash = log.transaction_hash.unwrap_or(ctx.log.transaction_hash);
-		let transfer_id = format!("{tx_hash:#x}-index-{index}");
-		if transfer_exists(db, &transfer_id).await? {
+		let id = format!("{tx_hash:#x}-index-{index}");
+		if transfer_exists(db, &id).await? {
 			continue;
 		}
 		let from = topic_address(&log.topics[1]);
@@ -219,8 +285,6 @@ pub async fn sweep_transfers(
 				.await?;
 		// The TypeScript skipped `amountValueInUSD === "0"`, which `toFixed(18)` never is.
 		let usd = amount_value_in_usd(value, decimals, &price);
-		store_transfer(db, &transfer_id, chain, value, &from, &to).await?;
-		update_volume(db, &format!("Transfer.{symbol}"), chain, &usd, timestamp).await?;
 
 		let touches = |module: &str| {
 			let module = module.to_lowercase();
@@ -229,12 +293,26 @@ pub async fn sweep_transfers(
 		let contract = match attribution {
 			Attribution::Sender(sender) => touches(sender).then_some(sender),
 			Attribution::Modules(_) => modules.iter().map(String::as_str).find(|m| touches(m)),
-		};
-		if let Some(contract) = contract {
-			update_volume(db, &format!("Contract.{contract}"), chain, &usd, timestamp).await?;
 		}
+		.map(str::to_string);
+		transfers.push(SweptTransfer { id, value, from, to, symbol, usd, contract });
 	}
 	Ok(())
+}
+
+/** The sweep's writes, then the error that ended its reads, if one did. */
+pub async fn store_transfers(ctx: &EventContext<'_>, sweep: Sweep) -> anyhow::Result<()> {
+	let (db, chain, timestamp) = (ctx.db, ctx.chain.state_machine_id(), sweep.timestamp);
+	for transfer in sweep.transfers {
+		store_transfer(db, &transfer.id, chain, transfer.value, &transfer.from, &transfer.to)
+			.await?;
+		let usd = &transfer.usd;
+		update_volume(db, &format!("Transfer.{}", transfer.symbol), chain, usd, timestamp).await?;
+		if let Some(contract) = transfer.contract {
+			update_volume(db, &format!("Contract.{contract}"), chain, usd, timestamp).await?;
+		}
+	}
+	sweep.stopped.map_or(Ok(()), Err)
 }
 
 /** `BigInt(log.data)`. Empty data, as an ERC-721 `Transfer` has, is no number. */

@@ -112,14 +112,11 @@ fn result(network: &str, range: (u64, u64), block: u64, log_index: u64) -> Event
 	}
 }
 
-#[tokio::test]
-async fn a_failed_block_keeps_the_blocks_before_it_and_the_replay_runs_hooks_once() {
-	let Some(admin) = common::database().await else { return };
+/** An indexer of one EVM chain named `network`, on `INDEXER_TEST_DATABASE_URL`. */
+async fn test_indexer(network: &str) -> (Indexer, ChainConfig) {
 	// As in `main`: rindexer connects to `DATABASE_URL`, over rustls.
 	let _ = rustls::crypto::ring::default_provider().install_default();
 	std::env::set_var("DATABASE_URL", std::env::var("INDEXER_TEST_DATABASE_URL").unwrap());
-	let network = format!("batch-test-{}", std::process::id());
-
 	let chain_config = ChainConfig {
 		kind: ChainKind::Evm,
 		chain_id: 1,
@@ -131,7 +128,7 @@ async fn a_failed_block_keeps_the_blocks_before_it_and_the_replay_runs_hooks_onc
 		contracts: Contracts { ethereum_host: Some(HOST), ..Default::default() },
 	};
 	let chain = Chain {
-		name: network.clone(),
+		name: network.to_string(),
 		config: chain_config.clone(),
 		rpc_urls: vec!["http://127.0.0.1:9".into()],
 		provider: ProviderBuilder::new()
@@ -143,13 +140,96 @@ async fn a_failed_block_keeps_the_blocks_before_it_and_the_replay_runs_hooks_onc
 	let indexer = Indexer {
 		config: Config {
 			environment: Environment::Testnet,
-			chains: BTreeMap::from([(network.clone(), chain_config.clone())]),
+			chains: BTreeMap::from([(network.to_string(), chain_config.clone())]),
 		},
 		db: Arc::new(PostgresClient::new().await.unwrap()),
-		chains: BTreeMap::from([(network.clone(), chain)]),
+		chains: BTreeMap::from([(network.to_string(), chain)]),
 		orderbook: Orderbook::from_env(http.clone()),
 		http,
 	};
+	(indexer, chain_config)
+}
+
+/**
+ * Writes a row for each log. At `lasting_at` it then fails for good, and at `nul_at` it writes
+ * text Postgres refuses: neither would succeed on a retry.
+ */
+#[derive(Clone)]
+struct Writer {
+	lasting_at: u64,
+	nul_at: u64,
+}
+
+#[async_trait]
+impl EventHandler for Writer {
+	type Event = Ping;
+
+	async fn handle(&self, ctx: &EventContext<'_>, _: Ping) -> anyhow::Result<()> {
+		let block = ctx.log.block_number;
+		let note = if block == self.nul_at { "a\0b" } else { "written" };
+		ctx.db
+			.execute(
+				"INSERT INTO public.batch_writes (network, block, note) VALUES ($1, $2, $3)",
+				&[&ctx.chain.name, &(block as i64), &note],
+			)
+			.await?;
+		if block == self.lasting_at {
+			anyhow::bail!("this log's data can never apply");
+		}
+		Ok(())
+	}
+}
+
+/** A handler that fails for good loses its own writes, not the batch: the chain goes on. */
+#[tokio::test]
+async fn a_log_that_can_never_apply_is_skipped_with_its_writes() {
+	let Some(admin) = common::database().await else { return };
+	let network = format!("batch-skip-{}", std::process::id());
+	let (indexer, chain_config) = test_indexer(&network).await;
+	admin
+		.batch_execute(
+			"CREATE TABLE IF NOT EXISTS public.batch_writes (network text, block bigint, note text)",
+		)
+		.await
+		.unwrap();
+	let writer = Writer { lasting_at: 2, nul_at: 3 };
+	let routes =
+		ChainRoutes::new(&chain_config, &[Subscription::new(Source::EthereumHost, writer)], &[]);
+	let batch =
+		[(1, 0), (2, 0), (3, 0), (4, 0)].map(|(block, log)| result(&network, (1, 4), block, log));
+	process_batch(&indexer, &network, &routes, batch.into()).await.unwrap();
+	let written = admin
+		.query(
+			"SELECT block FROM public.batch_writes WHERE network = $1 ORDER BY block",
+			&[&network],
+		)
+		.await
+		.unwrap()
+		.iter()
+		.map(|row| row.get::<_, i64>(0))
+		.collect::<Vec<_>>();
+	assert_eq!(written, [1, 4]);
+	let cursor = admin
+		.query_one("SELECT block_number FROM indexer.cursors WHERE network = $1", &[&network])
+		.await
+		.unwrap()
+		.get::<_, i64>(0);
+	assert_eq!(cursor, 4);
+	admin
+		.execute("DELETE FROM public.batch_writes WHERE network = $1", &[&network])
+		.await
+		.unwrap();
+	admin
+		.execute("DELETE FROM indexer.cursors WHERE network = $1", &[&network])
+		.await
+		.unwrap();
+}
+
+#[tokio::test]
+async fn a_failed_block_keeps_the_blocks_before_it_and_the_replay_runs_hooks_once() {
+	let Some(admin) = common::database().await else { return };
+	let network = format!("batch-test-{}", std::process::id());
+	let (indexer, chain_config) = test_indexer(&network).await;
 	let recorder = Recorder::default();
 	let counter = Counter::default();
 	let routes = ChainRoutes::new(

@@ -54,10 +54,10 @@ pub struct SolverChain {
 	pub solver_accounts: Vec<String>,
 	/** The TRACKED solvers, a filter in front of the row lookups. None until first loaded. */
 	tracked: Mutex<Option<HashSet<String>>>,
+	/** LPs seen with contract code. A contract can never take an EIP-7702 delegation. */
+	contracts: Mutex<HashSet<String>>,
 	/** Set once Multicall3 has been found; an absence is probed again. */
 	multicall3: Mutex<bool>,
-	/** The block the snapshot hook last ran at, for its every-50-blocks cadence. */
-	last_snapshot_block: Mutex<Option<u64>>,
 }
 
 impl SolverChain {
@@ -67,8 +67,8 @@ impl SolverChain {
 			tokens,
 			solver_accounts,
 			tracked: Mutex::new(None),
+			contracts: Mutex::new(HashSet::new()),
 			multicall3: Mutex::new(false),
-			last_snapshot_block: Mutex::new(None),
 		}
 	}
 
@@ -355,7 +355,7 @@ impl BlockHook for SnapshotHook {
 
 	async fn after_batch(&self, ctx: &BlockContext<'_>) -> anyhow::Result<()> {
 		let chain = self.0.chain(&ctx.chain.config);
-		if !vaults::snapshot_due(&chain, ctx.block_number) {
+		if !vaults::snapshot_due(ctx.previous_block, ctx.block_number) {
 			return Ok(());
 		}
 		vaults::snapshot_chain(

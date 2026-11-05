@@ -1505,6 +1505,23 @@ async fn a_missing_triggering_log_records_nothing_and_a_retry_succeeds() {
 	assert!(v.position(&db, SOLVER).await.unwrap().starts_with("20 "));
 }
 
+/** A contract can never delegate, so its code is read once; a wallet's is read at each event. */
+#[tokio::test]
+async fn a_contract_lp_has_its_code_read_once() {
+	let Some(mut client) = database().await else { return };
+	let db = client.transaction().await.unwrap();
+	let v = Vaults::new("EVM-V19");
+	let contract: Bytes = "0x6080604052".parse().unwrap();
+	v.model.code.lock().unwrap().insert(addr(OTHER), contract);
+	for log_index in [3, 4] {
+		let transfer =
+			TransferInput { from: OTHER.into(), to: THIRD.into(), log_index, ..v.transfer() };
+		v.record_transfer(&db, transfer).await.unwrap();
+	}
+	assert_eq!(v.count(&db, "vault_ledger_events").await, 0);
+	assert_eq!(v.model.code_reads.load(Ordering::SeqCst), 3);
+}
+
 #[tokio::test]
 async fn a_failed_delegation_check_is_an_error_not_a_skip() {
 	let Some(mut client) = database().await else { return };
@@ -1638,14 +1655,19 @@ async fn each_utc_day_gets_its_own_snapshot_once() {
 	assert_eq!(v.count(&db, "vault_position_snapshots").await, 3);
 }
 
+/** Each batch ends at a block; the one before it ended at the previous. */
 #[test]
 fn the_snapshot_runs_once_per_multiple_of_50_reached() {
-	let chain = SolverChain::from_config(&chain_config("EVM-V19", &[]));
-	let due: Vec<u64> = [101, 120, 149, 150, 151, 199, 260, 261]
-		.into_iter()
-		.filter(|b| vaults::snapshot_due(&chain, *b))
+	let ends = [101, 120, 149, 150, 151, 199, 260, 261];
+	let due: Vec<u64> = ends
+		.iter()
+		.enumerate()
+		.filter(|(index, end)| vaults::snapshot_due(index.checked_sub(1).map(|i| ends[i]), **end))
+		.map(|(_, end)| *end)
 		.collect();
 	assert_eq!(due, vec![101, 150, 260]);
+	// A block that rolled back is retried from the same previous block, so it is due again.
+	assert!(vaults::snapshot_due(Some(149), 150) && vaults::snapshot_due(Some(149), 150));
 }
 
 #[test]

@@ -121,12 +121,17 @@ jobs:
                         - 'rust-toolchain.toml'
                         - '.github/workflows/ci.yml'
 
+    # The arc-runner-set jobs share one machine, so they run one at a time, quickest first:
+    # check-wasm, check-workspace, unit-tests, then simnet-tests. A failure doesn't stop the
+    # jobs after it.
     check-wasm:
         name: Check Wasm Crates
         runs-on: arc-runner-set
         needs: detect-changes
         if: github.event.pull_request.draft != true && needs.detect-changes.outputs.wasm == 'true'
         strategy:
+            max-parallel: 1
+            fail-fast: false
             matrix:
                 crate: [gargantua-runtime, nexus-runtime]
 
@@ -201,7 +206,8 @@ jobs:
     check-workspace:
         name: Check Workspace
         runs-on: arc-runner-set
-        if: github.event.pull_request.draft != true
+        needs: check-wasm
+        if: ${{ !cancelled() && github.event.pull_request.draft != true }}
         steps:
             - name: Get User Permission
               id: checkAccess
@@ -279,7 +285,8 @@ jobs:
     unit-tests:
         name: Unit Tests
         runs-on: arc-runner-set
-        if: github.event.pull_request.draft != true
+        needs: check-workspace
+        if: ${{ !cancelled() && github.event.pull_request.draft != true }}
         steps:
             - name: Get User Permission
               id: checkAccess
@@ -400,7 +407,8 @@ jobs:
     simnet-tests:
         name: Simnet Tests
         runs-on: arc-runner-set
-        if: github.event.pull_request.draft != true
+        needs: unit-tests
+        if: ${{ !cancelled() && github.event.pull_request.draft != true }}
         steps:
             - name: Get User Permission
               id: checkAccess

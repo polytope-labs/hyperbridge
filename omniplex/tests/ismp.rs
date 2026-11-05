@@ -184,8 +184,9 @@ async fn a_batched_delivery_records_its_transfers_and_attributes_them_to_the_rec
 	let config = chain_config(ChainKind::Evm, "EVM-137", Some(HOST));
 	let indexer = indexer(Environment::Mainnet, &[("polygon", config, &asserter)]).await;
 	let tx = B256::repeat_byte(0x22);
-	asserter.push_success(&transfer_receipt(tx));
+	// Every read comes before the writes: the calldata, the receipt, then the token.
 	asserter.push_success(&json!({ "input": batched_delivery() }));
+	asserter.push_success(&transfer_receipt(tx));
 	push_usdc(&asserter);
 
 	let handler = evm::PostRequestHandled(Arc::new(Shared::default()));
@@ -276,10 +277,10 @@ async fn unknown_calldata_still_records_the_transfers_without_a_contract() {
 	let config = chain_config(ChainKind::Evm, "EVM-137", Some(HOST));
 	let indexer = indexer(Environment::Mainnet, &[("polygon", config, &asserter)]).await;
 	let tx = B256::repeat_byte(0x22);
-	asserter.push_success(&transfer_receipt(tx));
 	let mut erc20_transfer = vec![0xa9, 0x05, 0x9c, 0xbb];
 	erc20_transfer.extend([0u8; 64]);
 	asserter.push_success(&json!({ "input": Bytes::from(erc20_transfer) }));
+	asserter.push_success(&transfer_receipt(tx));
 	push_usdc(&asserter);
 
 	let handler = evm::PostRequestHandled(Arc::new(Shared::default()));
@@ -298,6 +299,54 @@ async fn unknown_calldata_still_records_the_transfers_without_a_contract() {
 	)
 	.await;
 	assert_eq!(volumes.as_deref(), Some("Transfer.USDC.EVM-137"));
+}
+
+/** A delivery whose fee can't be read still counts the message, and stores no transfers. */
+#[tokio::test]
+async fn a_delivery_without_a_fee_only_counts_the_message() {
+	let Some(mut client) = database().await else { return };
+	let db = client.transaction().await.unwrap();
+	let asserter = Asserter::new();
+	let config = chain_config(ChainKind::Evm, "EVM-137", Some(HOST));
+	let indexer = indexer(Environment::Mainnet, &[("polygon", config, &asserter)]).await;
+	let tx = B256::repeat_byte(0x22);
+	let mut receipt = transfer_receipt(tx);
+	receipt.as_object_mut().unwrap().remove("effectiveGasPrice");
+	asserter.push_success(&json!({ "input": batched_delivery() }));
+	asserter.push_success(&receipt);
+	push_usdc(&asserter);
+
+	let handler = evm::PostRequestHandled(Arc::new(Shared::default()));
+	let event = EthereumHost::PostRequestHandled {
+		commitment: B256::repeat_byte(0x11),
+		relayer: address(BENEFICIARY),
+	};
+	handle(&indexer, "polygon", &db, &log(99, 1_700, tx), &handler, event).await;
+
+	let delivered = text(
+		&db,
+		"SELECT number_of_delivered_messages::text FROM app.hyper_bridge_stats WHERE id = 'EVM-137'",
+	)
+	.await;
+	assert_eq!(delivered.as_deref(), Some("1"));
+	let stats = text(
+		&db,
+		&format!(
+			"SELECT number_of_successful_messages_delivered::text
+			 FROM app.relayer_stats_per_chain_v2s WHERE id = '{BENEFICIARY}-EVM-137'"
+		),
+	)
+	.await;
+	assert_eq!(stats.as_deref(), Some("0"), "created before the receipt was read");
+	let transfers =
+		text(&db, "SELECT count(*)::text FROM app.transfers WHERE chain = 'EVM-137'").await;
+	assert_eq!(transfers.as_deref(), Some("0"));
+	let activity = text(
+		&db,
+		&format!("SELECT count(*)::text FROM app.relayer_activities WHERE id = '{BENEFICIARY}'"),
+	)
+	.await;
+	assert_eq!(activity.as_deref(), Some("0"));
 }
 
 /** A status indexed before its request waits, and the request's insert flushes it. */

@@ -98,9 +98,10 @@ pub fn is_answer(err: &TransportError) -> bool {
 }
 
 /**
- * Whether an error is transient: a database error, which aborts the batch's transaction, or an
- * RPC that failed to answer. A failed execution, an undecodable answer or bad data is not:
- * retrying gives the same answer.
+ * Whether an error is transient: a database error, or an RPC that failed to answer. A failed
+ * execution, an undecodable answer or bad data is not: retrying gives the same answer. Nor is
+ * a database data exception (SQLSTATE class 22), such as a NUL in text or a number out of
+ * range, since the same values fail again.
  */
 pub fn is_transient(err: &anyhow::Error) -> bool {
 	fn transport(err: &TransportError) -> bool {
@@ -112,10 +113,10 @@ pub fn is_transient(err: &anyhow::Error) -> bool {
 		}
 	}
 	err.chain().any(|cause| {
-		if cause.is::<tokio_postgres::Error>() ||
-			cause.is::<Retry>() ||
-			cause.is::<reqwest::Error>()
-		{
+		if let Some(db) = cause.downcast_ref::<tokio_postgres::Error>() {
+			return !db.code().is_some_and(|code| code.code().starts_with("22"));
+		}
+		if cause.is::<Retry>() || cause.is::<reqwest::Error>() {
 			return true;
 		}
 		if let Some(alloy::contract::Error::TransportError(err)) =

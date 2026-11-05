@@ -16,7 +16,7 @@ use super::{extrinsic, is_hyperbridge, timestamp_ms, utc_day};
 use crate::{
 	handlers::abi::pallets::Bandwidth,
 	registry::{EventContext, EventHandler},
-	store::numeric,
+	store::{numeric, postgres_text},
 };
 
 /** `twox128("Bandwidth") ++ twox128("Allowance")`. */
@@ -44,7 +44,10 @@ pub struct Credit<'a> {
 
 /** `recordCredit`: writes the subscription and bumps the app's and tier's lifetime counters. */
 pub async fn record_credit(db: &Transaction<'_>, credit: &Credit<'_>) -> anyhow::Result<()> {
-	let app = app_id(credit.chain, credit.app_hex);
+	// Event strings anyone can craft, and Postgres text can't hold a NUL.
+	let (chain, paid_from) = (postgres_text(credit.chain), postgres_text(credit.paid_from));
+	let (chain, paid_from): (&str, &str) = (&chain, &paid_from);
+	let app = app_id(chain, credit.app_hex);
 	let bytes = numeric(credit.bytes);
 	let ms = numeric(credit.timestamp_ms);
 	db.execute(
@@ -56,7 +59,7 @@ pub async fn record_credit(db: &Transaction<'_>, credit: &Credit<'_>) -> anyhow:
 		   last_activity_at = EXCLUDED.last_activity_at,
 		   lifetime_subscriptions = t.lifetime_subscriptions + 1,
 		   lifetime_bytes_credited = t.lifetime_bytes_credited + EXCLUDED.lifetime_bytes_credited",
-		&[&app, &credit.chain, &credit.app_hex, &ms, &bytes],
+		&[&app, &chain, &credit.app_hex, &ms, &bytes],
 	)
 	.await?;
 	db.execute(
@@ -90,7 +93,7 @@ pub async fn record_credit(db: &Transaction<'_>, credit: &Credit<'_>) -> anyhow:
 			&bytes,
 			&numeric(credit.expires_at_secs),
 			&ms,
-			&credit.paid_from,
+			&paid_from,
 			&credit.forced,
 			&numeric(credit.block_number),
 			&credit.extrinsic_hash.map(|hash| hash.to_string()),
@@ -108,6 +111,8 @@ pub async fn record_consumption(
 	bytes: u128,
 	timestamp_ms: u64,
 ) -> anyhow::Result<()> {
+	let chain = postgres_text(chain);
+	let chain: &str = &chain;
 	let app = app_id(chain, app_hex);
 	let bytes = numeric(bytes);
 	db.execute(
@@ -145,6 +150,8 @@ pub async fn record_eviction(
 	lost_bytes: u128,
 	timestamp_ms: u64,
 ) -> anyhow::Result<()> {
+	let chain = postgres_text(chain);
+	let chain: &str = &chain;
 	let app = app_id(chain, app_hex);
 	let lost = numeric(lost_bytes);
 	let ms = numeric(timestamp_ms);
@@ -225,6 +232,8 @@ pub async fn set_active_counts(
 	tiers: &[u8],
 	timestamp_ms: u64,
 ) -> anyhow::Result<()> {
+	let chain = postgres_text(chain);
+	let chain: &str = &chain;
 	let app = app_id(chain, app_hex);
 	let ms = numeric(timestamp_ms);
 	let total = i32::try_from(tiers.len())?;

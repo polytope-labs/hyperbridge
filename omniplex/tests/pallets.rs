@@ -267,6 +267,37 @@ async fn bandwidth_credits_evictions_and_active_counts() {
 	assert_eq!(marks.as_deref(), Some("true"));
 }
 
+/** An app chain anyone can name with NULs is stored without them, rather than failing the
+ * block on every retry. */
+#[tokio::test]
+async fn bandwidth_writes_drop_nul_from_chain_names() {
+	let Some(mut client) = database().await else { return };
+	let db = client.transaction().await.unwrap();
+	let app = "ab12";
+	let mut credited = credit(app, 2, 12_597_600, MS);
+	credited.chain = "SUBSTRATE-\0\0\0\0";
+	credited.paid_from = "EVM-\01";
+	record_credit(&db, &credited).await.unwrap();
+	record_consumption(&db, "SUBSTRATE-\0\0\0\0", app, 10, MS + 6000).await.unwrap();
+	record_eviction(&db, "SUBSTRATE-\0\0\0\0", app, 2, 5, MS + 12_000)
+		.await
+		.unwrap();
+	set_active_counts(&db, "SUBSTRATE-\0\0\0\0", app, &[2], MS + 12_000)
+		.await
+		.unwrap();
+	let row = text(
+		&db,
+		"SELECT id || ' ' || chain || ' ' || lifetime_bytes_consumed || ' ' || active_subscriptions
+		 FROM app.bandwidth_apps",
+	)
+	.await;
+	assert_eq!(row.as_deref(), Some("SUBSTRATE--ab12 SUBSTRATE- 10 1"));
+	let paid_from =
+		text(&db, "SELECT string_agg(DISTINCT paid_from, ',') FROM app.bandwidth_subscriptions")
+			.await;
+	assert_eq!(paid_from.as_deref(), Some("EVM-1"));
+}
+
 #[tokio::test]
 async fn bandwidth_consumption_fills_daily_buckets() {
 	let Some(mut client) = database().await else { return };

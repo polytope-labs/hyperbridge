@@ -117,7 +117,10 @@ impl Service<RequestPacket> for FailoverTransport {
 
 #[cfg(test)]
 pub mod tests {
-	use std::sync::Mutex;
+	use std::sync::{
+		atomic::{AtomicUsize, Ordering},
+		Mutex,
+	};
 
 	use alloy::providers::{Provider, ProviderBuilder};
 	use tokio::{
@@ -138,6 +141,13 @@ pub mod tests {
 		/** No logs for an `eth_getLogs` of at most this many blocks, and a range limit for a
 		 * longer one. Anything else gets `0x1`. */
 		LogsWithin(u64),
+		/** For `eth_getLogs` by block hash, `log`, or a refusal without `hash_filters`. By
+		 * range, no logs while `misses` lasts, as from a node behind the tip, then `log`. */
+		TipLogs {
+			log: &'static str,
+			misses: Arc<AtomicUsize>,
+			hash_filters: bool,
+		},
 	}
 
 	/** An RPC on a local port, answering as its `reply` says at the time. */
@@ -231,6 +241,32 @@ pub mod tests {
 					Some("eth_getLogs") =>
 						serde_json::json!({ "jsonrpc": "2.0", "id": id, "result": [] }),
 					_ => serde_json::json!({ "jsonrpc": "2.0", "id": id, "result": "0x1" }),
+				};
+				(200, answer)
+			},
+			Reply::TipLogs { log, misses, hash_filters } => {
+				let (id, log) =
+					(&request["id"], serde_json::from_str::<serde_json::Value>(log).unwrap());
+				let by_hash = request["params"][0].get("blockHash").is_some();
+				let result =
+					|result| serde_json::json!({ "jsonrpc": "2.0", "id": id, "result": result });
+				let answer = match request["method"].as_str() {
+					Some("eth_getLogs") if by_hash && !hash_filters => serde_json::json!({
+						"jsonrpc": "2.0",
+						"id": id,
+						"error": { "code": -32602, "message": "blockHash filter not supported" },
+					}),
+					Some("eth_getLogs") if by_hash => result(serde_json::json!([log])),
+					Some("eth_getLogs") => {
+						let missed = misses
+							.try_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1));
+						result(if missed.is_ok() {
+							serde_json::json!([])
+						} else {
+							serde_json::json!([log])
+						})
+					},
+					_ => result(serde_json::json!("0x1")),
 				};
 				(200, answer)
 			},

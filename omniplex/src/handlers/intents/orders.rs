@@ -985,7 +985,8 @@ impl Gateway<'_> {
 				Some((id, asset_token, _, released))
 					if asset_token.to_lowercase() == token.token.to_string() =>
 				{
-					let total = released.unwrap_or_default() + token.amount;
+					// Amounts are the order creator's to choose, and U256 addition wraps.
+					let total = released.unwrap_or_default().saturating_add(token.amount);
 					*released = Some(total);
 					self.db
 						.execute(
@@ -1145,7 +1146,8 @@ impl Gateway<'_> {
 		for token in tokens {
 			let address = token.address();
 			match by_token.iter_mut().find(|(a, _)| *a == address) {
-				Some((_, amount)) => *amount += token.amount,
+				// A creator's amounts can sum past U256, whose addition wraps.
+				Some((_, amount)) => *amount = amount.saturating_add(token.amount),
 				None => by_token.push((address, token.amount)),
 			}
 		}

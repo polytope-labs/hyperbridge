@@ -16,7 +16,7 @@ use super::{
 	history::{int, opt_int},
 	lower,
 	reads::{map_concurrently, Reads},
-	signed, unsigned, SolverChain, ZERO_ADDRESS,
+	signed, unsigned, SolverChain, DELEGATION_INDICATOR_PREFIX, ZERO_ADDRESS,
 };
 use crate::{
 	handlers::abi::Erc4626,
@@ -164,21 +164,30 @@ fn capital_event_id(
 	format!("{chain}-{}-{log_index}{suffix}", transaction_hash.to_lowercase())
 }
 
-/** `isDelegatedSolver`: `lp` delegates to one of our SolverAccounts at `block`. */
+/**
+ * `isDelegatedSolver`: `lp` delegates to one of our SolverAccounts at `block`. Code other than
+ * a delegation designator is a contract's, and a contract never delegates, so its code is read
+ * once. A wallet can delegate at any block, so its code is read at every event.
+ */
 pub async fn is_delegated_solver(
 	chain: &SolverChain,
 	reads: &dyn Reads,
 	lp: &str,
 	block: u64,
 ) -> anyhow::Result<bool> {
-	if chain.solver_accounts.is_empty() {
+	if chain.solver_accounts.is_empty() || chain.contracts.lock().unwrap().contains(lp) {
 		return Ok(false);
 	}
 	// A failed RPC is not evidence of an unrelated wallet: the batch is retried.
 	let code = reads.code(lp.parse()?, block).await.with_context(|| {
 		format!("[yield-vault] Delegation check failed for {lp} on {}", chain.id)
 	})?;
-	Ok(code_delegates_to_solver_account(chain, &alloy::hex::encode_prefixed(&code)))
+	let code = alloy::hex::encode_prefixed(&code);
+	if code != "0x" && !code.starts_with(DELEGATION_INDICATOR_PREFIX) {
+		chain.contracts.lock().unwrap().insert(lp.to_string());
+		return Ok(false);
+	}
+	Ok(code_delegates_to_solver_account(chain, &code))
 }
 
 async fn ledger_exists(db: &Transaction<'_>, id: &str) -> anyhow::Result<bool> {
@@ -532,16 +541,12 @@ pub async fn record_ledger(
 
 /**
  * Whether the snapshot hook runs at `block`: SubQuery ran it at every 50th block, so it runs
- * once a batch reaches a multiple of 50 the last run hadn't, and on the first batch after a
- * start.
+ * when a batch reaches a multiple of 50 past `previous_block`, the chain's last committed
+ * block. That comes from the cursor, so a block that rolls back is due again when it is
+ * retried.
  */
-pub fn snapshot_due(chain: &SolverChain, block: u64) -> bool {
-	let mut last = chain.last_snapshot_block.lock().unwrap();
-	let due = last.is_none_or(|last| block / SNAPSHOT_MODULO > last / SNAPSHOT_MODULO);
-	if due {
-		*last = Some(block);
-	}
-	due
+pub fn snapshot_due(previous_block: Option<u64>, block: u64) -> bool {
+	previous_block.is_none_or(|previous| block / SNAPSHOT_MODULO > previous / SNAPSHOT_MODULO)
 }
 
 enum LpOutcome {

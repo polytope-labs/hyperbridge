@@ -10,7 +10,10 @@ use async_trait::async_trait;
 use super::{
 	calldata::MessageFunction,
 	commitment::{get_request_commitment, post_request_commitment},
-	delivery::{request_handled, store_transfer, sweep_transfers, Attribution},
+	delivery::{
+		read_transfers, request_handled, store_transfer, store_transfers, sweep_transfers,
+		Attribution,
+	},
 	non_critical,
 	requests::{
 		insert_status, update_status, upsert_get_request, upsert_post_request, GetRequestRow,
@@ -164,8 +167,12 @@ async fn delivered(
 	let transaction = shared.transaction(ctx);
 	let relayer = relayer.to_checksum(None);
 	let extras = async {
+		// The sweep reads before `request_handled` writes the relayer's rows, which other
+		// chains' processes also write and which stay locked until the block commits.
+		let sweep =
+			read_transfers(ctx, &transaction, timestamp, Attribution::Modules(function)).await;
 		request_handled(ctx, &relayer, chain, timestamp, Some(&transaction)).await?;
-		sweep_transfers(ctx, &transaction, timestamp, Attribution::Modules(function)).await
+		store_transfers(ctx, sweep).await
 	};
 	non_critical(extras.await, "request handled stats")
 }

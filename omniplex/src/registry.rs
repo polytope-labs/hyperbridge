@@ -30,6 +30,7 @@ use tokio_postgres::Transaction;
 use crate::{
 	chains::Chain,
 	config::{ChainConfig, ChainKind},
+	errors::is_transient,
 	Indexer,
 };
 
@@ -367,7 +368,7 @@ pub async fn process_batch(
 	let mut conn = indexer.db.raw_connection().await?;
 	let (mut previous_block, mut applied_to) = (None, None);
 	for (index, block) in blocks.iter().enumerate() {
-		let tx = conn.transaction().await?;
+		let mut tx = conn.transaction().await?;
 		let cursor = tx
 			.query_opt(
 				"SELECT block_number, log_index FROM indexer.cursors WHERE network = $1 FOR UPDATE",
@@ -407,9 +408,19 @@ pub async fn process_batch(
 				transaction_index: info.transaction_index,
 				log_index: position.1,
 			};
-			let ctx = EventContext { indexer, chain, db: &tx, log: &meta };
 			for handler in handlers {
-				handler.handle_log(&ctx, &result.log.inner).await?;
+				let savepoint = tx.transaction().await?;
+				let ctx = EventContext { indexer, chain, db: &savepoint, log: &meta };
+				let outcome = handler.handle_log(&ctx, &result.log.inner).await;
+				if let Some(err) = settle(savepoint, outcome).await? {
+					let (block, log_index) = (meta.block_number, meta.log_index);
+					tracing::warn!(
+						network,
+						block,
+						log_index,
+						"skipped a log that can't apply: {err:#}"
+					);
+				}
 			}
 			applied_to = Some((meta.block_number, meta.block_timestamp));
 		}
@@ -417,16 +428,24 @@ pub async fn process_batch(
 		// The hooks run once, after the batch's logs, at the last block this run applied.
 		if index + 1 == blocks.len() {
 			if let Some((block_number, block_timestamp)) = applied_to {
-				let ctx = BlockContext {
-					indexer,
-					chain,
-					db: &tx,
-					block_number,
-					block_timestamp,
-					previous_block,
-				};
 				for hook in &routes.hooks {
-					hook.after_batch(&ctx).await?;
+					let savepoint = tx.transaction().await?;
+					let ctx = BlockContext {
+						indexer,
+						chain,
+						db: &savepoint,
+						block_number,
+						block_timestamp,
+						previous_block,
+					};
+					let outcome = hook.after_batch(&ctx).await;
+					if let Some(err) = settle(savepoint, outcome).await? {
+						tracing::warn!(
+							network,
+							block_number,
+							"skipped a block hook that can't apply: {err:#}"
+						);
+					}
 				}
 			}
 		}
@@ -442,6 +461,29 @@ pub async fn process_batch(
 		tx.commit().await?;
 	}
 	Ok(())
+}
+
+/**
+ * Ends the savepoint a handler or hook ran in. Its writes stay when it succeeded. A transient
+ * error fails the block, for rindexer to retry. Any other error would fail the same way on
+ * every retry and stop the chain, so the writes are undone and the error handed back to be
+ * logged.
+ */
+async fn settle(
+	savepoint: Transaction<'_>,
+	outcome: anyhow::Result<()>,
+) -> anyhow::Result<Option<anyhow::Error>> {
+	match outcome {
+		Ok(()) => {
+			savepoint.commit().await?;
+			Ok(None)
+		},
+		Err(err) if is_transient(&err) => Err(err),
+		Err(err) => {
+			savepoint.rollback().await?;
+			Ok(Some(err))
+		},
+	}
 }
 
 /** How often each chain's idle hooks and metadata catch up. */
@@ -574,7 +616,7 @@ async fn run_idle_hooks(
 	let chain = indexer.chain(network)?;
 	let _writing = routes.writing.lock().await;
 	let mut conn = indexer.db.raw_connection().await?;
-	let tx = conn.transaction().await?;
+	let mut tx = conn.transaction().await?;
 	let Some(synced) = synced_block(&tx, network, routes).await? else { return Ok(()) };
 	let cursor: Option<i64> = tx
 		.query_opt(
@@ -591,16 +633,20 @@ async fn run_idle_hooks(
 		.get_block_by_number(synced.into())
 		.await?
 		.ok_or_else(|| anyhow!("{network}: block {synced} not found"))?;
-	let ctx = BlockContext {
-		indexer,
-		chain,
-		db: &tx,
-		block_number: synced,
-		block_timestamp: block.header.timestamp,
-		previous_block: cursor.map(|block| block as u64),
-	};
 	for hook in &routes.hooks {
-		hook.after_batch(&ctx).await?;
+		let savepoint = tx.transaction().await?;
+		let ctx = BlockContext {
+			indexer,
+			chain,
+			db: &savepoint,
+			block_number: synced,
+			block_timestamp: block.header.timestamp,
+			previous_block: cursor.map(|block| block as u64),
+		};
+		let outcome = hook.after_batch(&ctx).await;
+		if let Some(err) = settle(savepoint, outcome).await? {
+			tracing::warn!(%network, block_number = synced, "skipped a block hook that can't apply: {err:#}");
+		}
 	}
 	// The whole block is applied, so its log index is the largest there is.
 	tx.execute(

@@ -81,17 +81,24 @@ The import runs in one transaction, so a failure leaves the copy as it was.
   rindexer's per-event streams would not keep that order.
 - **Batches.** Each block of a batch commits in one transaction together with the chain's
   cursor, as SubQuery flushed each block. So rows that several chains' processes write, such
-  as a relayer's, stay locked for one block's work. A handler error fails the batch, and
-  rindexer retries it. The replay skips the blocks that already committed.
+  as a relayer's, stay locked for one block's work. A delivery's handler makes its RPC and
+  price reads before it writes the relayer's rows. Each handler and block hook runs in a
+  savepoint. A transient error, an RPC's or the database's, fails the batch, and rindexer
+  retries it; the replay skips the blocks that already committed. Any other error would fail
+  the same way on every retry, so its handler's or hook's writes are undone and skipped with a
+  warning. That includes a database data exception (SQLSTATE class 22), such as a number out of
+  range.
 - **RPC errors.** Handler reads time out after 30 s, and rate limits are retried in place.
   `eth_getLogs` goes through rindexer's own client. rindexer's live loop stops for good after
   an error on a range as short as a live window, so `AllTopicsProvider` retries those errors
   itself. A short range an RPC says spans too many blocks is fetched in halves instead.
-- **Tip block.** When a window ends at the tip block, an answer with no log there is re-asked
-  twice, after 250 ms and then 500 ms, if the block's logs bloom says it can have our logs.
-  rindexer's own check, which the stream's placeholder topic rules out, re-asks four times over
-  about 2 s. A busy chain's bloom matches nearly anything, so Base would pay that on nearly every
-  block.
+- **Tip block.** When a window ends at the tip block, an answer with no log there is checked if
+  the block's logs bloom says it can have our logs. The tip block's logs are asked again by its
+  hash: a node without the block fails that request instead of answering empty (EIP-234), so
+  the answer settles it. If the tip has logs the range's answer lacks, a node behind the tip
+  answered, and the range is asked again until it has them. An RPC that takes no hash filter
+  gets the range asked twice more. substrate-eth-rpc is one, and it refuses a range past its
+  head instead.
 - **Block hooks.** SubQuery's block handlers are `BlockHook`s. They run after each batch at the
   last block it applied. On a chain with no logs, they run every 15 s at the block rindexer has
   synced.
@@ -192,8 +199,5 @@ Bugs kept for parity, to decide on separately:
 
 ## Not included yet
 
-- **Parity check.** It is done by hand at cutover, as `omniplex/README.md` describes. So far,
-  short ranges on Nexus and Gargantua match SubQuery for the ISMP, filler bid, reward, treasury
-  and bandwidth tables, apart from the two columns above. On EVM, only Base has been compared, on
-  one order.
+- **Parity check.** It is done by hand at cutover, as `omniplex/README.md` describes.
 - **Deployment and retirement:** a Docker image, compose and CI, and retiring SubQuery.

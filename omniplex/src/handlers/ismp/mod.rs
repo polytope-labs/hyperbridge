@@ -134,16 +134,18 @@ pub fn extrinsic_hash(log: &LogMeta) -> String {
 	}
 }
 
-pub use crate::errors::{is_transient, Retry};
+pub use crate::errors::{is_database_error, is_transient, Retry};
 
 /**
  * Work the TypeScript ran in a `try` whose `catch` logged and moved on. Writes made before the
  * failure stay, as they did there. Transient failures still fail the batch, so a flaky RPC
  * doesn't silently drop stats: SubQuery dropped them, but only on the run that hit the error.
+ * A database error is passed on too. A failed statement leaves the savepoint unusable, so the
+ * handler's savepoint undoes its writes, or the batch fails, as the error says.
  */
 pub fn non_critical(result: anyhow::Result<()>, what: &str) -> anyhow::Result<()> {
 	match result {
-		Err(err) if is_transient(&err) => Err(err),
+		Err(err) if is_transient(&err) || is_database_error(&err) => Err(err),
 		Err(err) => {
 			tracing::warn!("{what}: {err:#}");
 			Ok(())

@@ -98,10 +98,16 @@ pub fn is_answer(err: &TransportError) -> bool {
 }
 
 /**
+ * SQLSTATE classes whose errors repeat for the same values: data exceptions (22), such as a NUL
+ * in text or a number out of range, and program limits (54), such as a value too long for an
+ * index.
+ */
+const LASTING_DATABASE_ERRORS: &[&str] = &["22", "54"];
+
+/**
  * Whether an error is transient: a database error, or an RPC that failed to answer. A failed
- * execution, an undecodable answer or bad data is not: retrying gives the same answer. Nor is
- * a database data exception (SQLSTATE class 22), such as a NUL in text or a number out of
- * range, since the same values fail again.
+ * execution, an undecodable answer or bad data is not: retrying gives the same answer. Nor is a
+ * database error in one of [`LASTING_DATABASE_ERRORS`], since the same values fail again.
  */
 pub fn is_transient(err: &anyhow::Error) -> bool {
 	fn transport(err: &TransportError) -> bool {
@@ -114,7 +120,8 @@ pub fn is_transient(err: &anyhow::Error) -> bool {
 	}
 	err.chain().any(|cause| {
 		if let Some(db) = cause.downcast_ref::<tokio_postgres::Error>() {
-			return !db.code().is_some_and(|code| code.code().starts_with("22"));
+			let code = db.code().map(|code| code.code()).unwrap_or_default();
+			return !LASTING_DATABASE_ERRORS.iter().any(|class| code.starts_with(class));
 		}
 		if cause.is::<Retry>() || cause.is::<reqwest::Error>() {
 			return true;
@@ -126,6 +133,11 @@ pub fn is_transient(err: &anyhow::Error) -> bool {
 		}
 		cause.downcast_ref::<TransportError>().is_some_and(transport)
 	})
+}
+
+/** Whether `err` came from the database. A failed statement leaves its savepoint unusable. */
+pub fn is_database_error(err: &anyhow::Error) -> bool {
+	err.chain().any(|cause| cause.is::<tokio_postgres::Error>())
 }
 
 /** The node's error answer in `err`: a JSON-RPC error, or one sent with a 4xx status. */

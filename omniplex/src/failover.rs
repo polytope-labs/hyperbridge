@@ -141,12 +141,20 @@ pub mod tests {
 		/** No logs for an `eth_getLogs` of at most this many blocks, and a range limit for a
 		 * longer one. Anything else gets `0x1`. */
 		LogsWithin(u64),
-		/** For `eth_getLogs` by block hash, `log`, or a refusal without `hash_filters`. By
-		 * range, no logs while `misses` lasts, as from a node behind the tip, then `log`. */
+		/** For `eth_getLogs` by block hash, `log`, or `hash_error` when set. By range, no logs
+		 * while `misses` lasts, as from a node behind the tip, then `log`. For
+		 * `eth_getBlockByNumber`, `canonical`, the block now at the tip's height. */
 		TipLogs {
 			log: &'static str,
 			misses: Arc<AtomicUsize>,
-			hash_filters: bool,
+			hash_error: Option<(i64, &'static str)>,
+			canonical: &'static str,
+		},
+		/** For `eth_getBlockByNumber`, no block while `nulls` lasts, as from a node behind it,
+		 * then `block`. */
+		Block {
+			block: &'static str,
+			nulls: Arc<AtomicUsize>,
 		},
 	}
 
@@ -244,19 +252,21 @@ pub mod tests {
 				};
 				(200, answer)
 			},
-			Reply::TipLogs { log, misses, hash_filters } => {
+			Reply::TipLogs { log, misses, hash_error, canonical } => {
 				let (id, log) =
 					(&request["id"], serde_json::from_str::<serde_json::Value>(log).unwrap());
 				let by_hash = request["params"][0].get("blockHash").is_some();
 				let result =
 					|result| serde_json::json!({ "jsonrpc": "2.0", "id": id, "result": result });
 				let answer = match request["method"].as_str() {
-					Some("eth_getLogs") if by_hash && !hash_filters => serde_json::json!({
-						"jsonrpc": "2.0",
-						"id": id,
-						"error": { "code": -32602, "message": "blockHash filter not supported" },
-					}),
-					Some("eth_getLogs") if by_hash => result(serde_json::json!([log])),
+					Some("eth_getLogs") if by_hash => match hash_error {
+						Some((code, message)) => serde_json::json!({
+							"jsonrpc": "2.0",
+							"id": id,
+							"error": { "code": code, "message": message },
+						}),
+						None => result(serde_json::json!([log])),
+					},
 					Some("eth_getLogs") => {
 						let missed = misses
 							.try_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1));
@@ -266,9 +276,28 @@ pub mod tests {
 							serde_json::json!([log])
 						})
 					},
+					Some("eth_getBlockByNumber") =>
+						result(serde_json::from_str::<serde_json::Value>(canonical).unwrap()),
 					_ => result(serde_json::json!("0x1")),
 				};
 				(200, answer)
+			},
+			Reply::Block { block, nulls } => {
+				let result = match request["method"].as_str() {
+					Some("eth_getBlockByNumber") => {
+						let missed = nulls
+							.try_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1));
+						match missed {
+							Ok(_) => serde_json::Value::Null,
+							Err(_) => serde_json::from_str(block).unwrap(),
+						}
+					},
+					_ => serde_json::json!("0x1"),
+				};
+				(
+					200,
+					serde_json::json!({ "jsonrpc": "2.0", "id": request["id"], "result": result }),
+				)
 			},
 		};
 		let answer = answer.to_string();

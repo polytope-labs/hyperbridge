@@ -87,18 +87,24 @@ The import runs in one transaction, so a failure leaves the copy as it was.
   retries it; the replay skips the blocks that already committed. Any other error would fail
   the same way on every retry, so its handler's or hook's writes are undone and skipped with a
   warning. That includes a database data exception (SQLSTATE class 22), such as a number out of
-  range.
+  range, and a program limit (class 54), such as a value too long for an index. Work that only
+  logs its failures, as SubQuery's `try`/`catch` did, still passes database errors on, since a
+  failed statement leaves the savepoint unusable.
 - **RPC errors.** Handler reads time out after 30 s, and rate limits are retried in place.
   `eth_getLogs` goes through rindexer's own client. rindexer's live loop stops for good after
   an error on a range as short as a live window, so `AllTopicsProvider` retries those errors
   itself. A short range an RPC says spans too many blocks is fetched in halves instead.
-- **Tip block.** When a window ends at the tip block, an answer with no log there is checked if
-  the block's logs bloom says it can have our logs. The tip block's logs are asked again by its
-  hash: a node without the block fails that request instead of answering empty (EIP-234), so
-  the answer settles it. If the tip has logs the range's answer lacks, a node behind the tip
-  answered, and the range is asked again until it has them. An RPC that takes no hash filter
-  gets the range asked twice more. substrate-eth-rpc is one, and it refuses a range past its
-  head instead.
+- **Tip block.** A window that ends at the highest block seen is checked against that block.
+  It is the head rindexer has just read, or else the block read by its number, from the next
+  RPC when a node doesn't have it yet. If the range's answer has no log there but the block's
+  logs bloom says it can, the block's logs are asked by its hash. A node without the block
+  fails that request instead of answering empty (EIP-234). An empty answer settles it. If the
+  block has logs the range's answer lacks, a node behind it answered the range, which is asked
+  twice more. After that, the block's logs come from the hash's answer, unless another block
+  has the tip's height by then. An RPC that takes no hash filter, or fails the request, gets
+  the range asked twice more, and its answer then stands. substrate-eth-rpc takes no hash filter, and refuses a range past its head
+  instead. A node two or more blocks behind can still leave out logs below the tip. On the
+  chains indexed at the tip, which have no reorg-safe distance, nothing covers that.
 - **Block hooks.** SubQuery's block handlers are `BlockHook`s. They run after each batch at the
   last block it applied. On a chain with no logs, they run every 15 s at the block rindexer has
   synced.
@@ -157,7 +163,8 @@ lose data are fixed instead. The deliberate differences:
   - Strings lose any NUL, which Postgres text can't hold, and token symbols are cut to 256
     bytes, so their indexes can hold them.
   - A Hyperbridge `PostRequestHandled` whose relayer doesn't decode keeps its status, without
-    relayer stats.
+    relayer stats. So does a `PostRequestHandled` or `GetRequestHandled` whose relayer is more
+    than 256 bytes. A relayer picks those bytes, and a name that long can't fit an index.
   - Delivery calldata unwraps `batchCall`s 8 deep.
 - An order destination that starts with `0x` but isn't hex is hashed as text, the bytes the
   gateway hashed. viem hashed its own hex encoding of the order instead, so SubQuery's

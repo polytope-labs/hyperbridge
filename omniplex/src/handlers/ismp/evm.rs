@@ -167,12 +167,22 @@ async fn delivered(
 	let transaction = shared.transaction(ctx);
 	let relayer = relayer.to_checksum(None);
 	let extras = async {
-		// The sweep reads before `request_handled` writes the relayer's rows, which other
-		// chains' processes also write and which stay locked until the block commits.
-		let sweep =
-			read_transfers(ctx, &transaction, timestamp, Attribution::Modules(function)).await;
-		request_handled(ctx, &relayer, chain, timestamp, Some(&transaction)).await?;
-		store_transfers(ctx, sweep).await
+		// Every read comes before the writes: the relayer's rows, which other chains' processes
+		// also write, stay locked until the block commits. A fee that can't be read ends the
+		// work before the sweep, as the TypeScript threw before it.
+		let fee = transaction.fee(ctx).await;
+		let sweep = match fee {
+			Ok(_) => Some(
+				read_transfers(ctx, &transaction, timestamp, Attribution::Modules(function))
+					.await?,
+			),
+			Err(_) => None,
+		};
+		request_handled(ctx, &relayer, chain, timestamp, Some(fee)).await?;
+		match sweep {
+			Some(sweep) => store_transfers(ctx, sweep).await,
+			None => Ok(()),
+		}
 	};
 	non_critical(extras.await, "request handled stats")
 }

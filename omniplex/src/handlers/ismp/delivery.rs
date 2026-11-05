@@ -14,7 +14,7 @@ use tokio_postgres::Transaction;
 
 use super::{
 	calldata::{handler_message_modules, MessageFunction},
-	Retry,
+	is_database_error, Retry,
 };
 use crate::{
 	registry::EventContext,
@@ -133,24 +133,20 @@ impl TxData {
 
 /**
  * `HyperBridgeService.handleRequestHandledEvent`: a delivered message on `chain`, and the
- * relayer's stats. With the delivery transaction (EVM), the stats include the whole
+ * relayer's stats. With the delivery transaction's fee (EVM), the stats include the whole
  * transaction's gas and 50 points; in a batched delivery every message adds them again.
  *
- * The fee is read before any write. Other chains' processes write the relayer's rows too, and
- * a row stays locked until the block commits.
+ * The caller reads the fee before any write. Other chains' processes write the relayer's rows
+ * too, and a row stays locked until the block commits.
  */
 pub async fn request_handled(
 	ctx: &EventContext<'_>,
 	relayer: &str,
 	chain: &str,
 	timestamp: u64,
-	transaction: Option<&TxData>,
+	fee: Option<anyhow::Result<&Fee>>,
 ) -> anyhow::Result<()> {
 	let db = ctx.db;
-	let fee = match transaction {
-		Some(transaction) => Some(transaction.fee(ctx).await),
-		None => None,
-	};
 	add_chain_stats(
 		db,
 		chain,
@@ -212,7 +208,7 @@ pub async fn sweep_transfers(
 	timestamp: u64,
 	attribution: Attribution<'_>,
 ) -> anyhow::Result<()> {
-	let sweep = read_transfers(ctx, transaction, timestamp, attribution).await;
+	let sweep = read_transfers(ctx, transaction, timestamp, attribution).await?;
 	store_transfers(ctx, sweep).await
 }
 
@@ -239,16 +235,21 @@ pub struct Sweep {
 	stopped: Option<anyhow::Error>,
 }
 
-/** The sweep's reads: the transaction, and each new transfer's token and price. */
+/**
+ * The sweep's reads: the transaction, and each new transfer's token and price. A database error
+ * is returned instead of kept, as a failed statement leaves the savepoint unusable for writes.
+ */
 pub async fn read_transfers(
 	ctx: &EventContext<'_>,
 	transaction: &TxData,
 	timestamp: u64,
 	attribution: Attribution<'_>,
-) -> Sweep {
+) -> anyhow::Result<Sweep> {
 	let mut transfers = vec![];
-	let stopped = read_into(ctx, transaction, timestamp, attribution, &mut transfers).await.err();
-	Sweep { timestamp, transfers, stopped }
+	match read_into(ctx, transaction, timestamp, attribution, &mut transfers).await {
+		Err(err) if is_database_error(&err) => Err(err),
+		outcome => Ok(Sweep { timestamp, transfers, stopped: outcome.err() }),
+	}
 }
 
 async fn read_into(

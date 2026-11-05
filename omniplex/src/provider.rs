@@ -30,9 +30,9 @@ const MAX_ADDRESSES_PER_REQUEST: usize = 10;
 
 /**
  * Re-asks of a range whose tip block came back without our logs although the block's bloom
- * says it can have them, from an RPC that takes no block-hash filter to settle it. With one,
- * the range is asked again until it has the logs the tip turned out to have. Each wait is
- * 250 ms longer, up to 4 s.
+ * says it can have them, when the tip's logs asked by its hash don't settle it: they are there,
+ * or the RPC takes no hash filter, or the request fails. Also the re-reads of a tip block a
+ * node answers without. Each wait is 250 ms longer.
  */
 const TIP_RETRIES: u32 = 2;
 const TIP_RETRY_DELAY: Duration = Duration::from_millis(250);
@@ -191,7 +191,7 @@ impl AllTopicsProvider {
 			.from_block(from)
 			.to_block(to);
 		let tip = tip.filter(|tip| tip.header.number == to);
-		let (mut errors, mut tip_retries) = (0u32, 0u32);
+		let (mut errors, mut tip_checks) = (0u32, 0u32);
 		loop {
 			let answer = self
 				.first_answer(|client| {
@@ -207,20 +207,34 @@ impl AllTopicsProvider {
 					}) else {
 						return Ok(logs);
 					};
-					tip_retries += 1;
+					tip_checks += 1;
+					let retry = tip_checks <= TIP_RETRIES;
 					match self.tip_logs(addresses, tip).await {
-						// The bloom matched other logs: the tip has none of ours.
+						// The bloom matched other logs, so the tip has none of ours.
 						Ok(Some(tip_logs)) if tip_logs.is_empty() => return Ok(logs),
-						// A node behind the tip answered the range. Taking the answer would skip
-						// the tip's logs for good, as rindexer moves past the range.
-						Ok(Some(_)) =>
+						// A node behind the tip answered the range. Another answer can come from
+						// a node with the tip, and so with the whole range.
+						Ok(Some(_)) if retry =>
 							tracing::warn!(to, "eth_getLogs missed the tip's logs; asking again"),
-						Ok(None) if tip_retries <= TIP_RETRIES => {},
-						Ok(None) => return Ok(logs),
-						Err(err) =>
+						// The range kept missing the tip's logs, so the hash's answer supplies
+						// them, unless the tip has been replaced since it was read.
+						Ok(Some(tip_logs)) => {
+							let replaced = self
+								.block_at(to)
+								.await
+								.is_some_and(|block| block.header.hash != tip.header.hash);
+							if replaced {
+								return Ok(logs);
+							}
+							return Ok(logs.into_iter().chain(tip_logs).collect());
+						},
+						Err(err) if retry =>
 							tracing::warn!(to, "the tip's logs by hash failed; asking again: {err}"),
+						Ok(None) if retry => {},
+						// Nothing settled the tip, so the answer stands, as rindexer took it.
+						Ok(None) | Err(_) => return Ok(logs),
 					}
-					tokio::time::sleep(TIP_RETRY_DELAY * tip_retries.min(16)).await;
+					tokio::time::sleep(TIP_RETRY_DELAY * tip_checks).await;
 				},
 				Err(err) if short && !(from < to && limits_the_range(&err)) => {
 					errors += 1;
@@ -258,6 +272,44 @@ impl AllTopicsProvider {
 			Err(err) if refuses_hash_filters(&err) => Ok(None),
 			Err(err) => Err(err),
 		}
+	}
+
+	/**
+	 * Block `to`, for the tip check. rindexer has just read it as the head, and its client
+	 * keeps the head for 50 ms, so the head is usually it. When the head has moved on, or came
+	 * from a node behind it, the block is read by its number.
+	 */
+	async fn tip_block(&self, to: u64) -> Option<Arc<AnyRpcBlock>> {
+		match self.get_latest_block().await {
+			Ok(Some(head)) if head.header.number == to => Some(head),
+			_ => self.block_at(to).await,
+		}
+	}
+
+	/**
+	 * Block `number`, read by its number. A node behind it answers without it, which counts as
+	 * a failure, so the next RPC is asked. The block is read again up to [`TIP_RETRIES`] times.
+	 */
+	async fn block_at(&self, number: u64) -> Option<Arc<AnyRpcBlock>> {
+		for attempt in 1..=TIP_RETRIES + 1 {
+			let answer = self
+				.first_answer(|client| async move {
+					let block =
+						client.get_inner_provider().get_block_by_number(number.into()).await?;
+					block.map(Arc::new).ok_or_else(|| {
+						ProviderError::CustomError(format!("block {number} not found"))
+					})
+				})
+				.await;
+			match answer {
+				Ok(block) => return Some(block),
+				Err(err) => tracing::warn!(number, "reading the block failed: {err}"),
+			}
+			if attempt <= TIP_RETRIES {
+				tokio::time::sleep(TIP_RETRY_DELAY * attempt).await;
+			}
+		}
+		None
 	}
 }
 
@@ -360,11 +412,10 @@ impl ChainProvider for AllTopicsProvider {
 		// A window that reaches the tip, which an RPC behind it answers empty, at any length.
 		// History windows end below the tip seen, and skip the lookup.
 		let reaches_tip = to >= self.tip_seen.load(Ordering::Relaxed);
-		let tip = if reaches_tip { self.get_latest_block().await.ok().flatten() } else { None };
-		let tip = tip.as_deref().filter(|tip| tip.header.number == to);
+		let tip = if reaches_tip { self.tip_block(to).await } else { None };
 		let requests = addresses
 			.chunks(MAX_ADDRESSES_PER_REQUEST)
-			.map(|chunk| self.range_logs(chunk, from, to, short, tip));
+			.map(|chunk| self.range_logs(chunk, from, to, short, tip.as_deref()));
 		let mut logs: Vec<Log> = futures::future::try_join_all(requests).await?.concat();
 		logs.sort_by_key(|log| (log.block_number, log.log_index));
 		Ok(logs)
@@ -556,12 +607,16 @@ mod tests {
 
 	/** A tip block whose bloom holds `address` and `topic`. */
 	fn tip_block(number: u64, address: Address, topic: B256) -> AnyRpcBlock {
+		block_with_hash(number, B256::repeat_byte(0x77), address, topic)
+	}
+
+	fn block_with_hash(number: u64, hash: B256, address: Address, topic: B256) -> AnyRpcBlock {
 		let mut bloom = Bloom::default();
 		bloom.accrue(BloomInput::Raw(address.as_slice()));
 		bloom.accrue(BloomInput::Raw(topic.as_slice()));
 		let zero = B256::ZERO;
 		serde_json::from_value(serde_json::json!({
-			"hash": B256::repeat_byte(0x77), "parentHash": zero, "sha3Uncles": zero,
+			"hash": hash, "parentHash": zero, "sha3Uncles": zero,
 			"miner": Address::ZERO, "stateRoot": zero, "transactionsRoot": zero,
 			"receiptsRoot": zero, "logsBloom": bloom, "difficulty": "0x0",
 			"number": format!("{number:#x}"), "gasLimit": "0x0", "gasUsed": "0x0",
@@ -582,43 +637,81 @@ mod tests {
 		Box::leak(log.to_string().into_boxed_str())
 	}
 
+	fn leak_json(block: &AnyRpcBlock) -> &'static str {
+		Box::leak(serde_json::to_string(block).unwrap().into_boxed_str())
+	}
+
 	/**
-	 * A node behind the tip answers the range without the tip's logs. Asked by hash, the tip
-	 * has them, so the range is asked again until its answer does too.
+	 * A tip check against an RPC whose range answers miss the tip's logs `misses` times. When
+	 * `replaced`, another block now has the tip's height.
 	 */
-	#[tokio::test]
-	async fn a_range_answer_missing_the_tips_logs_is_asked_again() {
+	async fn tip_check(
+		misses: usize,
+		hash_error: Option<(i64, &'static str)>,
+		replaced: bool,
+	) -> (usize, usize) {
 		let (address, topic) = (Address::repeat_byte(0x11), B256::repeat_byte(0x22));
 		let tip = tip_block(10, address, topic);
-		let misses = Arc::new(AtomicUsize::new(3));
+		let canonical = match replaced {
+			true => leak_json(&block_with_hash(10, B256::repeat_byte(0x99), address, topic)),
+			false => leak_json(&tip),
+		};
+		let misses = Arc::new(AtomicUsize::new(misses));
 		let log = tip_log(&tip, address, topic);
-		let reply = Reply::TipLogs { log, misses: misses.clone(), hash_filters: true };
+		let reply = Reply::TipLogs { log, misses: misses.clone(), hash_error, canonical };
 		let rpc = MockRpc::start(reply).await;
 		let provider = AllTopicsProvider::new(vec![client(&rpc.url).await], vec![topic], 0);
 		let logs = tokio::time::timeout(
 			Duration::from_secs(20),
-			provider.range_logs(&[address], 10, 10, true, Some(&tip)),
+			provider.range_logs(&[address], 9, 10, true, Some(&tip)),
 		)
 		.await
-		.expect("the range gets the tip's logs")
+		.expect("the tip check ends")
 		.unwrap();
-		assert_eq!(logs.len(), 1);
-		assert_eq!(misses.load(Ordering::SeqCst), 0);
+		(logs.len(), misses.load(Ordering::SeqCst))
 	}
 
-	/** An RPC that takes no hash filter gets the range asked twice more, then its answer stands. */
+	/**
+	 * A node behind the tip answers the range without the tip's logs. Asked by hash, the tip
+	 * has them, so the range is asked again, and the next answer has them.
+	 */
 	#[tokio::test]
-	async fn without_hash_filters_an_empty_tip_is_asked_twice_more() {
+	async fn a_range_answer_missing_the_tips_logs_is_asked_again() {
+		assert_eq!(tip_check(1, None, false).await, (1, 0));
+	}
+
+	/**
+	 * After two more answers without them, the tip's logs come from the hash's answer. Not if
+	 * another block has the tip's height by then: the range's answers had it right.
+	 */
+	#[tokio::test]
+	async fn a_range_that_keeps_missing_the_tips_logs_takes_them_by_hash() {
+		assert_eq!(tip_check(10, None, false).await, (1, 7), "the range was asked three times");
+		assert_eq!(tip_check(10, None, true).await, (0, 7));
+	}
+
+	/**
+	 * An RPC that takes no hash filter, or fails the request in a way not known, gets the range
+	 * asked twice more, then its answer stands.
+	 */
+	#[tokio::test]
+	async fn an_unsettled_tip_is_asked_twice_more() {
+		let refused = (-32602, "blockHash filter not supported");
+		assert_eq!(tip_check(5, Some(refused), false).await, (0, 2));
+		assert_eq!(tip_check(5, Some((-32000, "unknown block")), false).await, (0, 2));
+	}
+
+	/** A node behind the tip answers without the block, so it's read again, up to twice. */
+	#[tokio::test]
+	async fn the_tip_block_is_read_again_until_a_node_has_it() {
 		let (address, topic) = (Address::repeat_byte(0x11), B256::repeat_byte(0x22));
-		let tip = tip_block(10, address, topic);
-		let misses = Arc::new(AtomicUsize::new(5));
-		let log = tip_log(&tip, address, topic);
-		let reply = Reply::TipLogs { log, misses: misses.clone(), hash_filters: false };
-		let rpc = MockRpc::start(reply).await;
-		let provider = AllTopicsProvider::new(vec![client(&rpc.url).await], vec![topic], 0);
-		let logs = provider.range_logs(&[address], 10, 10, true, Some(&tip)).await.unwrap();
-		assert!(logs.is_empty());
-		assert_eq!(misses.load(Ordering::SeqCst), 2, "the range was asked three times");
+		let block = leak_json(&tip_block(10, address, topic));
+		for (nulls, found) in [(2, true), (3, false)] {
+			let rpc = MockRpc::start(Reply::Block { block, nulls: Arc::new(nulls.into()) }).await;
+			let provider = AllTopicsProvider::new(vec![client(&rpc.url).await], vec![topic], 0);
+			let tip = provider.block_at(10).await;
+			assert_eq!(tip.map(|tip| tip.header.number), found.then_some(10), "{nulls} nulls");
+		}
 	}
 
 	#[test]

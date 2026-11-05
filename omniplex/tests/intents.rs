@@ -619,10 +619,10 @@ async fn dust_adds_raw_amounts_per_token_without_valuing_them() {
 	assert_eq!(totals.as_deref(), Some("0"));
 }
 
-/** Crafted amounts that sum past U256 saturate rather than wrap, so the order still ends
- * REDEEMED and the volume stays at the most it can hold. */
+/** Crafted amounts that sum past U256 sum exactly, as SubQuery's BigInt did, so the order
+ * still ends REDEEMED. */
 #[tokio::test]
-async fn amounts_past_u256_saturate() {
+async fn amounts_past_u256_sum_exactly() {
 	let Some(mut client) = database().await else { return };
 	let db = client.transaction().await.unwrap();
 	let market = TestMarket::new();
@@ -645,7 +645,8 @@ async fn amounts_past_u256_saturate() {
 		),
 	)
 	.await;
-	assert_eq!(row, Some(format!("{} REDEEMED", U256::MAX)));
+	let two_to_256 = (alloy::primitives::U512::from(1u8) << 256usize).to_string();
+	assert_eq!(row, Some(format!("{two_to_256} REDEEMED")));
 
 	// cNGN has metadata but no price, so only its amount is summed.
 	let cngn = |amount: U256| TokenAmount { token: CNGN.into_word(), amount };
@@ -656,7 +657,7 @@ async fn amounts_past_u256_saturate() {
 		 WHERE id = 'EVM-8453-0x46c85152bfe9f96829aa94755d9f915f9b10ef5f-FILLED'",
 	)
 	.await;
-	assert_eq!(volume, Some(U256::MAX.to_string()));
+	assert_eq!(volume, Some(two_to_256));
 }
 
 #[tokio::test]

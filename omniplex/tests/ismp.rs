@@ -184,9 +184,9 @@ async fn a_batched_delivery_records_its_transfers_and_attributes_them_to_the_rec
 	let config = chain_config(ChainKind::Evm, "EVM-137", Some(HOST));
 	let indexer = indexer(Environment::Mainnet, &[("polygon", config, &asserter)]).await;
 	let tx = B256::repeat_byte(0x22);
-	// Every read comes before the writes: the calldata, the receipt, then the token.
-	asserter.push_success(&json!({ "input": batched_delivery() }));
+	// Every read comes before the writes: the receipt for the fee, the calldata, then the token.
 	asserter.push_success(&transfer_receipt(tx));
+	asserter.push_success(&json!({ "input": batched_delivery() }));
 	push_usdc(&asserter);
 
 	let handler = evm::PostRequestHandled(Arc::new(Shared::default()));
@@ -277,10 +277,10 @@ async fn unknown_calldata_still_records_the_transfers_without_a_contract() {
 	let config = chain_config(ChainKind::Evm, "EVM-137", Some(HOST));
 	let indexer = indexer(Environment::Mainnet, &[("polygon", config, &asserter)]).await;
 	let tx = B256::repeat_byte(0x22);
+	asserter.push_success(&transfer_receipt(tx));
 	let mut erc20_transfer = vec![0xa9, 0x05, 0x9c, 0xbb];
 	erc20_transfer.extend([0u8; 64]);
 	asserter.push_success(&json!({ "input": Bytes::from(erc20_transfer) }));
-	asserter.push_success(&transfer_receipt(tx));
 	push_usdc(&asserter);
 
 	let handler = evm::PostRequestHandled(Arc::new(Shared::default()));
@@ -301,7 +301,10 @@ async fn unknown_calldata_still_records_the_transfers_without_a_contract() {
 	assert_eq!(volumes.as_deref(), Some("Transfer.USDC.EVM-137"));
 }
 
-/** A delivery whose fee can't be read still counts the message, and stores no transfers. */
+/**
+ * A delivery whose fee can't be read still counts the message. As the TypeScript threw before
+ * the transfer sweep, nothing of the sweep is read or stored, not even a token's price.
+ */
 #[tokio::test]
 async fn a_delivery_without_a_fee_only_counts_the_message() {
 	let Some(mut client) = database().await else { return };
@@ -312,8 +315,9 @@ async fn a_delivery_without_a_fee_only_counts_the_message() {
 	let tx = B256::repeat_byte(0x22);
 	let mut receipt = transfer_receipt(tx);
 	receipt.as_object_mut().unwrap().remove("effectiveGasPrice");
-	asserter.push_success(&json!({ "input": batched_delivery() }));
 	asserter.push_success(&receipt);
+	// What a sweep would read, so that one would refresh USDC's price.
+	asserter.push_success(&json!({ "input": batched_delivery() }));
 	push_usdc(&asserter);
 
 	let handler = evm::PostRequestHandled(Arc::new(Shared::default()));
@@ -347,6 +351,9 @@ async fn a_delivery_without_a_fee_only_counts_the_message() {
 	)
 	.await;
 	assert_eq!(activity.as_deref(), Some("0"));
+	let priced =
+		text(&db, "SELECT count(*)::text FROM app.token_price_logs WHERE id = 'USDC-1700'").await;
+	assert_eq!(priced.as_deref(), Some("0"));
 }
 
 /** A status indexed before its request waits, and the request's insert flushes it. */
@@ -531,6 +538,47 @@ fn storage(value: &[u8]) -> Bytes {
 
 fn hyperbridge(asserter: &Asserter) -> (&'static str, ChainConfig, &Asserter) {
 	("nexus", chain_config(ChainKind::Substrate, "POLKADOT-3367", None), asserter)
+}
+
+/**
+ * A relayer can name itself with more bytes than any address has, and an id that long fails a
+ * Postgres index on every retry. Its deliveries keep their statuses and lose only the stats.
+ */
+#[tokio::test]
+async fn a_relayer_named_by_too_many_bytes_loses_only_its_stats() {
+	let Some(mut client) = database().await else { return };
+	let db = client.transaction().await.unwrap();
+	let nexus = Asserter::new();
+	let indexer = indexer(Environment::Mainnet, &[hyperbridge(&nexus)]).await;
+	// A SCALE `Signature::Evm` whose address is 2000 bytes long.
+	let mut relayer = vec![0u8, 0x41, 0x1f];
+	relayer.extend([0x42; 2000]);
+	let ms = 1_700_000_000_000u64;
+	let (post, get) = (B256::repeat_byte(0x41), B256::repeat_byte(0x42));
+
+	nexus.push_success(&storage(&ms.to_le_bytes()));
+	let handled = substrate::PostRequestHandled(Arc::new(Shared::default()));
+	let event = Ismp::PostRequestHandled { commitment: post, relayer: relayer.clone().into() };
+	handle(&indexer, "nexus", &db, &log(9, 1_700_000_000, B256::repeat_byte(5)), &handled, event)
+		.await;
+	nexus.push_success(&storage(&ms.to_le_bytes()));
+	let handled = substrate::GetRequestHandled(Arc::new(Shared::default()));
+	let event = Ismp::GetRequestHandled { commitment: get, relayer: relayer.into() };
+	handle(&indexer, "nexus", &db, &log(9, 1_700_000_000, B256::repeat_byte(6)), &handled, event)
+		.await;
+
+	let statuses = text(
+		&db,
+		&format!(
+			"SELECT (SELECT status FROM app.pending_status_metadata WHERE id LIKE '{post:#x}.%')
+			   || ' ' || (SELECT status FROM app.get_request_status_metadata WHERE id LIKE '{get:#x}.%')"
+		),
+	)
+	.await;
+	assert_eq!(statuses.as_deref(), Some("HYPERBRIDGE_DELIVERED HYPERBRIDGE_DELIVERED"));
+	let relayers =
+		text(&db, "SELECT count(*)::text FROM app.relayer_v2s WHERE length(id) > 600").await;
+	assert_eq!(relayers.as_deref(), Some("0"));
 }
 
 /**

@@ -75,11 +75,26 @@ fn scale_bytes(input: &mut &[u8]) -> anyhow::Result<Vec<u8>> {
 }
 
 /**
+ * The most bytes a relayer's name is made from. A relayer picks its bytes, at any length, and a
+ * name too long for a Postgres index would fail on every retry. No address or SCALE `Signature`
+ * is this long.
+ */
+const MAX_RELAYER_BYTES: usize = 256;
+
+fn check_relayer_length(bytes: &[u8]) -> anyhow::Result<()> {
+	if bytes.len() > MAX_RELAYER_BYTES {
+		bail!("a relayer of {} bytes is no address", bytes.len());
+	}
+	Ok(())
+}
+
+/**
  * `decodeRelayerAddress`: a relayer as SubQuery named it. 20 bytes are lowercase hex; the raw
  * key lengths SS58 accepts are SS58 with the generic prefix 42; other short values are hex;
  * longer values are a SCALE `Signature`, named by its address (EVM) or public key (SS58).
  */
 pub fn decode_relayer_address(bytes: &[u8]) -> anyhow::Result<String> {
+	check_relayer_length(bytes)?;
 	let hex = |b: &[u8]| alloy::primitives::hex::encode_prefixed(b);
 	match bytes.len() {
 		0 => return Ok(String::new()),
@@ -99,6 +114,12 @@ pub fn decode_relayer_address(bytes: &[u8]) -> anyhow::Result<String> {
 		}),
 		other => bail!("unknown Signature variant {other}"),
 	}
+}
+
+/** `relayer.toString()`: how `GetRequestHandled` named a relayer, as its raw bytes in hex. */
+pub fn raw_relayer_name(bytes: &[u8]) -> anyhow::Result<String> {
+	check_relayer_length(bytes)?;
+	Ok(Bytes::from(bytes.to_vec()).to_string())
 }
 
 fn hex_hash(hash: &B256) -> String {
@@ -455,8 +476,6 @@ impl EventHandler for GetRequestHandled {
 		if !from_extrinsic(ctx.log) {
 			return Ok(());
 		}
-		// Raw hex, unlike `PostRequestHandled`: `relayer.toString()`.
-		let relayer = Bytes::from(event.relayer.to_vec()).to_string();
 		let host = ctx.chain.state_machine_id();
 		let timestamp = self.0.substrate_timestamp_ms(ctx).await?;
 		let commitment = hex_hash(&event.commitment);
@@ -467,10 +486,11 @@ impl EventHandler for GetRequestHandled {
 		let tx = extrinsic_hash(ctx.log);
 		let update = status_update(ctx, &commitment, status, timestamp, &block_hash, &tx);
 		update_status(ctx.db, PendingEntity::GetRequest, &update).await?;
-		non_critical(
-			request_handled(ctx, &relayer, host, timestamp, None).await,
-			"GetRequestHandled stats",
-		)
+		let stats = async {
+			let relayer = raw_relayer_name(&event.relayer)?;
+			request_handled(ctx, &relayer, host, timestamp, None).await
+		};
+		non_critical(stats.await, "GetRequestHandled stats")
 	}
 }
 
@@ -541,6 +561,15 @@ mod tests {
 		let signed = bytes("01805254bab90041a14167817f565825aaefd6067695b343ec57a0263be9986b6b5c0101d8609bd3642cfa496af519019c3d5f5da538d016066e40ae9ffa0e04cb36e75d0b7e67a95f66a6dbd346b4c9e5fdcfb3b0bacc184c862b024e5e49fcc3a72d87");
 		let signer = "5254bab90041a14167817f565825aaefd6067695b343ec57a0263be9986b6b5c";
 		assert_eq!(decode_relayer_address(&signed).unwrap(), ss58(&account(signer), 42));
+	}
+
+	#[test]
+	fn relayers_longer_than_any_signature_name_nobody() {
+		let mut crafted = vec![0u8, 0xa1, 0x1f];
+		crafted.extend([0x42; 2000]);
+		assert!(decode_relayer_address(&crafted).is_err());
+		assert!(raw_relayer_name(&crafted).is_err());
+		assert_eq!(raw_relayer_name(&[0xab; 20]).unwrap(), format!("0x{}", "ab".repeat(20)));
 	}
 
 	#[test]

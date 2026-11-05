@@ -23,6 +23,7 @@ use omniplex::{
 	chains::Chain,
 	config::{ChainConfig, ChainKind, Config, Contracts, Environment},
 	errors::Retry,
+	handlers::ismp::non_critical,
 	registry::{
 		process_batch, BlockContext, BlockHook, ChainRoutes, EventContext, EventHandler, Source,
 		Subscription,
@@ -152,12 +153,26 @@ async fn test_indexer(network: &str) -> (Indexer, ChainConfig) {
 
 /**
  * Writes a row for each log. At `lasting_at` it then fails for good, and at `nul_at` it writes
- * text Postgres refuses: neither would succeed on a retry.
+ * text Postgres refuses: neither would succeed on a retry. At `non_critical_nul_at`, the
+ * refused text is in work whose failures are only logged, and a write follows it.
  */
 #[derive(Clone)]
 struct Writer {
 	lasting_at: u64,
 	nul_at: u64,
+	non_critical_nul_at: u64,
+}
+
+impl Writer {
+	async fn write(ctx: &EventContext<'_>, note: &str) -> anyhow::Result<()> {
+		ctx.db
+			.execute(
+				"INSERT INTO public.batch_writes (network, block, note) VALUES ($1, $2, $3)",
+				&[&ctx.chain.name, &(ctx.log.block_number as i64), &note],
+			)
+			.await?;
+		Ok(())
+	}
 }
 
 #[async_trait]
@@ -166,13 +181,11 @@ impl EventHandler for Writer {
 
 	async fn handle(&self, ctx: &EventContext<'_>, _: Ping) -> anyhow::Result<()> {
 		let block = ctx.log.block_number;
-		let note = if block == self.nul_at { "a\0b" } else { "written" };
-		ctx.db
-			.execute(
-				"INSERT INTO public.batch_writes (network, block, note) VALUES ($1, $2, $3)",
-				&[&ctx.chain.name, &(block as i64), &note],
-			)
-			.await?;
+		Self::write(ctx, if block == self.nul_at { "a\0b" } else { "written" }).await?;
+		if block == self.non_critical_nul_at {
+			non_critical(Self::write(ctx, "a\0b").await, "a refused note")?;
+			Self::write(ctx, "after").await?;
+		}
 		if block == self.lasting_at {
 			anyhow::bail!("this log's data can never apply");
 		}
@@ -180,7 +193,11 @@ impl EventHandler for Writer {
 	}
 }
 
-/** A handler that fails for good loses its own writes, not the batch: the chain goes on. */
+/**
+ * A handler that fails for good loses its own writes, not the batch: the chain goes on. So does
+ * one whose refused write was in work that only logs its failures, as the refused statement
+ * leaves the savepoint unusable.
+ */
 #[tokio::test]
 async fn a_log_that_can_never_apply_is_skipped_with_its_writes() {
 	let Some(admin) = common::database().await else { return };
@@ -192,11 +209,11 @@ async fn a_log_that_can_never_apply_is_skipped_with_its_writes() {
 		)
 		.await
 		.unwrap();
-	let writer = Writer { lasting_at: 2, nul_at: 3 };
+	let writer = Writer { lasting_at: 2, nul_at: 3, non_critical_nul_at: 5 };
 	let routes =
 		ChainRoutes::new(&chain_config, &[Subscription::new(Source::EthereumHost, writer)], &[]);
-	let batch =
-		[(1, 0), (2, 0), (3, 0), (4, 0)].map(|(block, log)| result(&network, (1, 4), block, log));
+	let batch = [(1, 0), (2, 0), (3, 0), (4, 0), (5, 0)]
+		.map(|(block, log)| result(&network, (1, 5), block, log));
 	process_batch(&indexer, &network, &routes, batch.into()).await.unwrap();
 	let written = admin
 		.query(
@@ -214,7 +231,7 @@ async fn a_log_that_can_never_apply_is_skipped_with_its_writes() {
 		.await
 		.unwrap()
 		.get::<_, i64>(0);
-	assert_eq!(cursor, 4);
+	assert_eq!(cursor, 5);
 	admin
 		.execute("DELETE FROM public.batch_writes WHERE network = $1", &[&network])
 		.await

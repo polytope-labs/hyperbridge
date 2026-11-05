@@ -3,7 +3,7 @@
 
 use std::{fmt, num::NonZeroU64, str::FromStr};
 
-use alloy::primitives::U256;
+use alloy::primitives::ruint::Uint;
 use bigdecimal::{BigDecimal, RoundingMode};
 
 use crate::store::Numeric;
@@ -27,7 +27,7 @@ impl Dec {
 		Ok(Self(BigDecimal::from_str(value.trim())?))
 	}
 
-	pub fn from_u256(value: U256) -> Self {
+	pub fn from_uint<const BITS: usize, const LIMBS: usize>(value: Uint<BITS, LIMBS>) -> Self {
 		Self(BigDecimal::from_str(&value.to_string()).expect("integers parse"))
 	}
 
@@ -114,9 +114,13 @@ impl fmt::Display for Dec {
  * `PriceHelper.getAmountValueInUSD`: `amount / 10^decimals * price`, with the price first fixed
  * to 18 places. Returns `toFixed(18)`.
  */
-pub fn amount_value_in_usd(amount: U256, decimals: u8, price: &Dec) -> String {
+pub fn amount_value_in_usd<const BITS: usize, const LIMBS: usize>(
+	amount: Uint<BITS, LIMBS>,
+	decimals: u8,
+	price: &Dec,
+) -> String {
 	let price = Dec::parse(&price.to_fixed(18)).expect("toFixed output parses");
-	let units = Dec::from_u256(amount)
+	let units = Dec::from_uint(amount)
 		.div(&Dec::pow10(decimals as u32))
 		.expect("10^n is non-zero");
 	units.mul(&price).to_fixed(18)
@@ -131,6 +135,8 @@ pub fn to_scaled_usd(usd: &str) -> anyhow::Result<Numeric> {
 
 #[cfg(test)]
 mod tests {
+	use alloy::primitives::U256;
+
 	use super::*;
 
 	#[test]
@@ -169,7 +175,7 @@ mod tests {
 		// Expected values are decimal.js' output for the same inputs.
 		assert_eq!(eth, "4267.629591220962959100");
 		let big = amount_value_in_usd(
-			"123456789012345678901234567890".parse().unwrap(),
+			"123456789012345678901234567890".parse::<U256>().unwrap(),
 			18,
 			&Dec::parse("0.123456789").unwrap(),
 		);

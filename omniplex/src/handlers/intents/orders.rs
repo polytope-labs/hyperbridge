@@ -3,7 +3,7 @@
 
 use std::str::FromStr;
 
-use alloy::primitives::{Address, B256, U256};
+use alloy::primitives::{Address, B256, U256, U512};
 use async_trait::async_trait;
 use tokio_postgres::Transaction;
 
@@ -139,6 +139,15 @@ fn whole_dollars(usd: &str) -> U256 {
 
 fn parse_u256(value: &Numeric) -> anyhow::Result<U256> {
 	U256::from_str(value.as_str()).map_err(|e| anyhow::anyhow!("{value}: {e}"))
+}
+
+/**
+ * A sum of amounts, which an order's creator chooses, so it can pass `U256`, whose addition
+ * wraps. SubQuery's BigInt sums were exact, and so is this: a sum of `U256` amounts would need
+ * 2^256 of them to pass `U512`.
+ */
+fn parse_sum(value: &Numeric) -> anyhow::Result<U512> {
+	U512::from_str(value.as_str()).map_err(|e| anyhow::anyhow!("{value}: {e}"))
 }
 
 /** The order service for one chain, inside its batch's transaction. */
@@ -948,7 +957,7 @@ impl Gateway<'_> {
 				.await?;
 		}
 
-		let mut inputs: Vec<(String, String, U256, Option<U256>)> = vec![];
+		let mut inputs: Vec<(String, String, U256, Option<U512>)> = vec![];
 		loop {
 			let id = format!("{commitment}-input-{}", inputs.len());
 			let Some(row) = self
@@ -967,7 +976,7 @@ impl Gateway<'_> {
 				id,
 				row.get(0),
 				parse_u256(&amount)?,
-				released.as_ref().map(parse_u256).transpose()?,
+				released.as_ref().map(parse_sum).transpose()?,
 			));
 		}
 		if inputs.is_empty() {
@@ -985,8 +994,7 @@ impl Gateway<'_> {
 				Some((id, asset_token, _, released))
 					if asset_token.to_lowercase() == token.token.to_string() =>
 				{
-					// Amounts are the order creator's to choose, and U256 addition wraps.
-					let total = released.unwrap_or_default().saturating_add(token.amount);
+					let total = released.unwrap_or_default() + U512::from(token.amount);
 					*released = Some(total);
 					self.db
 						.execute(
@@ -1004,7 +1012,7 @@ impl Gateway<'_> {
 		}
 		if inputs
 			.iter()
-			.all(|(_, _, amount, released)| released.unwrap_or_default() >= *amount)
+			.all(|(_, _, amount, released)| released.unwrap_or_default() >= U512::from(*amount))
 		{
 			self.update_order_status(commitment, OrderStatus::Redeemed, tx, solver).await?;
 		}
@@ -1142,13 +1150,13 @@ impl Gateway<'_> {
 		tokens: &[TokenAmount],
 		timestamp: u64,
 	) -> anyhow::Result<()> {
-		let mut by_token: Vec<(Address, U256)> = vec![];
+		// Exact sums: see [`parse_sum`].
+		let mut by_token: Vec<(Address, U512)> = vec![];
 		for token in tokens {
 			let address = token.address();
 			match by_token.iter_mut().find(|(a, _)| *a == address) {
-				// A creator's amounts can sum past U256, whose addition wraps.
-				Some((_, amount)) => *amount = amount.saturating_add(token.amount),
-				None => by_token.push((address, token.amount)),
+				Some((_, amount)) => *amount += U512::from(token.amount),
+				None => by_token.push((address, U512::from(token.amount))),
 			}
 		}
 		let mut usd = Dec::zero();

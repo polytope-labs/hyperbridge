@@ -91,11 +91,13 @@ pub async fn record_relayer_reward(
 	let index = reward.extrinsic.map_or(0, |(index, _)| index);
 	let hash = reward.extrinsic.map(|(_, hash)| hash.to_string());
 	let id = format!("{}-{}-{index}", reward.relayer, reward.block_number);
+	// The rows sharing the id's prefix are all of this block, whose index keeps the count short.
 	db.execute(
 		"UPDATE app.relayer_reward_transactions SET id = $1 || '-' || (1 + (
-		   SELECT count(*) FROM app.relayer_reward_transactions WHERE starts_with(id, $1 || '-')))
+		   SELECT count(*) FROM app.relayer_reward_transactions
+		   WHERE block_number = $2 AND starts_with(id, $1 || '-')))
 		 WHERE id = $1",
-		&[&id],
+		&[&id, &numeric(reward.block_number)],
 	)
 	.await?;
 	db.execute(

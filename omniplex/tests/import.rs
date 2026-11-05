@@ -138,6 +138,16 @@ async fn a_subquery_copy_becomes_the_indexers_database() {
 	.await;
 	assert_eq!(untouched.as_deref(), Some("true"));
 
+	// Dropping SubQuery's schema would take this view with it.
+	db.batch_execute("CREATE VIEW public.statuses AS SELECT id FROM app.request_status_metadata")
+		.await
+		.unwrap();
+	let err = subquery::import(&mut db, &config, &names, &new).await.unwrap_err();
+	assert!(err.to_string().contains("public.statuses"), "{err:#}");
+	let untouched = text(&db, "SELECT (to_regclass('indexer.migrations') IS NULL)::text").await;
+	assert_eq!(untouched.as_deref(), Some("true"));
+	db.batch_execute("DROP VIEW public.statuses").await.unwrap();
+
 	let imported = subquery::import(&mut db, &config, &names, &new).await.unwrap();
 	assert_eq!(
 		imported.cursors,

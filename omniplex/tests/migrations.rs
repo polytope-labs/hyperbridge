@@ -82,6 +82,9 @@ async fn processes_starting_together_each_set_up_the_database() {
 	for process in processes {
 		results.push(tokio::time::timeout(Duration::from_secs(60), process).await);
 	}
+	let progress =
+		progress_before_and_after_a_sync(&std::env::var("DATABASE_URL").unwrap(), "bsc-chapel")
+			.await;
 	// Drop the database before checking, so a failure leaves nothing behind.
 	admin
 		.batch_execute(&format!("DROP DATABASE {name} WITH (FORCE)"))
@@ -93,4 +96,31 @@ async fn processes_starting_together_each_set_up_the_database() {
 			panic!("{chain}: {err:#}");
 		}
 	}
+	// rindexer seeds each chain's progress with 0, which reads as none.
+	assert_eq!(progress.unwrap(), (None, Some(123)));
+}
+
+/**
+ * A chain's rindexer progress right after rindexer's setup, then once its row says block 123
+ * is synced. A chain without progress starts at its cursor.
+ */
+async fn progress_before_and_after_a_sync(
+	url: &str,
+	chain: &str,
+) -> anyhow::Result<(Option<u64>, Option<u64>)> {
+	let (mut client, connection) = tokio_postgres::connect(url, NoTls).await?;
+	tokio::spawn(connection);
+	let tx = client.transaction().await?;
+	let before = registry::rindexer_progress(&tx, chain).await?;
+	tx.execute(
+		&format!(
+			"UPDATE rindexer_internal.omniplex_chain__{}_all_events SET last_synced_block = 123
+			 WHERE network = $1",
+			chain.replace('-', "_")
+		),
+		&[&chain],
+	)
+	.await?;
+	let after = registry::rindexer_progress(&tx, chain).await?;
+	Ok((before, after))
 }

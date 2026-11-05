@@ -203,27 +203,34 @@ pub async fn update_status(
 		.query_opt(&format!("SELECT 1 FROM app.{parent} WHERE id = $1"), &[&update.commitment])
 		.await?
 		.is_some();
-	let block_number = update.block_number.to_string();
-	let created_at = timestamp_to_date(update.timestamp);
 	if !exists {
-		return defer_status(
-			db,
-			&PendingStatus {
-				commitment: update.commitment,
-				entity,
-				status: update.status.as_str(),
-				chain: update.chain,
-				timestamp: numeric(update.timestamp),
-				block_number,
-				block_hash: update.block_hash,
-				transaction_hash: update.transaction_hash,
-				filler: None,
-				created_at,
-			},
-		)
-		.await;
+		return defer_update(db, entity, update).await;
 	}
 	insert_status(db, table, update).await
+}
+
+/** Parks a status in `pending_status_metadata` until its request is indexed. */
+pub async fn defer_update(
+	db: &Transaction<'_>,
+	entity: PendingEntity,
+	update: &StatusUpdate<'_>,
+) -> anyhow::Result<()> {
+	defer_status(
+		db,
+		&PendingStatus {
+			commitment: update.commitment,
+			entity,
+			status: update.status.as_str(),
+			chain: update.chain,
+			timestamp: numeric(update.timestamp),
+			block_number: update.block_number.to_string(),
+			block_hash: update.block_hash,
+			transaction_hash: update.transaction_hash,
+			filler: None,
+			created_at: timestamp_to_date(update.timestamp),
+		},
+	)
+	.await
 }
 
 /** The `SOURCE` row a request's own event writes, without checking for the request. */

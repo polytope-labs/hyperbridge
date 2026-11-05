@@ -13,8 +13,8 @@ use super::{
 	delivery::request_handled,
 	extrinsic_hash, from_extrinsic, is_hyperbridge, is_substrate_chain, non_critical,
 	requests::{
-		ensure_get_request, insert_get_response, insert_status, post_request_route, update_status,
-		upsert_post_request, GetResponseRow, PostRequestRow, StatusUpdate,
+		defer_update, ensure_get_request, insert_get_response, insert_status, post_request_route,
+		update_status, upsert_post_request, GetResponseRow, PostRequestRow, StatusUpdate,
 	},
 	state_machine::{
 		save_state_machine_update, substrate_commitment_timestamp, StateMachineUpdate,
@@ -386,11 +386,10 @@ impl EventHandler for PostRequestHandled {
 		let host = ctx.chain.state_machine_id();
 		let timestamp = self.0.substrate_timestamp_ms(ctx).await?;
 		let commitment = hex_hash(&event.commitment);
-		// A request another chain hasn't indexed yet waits as `HYPERBRIDGE_DELIVERED`, and the
-		// flush makes it `DESTINATION` if the request is for Hyperbridge. The TypeScript dropped
-		// the status.
-		let dest = post_request_route(ctx.db, &commitment).await?.and_then(|(_, dest)| dest);
-		let status = if dest.as_deref() == Some(host) {
+		// Only Hyperbridge routes requests; on any other chain a handled request has arrived.
+		let route = post_request_route(ctx.db, &commitment).await?;
+		let dest = route.as_ref().and_then(|(_, dest)| dest.as_deref());
+		let status = if dest == Some(host) || !is_hyperbridge(host) {
 			Status::Destination
 		} else {
 			Status::HyperbridgeDelivered
@@ -398,7 +397,14 @@ impl EventHandler for PostRequestHandled {
 		let block_hash = hex_hash(&ctx.log.block_hash);
 		let tx = extrinsic_hash(ctx.log);
 		let update = status_update(ctx, &commitment, status, timestamp, &block_hash, &tx);
-		update_status(ctx.db, PendingEntity::Request, &update).await?;
+		// A request another chain hasn't indexed waits, and the flush makes a waiting
+		// `HYPERBRIDGE_DELIVERED` its `DESTINATION` if the request is for Hyperbridge. It waits
+		// even if the request is indexed by now, which would skip that check. The TypeScript
+		// dropped the status.
+		match route {
+			Some(_) => update_status(ctx.db, PendingEntity::Request, &update).await?,
+			None => defer_update(ctx.db, PendingEntity::Request, &update).await?,
+		}
 		// The relayer picks the bytes it's named by, so bytes that don't decode lose only the
 		// stats. The TypeScript decoded them first and failed the block.
 		let stats = async {

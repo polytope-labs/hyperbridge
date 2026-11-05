@@ -538,6 +538,22 @@ async fn synced_block(
 			},
 		},
 	};
+	read_progress(tx, &table, network).await
+}
+
+/** As [`synced_block`], for a chain whose progress table isn't known yet. */
+pub async fn rindexer_progress(tx: &Transaction<'_>, network: &str) -> anyhow::Result<Option<u64>> {
+	match find_progress_table(tx, network).await? {
+		Some(table) => read_progress(tx, &table, network).await,
+		None => Ok(None),
+	}
+}
+
+async fn read_progress(
+	tx: &Transaction<'_>,
+	table: &str,
+	network: &str,
+) -> anyhow::Result<Option<u64>> {
 	let synced: Option<String> = tx
 		.query_opt(
 			&format!(

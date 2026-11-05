@@ -81,11 +81,21 @@ pub async fn run(config_path: &Path, run_dir: &Path, selected: &[String]) -> any
 		std::env::set_var("DATABASE_POOL_SIZE", (indexed.len() * 2 + 4).max(10).to_string());
 	}
 	let db = Arc::new(PostgresClient::new().await.context("connecting to DATABASE_URL")?);
-	// Each chain starts after its cursor, read before the manifest is written.
+	// A chain rindexer has no progress for, as after a SubQuery import, starts at its cursor.
+	// rindexer checks the manifest's start block against the node's head before it reads its
+	// own progress, so a chain with progress keeps the config's, far behind any head.
 	let cursors = {
 		let mut conn = db.raw_connection().await?;
 		db::apply_migrations(&mut conn).await?;
-		db::cursor_blocks(&conn).await?
+		let cursors = db::cursor_blocks(&conn).await?;
+		let tx = conn.transaction().await?;
+		let mut unsynced = BTreeMap::new();
+		for (network, block) in cursors {
+			if registry::rindexer_progress(&tx, &network).await?.is_none() {
+				unsynced.insert(network, block);
+			}
+		}
+		unsynced
 	};
 
 	let http = reqwest::Client::builder().build()?;

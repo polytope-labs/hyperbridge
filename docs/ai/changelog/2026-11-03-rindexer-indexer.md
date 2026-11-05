@@ -53,13 +53,10 @@ Rust 1.98 and later.
 
 ## Starting from SubQuery's data
 
-The cutover runs the indexer over a copy of SubQuery's database. SubQuery stops once both
-indexers' tables match, apart from the differences listed below.
-
-1. Copy SubQuery's database into a new one, for example with `pg_dump` and `pg_restore`.
-2. Run `omniplex --config <config> import-subquery` with `DATABASE_URL` set to the
-   copy. A Substrate chain needs `<CHAIN>_SUBSTRATE` too.
-3. Start each chain's process on the copy, as usual.
+`omniplex --config <config> import-subquery` turns a copy of SubQuery's database, at
+`DATABASE_URL`, into omniplex's. Each chain then continues after the last block SubQuery
+indexed. A Substrate chain needs `<CHAIN>_SUBSTRATE` too. `omniplex/README.md` has the cutover
+steps, including the parity check against SubQuery.
 
 The import runs in one transaction, so a failure leaves the copy as it was.
 
@@ -67,18 +64,14 @@ The import runs in one transaction, so a failure leaves the copy as it was.
 - SubQuery's own `_global` and `_metadata_0x…` tables are dropped.
 - Each chain starts at the `lastProcessedHeight` in SubQuery's metadata, which names a chain by
   its EVM chain id or its node's `system_chain`. The chain's cursor skips that block's logs.
-- The import refuses a database other clients use, so it can't touch SubQuery's live one. It
-  also refuses a copy taken mid-rewind, a table or column only one side has, and a chain
-  SubQuery has no height for.
+- The import reads the heights and the rows in one snapshot, so they agree.
+- The import refuses a database other clients are connected to, so it refuses SubQuery's live
+  database while SubQuery runs. It also refuses a copy taken mid-rewind, a table or column only
+  one side has, and a chain SubQuery has no height for. And it refuses when an object outside
+  SubQuery's schema, such as a view, depends on it, since dropping the schema would drop that
+  too.
 - A chain SubQuery never indexed, such as the Polkadex testnet, goes in `--new-chains`. It starts
   at its start block.
-
-The new tables belong to the role that ran the import. Grant omnihedron's role access if it is
-another.
-
-SubQuery indexes Ethereum, Arbitrum and Base before their blocks are final. So a copy can end on
-a block that a reorg later replaces. Comparing the two indexers shows that; take a new copy if it
-does.
 
 ## How it indexes
 
@@ -181,7 +174,9 @@ lose data are fixed instead. The deliberate differences:
   `filled` and pays its points when the order arrives. SubQuery's `--historical=timestamp`
   reads hid fills from blocks later than the placement's, which is nearly every fill, so its
   backfill never ran. The points use the destination chain's valuation, kept in
-  `indexer.deferred_fill_points` until the order arrives.
+  `indexer.deferred_fill_points` until the order arrives. A fill SubQuery indexed before the
+  import, for an order that arrives after it, gets its `filled` but no points, as in SubQuery:
+  SubQuery kept no valuation for it.
 - A chain still in its history doesn't consume a solver watchlist version until its blocks
   reach the time of the poll that wrote it, as SubQuery's time-bounded reads did.
 
@@ -197,7 +192,8 @@ Bugs kept for parity, to decide on separately:
 
 ## Not included yet
 
-- **Parity check.** Nothing compares the two indexers' tables yet. Short ranges on Nexus and
-  Gargantua match SubQuery for the ISMP, filler bid, reward, treasury and bandwidth tables, apart
-  from the two columns above. On EVM, only Base has been compared, on one order.
+- **Parity check.** It is done by hand at cutover, as `omniplex/README.md` describes. So far,
+  short ranges on Nexus and Gargantua match SubQuery for the ISMP, filler bid, reward, treasury
+  and bandwidth tables, apart from the two columns above. On EVM, only Base has been compared, on
+  one order.
 - **Deployment and retirement:** a Docker image, compose and CI, and retiring SubQuery.

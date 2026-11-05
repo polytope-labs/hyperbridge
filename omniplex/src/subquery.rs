@@ -8,7 +8,7 @@ use std::{collections::BTreeMap, time::Duration};
 
 use anyhow::{anyhow, bail, Context};
 use serde_json::Value;
-use tokio_postgres::{Client, Transaction};
+use tokio_postgres::{Client, IsolationLevel, Transaction};
 
 use crate::{config::Config, db};
 
@@ -37,7 +37,13 @@ pub async fn import(
 	new_chains: &[String],
 ) -> anyhow::Result<Imported> {
 	refuse_other_clients(conn).await?;
-	let tx = conn.transaction().await?;
+	// One snapshot for the heights and the rows, so a writer that commits during the import
+	// can't put copied rows past the cursors.
+	let tx = conn
+		.build_transaction()
+		.isolation_level(IsolationLevel::RepeatableRead)
+		.start()
+		.await?;
 	tx.batch_execute("SET LOCAL statement_timeout = 0").await?;
 	if flag(&tx, "SELECT to_regclass('indexer.migrations') IS NOT NULL").await? {
 		bail!("this database is already the indexer's");
@@ -107,9 +113,48 @@ pub async fn import(
 		)
 		.await?;
 	}
+	refuse_outside_dependents(&tx).await?;
 	tx.batch_execute(&format!("DROP SCHEMA {OLD_SCHEMA} CASCADE")).await?;
 	tx.commit().await?;
 	Ok(Imported { cursors, rows })
+}
+
+/**
+ * Fails when an object outside SubQuery's schema depends on one inside it, such as a view of
+ * its tables or a column of one of its types: dropping the schema would drop that too. Rules,
+ * triggers, column defaults and policies carry no schema of their own, so they count by their
+ * table's.
+ */
+async fn refuse_outside_dependents(tx: &Transaction<'_>) -> anyhow::Result<()> {
+	let dependents: Vec<String> = tx
+		.query(
+			"SELECT DISTINCT dependent.type || ' ' || dependent.identity
+			 FROM pg_depend d
+			 CROSS JOIN LATERAL pg_identify_object(d.refclassid, d.refobjid, d.refobjsubid) referenced
+			 CROSS JOIN LATERAL pg_identify_object(d.classid, d.objid, d.objsubid) dependent
+			 LEFT JOIN pg_rewrite r ON d.classid = 'pg_rewrite'::regclass AND r.oid = d.objid
+			 LEFT JOIN pg_trigger g ON d.classid = 'pg_trigger'::regclass AND g.oid = d.objid
+			 LEFT JOIN pg_attrdef a ON d.classid = 'pg_attrdef'::regclass AND a.oid = d.objid
+			 LEFT JOIN pg_policy p ON d.classid = 'pg_policy'::regclass AND p.oid = d.objid
+			 LEFT JOIN pg_class owner
+			   ON owner.oid = coalesce(r.ev_class, g.tgrelid, a.adrelid, p.polrelid)
+			 WHERE referenced.schema = $1 AND d.deptype IN ('n', 'a')
+			   AND coalesce(dependent.schema, owner.relnamespace::regnamespace::text)
+			     IS DISTINCT FROM $1
+			 ORDER BY 1",
+			&[&OLD_SCHEMA],
+		)
+		.await?
+		.iter()
+		.map(|row| row.get(0))
+		.collect();
+	if !dependents.is_empty() {
+		bail!(
+			"objects outside SubQuery's schema depend on it, and would be dropped with it: \
+			 {dependents:?}. Drop or change them, then import again"
+		);
+	}
+	Ok(())
 }
 
 /**
@@ -145,8 +190,11 @@ async fn refuse_rewind(tx: &Transaction<'_>) -> anyhow::Result<()> {
 	if !flag(tx, "SELECT to_regclass('app._global') IS NOT NULL").await? {
 		return Ok(());
 	}
-	if flag(tx, "SELECT EXISTS (SELECT 1 FROM app._global WHERE status::text <> 'complete')")
-		.await?
+	if flag(
+		tx,
+		"SELECT EXISTS (SELECT 1 FROM app._global WHERE status::text IS DISTINCT FROM 'complete')",
+	)
+	.await?
 	{
 		bail!("SubQuery was rewinding when this copy was taken; take another");
 	}
@@ -155,13 +203,15 @@ async fn refuse_rewind(tx: &Transaction<'_>) -> anyhow::Result<()> {
 
 /**
  * The last block SubQuery indexed on each chain, by the chain's name in its `_metadata`
- * tables. Fails unless SubQuery kept history by timestamp, as `solver_inventories` does here.
+ * tables. Fails when a table says SubQuery kept history by anything but timestamp, the way
+ * `solver_inventories` keeps it here.
  */
 async fn subquery_heights(tx: &Transaction<'_>) -> anyhow::Result<BTreeMap<String, u64>> {
 	let tables = tx
 		.query(
-			"SELECT table_name::text FROM information_schema.tables
-			 WHERE table_schema = 'app' AND table_name LIKE '\\_metadata%'",
+			"SELECT c.relname::text FROM pg_class c
+			 WHERE c.relnamespace = 'app'::regnamespace AND c.relkind = 'r'
+			   AND c.relname LIKE '\\_metadata%'",
 			&[],
 		)
 		.await?;
@@ -237,12 +287,16 @@ fn chain_cursors(
 	Ok(cursors)
 }
 
-/** A schema's tables, apart from the internal ones whose names start with `_`. */
+/**
+ * A schema's tables, apart from the internal ones whose names start with `_`. Read from the
+ * catalog, which, unlike `information_schema`, also lists tables the role has no rights on.
+ */
 async fn entity_tables(tx: &Transaction<'_>, schema: &str) -> anyhow::Result<Vec<String>> {
 	Ok(tx
 		.query(
-			"SELECT table_name::text FROM information_schema.tables
-			 WHERE table_schema = $1 AND table_type = 'BASE TABLE' AND table_name NOT LIKE '\\_%'
+			"SELECT c.relname::text FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+			 WHERE n.nspname = $1 AND c.relkind IN ('r', 'p') AND NOT c.relispartition
+			   AND c.relname NOT LIKE '\\_%'
 			 ORDER BY 1",
 			&[&schema],
 		)
@@ -320,7 +374,25 @@ async fn copy_table(tx: &Transaction<'_>, table: &str) -> anyhow::Result<u64> {
 		} else {
 			format!("INSERT INTO app.\"{table}\" ({names}) SELECT {values} FROM {OLD_SCHEMA}.\"{table}\" s")
 		};
-	Ok(tx.execute(&sql, &[]).await?)
+	let copied = tx.execute(&sql, &[]).await?;
+	if current_only {
+		// SubQuery's multichain history can leave a row with two open versions. The copy keeps
+		// the later one, and the count tells a parity check those rows apart.
+		let open: i64 = tx
+			.query_one(
+				&format!(
+					"SELECT count(*) FROM {OLD_SCHEMA}.\"{table}\" WHERE upper_inf(_block_range)"
+				),
+				&[],
+			)
+			.await?
+			.get(0);
+		let extra = (open as u64).saturating_sub(copied);
+		if extra > 0 {
+			tracing::warn!(table, extra, "rows with several current versions; kept the latest");
+		}
+	}
+	Ok(copied)
 }
 
 async fn flag(tx: &Transaction<'_>, sql: &str) -> anyhow::Result<bool> {

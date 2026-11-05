@@ -674,6 +674,83 @@ async fn hyperbridge_statuses_wait_for_their_request() {
 	assert_eq!(waiting.as_deref(), Some("0"));
 }
 
+/**
+ * Off Hyperbridge, a delivery is the request's `DESTINATION` before the request is indexed too.
+ * So Hyperbridge's routing status and the destination's wait under different ids, and both
+ * land.
+ */
+#[tokio::test]
+async fn deliveries_on_two_substrate_chains_both_wait() {
+	let Some(mut client) = database().await else { return };
+	let db = client.transaction().await.unwrap();
+	let (nexus, polkadex, ethereum) = (Asserter::new(), Asserter::new(), Asserter::new());
+	let indexer = indexer(
+		Environment::Mainnet,
+		&[
+			hyperbridge(&nexus),
+			("polkadex", chain_config(ChainKind::Substrate, "SUBSTRATE-PDEX", None), &polkadex),
+			("ethereum", chain_config(ChainKind::Evm, "EVM-1", Some(HOST)), &ethereum),
+		],
+	)
+	.await;
+	let key = [0x58u8; 32];
+	let to: Bytes = BENEFICIARY.parse().unwrap();
+	let body: Bytes = "0x1234".parse().unwrap();
+	let commitment = post_request_commitment(
+		"EVM-1",
+		"SUBSTRATE-PDEX",
+		3,
+		1_800_000_000,
+		address(GATEWAY).as_slice(),
+		&to,
+		&body,
+	);
+	let ms = 1_700_000_000_000u64;
+	for (network, node, at) in [("nexus", &nexus, ms), ("polkadex", &polkadex, ms + 6000)] {
+		node.push_success(&storage(&at.to_le_bytes()));
+		let handled = substrate::PostRequestHandled(Arc::new(Shared::default()));
+		let event = Ismp::PostRequestHandled { commitment, relayer: key.to_vec().into() };
+		let meta = log(9, 1_700_000_000, B256::repeat_byte(5));
+		handle(&indexer, network, &db, &meta, &handled, event).await;
+	}
+	let waiting = text(
+		&db,
+		"SELECT string_agg(status || '@' || chain, ',' ORDER BY status) FROM app.pending_status_metadata",
+	)
+	.await;
+	assert_eq!(
+		waiting.as_deref(),
+		Some("DESTINATION@SUBSTRATE-PDEX,HYPERBRIDGE_DELIVERED@POLKADOT-3367")
+	);
+
+	ethereum.push_success(&empty_receipt());
+	let dispatched = evm::PostRequestEvent(Arc::new(Shared::default()));
+	let event = EthereumHost::PostRequestEvent {
+		source: "EVM-1".into(),
+		dest: "SUBSTRATE-PDEX".into(),
+		from: address(GATEWAY),
+		to: to.clone(),
+		nonce: U256::from(3),
+		timeoutTimestamp: U256::from(1_800_000_000u64),
+		body: body.clone(),
+		fee: U256::from(5_000_000u64),
+	};
+	let meta = log(10, 1_700_000_000, B256::repeat_byte(1));
+	handle(&indexer, "ethereum", &db, &meta, &dispatched, event).await;
+	let statuses = text(
+		&db,
+		&format!(
+			"SELECT string_agg(status || '@' || chain, ',' ORDER BY timestamp)
+			 FROM app.request_status_metadata WHERE request_id = '{commitment:#x}'"
+		),
+	)
+	.await;
+	assert_eq!(
+		statuses.as_deref(),
+		Some("SOURCE@EVM-1,HYPERBRIDGE_DELIVERED@POLKADOT-3367,DESTINATION@SUBSTRATE-PDEX")
+	);
+}
+
 /** `relayer.AccumulateFees` keeps the fees of a relayer named by an EVM address, which SubQuery
  * dropped. It is named as `Withdraw` names it, in lowercase hex. */
 #[tokio::test]

@@ -22,7 +22,7 @@ use std::{collections::BTreeSet, sync::Arc, time::Duration};
 
 use alloy::{
 	eips::eip2718::Encodable2718,
-	network::{EthereumWallet, TransactionBuilder},
+	network::{EthereumWallet, NetworkTransactionBuilder, TransactionBuilder},
 	primitives::{address, Address, Bytes},
 	providers::{DynProvider, Provider, ProviderBuilder},
 	rpc::types::{TransactionReceipt, TransactionRequest},

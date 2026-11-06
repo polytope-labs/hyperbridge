@@ -21,7 +21,7 @@ sp-core = { workspace = true, features = ["full_crypto"] }
 sp-crypto-hashing = { workspace = true }
 log = "0.4.19"
 tracing = { workspace = true }
-alloy = { workspace = true, features = ["provider-http", "rpc-types", "contract", "signer-local", "network", "providers", "transports", "reqwest", "provider-debug-api", "reqwest-default-tls"] }
+alloy = { workspace = true, features = ["provider-http", "rpc-types", "contract", "signer-local", "network", "providers", "transports", "reqwest", "provider-debug-api", "reqwest-native-tls"] }
 alloy-primitives = { workspace = true }
 alloy-sol-types = { workspace = true }
 alloy-sol-macro = { workspace = true }

@@ -20,7 +20,7 @@ use alloy::primitives::{keccak256, B256};
 
 use crate::{
 	handlers::Handlers,
-	registry::{EventContext, LogMeta, Source, Subscription},
+	registry::{EventContext, LogMeta, NonCriticalFailure, Source, Subscription},
 };
 
 /** Every handler this area runs. */
@@ -137,15 +137,28 @@ pub fn extrinsic_hash(log: &LogMeta) -> String {
 pub use crate::errors::{is_database_error, is_transient, Retry};
 
 /**
- * Work the TypeScript ran in a `try` whose `catch` logged and moved on. Writes made before the
- * failure stay, as they did there. Transient failures still fail the batch, so a flaky RPC
- * doesn't silently drop stats: SubQuery dropped them, but only on the run that hit the error.
- * A database error is passed on too. A failed statement leaves the savepoint unusable, so the
- * handler's savepoint undoes its writes, or the batch fails, as the error says.
+ * Work the TypeScript ran in a `try` whose `catch` logged and moved on. After any other
+ * failure, the work's writes made before it stay, as they did there. Transient failures still
+ * fail the batch, so a flaky RPC doesn't silently drop stats: SubQuery dropped them, but only
+ * on the run that hit the error.
+ *
+ * A database error aborts the block's transaction, so it is passed on, marked as this work's.
+ * A lasting one makes the block run again without all of the handler's non-critical work. The
+ * handler's other writes stay.
  */
-pub fn non_critical(result: anyhow::Result<()>, what: &str) -> anyhow::Result<()> {
-	match result {
-		Err(err) if is_transient(&err) || is_database_error(&err) => Err(err),
+pub async fn non_critical(
+	ctx: &EventContext<'_>,
+	what: &str,
+	work: impl std::future::Future<Output = anyhow::Result<()>>,
+) -> anyhow::Result<()> {
+	if ctx.skip_non_critical {
+		tracing::warn!("{what}: left out, as it failed for good on the block's first run");
+		return Ok(());
+	}
+	match work.await {
+		Err(err) if is_database_error(&err) =>
+			Err(err.context(NonCriticalFailure(what.to_string()))),
+		Err(err) if is_transient(&err) => Err(err),
 		Err(err) => {
 			tracing::warn!("{what}: {err:#}");
 			Ok(())

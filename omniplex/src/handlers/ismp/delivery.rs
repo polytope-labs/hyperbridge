@@ -2,6 +2,8 @@
 //! stats (`HyperBridgeService.handleRequestHandledEvent`) and the "transfer sweep" every host
 //! handler ran over the transaction's ERC-20 transfers.
 
+use std::collections::BTreeMap;
+
 use alloy::{
 	primitives::{Address, Bytes, B256, U256},
 	providers::Provider,
@@ -19,9 +21,9 @@ use super::{
 use crate::{
 	registry::EventContext,
 	services::{
-		decimal::amount_value_in_usd,
+		decimal::{amount_value_in_usd, Dec},
 		points::{award_points, Award},
-		prices::{native_currency_price, token_metadata, token_price},
+		prices::{native_currency_price, token_metadata, token_price, PriceRefresh},
 		relayers::{
 			add_chain_stats, add_relayer_stats, touch_relayer_activity, ChainStatsDelta,
 			RelayerStatsDelta,
@@ -232,12 +234,14 @@ struct SweptTransfer {
 pub struct Sweep {
 	timestamp: u64,
 	transfers: Vec<SweptTransfer>,
+	/** Fresh prices for stale stored ones, one per symbol, in symbol order. */
+	prices: Vec<PriceRefresh>,
 	stopped: Option<anyhow::Error>,
 }
 
 /**
  * The sweep's reads: the transaction, and each new transfer's token and price. A database error
- * is returned instead of kept, as a failed statement leaves the savepoint unusable for writes.
+ * is returned instead of kept, as a failed statement aborts the transaction the writes need.
  */
 pub async fn read_transfers(
 	ctx: &EventContext<'_>,
@@ -245,10 +249,13 @@ pub async fn read_transfers(
 	timestamp: u64,
 	attribution: Attribution<'_>,
 ) -> anyhow::Result<Sweep> {
-	let mut transfers = vec![];
-	match read_into(ctx, transaction, timestamp, attribution, &mut transfers).await {
+	let (mut transfers, mut prices) = (vec![], BTreeMap::new());
+	match read_into(ctx, transaction, timestamp, attribution, &mut transfers, &mut prices).await {
 		Err(err) if is_database_error(&err) => Err(err),
-		outcome => Ok(Sweep { timestamp, transfers, stopped: outcome.err() }),
+		outcome => {
+			let prices = prices.into_values().filter_map(|(_, refresh)| refresh).collect();
+			Ok(Sweep { timestamp, transfers, prices, stopped: outcome.err() })
+		},
 	}
 }
 
@@ -258,6 +265,7 @@ async fn read_into(
 	timestamp: u64,
 	attribution: Attribution<'_>,
 	transfers: &mut Vec<SweptTransfer>,
+	prices: &mut BTreeMap<String, (Dec, Option<PriceRefresh>)>,
 ) -> anyhow::Result<()> {
 	let db = ctx.db;
 	let modules = match attribution {
@@ -280,10 +288,15 @@ async fn read_into(
 		let to = topic_address(&log.topics[2]);
 		let (symbol, decimals) =
 			token_metadata(ctx.chain, log.address, ctx.log.block_number).await?;
-		let indexer = ctx.indexer;
-		let price =
-			token_price(&indexer.orderbook, indexer.config.environment, db, &symbol, timestamp)
-				.await?;
+		let price = match prices.get(&symbol) {
+			Some((price, _)) => price.clone(),
+			None => {
+				let indexer = ctx.indexer;
+				let (orderbook, environment) = (&indexer.orderbook, indexer.config.environment);
+				let read = token_price(orderbook, environment, db, &symbol, timestamp).await?;
+				prices.entry(symbol.clone()).or_insert(read).0.clone()
+			},
+		};
 		// The TypeScript skipped `amountValueInUSD === "0"`, which `toFixed(18)` never is.
 		let usd = amount_value_in_usd(value, decimals, &price);
 
@@ -304,6 +317,9 @@ async fn read_into(
 /** The sweep's writes, then the error that ended its reads, if one did. */
 pub async fn store_transfers(ctx: &EventContext<'_>, sweep: Sweep) -> anyhow::Result<()> {
 	let (db, chain, timestamp) = (ctx.db, ctx.chain.state_machine_id(), sweep.timestamp);
+	for price in &sweep.prices {
+		price.store(db).await?;
+	}
 	for transfer in sweep.transfers {
 		store_transfer(db, &transfer.id, chain, transfer.value, &transfer.from, &transfer.to)
 			.await?;

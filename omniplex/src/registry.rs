@@ -1,5 +1,5 @@
 use std::{
-	collections::{BTreeSet, HashMap},
+	collections::{BTreeSet, HashMap, HashSet},
 	path::Path,
 	sync::Arc,
 	time::Duration,
@@ -119,6 +119,22 @@ pub struct EventContext<'a> {
 	pub chain: &'a Chain,
 	pub db: &'a Transaction<'a>,
 	pub log: &'a LogMeta,
+	/** Set when the block is replayed because this handler's non-critical work failed for good:
+	 * the replay leaves that work out. */
+	pub skip_non_critical: bool,
+}
+
+/**
+ * Context on an error from a handler's non-critical work: see
+ * `handlers::ismp::non_critical`. A replay of the block can then leave out only that work.
+ */
+#[derive(Debug)]
+pub struct NonCriticalFailure(pub String);
+
+impl std::fmt::Display for NonCriticalFailure {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+		write!(f, "{}", self.0)
+	}
 }
 
 /** Handles one decoded event. Writes go through `ctx.db`, which commits with the log's block. */
@@ -344,6 +360,11 @@ pub fn register_all(
  * chains' processes also write, such as a relayer's, stay locked for one block's work rather
  * than a whole batch's. rindexer records its own progress after the callback returns, so a
  * crash or a failed block can replay a batch; the cursor makes the replay skip committed logs.
+ *
+ * A transient error fails the batch, for rindexer to retry. Any other error would fail the same
+ * way on every retry and stop the chain. So the block is rolled back and run again without the
+ * work that failed: the handler, only its non-critical work, or the hook. Each run leaves out
+ * one more piece, so the block ends.
  */
 pub async fn process_batch(
 	indexer: &Indexer,
@@ -368,23 +389,123 @@ pub async fn process_batch(
 	let mut conn = indexer.db.raw_connection().await?;
 	let (mut previous_block, mut applied_to) = (None, None);
 	for (index, block) in blocks.iter().enumerate() {
-		let mut tx = conn.transaction().await?;
-		let cursor = tx
-			.query_opt(
-				"SELECT block_number, log_index FROM indexer.cursors WHERE network = $1 FOR UPDATE",
-				&[&network],
-			)
-			.await?
-			.map(|row| (row.get::<_, i64>(0) as u64, row.get::<_, i64>(1) as u64));
-		if index == 0 {
-			previous_block = cursor.map(|(block, _)| match fetched_from {
-				Some(from) => block.min(from.saturating_sub(1)),
-				None => block,
-			});
+		let mut skips = HashSet::new();
+		loop {
+			let tx = conn.transaction().await?;
+			let cursor = tx
+				.query_opt(
+					"SELECT block_number, log_index FROM indexer.cursors WHERE network = $1 FOR UPDATE",
+					&[&network],
+				)
+				.await?
+				.map(|row| (row.get::<_, i64>(0) as u64, row.get::<_, i64>(1) as u64));
+			if index == 0 {
+				previous_block = cursor.map(|(block, _)| match fetched_from {
+					Some(from) => block.min(from.saturating_sub(1)),
+					None => block,
+				});
+			}
+			let run = BlockRun {
+				indexer,
+				chain,
+				routes,
+				tx: &tx,
+				block,
+				cursor,
+				applied_to,
+				hooks_at_end: index + 1 == blocks.len(),
+				previous_block,
+				skips: &skips,
+			};
+			match run.apply().await {
+				Ok((last, applied)) => {
+					if let Some((block_number, log_index)) = last.filter(|_| last != cursor) {
+						tx.execute(
+							"INSERT INTO indexer.cursors (network, block_number, log_index) VALUES ($1, $2, $3)
+							 ON CONFLICT (network) DO UPDATE SET block_number = $2, log_index = $3",
+							&[&network, &(block_number as i64), &(log_index as i64)],
+						)
+						.await?;
+					}
+					tx.commit().await?;
+					applied_to = applied;
+					break;
+				},
+				Err(Failure::Lasting(skip, err)) => {
+					tx.rollback().await?;
+					let block_number = block[0].tx_information.block_number;
+					tracing::warn!(
+						network,
+						block = block_number,
+						?skip,
+						"replaying the block without work that can't apply: {err:#}"
+					);
+					skips.insert(skip);
+				},
+				Err(Failure::Batch(err)) => return Err(err),
+			}
 		}
+	}
+	Ok(())
+}
 
-		let mut last = cursor;
-		for result in *block {
+/** Work a block's replay leaves out. */
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+enum Skip {
+	/** The `handler`th handler of the block's log at `log_index`. */
+	Handler { log_index: u64, handler: usize },
+	/** Only that handler's non-critical work. */
+	NonCritical { log_index: u64, handler: usize },
+	/** The `n`th block hook. */
+	Hook(usize),
+}
+
+/** Why a run of a block stopped. */
+enum Failure {
+	/** The error repeats on a retry, so the block runs again without `Skip`. */
+	Lasting(Skip, anyhow::Error),
+	/** rindexer retries the batch. */
+	Batch(anyhow::Error),
+}
+
+impl From<anyhow::Error> for Failure {
+	fn from(err: anyhow::Error) -> Self {
+		Failure::Batch(err)
+	}
+}
+
+/** The work of a failed handler or hook, as a [`Failure`]. */
+fn failed(skip: Skip, err: anyhow::Error) -> Failure {
+	match is_transient(&err) {
+		true => Failure::Batch(err),
+		false => Failure::Lasting(skip, err),
+	}
+}
+
+/** One run of one block of a batch, in the block's transaction. */
+struct BlockRun<'a> {
+	indexer: &'a Indexer,
+	chain: &'a Chain,
+	routes: &'a ChainRoutes,
+	tx: &'a Transaction<'a>,
+	block: &'a [EventResult],
+	cursor: Option<(u64, u64)>,
+	/** The last log this batch applied before the block. */
+	applied_to: Option<(u64, u64)>,
+	/** Whether the hooks run after this block: it is the batch's last. */
+	hooks_at_end: bool,
+	previous_block: Option<u64>,
+	skips: &'a HashSet<Skip>,
+}
+
+impl BlockRun<'_> {
+	/**
+	 * Applies the block's logs past the cursor, then the hooks if the block is the batch's
+	 * last. Returns the last log seen, for the cursor, and the last log applied.
+	 */
+	async fn apply(&self) -> Result<(Option<(u64, u64)>, Option<(u64, u64)>), Failure> {
+		let (mut last, mut applied_to) = (self.cursor, self.applied_to);
+		for result in self.block {
 			let info = &result.tx_information;
 			let position = (info.block_number, info.log_index.to::<u64>());
 			if last.is_some_and(|done| position <= done) {
@@ -393,7 +514,7 @@ pub async fn process_batch(
 			last = Some(position);
 			let Some(topic) = result.log.inner.topics().first().copied() else { continue };
 			// The request is every address crossed with every topic, so some logs match no route.
-			let handlers = routes.handlers(info.address, topic);
+			let handlers = self.routes.handlers(info.address, topic);
 			if handlers.is_empty() {
 				continue;
 			}
@@ -408,82 +529,62 @@ pub async fn process_batch(
 				transaction_index: info.transaction_index,
 				log_index: position.1,
 			};
-			for handler in handlers {
-				let savepoint = tx.transaction().await?;
-				let ctx = EventContext { indexer, chain, db: &savepoint, log: &meta };
-				let outcome = handler.handle_log(&ctx, &result.log.inner).await;
-				if let Some(err) = settle(savepoint, outcome).await? {
-					let (block, log_index) = (meta.block_number, meta.log_index);
-					tracing::warn!(
-						network,
-						block,
-						log_index,
-						"skipped a log that can't apply: {err:#}"
-					);
+			for (handler_index, handler) in handlers.iter().enumerate() {
+				let (log_index, handler) = (meta.log_index, handler.as_ref());
+				if self.skips.contains(&Skip::Handler { log_index, handler: handler_index }) {
+					continue;
+				}
+				let non_critical = Skip::NonCritical { log_index, handler: handler_index };
+				let skip_non_critical = self.skips.contains(&non_critical);
+				let ctx = EventContext {
+					indexer: self.indexer,
+					chain: self.chain,
+					db: self.tx,
+					log: &meta,
+					skip_non_critical,
+				};
+				if let Err(err) = handler.handle_log(&ctx, &result.log.inner).await {
+					let only_non_critical =
+						!skip_non_critical && err.downcast_ref::<NonCriticalFailure>().is_some();
+					let skip = match only_non_critical {
+						true => non_critical,
+						false => Skip::Handler { log_index, handler: handler_index },
+					};
+					return Err(failed(skip, err));
 				}
 			}
 			applied_to = Some((meta.block_number, meta.block_timestamp));
 		}
 
 		// The hooks run once, after the batch's logs, at the last block this run applied.
-		if index + 1 == blocks.len() {
-			if let Some((block_number, block_timestamp)) = applied_to {
-				for hook in &routes.hooks {
-					let savepoint = tx.transaction().await?;
-					let ctx = BlockContext {
-						indexer,
-						chain,
-						db: &savepoint,
-						block_number,
-						block_timestamp,
-						previous_block,
-					};
-					let outcome = hook.after_batch(&ctx).await;
-					if let Some(err) = settle(savepoint, outcome).await? {
-						tracing::warn!(
-							network,
-							block_number,
-							"skipped a block hook that can't apply: {err:#}"
-						);
-					}
-				}
-			}
+		if let Some((block_number, block_timestamp)) = applied_to.filter(|_| self.hooks_at_end) {
+			let ctx = BlockContext {
+				indexer: self.indexer,
+				chain: self.chain,
+				db: self.tx,
+				block_number,
+				block_timestamp,
+				previous_block: self.previous_block,
+			};
+			run_hooks(self.routes, &ctx, self.skips).await?;
 		}
-
-		if let Some((block_number, log_index)) = last.filter(|_| last != cursor) {
-			tx.execute(
-				"INSERT INTO indexer.cursors (network, block_number, log_index) VALUES ($1, $2, $3)
-				 ON CONFLICT (network) DO UPDATE SET block_number = $2, log_index = $3",
-				&[&network, &(block_number as i64), &(log_index as i64)],
-			)
-			.await?;
-		}
-		tx.commit().await?;
+		Ok((last, applied_to))
 	}
-	Ok(())
 }
 
-/**
- * Ends the savepoint a handler or hook ran in. Its writes stay when it succeeded. A transient
- * error fails the block, for rindexer to retry. Any other error would fail the same way on
- * every retry and stop the chain, so the writes are undone and the error handed back to be
- * logged.
- */
-async fn settle(
-	savepoint: Transaction<'_>,
-	outcome: anyhow::Result<()>,
-) -> anyhow::Result<Option<anyhow::Error>> {
-	match outcome {
-		Ok(()) => {
-			savepoint.commit().await?;
-			Ok(None)
-		},
-		Err(err) if is_transient(&err) => Err(err),
-		Err(err) => {
-			savepoint.rollback().await?;
-			Ok(Some(err))
-		},
+/** Runs the chain's hooks at `ctx`'s block, but those `skips` leaves out. */
+async fn run_hooks(
+	routes: &ChainRoutes,
+	ctx: &BlockContext<'_>,
+	skips: &HashSet<Skip>,
+) -> Result<(), Failure> {
+	for (index, hook) in routes.hooks.iter().enumerate() {
+		if skips.contains(&Skip::Hook(index)) {
+			continue;
+		}
+		hook.after_batch(ctx).await.map_err(|err| failed(Skip::Hook(index), err))?;
 	}
+	Ok(())
 }
 
 /** How often each chain's idle hooks and metadata catch up. */
@@ -616,47 +717,60 @@ async fn run_idle_hooks(
 	let chain = indexer.chain(network)?;
 	let _writing = routes.writing.lock().await;
 	let mut conn = indexer.db.raw_connection().await?;
-	let mut tx = conn.transaction().await?;
-	let Some(synced) = synced_block(&tx, network, routes).await? else { return Ok(()) };
-	let cursor: Option<i64> = tx
-		.query_opt(
-			"SELECT block_number FROM indexer.cursors WHERE network = $1 FOR UPDATE",
-			&[&network],
-		)
-		.await?
-		.map(|row| row.get(0));
-	if cursor.is_some_and(|block| block as u64 >= synced) {
-		return Ok(());
-	}
-	let block = chain
-		.provider
-		.get_block_by_number(synced.into())
-		.await?
-		.ok_or_else(|| anyhow!("{network}: block {synced} not found"))?;
-	for hook in &routes.hooks {
-		let savepoint = tx.transaction().await?;
+	// A hook that fails for good is left out of a second run at the same block, as in a batch.
+	let (mut skips, mut target) = (HashSet::new(), None);
+	loop {
+		let tx = conn.transaction().await?;
+		let synced = match target {
+			Some(synced) => synced,
+			None => match synced_block(&tx, network, routes).await? {
+				Some(synced) => *target.insert(synced),
+				None => return Ok(()),
+			},
+		};
+		let cursor: Option<i64> = tx
+			.query_opt(
+				"SELECT block_number FROM indexer.cursors WHERE network = $1 FOR UPDATE",
+				&[&network],
+			)
+			.await?
+			.map(|row| row.get(0));
+		if cursor.is_some_and(|block| block as u64 >= synced) {
+			return Ok(());
+		}
+		let block = chain
+			.provider
+			.get_block_by_number(synced.into())
+			.await?
+			.ok_or_else(|| anyhow!("{network}: block {synced} not found"))?;
 		let ctx = BlockContext {
 			indexer,
 			chain,
-			db: &savepoint,
+			db: &tx,
 			block_number: synced,
 			block_timestamp: block.header.timestamp,
 			previous_block: cursor.map(|block| block as u64),
 		};
-		let outcome = hook.after_batch(&ctx).await;
-		if let Some(err) = settle(savepoint, outcome).await? {
-			tracing::warn!(%network, block_number = synced, "skipped a block hook that can't apply: {err:#}");
+		match run_hooks(routes, &ctx, &skips).await {
+			Ok(()) => {},
+			Err(Failure::Lasting(skip, err)) => {
+				tx.rollback().await?;
+				tracing::warn!(%network, block_number = synced, ?skip, "running the hooks again without one that can't apply: {err:#}");
+				skips.insert(skip);
+				continue;
+			},
+			Err(Failure::Batch(err)) => return Err(err),
 		}
+		// The whole block is applied, so its log index is the largest there is.
+		tx.execute(
+			"INSERT INTO indexer.cursors (network, block_number, log_index) VALUES ($1, $2, $3)
+			 ON CONFLICT (network) DO UPDATE SET block_number = $2, log_index = $3",
+			&[&network, &(synced as i64), &i64::MAX],
+		)
+		.await?;
+		tx.commit().await?;
+		return Ok(());
 	}
-	// The whole block is applied, so its log index is the largest there is.
-	tx.execute(
-		"INSERT INTO indexer.cursors (network, block_number, log_index) VALUES ($1, $2, $3)
-		 ON CONFLICT (network) DO UPDATE SET block_number = $2, log_index = $3",
-		&[&network, &(synced as i64), &i64::MAX],
-	)
-	.await?;
-	tx.commit().await?;
-	Ok(())
 }
 
 /** Creates the chain's metadata table, and returns the chain's name in it. */

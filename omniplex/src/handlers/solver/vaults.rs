@@ -82,14 +82,18 @@ pub fn block_movements(vault: &str, block: u64, logs: &[Log]) -> anyhow::Result<
 	let mut movements = vec![];
 	for log in logs {
 		let log_index = log.log_index.ok_or_else(|| anyhow!("a vault log has no index"))?;
+		// A node that answers like this is broken or behind, and another answer can be right.
 		if log.removed ||
 			log.block_number != Some(block) ||
 			lower(log.inner.address) != vault.to_lowercase()
 		{
-			bail!("Unexpected vault log for {vault}:{block}");
+			return Err(anyhow!(crate::errors::Retry(format!(
+				"Unexpected vault log for {vault}:{block}"
+			))));
 		}
 		if !seen.insert(log_index) {
-			bail!("Duplicate vault log for {vault}:{block}:{log_index}");
+			let duplicate = format!("Duplicate vault log for {vault}:{block}:{log_index}");
+			return Err(anyhow!(crate::errors::Retry(duplicate)));
 		}
 		let hash = log.transaction_hash.map(|h| format!("{h:#x}")).unwrap_or_default();
 		movements.extend(capital_movements(&log.inner, &hash, log_index)?);
@@ -363,12 +367,11 @@ async fn opening_balance(
 			m.transaction_hash == hash &&
 			m.shares == delta
 	}) {
-		bail!(
+		// What a node answers before it has the block: the batch retries until it has.
+		return Err(anyhow!(crate::errors::Retry(format!(
 			"Vault opening balance is missing the triggering log for {}:{}:{}",
-			chain.id,
-			input.vault,
-			input.lp
-		);
+			chain.id, input.vault, input.lp
+		))));
 	}
 	let remaining = movements
 		.iter()
@@ -695,8 +698,8 @@ async fn snapshot_lp_positions(
 			)
 		})
 		.await;
-		for outcome in outcomes {
-			if matches!(outcome?, LpOutcome::Retry) {
+		for outcome in crate::errors::first_failure(outcomes)? {
+			if matches!(outcome, LpOutcome::Retry) {
 				complete = false;
 			}
 		}

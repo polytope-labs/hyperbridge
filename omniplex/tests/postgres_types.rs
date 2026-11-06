@@ -54,3 +54,27 @@ async fn enums_bind_to_subquery_types() {
 		.get(0);
 	assert_eq!(back, Status::HyperbridgeDelivered);
 }
+
+/**
+ * Two statements sent together on one transaction: once the first fails, the second only fails
+ * with 25P02. `first_failure` keeps the first one's error, which says what went wrong.
+ */
+#[tokio::test]
+async fn the_cause_beats_the_aborted_transaction_it_leaves() {
+	use omniplex::errors::{first_failure, is_aborted_transaction, is_transient};
+	let Some(mut client) = client().await else { return };
+	let tx = client.transaction().await.unwrap();
+	let refused = async {
+		tx.execute("SELECT $1::text", &[&"a\0b"]).await?;
+		anyhow::Ok(())
+	};
+	let after = async {
+		tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+		tx.execute("SELECT 1", &[]).await?;
+		anyhow::Ok(())
+	};
+	let (after, refused) = futures::join!(after, refused);
+	assert!(is_aborted_transaction(after.as_ref().unwrap_err()));
+	let err = first_failure(vec![after, refused]).unwrap_err();
+	assert!(!is_aborted_transaction(&err) && !is_transient(&err), "{err:#}");
+}

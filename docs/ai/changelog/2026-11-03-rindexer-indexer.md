@@ -82,14 +82,16 @@ The import runs in one transaction, so a failure leaves the copy as it was.
 - **Batches.** Each block of a batch commits in one transaction together with the chain's
   cursor, as SubQuery flushed each block. So rows that several chains' processes write, such
   as a relayer's, stay locked for one block's work. A delivery's handler makes its RPC and
-  price reads before it writes the relayer's rows. Each handler and block hook runs in a
-  savepoint. A transient error, an RPC's or the database's, fails the batch, and rindexer
-  retries it; the replay skips the blocks that already committed. Any other error would fail
-  the same way on every retry, so its handler's or hook's writes are undone and skipped with a
-  warning. That includes a database data exception (SQLSTATE class 22), such as a number out of
-  range, and a program limit (class 54), such as a value too long for an index. Work that only
-  logs its failures, as SubQuery's `try`/`catch` did, still passes database errors on, since a
-  failed statement leaves the savepoint unusable.
+  price reads before it writes the relayer's rows, and stores a refreshed token price with
+  its other writes. A transient error, an RPC's or the database's, fails the batch, and
+  rindexer retries it; the replay skips the blocks that already committed. Any other error
+  would fail the same way on every retry. So the block is rolled back and run again without
+  the work that failed, and a warning names it. That work is the handler, or the block hook,
+  or only the handler's non-critical work when that is what failed: the work SubQuery ran in
+  a `try`/`catch`. Lasting errors include database data exceptions (SQLSTATE class 22), such
+  as a number out of range, integrity constraint violations (23), and program limits (54),
+  such as a value too long for an index. Handlers run without savepoints, so a block costs no
+  extra round trips and holds no subtransactions.
 - **RPC errors.** Handler reads time out after 30 s, and rate limits are retried in place.
   `eth_getLogs` goes through rindexer's own client. rindexer's live loop stops for good after
   an error on a range as short as a live window, so `AllTopicsProvider` retries those errors

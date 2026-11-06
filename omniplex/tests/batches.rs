@@ -85,6 +85,26 @@ impl BlockHook for Counter {
 	}
 }
 
+/** A hook that writes a row, then fails for good. */
+struct BrokenHook;
+
+#[async_trait]
+impl BlockHook for BrokenHook {
+	fn applies_to(&self, _: &ChainConfig) -> bool {
+		true
+	}
+
+	async fn after_batch(&self, ctx: &BlockContext<'_>) -> anyhow::Result<()> {
+		ctx.db
+			.execute(
+				"INSERT INTO public.batch_writes (network, block, note) VALUES ($1, $2, 'hook')",
+				&[&ctx.chain.name, &(ctx.block_number as i64)],
+			)
+			.await?;
+		anyhow::bail!("this hook can never apply")
+	}
+}
+
 /** A log of `block`, from a fetch of `range`. */
 fn result(network: &str, range: (u64, u64), block: u64, log_index: u64) -> EventResult {
 	let mut log = alloy::rpc::types::Log::default();
@@ -183,7 +203,7 @@ impl EventHandler for Writer {
 		let block = ctx.log.block_number;
 		Self::write(ctx, if block == self.nul_at { "a\0b" } else { "written" }).await?;
 		if block == self.non_critical_nul_at {
-			non_critical(Self::write(ctx, "a\0b").await, "a refused note")?;
+			non_critical(ctx, "a refused note", Self::write(ctx, "a\0b")).await?;
 			Self::write(ctx, "after").await?;
 		}
 		if block == self.lasting_at {
@@ -194,9 +214,10 @@ impl EventHandler for Writer {
 }
 
 /**
- * A handler that fails for good loses its own writes, not the batch: the chain goes on. So does
- * one whose refused write was in work that only logs its failures, as the refused statement
- * leaves the savepoint unusable.
+ * A handler that fails for good loses its own writes, not the batch: the block runs again
+ * without it, and the chain goes on. When the refused write was in work that only logs its
+ * failures, the block runs again without just that work, and the handler's other writes stay.
+ * A hook that fails for good is left out the same way.
  */
 #[tokio::test]
 async fn a_log_that_can_never_apply_is_skipped_with_its_writes() {
@@ -210,22 +231,22 @@ async fn a_log_that_can_never_apply_is_skipped_with_its_writes() {
 		.await
 		.unwrap();
 	let writer = Writer { lasting_at: 2, nul_at: 3, non_critical_nul_at: 5 };
-	let routes =
-		ChainRoutes::new(&chain_config, &[Subscription::new(Source::EthereumHost, writer)], &[]);
+	let subscriptions = [Subscription::new(Source::EthereumHost, writer)];
+	let routes = ChainRoutes::new(&chain_config, &subscriptions, &[Arc::new(BrokenHook)]);
 	let batch = [(1, 0), (2, 0), (3, 0), (4, 0), (5, 0)]
 		.map(|(block, log)| result(&network, (1, 5), block, log));
 	process_batch(&indexer, &network, &routes, batch.into()).await.unwrap();
 	let written = admin
 		.query(
-			"SELECT block FROM public.batch_writes WHERE network = $1 ORDER BY block",
+			"SELECT block || ' ' || note FROM public.batch_writes WHERE network = $1 ORDER BY block, note",
 			&[&network],
 		)
 		.await
 		.unwrap()
 		.iter()
-		.map(|row| row.get::<_, i64>(0))
+		.map(|row| row.get::<_, String>(0))
 		.collect::<Vec<_>>();
-	assert_eq!(written, [1, 4]);
+	assert_eq!(written, ["1 written", "4 written", "5 after", "5 written"]);
 	let cursor = admin
 		.query_one("SELECT block_number FROM indexer.cursors WHERE network = $1", &[&network])
 		.await

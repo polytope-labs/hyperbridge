@@ -432,7 +432,7 @@ impl EventHandler for PostRequestHandled {
 			let relayer = decode_relayer_address(&event.relayer)?;
 			request_handled(ctx, &relayer, host, timestamp, None).await
 		};
-		non_critical(stats.await, "PostRequestHandled stats")
+		non_critical(ctx, "PostRequestHandled stats", stats).await
 	}
 }
 
@@ -490,7 +490,7 @@ impl EventHandler for GetRequestHandled {
 			let relayer = raw_relayer_name(&event.relayer)?;
 			request_handled(ctx, &relayer, host, timestamp, None).await
 		};
-		non_critical(stats.await, "GetRequestHandled stats")
+		non_critical(ctx, "GetRequestHandled stats", stats).await
 	}
 }
 

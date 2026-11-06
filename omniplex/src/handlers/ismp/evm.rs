@@ -117,7 +117,7 @@ impl EventHandler for PostRequestEvent {
 			add_chain_stats(ctx.db, chain, &sent_message()).await?;
 			sweep_transfers(ctx, &transaction, timestamp, Attribution::Sender(&from)).await
 		};
-		non_critical(extras.await, "PostRequestEvent stats")
+		non_critical(ctx, "PostRequestEvent stats", extras).await
 	}
 }
 
@@ -184,7 +184,7 @@ async fn delivered(
 			None => Ok(()),
 		}
 	};
-	non_critical(extras.await, "request handled stats")
+	non_critical(ctx, "request handled stats", extras).await
 }
 
 /** E3 `handlePostRequestTimeoutHandledEvent`. */
@@ -234,7 +234,7 @@ async fn timed_out(
 		add_chain_stats(ctx.db, chain, &timed_out_message()).await?;
 		sweep_transfers(ctx, &transaction, timestamp, Attribution::Modules(function)).await
 	};
-	non_critical(extras.await, "timeout stats")
+	non_critical(ctx, "timeout stats", extras).await
 }
 
 /** E4 `handleGetRequestEvent`. */
@@ -295,7 +295,7 @@ impl EventHandler for GetRequestEvent {
 			add_chain_stats(ctx.db, chain, &sent_message()).await?;
 			sweep_transfers(ctx, &transaction, timestamp, Attribution::Sender(&from)).await
 		};
-		non_critical(extras.await, "GetRequestEvent stats")
+		non_critical(ctx, "GetRequestEvent stats", extras).await
 	}
 }
 
@@ -400,7 +400,7 @@ impl EventHandler for FeeTokenTransfer {
 				}
 				anyhow::Ok(())
 			};
-			non_critical(fees.await, "fee token transfer")?;
+			non_critical(ctx, "fee token transfer", fees).await?;
 		}
 		if to_host {
 			let delta = ChainStatsDelta { transfers_in: amount, ..Default::default() };

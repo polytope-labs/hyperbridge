@@ -230,6 +230,10 @@ pub fn orderbook_endpoint(configured: &str, path: &str) -> Option<reqwest::Url> 
  * `TokenPriceService.getPrice`: the stored price while it is under 10 minutes old, otherwise a
  * fresh one from the orderbook, falling back to the stale price. 0 on testnets and on errors.
  * `timestamp` is the block's, in seconds or milliseconds.
+ *
+ * A fresh price comes back with the [`PriceRefresh`] that stores it, for the caller to write
+ * with its other writes. The stored row is shared by every chain's process, and a write keeps
+ * it locked until the block commits.
  */
 pub async fn token_price(
 	orderbook: &Orderbook,
@@ -237,9 +241,9 @@ pub async fn token_price(
 	db: &Transaction<'_>,
 	symbol: &str,
 	timestamp: u64,
-) -> anyhow::Result<Dec> {
+) -> anyhow::Result<(Dec, Option<PriceRefresh>)> {
 	if environment == Environment::Testnet {
-		return Ok(Dec::zero());
+		return Ok((Dec::zero(), None));
 	}
 	let stored = db
 		.query_opt(
@@ -253,48 +257,63 @@ pub async fn token_price(
 		normalize_timestamp(timestamp).saturating_sub(last) < PRICE_REFRESH_INTERVAL_MS
 	};
 	match stored {
-		Some((price, last_updated)) if fresh(&last_updated) => parse_js_number(&price),
-		stored => match refresh_token_price(orderbook, db, symbol, timestamp).await? {
-			Some(price) => Ok(price),
+		Some((price, last_updated)) if fresh(&last_updated) => Ok((parse_js_number(&price)?, None)),
+		stored => match fresh_price(orderbook, symbol, timestamp).await? {
+			Some(refresh) => Ok((parse_js_number(&refresh.price)?, Some(refresh))),
 			None => match stored {
-				Some((price, _)) => parse_js_number(&price),
-				None => Ok(Dec::zero()),
+				Some((price, _)) => Ok((parse_js_number(&price)?, None)),
+				None => Ok((Dec::zero(), None)),
 			},
 		},
 	}
 }
 
-/** `updateTokenPrices([symbol])`: stores the orderbook's price, or nothing when it has none. */
-async fn refresh_token_price(
+/** The orderbook's price for a symbol whose stored one is stale, to store with [`Self::store`]. */
+#[derive(Debug, Clone)]
+pub struct PriceRefresh {
+	symbol: String,
+	/** The TypeScript stored `price.toNumber().toString()`. */
+	price: String,
+	timestamp: u64,
+}
+
+impl PriceRefresh {
+	/** `updateTokenPrices([symbol])`'s writes: the price, and its log row. */
+	pub async fn store(&self, db: &Transaction<'_>) -> anyhow::Result<()> {
+		let (symbol, timestamp) = (&self.symbol, self.timestamp);
+		let normalized = numeric(normalize_timestamp(timestamp));
+		db.execute(
+			"INSERT INTO app.token_prices (id, symbol, currency, price, last_updated_at)
+			 VALUES ($1, $1, 'USD', $2, $3)
+			 ON CONFLICT (id) DO UPDATE SET price = EXCLUDED.price, last_updated_at = EXCLUDED.last_updated_at",
+			&[symbol, &self.price, &normalized],
+		)
+		.await?;
+		db.execute(
+			"INSERT INTO app.token_price_logs (id, symbol, currency, price, provider, timestamp, created_at)
+			 VALUES ($1, $2, 'USD', $3, 'HYPERFX', $4, $5)
+			 ON CONFLICT (id) DO UPDATE SET price = EXCLUDED.price, timestamp = EXCLUDED.timestamp,
+			   created_at = EXCLUDED.created_at",
+			&[&format!("{symbol}-{timestamp}"), symbol, &self.price, &normalized, &timestamp_to_date(timestamp)],
+		)
+		.await?;
+		Ok(())
+	}
+}
+
+/** The orderbook's price, or none when it quotes none. */
+async fn fresh_price(
 	orderbook: &Orderbook,
-	db: &Transaction<'_>,
 	symbol: &str,
 	timestamp: u64,
-) -> anyhow::Result<Option<Dec>> {
+) -> anyhow::Result<Option<PriceRefresh>> {
 	let Some(price) = orderbook.token_usd_price(symbol).await.filter(Dec::is_positive) else {
 		tracing::warn!("the orderbook quotes no price for {symbol}");
 		return Ok(None);
 	};
-	// The TypeScript stored `price.toNumber().toString()`.
 	let number: f64 = price.to_string().parse()?;
-	let text = Dec::from_f64(number)?.to_string();
-	let normalized = numeric(normalize_timestamp(timestamp));
-	db.execute(
-		"INSERT INTO app.token_prices (id, symbol, currency, price, last_updated_at)
-		 VALUES ($1, $1, 'USD', $2, $3)
-		 ON CONFLICT (id) DO UPDATE SET price = EXCLUDED.price, last_updated_at = EXCLUDED.last_updated_at",
-		&[&symbol, &text, &normalized],
-	)
-	.await?;
-	db.execute(
-		"INSERT INTO app.token_price_logs (id, symbol, currency, price, provider, timestamp, created_at)
-		 VALUES ($1, $2, 'USD', $3, 'HYPERFX', $4, $5)
-		 ON CONFLICT (id) DO UPDATE SET price = EXCLUDED.price, timestamp = EXCLUDED.timestamp,
-		   created_at = EXCLUDED.created_at",
-		&[&format!("{symbol}-{timestamp}"), &symbol, &text, &normalized, &timestamp_to_date(timestamp)],
-	)
-	.await?;
-	parse_js_number(&text).map(Some)
+	let price = Dec::from_f64(number)?.to_string();
+	Ok(Some(PriceRefresh { symbol: symbol.to_string(), price, timestamp }))
 }
 
 /** `parseFloat` of a stored price, carried back into a decimal the way JavaScript would. */

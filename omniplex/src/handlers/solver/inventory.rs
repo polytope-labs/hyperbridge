@@ -19,6 +19,7 @@ use super::{
 	unsigned, DelegationReading, SolverChain, ZERO_ADDRESS,
 };
 use crate::{
+	errors::{is_aborted_transaction, is_database_error},
 	handlers::abi::{Erc20, Erc4626},
 	services::solvers::{queue_solver, Discovery},
 	store::{numeric, timestamp_to_date, SolverDiscoveryTrigger, TrackedSolverStatus},
@@ -70,10 +71,6 @@ fn elapsed_at_least(from: Option<NaiveDateTime>, to: NaiveDateTime, secs: i64) -
 
 fn parse_address(address: &str) -> anyhow::Result<Address> {
 	Ok(address.parse()?)
-}
-
-fn is_db_error(err: &anyhow::Error) -> bool {
-	err.chain().any(|cause| cause.is::<tokio_postgres::Error>())
 }
 
 // ─── Rows ───────────────────────────────────────────────────────────────────────────────────────
@@ -703,7 +700,7 @@ pub async fn seed_pending_solvers(
 	let solvers: Vec<String> = pending.iter().map(|t| t.solver.clone()).collect();
 	let readings = match read_solvers(db, chain, reads, &solvers, false, block_number).await {
 		Ok(readings) => readings,
-		Err(err) if is_db_error(&err) => return Err(err),
+		Err(err) if is_database_error(&err) => return Err(err),
 		Err(err) => {
 			tracing::warn!(
 				"[solver-inventory] Genesis reads failed on {}, retrying next block: {err:#}",
@@ -998,13 +995,22 @@ async fn refresh_page(
 	}
 
 	let solvers: Vec<String> = reconciling.iter().map(|t| t.solver.clone()).collect();
-	let reads_done = futures::try_join!(
+	let (solvers_read, revaluations_read) = futures::join!(
 		read_solvers(db, chain, reads, &solvers, true, block_number),
 		read_revaluations(db, chain, reads, &revaluing, block_number),
 	);
+	// Both ran on the block's transaction, so a failed statement can surface in either.
+	let reads_done = match (solvers_read, revaluations_read) {
+		(Ok(readings), Ok(revaluations)) => Ok((readings, revaluations)),
+		(Err(err), Ok(_)) | (Ok(_), Err(err)) => Err(err),
+		(Err(first), Err(second)) => Err(match is_aborted_transaction(&first) {
+			true => second,
+			false => first,
+		}),
+	};
 	let (readings, revaluations) = match reads_done {
 		Ok(done) => done,
-		Err(err) if is_db_error(&err) => return Err(err),
+		Err(err) if is_database_error(&err) => return Err(err),
 		Err(err) => {
 			tracing::warn!(
 				"[solver-inventory] Refresh reads failed on {}, retrying next pass: {err:#}",

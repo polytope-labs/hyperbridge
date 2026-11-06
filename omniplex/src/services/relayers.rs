@@ -84,12 +84,23 @@ pub async fn touch_relayer_activity(
 	timestamp: u64,
 ) -> anyhow::Result<()> {
 	ensure_relayer(db, relayer).await?;
-	db.execute(
-		"INSERT INTO app.relayer_activities (id, relayer_id, last_updated_at) VALUES ($1, $1, $2)
-		 ON CONFLICT (id) DO UPDATE SET last_updated_at = EXCLUDED.last_updated_at",
-		&[&relayer, &numeric(timestamp)],
-	)
-	.await?;
+	// The table has a second unique index, on `relayer_id`. Only a conflict target names both,
+	// so a first insert racing another chain's process waits for it instead of failing.
+	let timestamp = numeric(timestamp);
+	let inserted = db
+		.execute(
+			"INSERT INTO app.relayer_activities (id, relayer_id, last_updated_at) VALUES ($1, $1, $2)
+			 ON CONFLICT DO NOTHING",
+			&[&relayer, &timestamp],
+		)
+		.await?;
+	if inserted == 0 {
+		db.execute(
+			"UPDATE app.relayer_activities SET last_updated_at = $2 WHERE id = $1",
+			&[&relayer, &timestamp],
+		)
+		.await?;
+	}
 	Ok(())
 }
 

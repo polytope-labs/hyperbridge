@@ -111,7 +111,8 @@ async fn handle<H: EventHandler>(
 	handler: &H,
 	event: H::Event,
 ) {
-	let ctx = EventContext { indexer, chain: &indexer.chains[network], db, log };
+	let chain = &indexer.chains[network];
+	let ctx = EventContext { indexer, chain, db, log, skip_non_critical: false };
 	handler.handle(&ctx, event).await.unwrap();
 }
 

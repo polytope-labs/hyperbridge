@@ -23,6 +23,7 @@ use async_trait::async_trait;
 use common::{database, text};
 use omniplex::{
 	config::ChainConfig,
+	errors::{is_transient, Retry},
 	handlers::{
 		abi::Erc4626,
 		solver::{
@@ -83,6 +84,8 @@ struct Model {
 	default_code: Mutex<Bytes>,
 	code_failures: AtomicUsize,
 	convert_failures: AtomicUsize,
+	/** convertToAssets reads an RPC rate-limits, which a retry can answer. */
+	convert_rate_limited: AtomicUsize,
 	vault_reads_fail: AtomicBool,
 	multicall_deployed: AtomicBool,
 	logs: Mutex<Vec<Log>>,
@@ -105,6 +108,7 @@ impl Model {
 			default_code: Mutex::new(Bytes::new()),
 			code_failures: AtomicUsize::new(0),
 			convert_failures: AtomicUsize::new(0),
+			convert_rate_limited: AtomicUsize::new(0),
 			vault_reads_fail: AtomicBool::new(false),
 			multicall_deployed: AtomicBool::new(true),
 			logs: Default::default(),
@@ -176,6 +180,13 @@ impl Model {
 				.is_ok()
 			{
 				anyhow::bail!("RPC unavailable");
+			}
+			if self
+				.convert_rate_limited
+				.try_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1))
+				.is_ok()
+			{
+				return Err(anyhow::anyhow!(Retry("rate limited".into())));
 			}
 			let assets = match self.prices.lock().unwrap().get(&call.shares) {
 				Some(assets) => *assets,
@@ -774,6 +785,23 @@ async fn vault_shares_are_revalued_hourly_without_reading_wallets_or_code() {
 	assert_eq!(usdc.refreshed_at, timestamp_secs(at));
 	assert_eq!(t.model.balance_reads.load(Ordering::SeqCst), 0);
 	assert_eq!(t.model.code_reads.load(Ordering::SeqCst), 0);
+}
+
+/** A vault-share read the RPC didn't answer fails the batch for a retry, which applies it. */
+#[tokio::test]
+async fn a_vault_share_read_the_rpc_did_not_answer_is_retried() {
+	let Some(mut client) = database().await else { return };
+	let db = client.transaction().await.unwrap();
+	let t = Inventories::new("EVM-T24");
+	t.track(&db, 1_000, 50).await;
+	t.model.convert_rate_limited.store(1, Ordering::SeqCst);
+	let transfer = Transfer { contract: VAULT.into(), ..t.transfer(OTHER, SOLVER, 10, 200, 0) };
+	let err = apply_vault_share_transfer(&db, &t.chain, &t.model, &transfer)
+		.await
+		.unwrap_err();
+	assert!(is_transient(&err), "{err:#}");
+	apply_vault_share_transfer(&db, &t.chain, &t.model, &transfer).await.unwrap();
+	assert!(t.vault_shares(&db, SOLVER).await.unwrap().starts_with("60 "));
 }
 
 #[tokio::test]
@@ -1499,6 +1527,7 @@ async fn a_missing_triggering_log_records_nothing_and_a_retry_succeeds() {
 	v.model.set_balance(VAULT, SOLVER, 20);
 	let err = v.record(&db, v.ledger()).await.unwrap_err();
 	assert!(err.to_string().contains("missing the triggering log"), "{err}");
+	assert!(is_transient(&err), "a node behind the block is waited for");
 	assert_eq!(v.count(&db, "vault_ledger_events").await, 0);
 	v.block_events(&[v.ledger()]);
 	v.record(&db, v.ledger()).await.unwrap();

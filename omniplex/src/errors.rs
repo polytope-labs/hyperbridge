@@ -99,10 +99,10 @@ pub fn is_answer(err: &TransportError) -> bool {
 
 /**
  * SQLSTATE classes whose errors repeat for the same values: data exceptions (22), such as a NUL
- * in text or a number out of range, and program limits (54), such as a value too long for an
- * index.
+ * in text or a number out of range; integrity constraint violations (23), such as a NOT NULL
+ * or unique violation; and program limits (54), such as a value too long for an index.
  */
-const LASTING_DATABASE_ERRORS: &[&str] = &["22", "54"];
+const LASTING_DATABASE_ERRORS: &[&str] = &["22", "23", "54"];
 
 /**
  * Whether an error is transient: a database error, or an RPC that failed to answer. A failed
@@ -135,9 +135,45 @@ pub fn is_transient(err: &anyhow::Error) -> bool {
 	})
 }
 
-/** Whether `err` came from the database. A failed statement leaves its savepoint unusable. */
+/** Whether `err` came from the database. A failed statement aborts its transaction. */
 pub fn is_database_error(err: &anyhow::Error) -> bool {
 	err.chain().any(|cause| cause.is::<tokio_postgres::Error>())
+}
+
+/**
+ * Whether `err` is Postgres refusing a statement because an earlier one in its transaction
+ * failed (25P02). It says nothing of that failure.
+ */
+pub fn is_aborted_transaction(err: &anyhow::Error) -> bool {
+	err.chain().any(|cause| {
+		let code = cause.downcast_ref::<tokio_postgres::Error>().and_then(|err| err.code());
+		code.is_some_and(|code| code.code() == "25P02")
+	})
+}
+
+/**
+ * The outcomes of work that ran concurrently on one transaction, or its first error that isn't
+ * [`is_aborted_transaction`]. Once a statement fails, the others only fail with 25P02, which a
+ * retry can't fix even when it counts as transient.
+ */
+pub fn first_failure<T>(outcomes: Vec<anyhow::Result<T>>) -> anyhow::Result<Vec<T>> {
+	let mut values = Vec::with_capacity(outcomes.len());
+	let mut failure: Option<anyhow::Error> = None;
+	for outcome in outcomes {
+		match outcome {
+			Ok(value) => values.push(value),
+			Err(err) => {
+				let keep = match &failure {
+					None => true,
+					Some(kept) => is_aborted_transaction(kept) && !is_aborted_transaction(&err),
+				};
+				if keep {
+					failure = Some(err);
+				}
+			},
+		}
+	}
+	failure.map_or(Ok(values), Err)
 }
 
 /** The node's error answer in `err`: a JSON-RPC error, or one sent with a 4xx status. */

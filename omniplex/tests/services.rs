@@ -94,6 +94,13 @@ async fn relayer_and_chain_stats_accumulate() {
 	.await
 	.unwrap();
 	touch_relayer_activity(&db, "0xrelayer", 1_700_000_000).await.unwrap();
+	touch_relayer_activity(&db, "0xrelayer", 1_700_000_500).await.unwrap();
+	let activity = text(
+		&db,
+		"SELECT relayer_id || ' ' || last_updated_at FROM app.relayer_activities WHERE id = '0xrelayer'",
+	)
+	.await;
+	assert_eq!(activity.as_deref(), Some("0xrelayer 1700000500"), "the second touch updates");
 	let stats = text(
 		&db,
 		"SELECT number_of_successful_messages_delivered || ' ' || gas_used_for_successful_messages || ' ' || cumulative_withdrawn_amount
@@ -147,27 +154,37 @@ async fn the_first_discovery_of_a_solver_wins() {
 	assert_eq!(row.as_deref(), Some("PENDING FILL 10"));
 }
 
+/** A fresh price is written only when its refresh is stored, with the caller's other writes. */
 #[tokio::test]
 async fn token_prices_are_zero_on_testnets_and_stables_are_stored_at_one() {
 	let Some(mut client) = database().await else { return };
 	let db = client.transaction().await.unwrap();
 	let orderbook = Orderbook::new(None, reqwest::Client::new());
-	let testnet = token_price(&orderbook, Environment::Testnet, &db, "USDC", 1_700_000_000)
-		.await
-		.unwrap();
-	assert!(testnet.is_zero());
-	let usdc = token_price(&orderbook, Environment::Mainnet, &db, "USDC", 1_700_000_000)
+	let (testnet, refresh) =
+		token_price(&orderbook, Environment::Testnet, &db, "USDC", 1_700_000_000)
+			.await
+			.unwrap();
+	assert!(testnet.is_zero() && refresh.is_none());
+	let (usdc, refresh) = token_price(&orderbook, Environment::Mainnet, &db, "USDC", 1_700_000_000)
 		.await
 		.unwrap();
 	assert_eq!(usdc.to_string(), "1");
 	let stored =
-		text(&db, "SELECT price || ' ' || last_updated_at FROM app.token_prices WHERE id = 'USDC'")
-			.await;
-	assert_eq!(stored.as_deref(), Some("1 1700000000000"));
-	let unpriced = token_price(&orderbook, Environment::Mainnet, &db, "WETH", 1_700_000_000)
-		.await
-		.unwrap();
-	assert!(unpriced.is_zero());
+		|| {
+			let db = &db;
+			async move {
+				text(db, "SELECT price || ' ' || last_updated_at FROM app.token_prices WHERE id = 'USDC'")
+				.await
+			}
+		};
+	assert_eq!(stored().await, None, "nothing is written while reading");
+	refresh.expect("a stale price is refreshed").store(&db).await.unwrap();
+	assert_eq!(stored().await.as_deref(), Some("1 1700000000000"));
+	let (unpriced, refresh) =
+		token_price(&orderbook, Environment::Mainnet, &db, "WETH", 1_700_000_000)
+			.await
+			.unwrap();
+	assert!(unpriced.is_zero() && refresh.is_none());
 }
 
 #[tokio::test]

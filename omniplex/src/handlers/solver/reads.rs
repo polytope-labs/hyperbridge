@@ -13,6 +13,7 @@ use async_trait::async_trait;
 use futures::{stream, StreamExt};
 
 use super::SolverChain;
+use crate::errors::is_transient;
 
 sol! {
 	interface Multicall3 {
@@ -146,7 +147,8 @@ async fn aggregate(
 /**
  * `readContracts`: runs `reads` at `block` and returns their answers in order, one eth_call per
  * MULTICALL_BATCH_SIZE reads. A single read, or a chain without Multicall3, is called directly
- * instead. A read that reverts fails alone; a failed eth_call to Multicall3 is an error.
+ * instead. Either way, a read that reverts fails alone, and an RPC that doesn't answer is an
+ * error, which fails the batch for a retry.
  */
 pub async fn read_contracts(
 	chain: &SolverChain,
@@ -158,13 +160,15 @@ pub async fn read_contracts(
 		return Ok(vec![]);
 	}
 	if batch.len() == 1 || !has_multicall3(chain, reads, block).await? {
-		return Ok(map_concurrently(batch, |read| async move {
-			reads
-				.call(read.target, read.call_data.clone(), block)
-				.await
-				.map_err(|err| format!("{}: {err:#}", read.label))
+		let answers = map_concurrently(batch, |read| async move {
+			match reads.call(read.target, read.call_data.clone(), block).await {
+				Ok(answer) => Ok(Ok(answer)),
+				Err(err) if is_transient(&err) => Err(err),
+				Err(err) => Ok(Err(format!("{}: {err:#}", read.label))),
+			}
 		})
-		.await);
+		.await;
+		return answers.into_iter().collect();
 	}
 	let answers = futures::future::try_join_all(
 		batch.chunks(MULTICALL_BATCH_SIZE).map(|chunk| aggregate(reads, chunk, block)),

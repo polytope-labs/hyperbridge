@@ -146,20 +146,11 @@ const BLOCK_TIME_SAMPLE_BLOCKS = 1_000n
 const FALLBACK_BLOCK_TIME_SECONDS = 2
 
 /**
- * On a chain that declares a block time, a measurement faster than half of it is taken for a bad
- * sample, not a faster chain. Real speed-ups are inside that (BSC runs at 0.6× its declared figure),
- * and the measurement is pinned for the life of the process, so this bounds how far one RPC serving
- * bad timestamps can stretch every bid on that chain to twice the window.
- */
-const MEASURED_BLOCK_TIME_TOLERANCE_DIVISOR = 2
-
-/**
- * The floor for a measurement on a chain that declares no block time. With no declared figure there
- * is no reference to judge a sample against, and holding it to a fraction of
- * {@link FALLBACK_BLOCK_TIME_SECONDS} would throw away the real measurement of a fast chain (BSC
- * Chapel makes a block every 0.45s) and end its bids early. So such a chain only gets this flat
- * floor, which catches an impossible sample and nothing else; a measurement below it is replaced by
- * the fallback.
+ * The floor for a block-time measurement, on every chain. A measurement is not judged against the
+ * chain's declared figure: real speed-ups run far past any fixed fraction of it (Base makes a block
+ * every 0.2s against viem's 2s), and discarding one ends every bid on that chain early. So a sample
+ * is held only to this flat floor, which catches an impossible sample and nothing else; a
+ * measurement below it is replaced by the declared figure, then the fallback.
  */
 const MIN_PLAUSIBLE_BLOCK_TIME_SECONDS = 0.1
 
@@ -1144,19 +1135,18 @@ export class ContractInteractionService {
 	}
 
 	/**
-	 * Seconds per block on `chain`. Measured once, when simplex starts ({@link initCache}), and
-	 * kept until it stops. A chain with no measurement yet, because it was added later or its
-	 * blocks could not be read at startup, is measured at its first bid.
+	 * Seconds per block on `chain`. Measured on every configured chain when simplex starts
+	 * ({@link initCache}), and kept until it stops. A chain with no measurement yet, because it
+	 * was added later or its blocks could not be read at startup, is measured at its first use.
 	 *
-	 * The nominal `Chain.blockTime` cannot be relied on alone: it goes stale when a chain
-	 * speeds up (BSC makes a block every 0.45s against a declared 0.75s) and some chains
-	 * declare none. Converting at a slower block time than the chain's ends a bid early, so
-	 * the faster of the measured and the declared figure is used, and a stalled or idle
-	 * stretch in the sample never shortens a bid. A measurement below half the declared figure is
-	 * discarded, which limits how far one RPC can stretch a bid to twice its window. A chain that
-	 * declares none has no reference to judge a sample against, so it only gets the flat floor
-	 * {@link MIN_PLAUSIBLE_BLOCK_TIME_SECONDS}; below that the measurement is discarded for
-	 * {@link FALLBACK_BLOCK_TIME_SECONDS}.
+	 * The measurement is what simplex converts at, however far it is from the nominal
+	 * `Chain.blockTime`: that figure goes stale when a chain speeds up (Base makes a block every
+	 * 0.2s against viem's 2s, BSC every 0.45s against 0.75s) and some chains declare none.
+	 * Converting at a slower block time than the chain's ends a bid early — on Base, at a tenth of
+	 * its window. The declared figure is used only when it is faster, so a stalled or idle stretch
+	 * in the sample never shortens a bid. A measurement below the flat floor
+	 * {@link MIN_PLAUSIBLE_BLOCK_TIME_SECONDS} is impossible and is discarded for the declared
+	 * figure, then {@link FALLBACK_BLOCK_TIME_SECONDS}.
 	 *
 	 * Blocks that cannot be read fall back to the declared figure, then to
 	 * {@link FALLBACK_BLOCK_TIME_SECONDS}. That answer is not kept.
@@ -1171,8 +1161,7 @@ export class ContractInteractionService {
 		const declared = declaredMs ? declaredMs / 1000 : undefined
 		const seconds = this.measureBlockTimeSeconds(client)
 			.then((measured) => {
-				const floor = declared ? declared / MEASURED_BLOCK_TIME_TOLERANCE_DIVISOR : MIN_PLAUSIBLE_BLOCK_TIME_SECONDS
-				if (measured < floor) {
+				if (measured < MIN_PLAUSIBLE_BLOCK_TIME_SECONDS) {
 					const used = declared ?? FALLBACK_BLOCK_TIME_SECONDS
 					this.logger.warn(
 						{ chain, measured, declared, seconds: used },
@@ -1180,7 +1169,9 @@ export class ContractInteractionService {
 					)
 					return used
 				}
-				return declared ? Math.min(measured, declared) : measured
+				const used = declared ? Math.min(measured, declared) : measured
+				this.logger.info({ chain, measured, declared, seconds: used }, "Measured the block time")
+				return used
 			})
 			.catch((err) => {
 				this.blockTimes.delete(chain)

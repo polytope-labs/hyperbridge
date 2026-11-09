@@ -2224,6 +2224,39 @@ describe("BRIDGE top-up placement recovery", () => {
 		expect(await firstPage(12_000)).toBe(4_936n)
 	})
 
+	it("sizes the evidence margin at the block time simplex measured, not the declared one", async () => {
+		const firstPage = async (blockTimeSeconds?: BridgeTopUpDeps["blockTimeSeconds"]) => {
+			const { topUp } = topUpWith(userOpPlacement({ placeUserOpExpires: false, placeFromBlock: "5000" }))
+			const internals = topUp as unknown as TopUpInternals
+			internals.deps.tokenSender = { userOpReceipt: async () => null } as never
+			internals.deps.blockTimeSeconds = blockTimeSeconds
+			const ranges: bigint[] = []
+			// viem declares 2 s for Base, which makes a block every 0.2 s.
+			installPayingClient(internals, {
+				logs: [],
+				latestBlock: 5_100n,
+				nonce: 3n,
+				blockTime: 2_000,
+				onGetLogs: ({ fromBlock }) => ranges.push(fromBlock),
+			})
+			vi.useFakeTimers()
+			try {
+				await topUp.current()
+				await vi.advanceTimersByTimeAsync(0)
+			} finally {
+				vi.clearAllTimers()
+				vi.useRealTimers()
+			}
+			return ranges[0]
+		}
+
+		// Measured at 0.2 s, 300 s is 1500 blocks; at the declared 2 s it would be 150, or 30 s of Base.
+		expect(await firstPage(async () => 0.2)).toBe(3_500n)
+		// No measurement to be had: the declared figure stands.
+		expect(await firstPage(async () => Promise.reject(new Error("blocks unreadable")))).toBe(4_850n)
+		expect(await firstPage(undefined)).toBe(4_850n)
+	})
+
 	it("rescans a margin below its cursor, so a page a lagging backend served empty is read again", async () => {
 		const rescanStart = async (blockTime: number) => {
 			vi.useFakeTimers()

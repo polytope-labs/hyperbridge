@@ -304,6 +304,12 @@ export interface BridgeTopUpDeps {
 	hyperbridge?: Promise<IntentsCoprocessor>
 	/** Re-reads the filler's BRIDGE balance the moment a delivery lands, for the dashboard. */
 	refreshBridgeBalance?: () => Promise<void>
+	/**
+	 * Seconds per block on a chain, as simplex measured it at startup
+	 * (`ContractInteractionService.blockTimeSeconds`). The evidence margin is sized with it; without
+	 * it, or when it cannot answer, the chain's declared viem `blockTime` is used.
+	 */
+	blockTimeSeconds?: (chain: string) => Promise<number>
 	loggers?: Parameters<typeof moduleLogger>[0]
 }
 
@@ -846,7 +852,7 @@ export class BridgeTopUp {
 		},
 	): Promise<{ txHash?: HexString; scannedTo: bigint }> {
 		const client = this.deps.clientManager.getPublicClient(chain)
-		const margin = evidenceMarginBlocks(client)
+		const margin = await this.evidenceMargin(chain, client)
 		const first = belowTip(scan.submittedFrom, margin)
 		const cursor = scan.savedCursor ?? first
 		const rescan = belowTip(cursor, margin)
@@ -958,7 +964,7 @@ export class BridgeTopUp {
 		// `updatedAt` is rewritten by every save, so it can never be a submission time.
 		const submittedAt = record.placeSubmittedAt ?? record.stageTimes?.placing ?? record.createdAt
 		const client = this.deps.clientManager.getPublicClient(record.chain)
-		const margin = evidenceMarginBlocks(client)
+		const margin = await this.evidenceMargin(record.chain, client)
 		const evidenceBlock = scannedTo === undefined ? undefined : belowTip(scannedTo, margin)
 
 		const txHash = record.placeTxHash
@@ -1299,7 +1305,7 @@ export class BridgeTopUp {
 			this.blockTimeSeconds(),
 		])
 		const windowBlocks = BigInt(Math.ceil(ORDER_WINDOW_SECONDS / blockTime))
-		const from = belowTip(deadline - windowBlocks, evidenceMarginBlocks(client))
+		const from = belowTip(deadline - windowBlocks, await this.evidenceMargin(BRIDGE_TOP_UP_CHAIN, client))
 		const to = deadline < latest ? deadline : latest
 		return this.scanLogs<HexString>(from, to, async (fromBlock, toBlock) => {
 			const logs = await withTimeout(
@@ -1728,7 +1734,7 @@ export class BridgeTopUp {
 			return scan.txHash
 		}
 
-		const evidenceBlock = belowTip(scan.scannedTo, evidenceMarginBlocks(client))
+		const evidenceBlock = belowTip(scan.scannedTo, await this.evidenceMargin(chain, client))
 		if (sent.kind === "tx") {
 			const nonce = await withTimeout(
 				client.getTransactionCount({ address: this.deps.solver, blockNumber: evidenceBlock }),
@@ -2161,6 +2167,17 @@ export class BridgeTopUp {
 		return this.dispatcher
 	}
 
+	/** The evidence margin on `chain`, at the block time simplex measured for it at startup. */
+	private async evidenceMargin(chain: string, client: PublicClient): Promise<bigint> {
+		let measured: number | undefined
+		try {
+			measured = await this.deps.blockTimeSeconds?.(chain)
+		} catch (err) {
+			this.logger.debug({ err, chain }, "No measured block time; sizing the evidence margin at the declared one")
+		}
+		return evidenceMarginBlocks(client, measured)
+	}
+
 	private async blockTimeSeconds(): Promise<number> {
 		const client = this.bsc()
 		const latest = await client.getBlock()
@@ -2246,12 +2263,14 @@ const DELIVERY_STATUSES = new Set(["SOURCE", "SOURCE_FINALIZED", "DESTINATION"])
 
 /**
  * The evidence margin in blocks for the chain `client` reads: {@link EVIDENCE_MARGIN_SECONDS} of
- * its blocks, at least {@link MIN_EVIDENCE_MARGIN_BLOCKS}. The block time is the chain's declared
- * viem `blockTime` (ms) when it has one.
+ * its blocks, at least {@link MIN_EVIDENCE_MARGIN_BLOCKS}. The block time is `measured` (seconds)
+ * when there is one, then the chain's declared viem `blockTime` (ms), which can be far off: viem
+ * declares 2s for Base, which makes a block every 0.2s.
  */
-function evidenceMarginBlocks(client: PublicClient): bigint {
+function evidenceMarginBlocks(client: PublicClient, measured?: number): bigint {
 	const declared = client.chain?.blockTime
-	const seconds = declared && declared > 0 ? declared / 1000 : DEFAULT_BLOCK_TIME_SECONDS
+	const seconds =
+		measured && measured > 0 ? measured : declared && declared > 0 ? declared / 1000 : DEFAULT_BLOCK_TIME_SECONDS
 	const blocks = BigInt(Math.ceil(EVIDENCE_MARGIN_SECONDS / seconds))
 	return blocks > MIN_EVIDENCE_MARGIN_BLOCKS ? blocks : MIN_EVIDENCE_MARGIN_BLOCKS
 }

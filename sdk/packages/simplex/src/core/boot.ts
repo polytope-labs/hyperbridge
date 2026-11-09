@@ -671,6 +671,8 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 					hyperbridge: intentFiller.hyperbridgeConnection,
 					// Lets the dashboard show the new BRIDGE balance as soon as a top-up is delivered.
 					refreshBridgeBalance: () => balanceProvider.refreshHyperbridgeBalance(),
+					// Sizes its evidence margins at the block times measured when simplex started.
+					blockTimeSeconds: (chain) => contractService.blockTimeSeconds(chain),
 					loggers: options.loggers,
 				})
 			: undefined

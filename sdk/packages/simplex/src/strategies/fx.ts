@@ -346,8 +346,7 @@ export class FXFiller implements FillerStrategy {
 					let deadlineTimestamp: bigint | undefined
 					try {
 						const latestBlock = await destClient.getBlock()
-						const blockTimeMs = destClient.chain?.blockTime
-						const blockTimeSec = blockTimeMs ? blockTimeMs / 1000 : 2
+						const blockTimeSec = await this.contractService.blockTimeSeconds(destChain)
 						const remainingBlocks = order.deadline > latestBlock.number ? Number(order.deadline - latestBlock.number) : 0
 						deadlineTimestamp = BigInt(Math.floor(Number(latestBlock.timestamp) + remainingBlocks * blockTimeSec))
 					} catch (err) {

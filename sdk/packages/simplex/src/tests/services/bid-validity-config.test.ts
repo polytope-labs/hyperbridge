@@ -95,7 +95,7 @@ describe("bidValidUntilBlock", () => {
 		setup(nominalMs, bidValiditySeconds, actualSec).validUntil()
 
 	it("converts the validity window plus the discovery pad at the chain's block time", async () => {
-		// Base: 2000ms blocks => (300 + 30)s is 165 blocks.
+		// 2000ms blocks (Optimism, Soneium) => (300 + 30)s is 165 blocks.
 		await expect(service(2000)).resolves.toBe(HEAD + 165n)
 	})
 
@@ -110,10 +110,10 @@ describe("bidValidUntilBlock", () => {
 	})
 
 	it("gives the discovery pad the same wall-clock weight on every chain", async () => {
-		// The point of denominating it in seconds: 30s is 15 blocks on Base and 120 on
+		// The point of denominating it in seconds: 30s is 15 blocks on a 2s chain and 120 on
 		// Arbitrum, not one flat count worth wildly different amounts of time.
-		const [base, arbitrum] = await Promise.all([service(2000, 0), service(250, 0)])
-		expect(base - HEAD).toBe(15n)
+		const [twoSecond, arbitrum] = await Promise.all([service(2000, 0), service(250, 0)])
+		expect(twoSecond - HEAD).toBe(15n)
 		expect(arbitrum - HEAD).toBe(120n)
 	})
 
@@ -138,15 +138,12 @@ describe("bidValidUntilBlock", () => {
 		await expect(service(2000, 300, 3)).resolves.toBe(HEAD + 165n)
 	})
 
-	it("discards a measurement below half the declared block time", async () => {
-		// Ethereum declares 12s; a sample claiming 3.01s blocks would stretch a 330s window from
-		// 28 blocks to 110 (about 22 minutes). The declared figure stands: 28 blocks.
-		await expect(service(12000, 300, 1)).resolves.toBe(HEAD + 28n)
-		await expect(service(12000, 300, 3.01)).resolves.toBe(HEAD + 28n)
-		await expect(service(12000, 300, 5.9)).resolves.toBe(HEAD + 28n)
-		// Half the declared figure (6s against 12s) is still taken as a faster chain, so one RPC
-		// can stretch the window to twice its length and no further.
-		await expect(service(12000, 300, 6)).resolves.toBe(HEAD + 55n)
+	it("uses the measured block time however far below the declared figure it is", async () => {
+		// Base: viem declares 2000ms and the chain makes a block every 0.2s. Converting at the
+		// declared figure gave 165 blocks, 33s of real time, and bids expired before they were
+		// selected (FillExpired). Measured, 330s is 1650 blocks.
+		await expect(service(2000, 300, 0.2)).resolves.toBe(HEAD + 1650n)
+		await expect(service(12000, 300, 1)).resolves.toBe(HEAD + 330n)
 	})
 
 	it("takes a fast chain that declares no block time as measured", async () => {
@@ -161,6 +158,20 @@ describe("bidValidUntilBlock", () => {
 		// fallback: 0.01s would turn 330s into 33,000 blocks.
 		await expect(service(undefined, 300, 0.05)).resolves.toBe(HEAD + 165n)
 		await expect(service(undefined, 300, 0.01)).resolves.toBe(HEAD + 165n)
+	})
+
+	it("discards an implausibly fast measurement for the declared figure on a chain that declares one", async () => {
+		// The same flat floor holds on every chain: Ethereum declares 12s, so 330s stays 28 blocks.
+		await expect(service(12000, 300, 0.05)).resolves.toBe(HEAD + 28n)
+	})
+
+	it("measures the true block time of every chain at startup, Base included", async () => {
+		const { svc, validUntil, getBlock } = setup(2000, 300, 0.2, { chains: [8453] })
+		await svc.initCache()
+
+		await expect(validUntil("EVM-8453")).resolves.toBe(HEAD + 1650n)
+		// The startup sample (head and the block 1,000 before it) is the one the bid used.
+		expect(getBlock).toHaveBeenCalledTimes(2)
 	})
 
 	it("samples the last 1,000 blocks", async () => {

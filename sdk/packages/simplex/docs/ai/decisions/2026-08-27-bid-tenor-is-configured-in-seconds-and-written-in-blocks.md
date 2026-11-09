@@ -5,26 +5,28 @@ Chosen: `bidValiditySeconds` (default 300) is converted to a block height per de
 
 The on-chain field has to be blocks: `fillOrder` compares it against `_blockNumber()`, the same clock as
 `order.deadline`, and having the two disagree about what "expired" means would be a trap. But blocks are the wrong
-unit for an operator — 5 minutes is 25 blocks on Ethereum and 150 on Base, so a single configured block count would
+unit for an operator — 5 minutes is 25 blocks on Ethereum and 1,500 on Base, so a single configured block count would
 mean something different on every chain, and price risk is denominated in time, not blocks. Converting at the edge
 keeps both sides in their natural unit. Rounding is deliberately up: erring long costs a slightly stale quote, erring
 short silently drops bids we would have won.
 
-The block time is measured once per chain, when simplex starts, from the timestamps of the head and of the block
-1,000 before it, and kept until simplex stops: a chain that changes its block time is picked up at the next restart.
-viem's nominal `Chain.blockTime` is not enough on its own. It goes stale when a chain speeds up (BSC declares 0.75s
-and makes a block every 0.45s) and some chains declare none (BSC Chapel at 0.45s and Polygon Amoy at 1s, which fell to
-a 2s guess), and converting at too slow a block time ends the bid early: 600 configured seconds lasted about 142 on
-Chapel. Where a chain declares a figure, the faster of the two is used, so a stalled stretch inside the sample cannot
-shorten a bid either. Because the figure is kept for the life of the process, a measurement below half the declared
-figure is discarded and logged, and the declared figure is used. This limits how far one endpoint serving bad timestamps
-can stretch every bid on that chain to twice its window, for as long as simplex runs, rather than ruling it out. A chain
-that declares none has no reference to judge a sample against, and holding it to a fraction of the 2s fallback would
-throw away the real measurement of a fast chain (BSC Chapel at 0.45s) and end its bids early, so it only gets a flat
-0.1s floor: a measurement is taken as measured above it and replaced by the 2s fallback below it. The half-of-declared
-bound does not apply to those chains (Pharos and Polkadot Hub are two more that declare none).
-Blocks that cannot be read fall back to the declared figure, then to 2s. That answer is not
-kept: a chain left unmeasured at startup, or added afterwards, is measured at its first bid.
+The block time is measured on every configured chain when simplex starts, from the timestamps of the head and of the
+block 1,000 before it, and kept until simplex stops: a chain that changes its block time is picked up at the next
+restart. The measurement is what simplex converts at, however far it is from viem's nominal `Chain.blockTime`. That
+figure goes stale when a chain speeds up (Base declares 2s and makes a block every 0.2s; BSC declares 0.75s and makes
+one every 0.45s) and some chains declare none (BSC Chapel, Polygon Amoy, Pharos, Polkadot Hub). Converting at too slow
+a block time ends the bid early: on Base, a 330s window became 165 blocks, which is 33s, and fills reverted
+`FillExpired`. Where a chain declares a figure, the faster of the two is used, so a stalled stretch inside the sample
+cannot shorten a bid. The only plausibility check is a flat 0.1s floor on every chain: a measurement below it is
+discarded and logged, and the declared figure is used, then the 2s fallback. A sample is not judged against the declared
+figure, because real speed-ups run past any fixed fraction of it. The cost is that one endpoint serving bad timestamps
+at startup can stretch every bid on its chain for as long as simplex runs, down to the 0.1s floor; on a bid that carries
+the Simplex paymaster, the Permit2 deadline (head timestamp plus the window plus 120s) still stops the EntryPoint from
+validating it later than that. Blocks that cannot be read fall back to the declared figure, then to 2s. That answer is
+not kept: a chain left unmeasured at startup, or added afterwards, is measured at its first use.
+
+The same startup measurement sizes the other block conversions in simplex: the fx strategy's estimate of an order's
+deadline timestamp and the BRIDGE top-up's evidence margin (300s of blocks below the tip).
 
 300 seconds is chosen to cover the quote-to-fill path and little more: cross-chain confirmation waits reach roughly
 180s on the deepest default policies, so 5 minutes clears the mechanical part of the round trip while keeping the

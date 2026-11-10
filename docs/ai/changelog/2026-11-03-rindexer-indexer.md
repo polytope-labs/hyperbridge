@@ -33,11 +33,15 @@ Rust 1.98 and later.
   no default. The start fails when its URLs don't serve `system_chain`, as a standalone facade
   doesn't. A node that is only down doesn't stop the start.
 - Each of these variables can list several comma-separated URLs, as SubQuery's did. A request
-  goes to the RPC that answered last, and moves on to the next one when that one doesn't
-  answer, answers with an HTTP error, answers that it can't serve the request (a rate
-  limit, or a block it doesn't have yet), or lacks the method. There is no failing back: the
-  RPC that answers stays first until it fails. An RPC that only lacks a method stays first
-  for the requests it does serve.
+  goes to the RPC that answered last. A result or a failed execution, such as a revert, is
+  final. Anything else moves the request on to the next RPC: no answer, an HTTP error, an
+  answer that the RPC can't serve the request (a rate limit, or a block it doesn't have yet),
+  or a refusal (a method it lacks, or a plan without it). There is no failing back: the RPC
+  that answers stays first until it fails. An RPC that only refuses a request stays first for
+  the requests it does serve.
+- When no RPC serves a request, a refusal is its answer only if every RPC refused. An RPC that
+  failed or was rate-limited may still serve it, so the request is retried. A URL that is dead
+  for good therefore stalls the chain at the first request the other RPCs refuse.
 - At startup, rindexer's client for each `<CHAIN>` URL checks the node's chain id. A URL for
   another chain stops the start. With several URLs, a node that fails the check or doesn't
   answer within 30 s is left out of rindexer's own calls until the next start, though handler
@@ -155,9 +159,9 @@ lose data are fixed instead. The deliberate differences:
   reads stay best-effort and only log a failure:
   - HyperFX orderbook prices;
   - the bridge token supply, which the next 3600-block run reads again.
-- The `debug_traceTransaction` fallback for an order's calldata is retried when the RPC
-  couldn't serve it. Many RPCs don't serve traces at all. So a refusal, such as a method the
-  RPC lacks or a plan that excludes it, is final and logged.
+- The `debug_traceTransaction` fallback for an order's calldata is retried when an RPC
+  couldn't serve it. Many RPCs don't serve traces at all. So once every RPC has refused, such
+  as with a method it lacks or a plan without it, the refusal is final and logged.
 - A share transfer's yield vault read fails the batch on any error, since its row can't be
   written without it. A configured vault reverts only on a node whose state trails its
   header. The daily snapshot retries a read the RPC couldn't serve. Any other failed snapshot

@@ -162,9 +162,9 @@ fn is_lasting_database_error(err: &tokio_postgres::Error) -> bool {
 
 /**
  * Whether an error is transient: a database error, or an RPC that failed to answer. A failed
- * execution, a method the node lacks, an undecodable answer or bad data is not: retrying gives
- * the same answer. Nor is a database error that [`is_lasting_database_error`], since the same
- * statement fails again.
+ * execution, a method the node lacks, a contract's answer that doesn't ABI-decode or bad data
+ * is not: retrying gives the same answer. Nor is a database error that
+ * [`is_lasting_database_error`], since the same statement fails again.
  */
 pub fn is_transient(err: &anyhow::Error) -> bool {
 	fn transport(err: &TransportError) -> bool {

@@ -17,7 +17,7 @@ use serde_json::{json, Value};
 
 use crate::{
 	chains::Chain,
-	errors::{lacks_method, not_served, Retry},
+	errors::{is_transient, lacks_method, not_served, Retry},
 	failover::Failover,
 };
 
@@ -169,6 +169,22 @@ impl SubstrateRpc {
 		}
 	}
 
+	/**
+	 * Fails when the URLs don't serve `system_chain`, which every Substrate node has. They then
+	 * name something else, such as a standalone substrate-eth-rpc. A node that is only down
+	 * passes, since its reads are retried.
+	 */
+	pub async fn ensure_substrate_node(&self, chain: &str) -> anyhow::Result<()> {
+		match self.call::<String>("system_chain", json!([])).await {
+			Err(err) if !is_transient(&err) => Err(err),
+			Err(err) => {
+				tracing::warn!(chain, "no answer yet from the Substrate node: {err:#}");
+				Ok(())
+			},
+			Ok(_) => Ok(()),
+		}
+	}
+
 	async fn post(&self, index: usize, body: &Value) -> reqwest::Result<Value> {
 		let request = self.http.post(&self.urls[index]).timeout(Duration::from_secs(30));
 		request.json(body).send().await?.error_for_status()?.json().await
@@ -278,6 +294,28 @@ mod tests {
 		assert!(crate::errors::is_transient(&err), "{err:#}");
 		node.set(Reply::Result("0x01"));
 		rpc.ensure_imported(7).await.unwrap();
+	}
+
+	#[tokio::test]
+	async fn the_startup_check_fails_only_urls_that_are_not_a_substrate_node() {
+		use crate::failover::tests::{closed_url, MockRpc, Reply};
+		let check = |urls: Vec<String>| async move {
+			SubstrateRpc::new(&urls, reqwest::Client::new())
+				.ensure_substrate_node("nexus")
+				.await
+		};
+		// A standalone substrate-eth-rpc.
+		let facade = MockRpc::start(Reply::Error(-32601, "Method not found")).await;
+		let err = check(vec![facade.url.clone()]).await.unwrap_err();
+		assert!(err.to_string().contains("Method not found"), "{err:#}");
+		let node = MockRpc::start(Reply::Result("Hyperbridge (Nexus)")).await;
+		check(vec![node.url.clone()]).await.unwrap();
+		check(vec![facade.url.clone(), node.url.clone()]).await.unwrap();
+		// A node that is down or busy may still be a Substrate node.
+		check(vec![closed_url().await]).await.unwrap();
+		check(vec![facade.url.clone(), closed_url().await]).await.unwrap();
+		let busy = MockRpc::start(Reply::Error(-32999, "RPC rate limit exceeded")).await;
+		check(vec![busy.url.clone()]).await.unwrap();
 	}
 
 	#[tokio::test]

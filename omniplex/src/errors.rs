@@ -84,7 +84,7 @@ const METHOD_NOT_FOUND: i64 = -32601;
 const INTERNAL_ERROR: i64 = -32603;
 
 /** Whether a node's error answer says the execution failed. */
-fn failed_execution(answer: &ErrorPayload) -> bool {
+pub fn failed_execution(answer: &ErrorPayload) -> bool {
 	let message = answer.message.to_lowercase();
 	answer.code == 3 || EXECUTION_FAILURES.iter().any(|failure| message.contains(failure))
 }
@@ -100,11 +100,6 @@ pub fn is_failed_execution(err: &TransportError) -> bool {
  */
 pub fn lacks_method(answer: &ErrorPayload) -> bool {
 	answer.code == METHOD_NOT_FOUND
-}
-
-/** Whether a transport error is a node's answer that it [`lacks_method`]. */
-pub fn is_missing_method(err: &TransportError) -> bool {
-	error_answer(err).is_some_and(|answer| lacks_method(&answer))
 }
 
 /**
@@ -244,7 +239,7 @@ fn refusal(err: &TransportError) -> Option<&HttpError> {
 }
 
 /** The node's error answer in `err`: a JSON-RPC error, or one sent with a [`refusal`]. */
-fn error_answer(err: &TransportError) -> Option<ErrorPayload> {
+pub fn error_answer(err: &TransportError) -> Option<ErrorPayload> {
 	#[derive(Deserialize)]
 	struct Response {
 		error: ErrorPayload,
@@ -279,16 +274,24 @@ pub fn untrusted_call_error(err: alloy::contract::Error) -> anyhow::Error {
 }
 
 /**
+ * Whether a node answered that it won't do the request, rather than failing to answer it: an
+ * error answer other than that it couldn't serve the request, or a [`refusal`] with no answer
+ * in it, such as a plain 403.
+ */
+pub fn is_refusal(err: &TransportError) -> bool {
+	match error_answer(err) {
+		Some(answer) => !not_served(&answer),
+		None => refusal(err).is_some(),
+	}
+}
+
+/**
  * The error of a request many RPCs refuse, each in its own words and code, such as a trace on a
  * plan without it. As for [`untrusted_call_error`], an answer is final unless it says the node
- * couldn't serve the request. So is a [`refusal`] with no answer in it, such as a plain 403.
+ * couldn't serve the request. So is a plain HTTP refusal: see [`is_refusal`].
  */
 pub fn refused_request_error(err: TransportError) -> anyhow::Error {
-	let refused = match error_answer(&err) {
-		Some(answer) => !not_served(&answer),
-		None => refusal(&err).is_some(),
-	};
-	if refused {
+	if is_refusal(&err) {
 		anyhow!("{err}")
 	} else {
 		err.into()

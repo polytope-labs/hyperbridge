@@ -30,7 +30,8 @@ Rust 1.98 and later.
   `BSC_MAINNET`. For a Substrate chain, that is its substrate-eth-rpc URL.
 - A Substrate chain also needs `<CHAIN>_SUBSTRATE`, the node's own RPC. For the facade inside
   the Hyperbridge node, it is the same URL. A standalone facade serves only `eth_*`, so there is
-  no default.
+  no default. The start fails when its URLs don't serve `system_chain`, as a standalone facade
+  doesn't. A node that is only down doesn't stop the start.
 - Each of these variables can list several comma-separated URLs, as SubQuery's did. A request
   goes to the RPC that answered last, and moves on to the next one when that one doesn't
   answer, answers with an HTTP error, answers that it can't serve the request (a rate

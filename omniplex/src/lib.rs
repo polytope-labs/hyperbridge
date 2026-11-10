@@ -103,6 +103,16 @@ pub async fn run(config_path: &Path, run_dir: &Path, selected: &[String]) -> any
 	for name in indexed {
 		chains.insert(name.clone(), Chain::connect(name, &config.chains[name], &http)?);
 	}
+	// Every read of a `<CHAIN>_SUBSTRATE` that isn't a Substrate node fails for good, so each
+	// block would be indexed without its handlers' work.
+	for chain in chains.values() {
+		if let Some(node) = &chain.substrate {
+			let key = format!("{}_SUBSTRATE", env_key(&chain.name));
+			node.ensure_substrate_node(&chain.name)
+				.await
+				.with_context(|| format!("{key} is not a Substrate node's RPC"))?;
+		}
+	}
 	// rindexer's manifest names one RPC per chain. It builds no client from it: every call goes
 	// through `AllTopicsProvider`, which fails over between all of them.
 	let rpc_urls: BTreeMap<String, String> = chains

@@ -33,9 +33,10 @@ Rust 1.98 and later.
   no default.
 - Each of these variables can list several comma-separated URLs, as SubQuery's did. A request
   goes to the RPC that answered last, and moves on to the next one when that one doesn't
-  answer, answers with an HTTP error, or answers that it can't serve the request (a rate
-  limit, or a block it doesn't have yet). There is no failing back: the RPC that answers
-  stays first until it fails.
+  answer, answers with an HTTP error, answers that it can't serve the request (a rate
+  limit, or a block it doesn't have yet), or lacks the method. There is no failing back: the
+  RPC that answers stays first until it fails. An RPC that only lacks a method stays first
+  for the requests it does serve.
 - At startup, rindexer's client for each `<CHAIN>` URL checks the node's chain id. A URL for
   another chain stops the start. With several URLs, a node that fails the check or doesn't
   answer within 30 s is left out of rindexer's own calls until the next start, though handler
@@ -90,23 +91,27 @@ The import runs in one transaction, so a failure leaves the copy as it was.
   or only the handler's non-critical work when that is what failed: the work SubQuery ran in
   a `try`/`catch`. Lasting errors include database data exceptions (SQLSTATE class 22), such
   as a number out of range, integrity constraint violations (23), and program limits (54),
-  such as a value too long for an index. Handlers run without savepoints, so a block costs no
-  extra round trips and holds no subtransactions.
+  such as a value too long for an index. So are a statement the database client can't fit to
+  its parameters or rows, and a method none of the chain's RPCs has (JSON-RPC `-32601`).
+  Handlers run without savepoints, so a block costs no extra round trips and holds no
+  subtransactions.
 - **RPC errors.** Handler reads time out after 30 s, and rate limits are retried in place.
   `eth_getLogs` goes through rindexer's own client. rindexer's live loop stops for good after
   an error on a range as short as a live window, so `AllTopicsProvider` retries those errors
   itself. A short range an RPC says spans too many blocks is fetched in halves instead.
-- **Tip block.** A window that ends at the highest block seen is checked against that block.
-  It is the head rindexer has just read, or else the block read by its number, from the next
-  RPC when a node doesn't have it yet. If the range's answer has no log there but the block's
-  logs bloom says it can, the block's logs are asked by its hash. A node without the block
-  fails that request instead of answering empty (EIP-234). An empty answer settles it. If the
-  block has logs the range's answer lacks, a node behind it answered the range, which is asked
-  twice more. After that, the block's logs come from the hash's answer, unless another block
-  has the tip's height by then. An RPC that takes no hash filter, or fails the request, gets
-  the range asked twice more, and its answer then stands. substrate-eth-rpc takes no hash filter, and refuses a range past its head
-  instead. A node two or more blocks behind can still leave out logs below the tip. On the
-  chains indexed at the tip, which have no reorg-safe distance, nothing covers that.
+- **Tip block.** A window that ends at the highest block seen is checked against that block. It
+  is the head rindexer has just read, or else the block read by its number, from the next RPC
+  when a node doesn't have it yet. When no RPC has the block, a range as short as a live window
+  waits for it, and a longer one fails and is retried. If the range's answer has no log there
+  but the block's logs bloom says it can, the block's logs are asked by its hash. A node without
+  the block fails that request instead of answering empty (EIP-234). An empty answer settles it.
+  If the block has logs the range's answer lacks, a node behind it answered the range, which is
+  asked twice more. After that, the block's logs come from the hash's answer, unless another
+  block has the tip's height by then. An RPC that takes no hash filter, or fails the request,
+  gets the range asked twice more, and its answer then stands. substrate-eth-rpc takes no hash
+  filter, and refuses a range past its head instead. A node two or more blocks behind can still
+  leave out logs below the tip. On the chains indexed at the tip, which have no reorg-safe
+  distance, nothing covers that.
 - **Block hooks.** SubQuery's block handlers are `BlockHook`s. They run after each batch at the
   last block it applied. On a chain with no logs, they run every 15 s at the block rindexer has
   synced.
@@ -145,12 +150,17 @@ lose data are fixed instead. The deliberate differences:
 - RPC and database errors SubQuery swallowed now fail the batch and are retried. Reverts, other
   failed executions and malformed data are still logged and skipped. A token's `symbol()` and
   `decimals()` run code anyone can deploy, so any error answer from them is final, unless the
-  node couldn't serve the call. Those calls get 500k gas, so a timeout is the node's. Four
+  node couldn't serve the call. Those calls get 500k gas, so a timeout is the node's. Two
   reads stay best-effort and only log a failure:
-  - the `debug_traceTransaction` fallback for an order's calldata, which many RPCs don't serve;
   - HyperFX orderbook prices;
-  - yield vault reads, which a later block retries until the day's snapshot completes;
   - the bridge token supply, which the next 3600-block run reads again.
+- The `debug_traceTransaction` fallback for an order's calldata is retried when the RPC
+  couldn't serve it. Many RPCs don't serve traces at all. So a refusal, such as a method the
+  RPC lacks or a plan that excludes it, is final and logged.
+- A share transfer's yield vault read fails the batch on any error, since its row can't be
+  written without it. A configured vault reverts only on a node whose state trails its
+  header. The daily snapshot retries a read the RPC couldn't serve. Any other failed snapshot
+  read is logged, and a later block reads it again until the day's snapshot completes.
 - The periodic pending flush only picks rows whose parent exists, so a row whose parent never
   arrives no longer blocks the rest.
 - Chain metadata holds only `chain`, `lastProcessedHeight` and `targetHeight`. SubQuery also wrote

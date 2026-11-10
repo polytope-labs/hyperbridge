@@ -3,7 +3,7 @@
 
 use alloy::{
 	rpc::json_rpc::ErrorPayload,
-	transports::{RpcError, TransportError, TransportErrorKind},
+	transports::{HttpError, RpcError, TransportError, TransportErrorKind},
 };
 use anyhow::anyhow;
 use serde::Deserialize;
@@ -41,9 +41,21 @@ const EXECUTION_FAILURES: &[&str] = &[
 	"failed to run contract",
 ];
 
-/** Messages of a node that couldn't serve a call: it ran out of time, or lacks the block or
- * state. */
+/**
+ * Messages of a node that couldn't serve a call: it is busy or ran out of time, or lacks the
+ * block or state. In lower case, as providers vary the case and alloy's own list matches it
+ * exactly.
+ */
 const NOT_SERVED: &[&str] = &[
+	"rate limit",
+	"rate exceeded",
+	"too many requests",
+	"credits limited",
+	"request limit",
+	"concurrent requests",
+	"quota",
+	"busy",
+	"deadline exceeded",
 	"timeout",
 	"timed out",
 	"not found",
@@ -57,6 +69,9 @@ const NOT_SERVED: &[&str] = &[
 	"upstream",
 	// The ISMP RPC's answer for a block the node hasn't imported.
 	"invalid block number",
+	// The ISMP RPC's answers when the node's runtime call for the lookup failed.
+	"error fetching requests",
+	"error fetching responses",
 	// A Substrate node's answers for state it pruned, and for a block it doesn't have.
 	"already discarded",
 	"unknownblock",
@@ -80,6 +95,19 @@ pub fn is_failed_execution(err: &TransportError) -> bool {
 }
 
 /**
+ * Whether a node's error answer says it doesn't serve the method. Another node may, but this
+ * one answers the same on every retry.
+ */
+pub fn lacks_method(answer: &ErrorPayload) -> bool {
+	answer.code == METHOD_NOT_FOUND
+}
+
+/** Whether a transport error is a node's answer that it [`lacks_method`]. */
+pub fn is_missing_method(err: &TransportError) -> bool {
+	error_answer(err).is_some_and(|answer| lacks_method(&answer))
+}
+
+/**
  * Whether a node's error answer says it couldn't serve the call: it is rate-limited or busy, or
  * lacks the block or state. Another RPC, or a retry, can answer it. A failed execution never
  * counts, as its revert reason is the contract's own text.
@@ -87,6 +115,7 @@ pub fn is_failed_execution(err: &TransportError) -> bool {
 pub fn not_served(answer: &ErrorPayload) -> bool {
 	let message = answer.message.to_lowercase();
 	!failed_execution(answer) &&
+		!lacks_method(answer) &&
 		(answer.is_retry_err() ||
 			answer.code == INTERNAL_ERROR ||
 			NOT_SERVED.iter().any(|reason| message.contains(reason)))
@@ -105,23 +134,48 @@ pub fn is_answer(err: &TransportError) -> bool {
 const LASTING_DATABASE_ERRORS: &[&str] = &["22", "23", "54"];
 
 /**
+ * How tokio-postgres starts the errors it raises itself, with no SQLSTATE, when a statement
+ * doesn't fit its values or its rows: a parameter or column of another type, a missing column,
+ * the wrong number of parameters or rows, or a value too large to send. The same statement
+ * fails the same way again.
+ */
+const LASTING_CLIENT_ERRORS: &[&str] = &[
+	"error serializing parameter",
+	"error deserializing column",
+	"invalid column",
+	"query returned an unexpected number of",
+	// "expected 2 parameters but got 1"
+	"expected ",
+	"error encoding message to server",
+];
+
+/** Whether a database error repeats on a retry, by its SQLSTATE or, lacking one, its wording. */
+fn is_lasting_database_error(err: &tokio_postgres::Error) -> bool {
+	match err.code() {
+		Some(code) => LASTING_DATABASE_ERRORS.iter().any(|class| code.code().starts_with(class)),
+		None => {
+			let message = err.to_string();
+			LASTING_CLIENT_ERRORS.iter().any(|start| message.starts_with(start))
+		},
+	}
+}
+
+/**
  * Whether an error is transient: a database error, or an RPC that failed to answer. A failed
- * execution, an undecodable answer or bad data is not: retrying gives the same answer. Nor is a
- * database error in one of [`LASTING_DATABASE_ERRORS`], since the same values fail again.
+ * execution, a method the node lacks, an undecodable answer or bad data is not: retrying gives
+ * the same answer. Nor is a database error that [`is_lasting_database_error`], since the same
+ * statement fails again.
  */
 pub fn is_transient(err: &anyhow::Error) -> bool {
 	fn transport(err: &TransportError) -> bool {
-		match err {
-			RpcError::ErrorResp(answer) =>
-				!(failed_execution(answer) || answer.code == METHOD_NOT_FOUND),
-			RpcError::UnsupportedFeature(_) | RpcError::LocalUsageError(_) => false,
-			_ => true,
+		match error_answer(err) {
+			Some(answer) => !(failed_execution(&answer) || lacks_method(&answer)),
+			None => !matches!(err, RpcError::UnsupportedFeature(_) | RpcError::LocalUsageError(_)),
 		}
 	}
 	err.chain().any(|cause| {
 		if let Some(db) = cause.downcast_ref::<tokio_postgres::Error>() {
-			let code = db.code().map(|code| code.code()).unwrap_or_default();
-			return !LASTING_DATABASE_ERRORS.iter().any(|class| code.starts_with(class));
+			return !is_lasting_database_error(db);
 		}
 		if cause.is::<Retry>() || cause.is::<reqwest::Error>() {
 			return true;
@@ -176,7 +230,20 @@ pub fn first_failure<T>(outcomes: Vec<anyhow::Result<T>>) -> anyhow::Result<Vec<
 	failure.map_or(Ok(values), Err)
 }
 
-/** The node's error answer in `err`: a JSON-RPC error, or one sent with a 4xx status. */
+/**
+ * The HTTP error in `err` when its status refuses the request itself: a 4xx other than a
+ * timeout (408) or a rate limit (429).
+ */
+fn refusal(err: &TransportError) -> Option<&HttpError> {
+	match err {
+		RpcError::Transport(TransportErrorKind::HttpError(http))
+			if (400..500).contains(&http.status) && !matches!(http.status, 408 | 429) =>
+			Some(http),
+		_ => None,
+	}
+}
+
+/** The node's error answer in `err`: a JSON-RPC error, or one sent with a [`refusal`]. */
 fn error_answer(err: &TransportError) -> Option<ErrorPayload> {
 	#[derive(Deserialize)]
 	struct Response {
@@ -184,10 +251,9 @@ fn error_answer(err: &TransportError) -> Option<ErrorPayload> {
 	}
 	match err {
 		RpcError::ErrorResp(answer) => Some(answer.clone()),
-		RpcError::Transport(TransportErrorKind::HttpError(http))
-			if (400..500).contains(&http.status) && !matches!(http.status, 408 | 429) =>
-			serde_json::from_str::<Response>(&http.body).ok().map(|response| response.error),
-		_ => None,
+		_ => serde_json::from_str::<Response>(&refusal(err)?.body)
+			.ok()
+			.map(|response| response.error),
 	}
 }
 
@@ -206,7 +272,23 @@ fn answer(err: &alloy::contract::Error) -> Option<ErrorPayload> {
  * is the node's, not the code's.
  */
 pub fn untrusted_call_error(err: alloy::contract::Error) -> anyhow::Error {
-	if answer(&err).is_some_and(|answer| !not_served(&answer)) {
+	match answer(&err) {
+		Some(answer) if !not_served(&answer) => anyhow!("{err}"),
+		_ => err.into(),
+	}
+}
+
+/**
+ * The error of a request many RPCs refuse, each in its own words and code, such as a trace on a
+ * plan without it. As for [`untrusted_call_error`], an answer is final unless it says the node
+ * couldn't serve the request. So is a [`refusal`] with no answer in it, such as a plain 403.
+ */
+pub fn refused_request_error(err: TransportError) -> anyhow::Error {
+	let refused = match error_answer(&err) {
+		Some(answer) => !not_served(&answer),
+		None => refusal(&err).is_some(),
+	};
+	if refused {
 		anyhow!("{err}")
 	} else {
 		err.into()
@@ -291,6 +373,16 @@ mod tests {
 		let reverted =
 			r#"{"jsonrpc":"2.0","id":1,"error":{"code":3,"message":"execution reverted"}}"#;
 		assert!(!call(TransportErrorKind::http_error(400, reverted.into())));
+		// The same answers are final for a trusted contract's call too.
+		let trusted = |status, body: &str| {
+			let err = TransportErrorKind::http_error(status, body.into());
+			is_transient(&ContractError::TransportError(err).into())
+		};
+		assert!(!trusted(400, reverted));
+		let lacking =
+			r#"{"jsonrpc":"2.0","id":1,"error":{"code":-32601,"message":"Method not found"}}"#;
+		assert!(!trusted(403, lacking));
+		assert!(trusted(429, reverted));
 
 		for (code, message) in [
 			(-32000, "header not found"),
@@ -303,12 +395,52 @@ mod tests {
 			(-32000, "execution aborted (timeout = 5s)"),
 			(-32603, "internal error"),
 			(429, "Too Many Requests"),
+			// Rate limits in wording or case alloy's own list doesn't match.
+			(-32000, "Too Many Requests"),
+			(-32000, "Rate limit exceeded"),
+			(-32000, "daily quota exceeded"),
+			(-32009, "Server is busy, try again later"),
+			(-32000, "context deadline exceeded"),
 		] {
 			assert!(call(answer(code, message)), "{code} {message}");
 		}
 		assert!(call(TransportErrorKind::http_error(503, "unavailable".into())));
 		assert!(call(TransportErrorKind::http_error(400, "<html>bad gateway</html>".into())));
 		assert!(call(TransportErrorKind::custom_str("request timed out")));
+	}
+
+	#[test]
+	fn a_refused_request_is_final_unless_the_node_could_not_serve() {
+		let request = |err: TransportError| is_transient(&refused_request_error(err));
+		let answer = |code: i64, message: &str| {
+			TransportError::ErrorResp(
+				serde_json::from_value(json!({ "code": code, "message": message })).unwrap(),
+			)
+		};
+		// A plan without traces, in the words of three providers, and a tracer the node lacks.
+		for (code, message) in [
+			(-32600, "debug_traceTransaction is not available on the Free tier"),
+			(35, "method is not available on freetier"),
+			(-32601, "the method debug_traceTransaction does not exist/is not available"),
+			(-32000, "tracer not registered: callTracer"),
+		] {
+			assert!(!request(answer(code, message)), "{code} {message}");
+		}
+		let refused = r#"{"error":{"code":-32053,"message":"API key is not allowed to trace"}}"#;
+		assert!(!request(TransportErrorKind::http_error(403, refused.into())));
+		assert!(!request(TransportErrorKind::http_error(403, "Forbidden".into())));
+
+		for (code, message) in [
+			(-32000, "transaction not found"),
+			(-32000, "historical state unavailable"),
+			(-32005, "rate limit exceeded"),
+			(-32603, "internal error"),
+		] {
+			assert!(request(answer(code, message)), "{code} {message}");
+		}
+		assert!(request(TransportErrorKind::http_error(429, "Too Many Requests".into())));
+		assert!(request(TransportErrorKind::http_error(503, "unavailable".into())));
+		assert!(request(TransportErrorKind::custom_str("request timed out")));
 	}
 
 	#[test]

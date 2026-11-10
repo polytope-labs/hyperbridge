@@ -79,6 +79,8 @@ struct Model {
 	reverting: Mutex<HashSet<Address>>,
 	/** Holders whose balanceOf fails as an RPC error, outside any multicall. */
 	failing_holders: Mutex<HashSet<Address>>,
+	/** Holders whose balanceOf an RPC rate-limits, outside any multicall. */
+	rate_limited_holders: Mutex<HashSet<Address>>,
 	/** The code of every account but Multicall3. */
 	code: Mutex<HashMap<Address, Bytes>>,
 	default_code: Mutex<Bytes>,
@@ -104,6 +106,7 @@ impl Model {
 			prices: Default::default(),
 			reverting: Default::default(),
 			failing_holders: Default::default(),
+			rate_limited_holders: Default::default(),
 			code: Default::default(),
 			default_code: Mutex::new(Bytes::new()),
 			code_failures: AtomicUsize::new(0),
@@ -176,7 +179,7 @@ impl Model {
 			self.convert_reads.fetch_add(1, Ordering::SeqCst);
 			if self
 				.convert_failures
-				.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1))
+				.try_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1))
 				.is_ok()
 			{
 				anyhow::bail!("RPC unavailable");
@@ -221,6 +224,9 @@ impl Reads for Model {
 			if self.failing_holders.lock().unwrap().contains(&call.account) {
 				anyhow::bail!("RPC unavailable");
 			}
+			if self.rate_limited_holders.lock().unwrap().contains(&call.account) {
+				return Err(anyhow::anyhow!(Retry("rate limited".into())));
+			}
 		}
 		self.answer(to, &data)
 	}
@@ -236,7 +242,7 @@ impl Reads for Model {
 		self.code_reads.fetch_add(1, Ordering::SeqCst);
 		if self
 			.code_failures
-			.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1))
+			.try_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1))
 			.is_ok()
 		{
 			anyhow::bail!("rpc down");
@@ -1618,6 +1624,46 @@ async fn a_transfer_already_in_both_ledgers_is_not_valued_again() {
 	v.model.convert_failures.store(1, Ordering::SeqCst);
 	v.record_transfer(&db, v.transfer()).await.unwrap();
 	assert_eq!(v.count(&db, "vault_ledger_events").await, 2);
+}
+
+/**
+ * A node whose state trails its header reverts a vault's read, which another node, or the same
+ * one a moment later, answers. So a failed read fails the batch, and the retry records it.
+ */
+#[tokio::test]
+async fn a_transfer_whose_vault_read_failed_is_retried() {
+	let Some(mut client) = database().await else { return };
+	let db = client.transaction().await.unwrap();
+	let v = Vaults::new("EVM-V21");
+	v.legacy(&db, SOLVER, 0, 0).await;
+	v.model.convert_failures.store(1, Ordering::SeqCst);
+	let err = v.record_transfer(&db, v.transfer()).await.unwrap_err();
+	assert!(is_transient(&err), "{err:#}");
+	assert_eq!(v.count(&db, "vault_ledger_events").await, 0);
+	v.record_transfer(&db, v.transfer()).await.unwrap();
+	assert_eq!(v.count(&db, "vault_ledger_events").await, 1);
+}
+
+/** A snapshot read the RPC didn't answer fails the batch, instead of waiting for a later block. */
+#[tokio::test]
+async fn a_snapshot_read_the_rpc_did_not_answer_is_retried() {
+	let Some(mut client) = database().await else { return };
+	let db = client.transaction().await.unwrap();
+	let v = Vaults::new("EVM-V22");
+	v.legacy(&db, SOLVER, 100, 100).await;
+	let snapshot = || vaults::snapshot_chain(&db, &v.chain, &v.model, 100, 86_500);
+	// The vault's own read, then an LP's.
+	v.model.convert_rate_limited.store(1, Ordering::SeqCst);
+	assert!(is_transient(&snapshot().await.unwrap_err()));
+	v.model.rate_limited_holders.lock().unwrap().insert(addr(SOLVER));
+	assert!(is_transient(&snapshot().await.unwrap_err()));
+	assert_eq!(v.count(&db, "vault_position_snapshots").await, 0);
+	assert_eq!(v.count(&db, "vault_snapshots").await, 0);
+
+	v.model.rate_limited_holders.lock().unwrap().clear();
+	snapshot().await.unwrap();
+	assert_eq!(v.snapshot_of(&db, SOLVER).await.as_deref(), Some("100 100 0"));
+	assert_eq!(v.count(&db, "vault_snapshots").await, 1);
 }
 
 #[tokio::test]

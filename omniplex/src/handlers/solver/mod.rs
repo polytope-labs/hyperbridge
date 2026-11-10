@@ -131,6 +131,15 @@ pub fn signed(value: U256) -> anyhow::Result<I256> {
 	I256::try_from(value).map_err(|_| anyhow!("{value} does not fit a signed 256-bit integer"))
 }
 
+/**
+ * The error of a read of a configured vault that a row can't be written without. Such a vault
+ * reverts only on a node whose state trails its header, so the batch retries until the node
+ * has caught up.
+ */
+pub fn vault_read_retry(err: impl std::fmt::Display) -> anyhow::Error {
+	anyhow!(crate::errors::Retry(format!("vault read: {err:#}")))
+}
+
 /** A non-negative amount as a uint256, for a contract argument. */
 pub fn unsigned(value: I256) -> U256 {
 	value.unsigned_abs()

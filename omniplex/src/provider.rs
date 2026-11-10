@@ -238,7 +238,7 @@ impl AllTopicsProvider {
 				},
 				Err(err) if short && !(from < to && limits_the_range(&err)) => {
 					errors += 1;
-					let delay = Duration::from_secs(1 << (errors.min(5) - 1));
+					let delay = retry_delay(errors);
 					tracing::warn!(from, to, "eth_getLogs failed, retrying in {delay:?}: {err}");
 					tokio::time::sleep(delay).await;
 				},
@@ -278,11 +278,29 @@ impl AllTopicsProvider {
 	 * Block `to`, for the tip check. rindexer has just read it as the head, and its client
 	 * keeps the head for 50 ms, so the head is usually it. When the head has moved on, or came
 	 * from a node behind it, the block is read by its number.
+	 *
+	 * Without the block there is no check, and a node behind the tip could answer the range
+	 * empty. So a short range waits for the block, as it waits out a failed `eth_getLogs`, and
+	 * a longer one fails.
 	 */
-	async fn tip_block(&self, to: u64) -> Option<Arc<AnyRpcBlock>> {
-		match self.get_latest_block().await {
-			Ok(Some(head)) if head.header.number == to => Some(head),
-			_ => self.block_at(to).await,
+	async fn tip_block(&self, to: u64, short: bool) -> Result<Arc<AnyRpcBlock>, ProviderError> {
+		if let Ok(Some(head)) = self.get_latest_block().await {
+			if head.header.number == to {
+				return Ok(head);
+			}
+		}
+		let mut misses = 0u32;
+		loop {
+			if let Some(block) = self.block_at(to).await {
+				return Ok(block);
+			}
+			if !short {
+				return Err(ProviderError::CustomError(format!("no RPC has the tip block {to}")));
+			}
+			misses += 1;
+			let delay = retry_delay(misses);
+			tracing::warn!(to, "no RPC has the tip block, reading it again in {delay:?}");
+			tokio::time::sleep(delay).await;
 		}
 	}
 
@@ -311,6 +329,11 @@ impl AllTopicsProvider {
 		}
 		None
 	}
+}
+
+/** The wait before a short range's retry after this many failures: 1 s, doubling up to 16 s. */
+fn retry_delay(failures: u32) -> Duration {
+	Duration::from_secs(1 << (failures.clamp(1, 5) - 1))
 }
 
 /** Whether an RPC refused an `eth_getLogs` by block hash as a filter it doesn't take. */
@@ -412,7 +435,7 @@ impl ChainProvider for AllTopicsProvider {
 		// A window that reaches the tip, which an RPC behind it answers empty, at any length.
 		// History windows end below the tip seen, and skip the lookup.
 		let reaches_tip = to >= self.tip_seen.load(Ordering::Relaxed);
-		let tip = if reaches_tip { self.tip_block(to).await } else { None };
+		let tip = if reaches_tip { Some(self.tip_block(to, short).await?) } else { None };
 		let requests = addresses
 			.chunks(MAX_ADDRESSES_PER_REQUEST)
 			.map(|chunk| self.range_logs(chunk, from, to, short, tip.as_deref()));
@@ -486,6 +509,9 @@ impl ChainProvider for AllTopicsProvider {
 #[cfg(test)]
 mod tests {
 	use std::sync::atomic::AtomicUsize;
+
+	use alloy::rpc::types::ValueOrArray;
+	use rindexer::event::contract_setup::AddressDetails;
 
 	use super::*;
 	use crate::failover::tests::{MockRpc, Reply};
@@ -712,6 +738,28 @@ mod tests {
 			let tip = provider.block_at(10).await;
 			assert_eq!(tip.map(|tip| tip.header.number), found.then_some(10), "{nulls} nulls");
 		}
+	}
+
+	/** With no node having the tip block, a long range fails and a short one waits for it. */
+	#[tokio::test]
+	async fn a_range_is_not_fetched_without_its_tip_block() {
+		let (address, topic) = (Address::repeat_byte(0x11), B256::repeat_byte(0x22));
+		let block = leak_json(&tip_block(10, address, topic));
+		let details =
+			AddressDetails { address: ValueOrArray::Value(address), indexed_filters: None };
+		let range_from = |from: u64| {
+			let (from, to) = (U64::from(from), U64::from(10));
+			RindexerEventFilter::new_address_filter(&topic, "Event", &details, from, to).unwrap()
+		};
+		// Each call reads the head once, then the block three times.
+		let rpc = MockRpc::start(Reply::Block { block, nulls: Arc::new(8.into()) }).await;
+		let provider = AllTopicsProvider::new(vec![client(&rpc.url).await], vec![topic], 0);
+		let err = provider.get_logs(&range_from(1)).await.unwrap_err();
+		assert!(err.to_string().ends_with("no RPC has the tip block 10"), "{err}");
+		let logs = tokio::time::timeout(Duration::from_secs(20), provider.get_logs(&range_from(9)))
+			.await
+			.expect("the node catches up");
+		assert!(logs.unwrap().is_empty());
 	}
 
 	#[test]

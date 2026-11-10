@@ -10,7 +10,10 @@ use alloy::{
 use anyhow::anyhow;
 use serde_json::{json, Value};
 
-use crate::{chains::Chain, errors::Retry};
+use crate::{
+	chains::Chain,
+	errors::{refused_request_error, Retry},
+};
 
 sol! {
 	#[sol(all_derives)]
@@ -232,9 +235,10 @@ pub async fn nested_call_inputs(
 				json!({ "tracer": "callTracer", "tracerConfig": { "disableCode": true } }),
 			),
 		)
-		.await?;
+		.await
+		.map_err(refused_request_error)?;
 	if trace.is_null() {
-		anyhow::bail!("no trace for {transaction}");
+		return Err(Retry(format!("no trace yet for {transaction}")).into());
 	}
 	Ok(trace_call_inputs(&trace, target))
 }

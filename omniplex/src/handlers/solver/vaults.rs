@@ -16,9 +16,10 @@ use super::{
 	history::{int, opt_int},
 	lower,
 	reads::{map_concurrently, Reads},
-	signed, unsigned, SolverChain, DELEGATION_INDICATOR_PREFIX, ZERO_ADDRESS,
+	signed, unsigned, vault_read_retry, SolverChain, DELEGATION_INDICATOR_PREFIX, ZERO_ADDRESS,
 };
 use crate::{
+	errors::is_transient,
 	handlers::abi::Erc4626,
 	store::{numeric, timestamp_to_date, VaultLedgerEventType},
 };
@@ -317,7 +318,9 @@ pub async fn record_transfer(
 	if owners.is_empty() {
 		return Ok(());
 	}
-	let assets = convert_to_assets(reads, &vault, input.shares, input.block_number).await?;
+	let assets = convert_to_assets(reads, &vault, input.shares, input.block_number)
+		.await
+		.map_err(vault_read_retry)?;
 	// One log can affect two tracked LPs, each with its own ledger key.
 	for lp in owners {
 		let event_type = if lp == from {
@@ -377,14 +380,19 @@ async fn opening_balance(
 		.iter()
 		.filter(|m| m.lp == input.lp && m.log_index >= input.log_index)
 		.fold(I256::ZERO, |sum, m| sum + m.shares);
-	let shares = balance_of(reads, &input.vault, &input.lp, input.block_number).await? - remaining;
+	let held = balance_of(reads, &input.vault, &input.lp, input.block_number)
+		.await
+		.map_err(vault_read_retry)?;
+	let shares = held - remaining;
 	if shares.is_negative() {
 		bail!("Negative vault opening shares for {}:{}:{}", chain.id, input.vault, input.lp);
 	}
 	let assets = if shares.is_zero() {
 		I256::ZERO
 	} else {
-		convert_to_assets(reads, &input.vault, shares, input.block_number).await?
+		convert_to_assets(reads, &input.vault, shares, input.block_number)
+			.await
+			.map_err(vault_read_retry)?
 	};
 	Ok((shares, assets))
 }
@@ -607,6 +615,7 @@ pub async fn snapshot_chain(
 		};
 		let (total_assets, total_shares, assets_per_share) = match read_vault.await {
 			Ok(read) => read,
+			Err(err) if is_transient(&err) => return Err(err),
 			Err(err) => {
 				tracing::error!(
 					"[yield-vault] Vault read failed for {vault} on {}: {err:#}",
@@ -739,6 +748,7 @@ async fn snapshot_lp_position(
 	};
 	let (shares, asset_value) = match read.await {
 		Ok(read) => read,
+		Err(err) if is_transient(&err) => return Err(err),
 		Err(err) => {
 			tracing::error!("[yield-vault] LP read failed for {} on {vault}: {err:#}", position.lp);
 			return Ok(LpOutcome::Retry);

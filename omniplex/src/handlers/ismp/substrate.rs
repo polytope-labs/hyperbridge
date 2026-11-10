@@ -327,9 +327,11 @@ impl EventHandler for Response {
 		let host = ctx.chain.state_machine_id();
 		let timestamp = self.0.substrate_timestamp_ms(ctx).await?;
 		let commitment = hex_hash(&event.commitment);
-		let responses: Vec<Value> = ctx
-			.chain
-			.substrate()?
+		let node = ctx.chain.substrate()?;
+		// The node looks the response up at its own head. One still behind this block finds
+		// nothing, which is also its answer for a POST response.
+		node.ensure_imported(ctx.log.block_number).await?;
+		let responses: Vec<Value> = node
 			.call("ismp_queryResponses", json!([[{ "commitment": commitment }]]))
 			.await?;
 		let Some(response) = responses.first() else { return Ok(()) };

@@ -327,9 +327,10 @@ impl EventHandler for StateMachineUpdated {
 			Ok(Some(commitment)) => commitment,
 			Ok(None) => return Ok(()),
 			Err(err) if super::is_transient(&err) => return Err(err),
+			// The row records that the update happened. It holds 0, as SubQuery's rows do.
 			Err(err) => {
 				tracing::warn!("state commitment for {}: {err:#}", event.stateMachineId);
-				return Ok(());
+				U256::ZERO
 			},
 		};
 		let tx = format!("{:#x}", ctx.log.transaction_hash);

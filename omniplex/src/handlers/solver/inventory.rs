@@ -16,7 +16,7 @@ use super::{
 	history::{block, int, load_inventory, save_inventory, Inventory},
 	parse_delegation,
 	reads::{self, read_contracts, ContractRead, Reads, Settled},
-	unsigned, DelegationReading, SolverChain, ZERO_ADDRESS,
+	unsigned, vault_read_retry, DelegationReading, SolverChain, ZERO_ADDRESS,
 };
 use crate::{
 	errors::{is_aborted_transaction, is_database_error},
@@ -845,7 +845,7 @@ pub async fn apply_vault_share_transfer(
 		let valued =
 			value_shares(chain, reads, &[(vault.clone(), shares)], transfer.block_number).await?;
 		position.shares = shares;
-		position.assets = valued[0].clone().map_err(anyhow::Error::msg)?;
+		position.assets = valued[0].clone().map_err(vault_read_retry)?;
 		position.block_number = transfer.block_number;
 		position.last_log_index = transfer.log_index as i32;
 		position.observed_at = later(position.observed_at, at);

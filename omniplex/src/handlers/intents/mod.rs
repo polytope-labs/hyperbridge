@@ -261,6 +261,7 @@ impl EventHandler for LegacyOrderPlaced {
 							decoded = hex_bytes(input).and_then(|i| decode_place_order(&i)),
 						None => tracing::warn!(%hash, "no nested IntentGateway call"),
 					},
+					Err(err) if is_transient(&err) => return Err(err),
 					Err(err) => tracing::error!(%hash, "tracing the IntentGateway call: {err:#}"),
 				},
 			}
@@ -327,6 +328,7 @@ async fn resolve_beneficiary(
 			if let Some(beneficiary) = inputs.iter().find_map(|input| from_calldata(input)) {
 				return Ok(Some(beneficiary));
 			},
+		Err(err) if is_transient(&err) => return Err(err),
 		Err(err) =>
 			tracing::warn!(%commitment, "could not recover the order from fill calldata: {err:#}"),
 	}

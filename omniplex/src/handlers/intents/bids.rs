@@ -63,8 +63,9 @@ pub async fn resolve_bid_source(
 ) -> anyhow::Result<BidSource> {
 	let rpc = chain.substrate()?;
 	let block: Value = rpc.call("chain_getBlock", json!([log.block_hash])).await?;
-	// A node that pruned the body answers null. That repeats on every retry, so fall back to
-	// `intents_getBidsForOrder` instead of failing the batch.
+	// A node answers null when it pruned the body, and when it hasn't imported the block. The
+	// second is retried. The first repeats on every retry, so the bid's data then comes from
+	// `intents_getBidsForOrder`.
 	let extrinsics: Vec<Vec<u8>> = match block
 		.pointer("/block/extrinsics")
 		.and_then(Value::as_array)
@@ -74,6 +75,7 @@ pub async fn resolve_bid_source(
 			.map(|e| hex::decode(e.as_str().unwrap_or_default().trim_start_matches("0x")))
 			.collect::<Result<_, _>>()?,
 		None => {
+			rpc.ensure_imported(log.block_number).await?;
 			tracing::warn!(block = %log.block_hash, "chain_getBlock returned no body; bid data from the node's live bids");
 			vec![]
 		},

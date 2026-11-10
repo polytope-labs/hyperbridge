@@ -161,7 +161,7 @@ mod tests {
 		let rpc = SubstrateRpc::new(&[&behind.url], reqwest::Client::new());
 		let err = block_extrinsics(&rpc, &log).await.unwrap_err();
 		assert!(crate::errors::is_transient(&err), "{err:#}");
-		// A node that has the block and still answers null has pruned its body.
+		// A node that has the block and still answers without a body has pruned it.
 		let pruned = MockRpc::start(Reply::Body(r#"{"result":"0x07"}"#)).await;
 		let rpc = SubstrateRpc::new(&[&pruned.url], reqwest::Client::new());
 		assert_eq!(block_extrinsics(&rpc, &log).await.unwrap(), None);

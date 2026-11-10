@@ -84,7 +84,7 @@ const METHOD_NOT_FOUND: i64 = -32601;
 const INTERNAL_ERROR: i64 = -32603;
 
 /** Whether a node's error answer says the execution failed. */
-pub fn failed_execution(answer: &ErrorPayload) -> bool {
+fn failed_execution(answer: &ErrorPayload) -> bool {
 	let message = answer.message.to_lowercase();
 	answer.code == 3 || EXECUTION_FAILURES.iter().any(|failure| message.contains(failure))
 }

@@ -33,15 +33,17 @@ Rust 1.98 and later.
   no default. The start fails when its URLs don't serve `system_chain`, as a standalone facade
   doesn't. A node that is only down doesn't stop the start.
 - Each of these variables can list several comma-separated URLs, as SubQuery's did. A request
-  goes to the RPC that answered last. A result or a failed execution, such as a revert, is
-  final. Anything else moves the request on to the next RPC: no answer, an HTTP error, an
-  answer that the RPC can't serve the request (a rate limit, or a block it doesn't have yet),
-  or a refusal (a method it lacks, or a plan without it). There is no failing back: the RPC
-  that answers stays first until it fails. An RPC that only refuses a request stays first for
-  the requests it does serve.
+  goes to the RPC that answered last. A result is final. So is an `eth_call`'s error, such as a
+  revert: the call ran and failed. Anything else moves the request on to the next RPC: no
+  answer, an HTTP error, an answer that the RPC can't serve the request (a rate limit, or a
+  block it doesn't have yet), or a refusal of another method (one it lacks, or one its plan
+  leaves out). There is no failing back: the RPC that answers stays first until it fails. An
+  RPC that only refuses a request, without an HTTP error, stays first for the requests it does
+  serve.
 - When no RPC serves a request, a refusal is its answer only if every RPC refused. An RPC that
-  failed or was rate-limited may still serve it, so the request is retried. A URL that is dead
-  for good therefore stalls the chain at the first request the other RPCs refuse.
+  failed, was rate-limited or lacks the block may still serve it, so the request is retried.
+  So a URL that is dead for good, or that can never serve the request, stalls the chain at the
+  first such request the other RPCs refuse.
 - At startup, rindexer's client for each `<CHAIN>` URL checks the node's chain id. A URL for
   another chain stops the start. With several URLs, a node that fails the check or doesn't
   answer within 30 s is left out of rindexer's own calls until the next start, though handler

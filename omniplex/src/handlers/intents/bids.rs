@@ -6,7 +6,11 @@ use codec::{Compact, Decode};
 use serde::Deserialize;
 use serde_json::{json, Value};
 
-use crate::{chains::Chain, registry::LogMeta, substrate::ss58};
+use crate::{
+	chains::Chain,
+	registry::LogMeta,
+	substrate::{ss58, SubstrateRpc},
+};
 
 /** Hyperbridge's SS58 prefix, on Nexus and Gargantua alike. */
 pub const SS58_PREFIX: u8 = 0;
@@ -50,6 +54,25 @@ struct RpcBid {
 }
 
 /**
+ * The extrinsics of the log's block, or `None` when the node pruned the block's body. The bid's
+ * data then comes from `intents_getBidsForOrder`.
+ *
+ * A node also answers null for a block it hasn't imported. So after a null, the body is read
+ * again once a node has the block, from that node.
+ */
+async fn block_extrinsics(rpc: &SubstrateRpc, log: &LogMeta) -> anyhow::Result<Option<Vec<Value>>> {
+	let read_body = || async {
+		let block: Value = rpc.call("chain_getBlock", json!([log.block_hash])).await?;
+		anyhow::Ok(block.pointer("/block/extrinsics").and_then(Value::as_array).cloned())
+	};
+	if let Some(body) = read_body().await? {
+		return Ok(Some(body));
+	}
+	rpc.ensure_imported(log.block_number).await?;
+	read_body().await
+}
+
+/**
  * `resolveBidData`: the extrinsic from `chain_getBlock`, else the node's
  * `intents_getBidsForOrder`, which only knows bids that are still live. Failing to read the
  * block fails the event, so a transient RPC error retries rather than storing no payload.
@@ -62,20 +85,12 @@ pub async fn resolve_bid_source(
 	bid: &B256,
 ) -> anyhow::Result<BidSource> {
 	let rpc = chain.substrate()?;
-	let block: Value = rpc.call("chain_getBlock", json!([log.block_hash])).await?;
-	// A node answers null when it pruned the body, and when it hasn't imported the block. The
-	// second is retried. The first repeats on every retry, so the bid's data then comes from
-	// `intents_getBidsForOrder`.
-	let extrinsics: Vec<Vec<u8>> = match block
-		.pointer("/block/extrinsics")
-		.and_then(Value::as_array)
-	{
+	let extrinsics: Vec<Vec<u8>> = match block_extrinsics(rpc, log).await? {
 		Some(extrinsics) => extrinsics
 			.iter()
 			.map(|e| hex::decode(e.as_str().unwrap_or_default().trim_start_matches("0x")))
 			.collect::<Result<_, _>>()?,
 		None => {
-			rpc.ensure_imported(log.block_number).await?;
 			tracing::warn!(block = %log.block_hash, "chain_getBlock returned no body; bid data from the node's live bids");
 			vec![]
 		},
@@ -124,6 +139,33 @@ pub fn bid_id(commitment: &B256, filler: &B256, block_number: u64, log_index: u6
 mod tests {
 	use super::*;
 	use codec::Encode;
+
+	#[tokio::test]
+	async fn a_block_one_node_is_behind_is_read_from_the_node_that_has_it() {
+		use crate::failover::tests::{MockRpc, Reply};
+		let log = LogMeta {
+			address: Default::default(),
+			block_number: 7,
+			block_hash: B256::repeat_byte(7),
+			block_timestamp: 0,
+			transaction_hash: B256::ZERO,
+			transaction_index: 0,
+			log_index: 0,
+		};
+		let behind = MockRpc::start(Reply::Null).await;
+		let ahead =
+			MockRpc::start(Reply::Body(r#"{"result":{"block":{"extrinsics":["0x01"]}}}"#)).await;
+		let rpc = SubstrateRpc::new(&[&behind.url, &ahead.url], reqwest::Client::new());
+		assert_eq!(block_extrinsics(&rpc, &log).await.unwrap(), Some(vec![json!("0x01")]));
+		// With every node behind, the bid is retried rather than stored without its extrinsic.
+		let rpc = SubstrateRpc::new(&[&behind.url], reqwest::Client::new());
+		let err = block_extrinsics(&rpc, &log).await.unwrap_err();
+		assert!(crate::errors::is_transient(&err), "{err:#}");
+		// A node that has the block and still answers null has pruned its body.
+		let pruned = MockRpc::start(Reply::Body(r#"{"result":"0x07"}"#)).await;
+		let rpc = SubstrateRpc::new(&[&pruned.url], reqwest::Client::new());
+		assert_eq!(block_extrinsics(&rpc, &log).await.unwrap(), None);
+	}
 
 	fn place_bid(pallet: u8, commitment: B256, bid: B256, user_op: &[u8]) -> Vec<u8> {
 		let mut call = vec![pallet, PLACE_BID_CALL_INDEX];

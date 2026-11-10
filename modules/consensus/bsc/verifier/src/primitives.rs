@@ -77,6 +77,11 @@ pub struct ExtraData {
 	pub agg_signature: [u8; 96],
 	pub vote_data: VoteData,
 	pub vote_address_set: u64,
+	/// The Parlia `TurnLength` carried in every epoch (checkpoint) header's `extra_data`
+	/// since the BOHR fork. It is `1` on pre-BOHR headers and on non-epoch headers that
+	/// carry no validator section. It governs where the real chain rotates its validator
+	/// set — see [`rotation_block`].
+	pub turn_length: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -123,6 +128,8 @@ pub fn parse_extra<H: Keccak256, C: Config>(
 			target_hash: Default::default(),
 		},
 		vote_address_set: 0,
+		// Default for pre-BOHR headers and headers without a validator section.
+		turn_length: 1,
 	};
 
 	if data.len() < EXTRA_VANITY_LENGTH + EXTRA_SEAL_LENGTH {
@@ -179,7 +186,11 @@ pub fn parse_extra<H: Keccak256, C: Config>(
 			data = if header.timestamp >= C::BOHR_FORK_TIMESTAMP {
 				// In Bohr fork there is an extra byte for turn
 				// https://github.com/bnb-chain/bsc/blob/26a4d4fda656cc78436c1931aaea5dc3ed33eeeb/consensus/parlia/parlia.go#L383
-				let index = validator_bytes_total_length - VALIDATOR_NUMBER_SIZE + TURN_LENGTH_SIZE;
+				let turn_index = validator_bytes_total_length - VALIDATOR_NUMBER_SIZE;
+				// The turn byte sits immediately after the validator entries. Parlia rejects a
+				// zero turn length, so clamp to a minimum of 1 to keep [`rotation_block`] sane.
+				extra.turn_length = core::cmp::max(remaining_data[turn_index] as u64, 1);
+				let index = turn_index + TURN_LENGTH_SIZE;
 				&remaining_data[index..]
 			} else {
 				let index = validator_bytes_total_length - VALIDATOR_NUMBER_SIZE;
@@ -205,4 +216,19 @@ pub fn parse_extra<H: Keccak256, C: Config>(
 
 pub fn compute_epoch(number: u64, epoch_length: u64) -> u64 {
 	number / epoch_length
+}
+
+/// The absolute block height at which the validator set elected at `epoch_boundary`
+/// actually takes over on the real chain.
+///
+/// Parlia switches the active set at `number % epochLength == minerHistoryCheckLen()`,
+/// where `minerHistoryCheckLen() = (len(validators)/2 + 1) * TurnLength - 1`
+/// (bnb-chain/bsc `consensus/parlia/snapshot.go`). Pre-BOHR headers carry no turn byte,
+/// so `turn_length == 1` and the offset collapses to the historical `len/2` rule.
+///
+/// `validator_count` is the size of the set signing across the rotation (the outgoing set),
+/// and `turn_length` is read from the epoch header's `extra_data` ([`parse_extra`]).
+pub fn rotation_block(epoch_boundary: u64, validator_count: u64, turn_length: u64) -> u64 {
+	let turn_length = turn_length.max(1);
+	epoch_boundary + (validator_count / 2 + 1) * turn_length - 1
 }

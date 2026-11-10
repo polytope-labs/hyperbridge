@@ -107,6 +107,12 @@ impl<
 			// promoted to `current_validators`, and then have their forged
 			// `source_header`'s `state_root` accepted as a BSC state commitment. Binding
 			// rotation to the recorded `rotation_block`'s epoch prevents that reuse.
+			//
+			// `attested_number` is safe to gate on here because `verify_bsc_header` binds it
+			// to the BLS-signed `vote_data.target_number` (`attested == target + 1`): a
+			// submitter can no longer hold `attested_number` below `rotation_block` while
+			// finalizing a `source_header` past it, which would otherwise let a compromised
+			// outgoing set keep signing past its rotation.
 			if attested_epoch == rotation_epoch && attested_number >= next_validators.rotation_block {
 				// During authority set rotation, the source header must be from the same epoch as
 				// the attested header.
@@ -145,6 +151,22 @@ impl<
 		consensus_state.finalized_hash = hash;
 
 		if let Some(next_validators) = next_validators {
+			// A freshly staged set must belong to the epoch immediately after the one the client
+			// currently holds. Binding the ancestry to `source_header`'s own epoch boundary (in
+			// the verifier) still lets a caller stage the *current* epoch's own set as "next" —
+			// a source in epoch E carrying a full-epoch ancestry back to E's boundary extracts
+			// E's set, with a `rotation_block` already in the past. Such a set can never promote
+			// (its rotation epoch is E, which finality has left), and once finality crosses into
+			// E+1 it strands the client until governance resets it. Requiring the staged set's
+			// activation epoch to equal `current_epoch + 1` closes that path while leaving the
+			// honest flow (stage epoch E+1's set while in epoch E) untouched.
+			let staged_epoch = compute_epoch(next_validators.rotation_block, epoch_length);
+			if staged_epoch != consensus_state.current_epoch + 1 {
+				Err(Error::UnexpectedNextValidatorsEpoch {
+					staged_epoch,
+					current_epoch: consensus_state.current_epoch,
+				})?
+			}
 			consensus_state.next_validators = Some(next_validators);
 		}
 		consensus_state.finalized_height = finalized_header.number.low_u64();

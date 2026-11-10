@@ -55,6 +55,13 @@ pub enum Error {
 	/// The epoch header has no validator set encoded.
 	#[error("Epoch header provided does not have a validator set present in its extra data")]
 	MissingValidatorSet,
+	/// The attested header's number is not `vote_data.target_number + 1`. A Parlia vote
+	/// attestation justifies the attesting block's direct parent, so the header carrying it
+	/// must sit one block above the signed target. The attested header's `number` is not
+	/// covered by the vote signature, so this binding stops a submitter from choosing it
+	/// independently of the finalized source header.
+	#[error("Attested header is not the direct child of the signed vote target")]
+	AttestedHeaderNotChildOfTarget,
 
 	// -- client-wrapper (produced by `ismp-bsc`) --
 	/// The submitted consensus proof failed to SCALE-decode into a `BscClientUpdate`.
@@ -104,6 +111,20 @@ pub enum Error {
 		current_epoch: u64,
 		/// Whether a next validator set was staged for rotation.
 		next_validators_staged: bool,
+	},
+	/// A staged `next_validators` set did not belong to the epoch immediately after the
+	/// one the client currently holds. The honest rotation always stages the set of
+	/// `current_epoch + 1`; any other activation epoch means the ancestry pointed at the
+	/// current (or a past) epoch's own set, which can never legitimately promote.
+	#[error(
+		"Staged next validators activate in epoch {staged_epoch}, expected current epoch \
+		 {current_epoch} + 1"
+	)]
+	UnexpectedNextValidatorsEpoch {
+		/// Epoch in which the staged set would activate (derived from its `rotation_block`).
+		staged_epoch: u64,
+		/// The client's current validator-set epoch.
+		current_epoch: u64,
 	},
 	/// Fraud-proof header pair didn't satisfy "same height, different hash".
 	#[error("Invalid fraud proof")]

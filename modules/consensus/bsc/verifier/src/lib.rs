@@ -22,7 +22,7 @@ use alloc::vec::Vec;
 use bls_utils::aggregate_public_keys;
 use geth_primitives::{CodecHeader, Header};
 use ismp::messaging::Keccak256;
-use primitives::{compute_epoch, parse_extra, BscClientUpdate, Config, VALIDATOR_BIT_SET_SIZE};
+use primitives::{compute_epoch, parse_extra, rotation_block, BscClientUpdate, Config};
 use sp_core::H256;
 use ssz::Decode;
 use ssz_types::BitVector;
@@ -111,6 +111,20 @@ pub fn verify_bsc_header<H: Keccak256, C: Config>(
 		Err(Error::NonConsecutiveFinalization)?
 	}
 
+	// Bind the (unsigned) attested header to the BLS-signed vote. A Parlia header's vote
+	// attestation always justifies its direct parent, so the block carrying this vote sits at
+	// `target_number + 1`. `target_number` is covered by the aggregate signature
+	// (`keccak256(rlp(vote_data))`), whereas `attested_header.number` is not: without this
+	// binding a submitter could set `attested_header.number` to any value independent of the
+	// finalized `source_header` and thereby choose which validator set the client promotes to
+	// (keeping a compromised outgoing set in charge past its rotation block). Pinning it to the
+	// signed `target_number` removes that freedom.
+	if update.attested_header.number.low_u64() !=
+		extra_data.vote_data.target_number.saturating_add(1)
+	{
+		Err(Error::AttestedHeaderNotChildOfTarget)?
+	}
+
 	let participants: Vec<BlsPublicKey> = current_validators
 		.iter()
 		.zip(validators_bit_set.iter())
@@ -167,6 +181,7 @@ pub fn verify_bsc_header<H: Keccak256, C: Config>(
             let epoch_header = update.epoch_header_ancestry[0].clone();
             let epoch_header_extra_data = parse_extra::<H, C>(&epoch_header)
                 .map_err(|_| Error::ParseEpochExtraData)?;
+            let turn_length = epoch_header_extra_data.turn_length;
             let validators = epoch_header_extra_data
                 .validators
                 .into_iter()
@@ -176,8 +191,14 @@ pub fn verify_bsc_header<H: Keccak256, C: Config>(
             if !validators.is_empty() {
                 Some(NextValidators {
                     validators,
-                    rotation_block: epoch_header.number.low_u64() +
-                        (current_validators.len() as u64 / 2),
+                    // The real chain rotates `minerHistoryCheckLen()` blocks into the epoch,
+                    // which depends on the BOHR `TurnLength`. The pre-BOHR `len/2` rule opens
+                    // the promotion window ~80 blocks early and stalls finality each epoch.
+                    rotation_block: rotation_block(
+                        epoch_header.number.low_u64(),
+                        current_validators.len() as u64,
+                        turn_length,
+                    ),
                 })
             } else {
                 Err(Error::MissingValidatorSet)?
@@ -186,6 +207,7 @@ pub fn verify_bsc_header<H: Keccak256, C: Config>(
         } else if update.source_header.number.low_u64() % epoch_length == 0 {
             let epoch_header_extra_data = parse_extra::<H, C>(&update.source_header)
                 .map_err(|_| Error::ParseEpochExtraData)?;
+            let turn_length = epoch_header_extra_data.turn_length;
             let validators = epoch_header_extra_data
                 .validators
                 .into_iter()
@@ -195,8 +217,11 @@ pub fn verify_bsc_header<H: Keccak256, C: Config>(
             if !validators.is_empty() {
                 Some(NextValidators {
                     validators,
-                    rotation_block: update.source_header.number.low_u64() +
-                        (current_validators.len() as u64 / 2),
+                    rotation_block: rotation_block(
+                        update.source_header.number.low_u64(),
+                        current_validators.len() as u64,
+                        turn_length,
+                    ),
                 })
             } else {
                 Err(Error::MissingValidatorSet)?
@@ -418,6 +443,149 @@ mod tests {
 
 		let err = verify_bsc_header::<TestHost, Testnet>(&validators, update, 1000)
 			.expect_err("non-adjacent vote must be rejected");
-		assert!(format!("{err}").contains("not the direct child"), "unexpected error: {err:?}");
+		assert!(
+			format!("{err}").contains("not the direct child of the source header"),
+			"unexpected error: {err:?}"
+		);
+	}
+
+	/// Build an attested header at `number` whose vote attestation carries the given
+	/// `vote_data` fields (so `parse_extra` yields exactly this `vote_data`).
+	fn attested_header_with_vote(
+		number: u64,
+		vote_address_set: u64,
+		source_number: u64,
+		source_hash: B256,
+		target_number: u64,
+		target_hash: B256,
+	) -> CodecHeader {
+		let attestation = VoteAttestationData {
+			vote_address_set,
+			agg_signature: FixedBytes::<96>::from([0u8; 96]),
+			data: VoteData { source_number, source_hash, target_number, target_hash },
+			extra: Bytes::new(),
+		};
+		let mut attestation_rlp = Vec::new();
+		attestation.encode(&mut attestation_rlp);
+		assert_eq!(attestation_rlp[0], 0xf8);
+
+		let mut extra_data = Vec::with_capacity(32 + attestation_rlp.len() + 65);
+		extra_data.extend_from_slice(&[0u8; 32]);
+		extra_data.extend_from_slice(&attestation_rlp);
+		extra_data.extend_from_slice(&[0u8; 65]);
+
+		let mut header = plain_header(number, H256::zero());
+		header.extra_data = extra_data;
+		header
+	}
+
+	/// Set up an adjacent, hash-bound source/target pair plus an attested header whose
+	/// `number` the caller controls, so the attested-binding check can be exercised on its own.
+	fn adjacent_update_with_attested_number(attested_number: u64) -> BscClientUpdate {
+		let mask: u64 = (1u64 << 21) - 1;
+		let source_header = plain_header(10, H256::repeat_byte(0x11));
+		let source_hash = Header::from(&source_header).hash::<TestHost>();
+		let target_header = plain_header(11, H256::from(source_hash.0));
+		let target_hash = Header::from(&target_header).hash::<TestHost>();
+		let attested_header = attested_header_with_vote(
+			attested_number,
+			mask,
+			10,
+			B256::from(source_hash.0),
+			11,
+			B256::from(target_hash.0),
+		);
+		BscClientUpdate {
+			source_header,
+			target_header,
+			attested_header,
+			epoch_header_ancestry: Default::default(),
+		}
+	}
+
+	/// The attested header's `number` must equal the BLS-signed `target_number + 1`. A
+	/// mismatch (here the submitter set it far below the finalized source) is rejected before
+	/// any validator-set promotion can be influenced. (HYPERBR-2724)
+	#[test]
+	fn rejects_attested_header_not_child_of_target() {
+		let validators = dummy_validators(21);
+		// target_number is 11, so the only valid attested number is 12; 5 must be rejected.
+		let update = adjacent_update_with_attested_number(5);
+		let err = verify_bsc_header::<TestHost, Testnet>(&validators, update, 1000)
+			.expect_err("attested header not bound to the signed target must be rejected");
+		assert!(
+			format!("{err}").contains("not the direct child of the signed vote target"),
+			"unexpected error: {err:?}"
+		);
+	}
+
+	/// When the attested header *is* the signed target's child (`target_number + 1`), the
+	/// binding passes and verification proceeds to the signature stage. This pins that the
+	/// binding, not some earlier check, is what gates the number. (HYPERBR-2724)
+	#[test]
+	fn accepts_attested_header_child_of_target_then_checks_signature() {
+		let validators = dummy_validators(21);
+		let update = adjacent_update_with_attested_number(12);
+		let err = verify_bsc_header::<TestHost, Testnet>(&validators, update, 1000)
+			.expect_err("dummy aggregate signature fails downstream");
+		let msg = format!("{err}");
+		assert!(
+			!msg.contains("not the direct child of the signed vote target"),
+			"binding should have passed, got: {msg}"
+		);
+	}
+
+	/// `rotation_block` must track the BOHR `TurnLength`, matching Parlia's
+	/// `minerHistoryCheckLen() = (len/2 + 1) * TurnLength - 1`, and collapse to the historical
+	/// `len/2` rule pre-BOHR (`TurnLength == 1`). (HYPERBR-2776)
+	#[test]
+	fn rotation_block_tracks_turn_length() {
+		// Pre-BOHR default.
+		assert_eq!(rotation_block(5_000_000, 21, 1), 5_000_010);
+		// BOHR mainnet shape: 21 validators, turn length 8 → +87.
+		assert_eq!(rotation_block(5_000_000, 21, 8), 5_000_087);
+		// A zero turn length is clamped to 1 rather than underflowing.
+		assert_eq!(rotation_block(5_000_000, 21, 0), 5_000_010);
+	}
+
+	/// `parse_extra` must read the BOHR turn byte that sits immediately after the validator
+	/// entries, not merely skip it. (HYPERBR-2776)
+	#[test]
+	fn parse_extra_reads_bohr_turn_length() {
+		let turn: u8 = 8;
+		let validator_num: u8 = 1;
+		let mut extra_data = Vec::new();
+		extra_data.extend_from_slice(&[0u8; 32]); // vanity
+		extra_data.push(validator_num);
+		extra_data.extend_from_slice(&[7u8; 20 + 48]); // one validator entry (address + bls key)
+		extra_data.push(turn); // BOHR turn byte
+		extra_data.extend_from_slice(&[0u8; 65]); // seal
+
+		let mut header = plain_header(0, H256::zero());
+		header.extra_data = extra_data;
+		header.timestamp = Testnet::BOHR_FORK_TIMESTAMP; // post-BOHR
+
+		let parsed = parse_extra::<TestHost, Testnet>(&header).expect("header parses");
+		assert_eq!(parsed.turn_length, 8, "turn byte value must be captured");
+		assert_eq!(parsed.validators.len(), 1);
+	}
+
+	/// Pre-BOHR headers carry no turn byte; `turn_length` defaults to 1 so `rotation_block`
+	/// reproduces the historical behaviour. (HYPERBR-2776)
+	#[test]
+	fn parse_extra_defaults_turn_length_pre_bohr() {
+		let validator_num: u8 = 1;
+		let mut extra_data = Vec::new();
+		extra_data.extend_from_slice(&[0u8; 32]);
+		extra_data.push(validator_num);
+		extra_data.extend_from_slice(&[7u8; 20 + 48]);
+		extra_data.extend_from_slice(&[0u8; 65]);
+
+		let mut header = plain_header(0, H256::zero());
+		header.extra_data = extra_data;
+		header.timestamp = Testnet::BOHR_FORK_TIMESTAMP - 1; // pre-BOHR
+
+		let parsed = parse_extra::<TestHost, Testnet>(&header).expect("header parses");
+		assert_eq!(parsed.turn_length, 1);
 	}
 }

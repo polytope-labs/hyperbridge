@@ -51,8 +51,9 @@ impl Failover {
  * An alloy transport over a chain's HTTP RPCs. A result is the chain's answer, the same from
  * any RPC, so it is final. So is an `eth_call`'s error answer, unless the RPC says it can't
  * serve the call or lacks the method: the call ran and failed, in whichever words that client
- * has for it. Sent with an HTTP error, only a failed execution in known words is final, as the
- * body may be the RPC's own complaint, such as a revoked key.
+ * has for it. Sent with an HTTP error, the body may be the RPC's own complaint, such as a
+ * revoked key. So only a failed execution in known words is final then, and only with a 4xx
+ * other than a timeout (408) or a rate limit (429).
  *
  * Anything else moves the request to the next RPC: no answer, an HTTP error, an answer that the
  * RPC can't serve the request, such as a rate limit or a block it doesn't have, or a refusal of

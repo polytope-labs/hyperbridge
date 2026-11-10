@@ -45,10 +45,11 @@ impl Failover {
  * An alloy transport over a chain's HTTP RPCs. A request moves to the next RPC when one doesn't
  * answer, answers with an HTTP error, answers that it can't serve the request, such as a rate
  * limit or a block it doesn't have, or answers that it lacks the method. A revert is final,
- * even sent with an HTTP error. When no RPC serves the request, the caller gets the first
- * can't-serve answer, else the first HTTP error, else the first failure: an answer says more
- * than an RPC that didn't answer. It gets a missing method's answer, with or without an HTTP
- * error, only when every RPC gave one, as an RPC that failed may have the method.
+ * even sent with an HTTP 4xx other than a timeout or a rate limit. When no RPC serves the
+ * request, the caller gets the first can't-serve answer, else the first HTTP error, else the
+ * first failure: an answer says more than an RPC that didn't answer. It gets a missing method's
+ * answer, with or without an HTTP error, only when every RPC gave one, as an RPC that failed
+ * may have the method.
  */
 #[derive(Clone)]
 pub struct FailoverTransport {
@@ -82,11 +83,11 @@ impl Service<RequestPacket> for FailoverTransport {
 				let failed_over = unserved.is_some() || failure.is_some();
 				match transport.call(request.clone()).await {
 					Ok(response) => {
-						let (kept, message) = match response.as_error() {
+						let (kept, problem, message) = match response.as_error() {
 							Some(answer) if lacks_method(answer) =>
-								(&mut lacking, answer.message.to_string()),
+								(&mut lacking, "lacks it", answer.message.to_string()),
 							Some(answer) if not_served(answer) =>
-								(&mut unserved, answer.message.to_string()),
+								(&mut unserved, "couldn't serve it", answer.message.to_string()),
 							_ => {
 								if failed_over {
 									this.failover.answered(index);
@@ -97,7 +98,7 @@ impl Service<RequestPacket> for FailoverTransport {
 						if several {
 							tracing::warn!(
 								rpc = index,
-								"RPC couldn't serve it, trying the next: {message}"
+								"RPC {problem}, trying the next: {message}"
 							);
 						}
 						kept.get_or_insert(Ok(response));

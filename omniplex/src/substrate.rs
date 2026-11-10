@@ -108,6 +108,19 @@ impl SubstrateRpc {
 		method: &str,
 		params: Value,
 	) -> anyhow::Result<T> {
+		self.call_ahead(method, params, |_| false).await
+	}
+
+	/**
+	 * As [`Self::call`], with a node whose result shows it `is_behind` counted as one that
+	 * can't serve the call. So the next node is asked, and with none ahead it is a [`Retry`].
+	 */
+	async fn call_ahead<T: DeserializeOwned>(
+		&self,
+		method: &str,
+		params: Value,
+		is_behind: fn(&Value) -> bool,
+	) -> anyhow::Result<T> {
 		let body = json!({ "jsonrpc": "2.0", "id": 1, "method": method, "params": params });
 		let mut delay = Duration::from_millis(100);
 		let mut attempt = 0;
@@ -115,11 +128,14 @@ impl SubstrateRpc {
 			let (mut unserved, mut lacking, mut failure) = (None, None, None);
 			for index in self.failover.order(self.urls.len()) {
 				match self.post(index, &body).await {
-					Ok(response) => match response.get("error").map(error_answer) {
+					Ok(response) => match error_of(&response).map(error_answer) {
 						Some(answer) if lacks_method(&answer) => {
 							lacking.get_or_insert(response);
 						},
 						Some(answer) if not_served(&answer) => {
+							unserved.get_or_insert(response);
+						},
+						None if is_behind(&response["result"]) => {
 							unserved.get_or_insert(response);
 						},
 						_ => {
@@ -136,7 +152,8 @@ impl SubstrateRpc {
 				}
 			}
 			if let Some(response) = unserved {
-				return Err(Retry(format!("{method}: {}", response["error"])).into());
+				let answer = error_of(&response).unwrap_or(&response["result"]);
+				return Err(Retry(format!("{method}: {answer}")).into());
 			}
 			let Some(err) = failure else {
 				let response = lacking.expect("a Substrate RPC has a URL");
@@ -150,7 +167,7 @@ impl SubstrateRpc {
 			delay *= 2;
 			attempt += 1;
 		};
-		if let Some(error) = response.get("error") {
+		if let Some(error) = error_of(&response) {
 			bail!("{method}: {error}");
 		}
 		let result = response.get("result").cloned().unwrap_or(Value::Null);
@@ -158,15 +175,15 @@ impl SubstrateRpc {
 	}
 
 	/**
-	 * Fails with a [`Retry`] until a node has block `number`. A node behind a block answers a
-	 * lookup at its own head, as if the block held nothing.
+	 * Fails with a [`Retry`] until a node has block `number`, and leaves that node first. A
+	 * node behind a block answers a lookup at its own head, as if the block held nothing.
 	 */
 	pub async fn ensure_imported(&self, number: u64) -> anyhow::Result<()> {
-		let hash: Option<String> = self.call("chain_getBlockHash", json!([number])).await?;
-		match hash {
-			Some(_) => Ok(()),
-			None => Err(Retry(format!("the node has not imported block {number}")).into()),
-		}
+		let _hash: String = self
+			.call_ahead("chain_getBlockHash", json!([number]), Value::is_null)
+			.await
+			.with_context(|| format!("waiting for a node with block {number}"))?;
+		Ok(())
 	}
 
 	/**
@@ -189,6 +206,11 @@ impl SubstrateRpc {
 		let request = self.http.post(&self.urls[index]).timeout(Duration::from_secs(30));
 		request.json(body).send().await?.error_for_status()?.json().await
 	}
+}
+
+/** The JSON-RPC error in a node's response, if it has one. */
+fn error_of(response: &Value) -> Option<&Value> {
+	response.get("error").filter(|error| !error.is_null())
 }
 
 /** A node's JSON-RPC error, as the type [`not_served`] and [`lacks_method`] read. */
@@ -294,6 +316,11 @@ mod tests {
 		assert!(crate::errors::is_transient(&err), "{err:#}");
 		node.set(Reply::Result("0x01"));
 		rpc.ensure_imported(7).await.unwrap();
+		// A node that has the block is asked when the first is behind, and is first after.
+		let behind = MockRpc::start(Reply::Null).await;
+		let rpc = SubstrateRpc::new(&[&behind.url, &node.url], reqwest::Client::new());
+		rpc.ensure_imported(7).await.unwrap();
+		assert_eq!(rpc.failover.order(2).collect::<Vec<_>>(), [1, 0]);
 	}
 
 	#[tokio::test]

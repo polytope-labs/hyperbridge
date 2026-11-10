@@ -21,7 +21,9 @@ use alloy::{
 };
 use tower_service::Service;
 
-use crate::errors::{error_answer, is_answer, is_refusal, lacks_method, not_served};
+use crate::errors::{
+	error_answer, is_answer, is_failed_execution, is_refusal, lacks_method, not_served,
+};
 
 /** The method that runs a contract. Its error answer is the call's own failure. */
 const CALL: &str = "eth_call";
@@ -47,11 +49,14 @@ impl Failover {
 
 /**
  * An alloy transport over a chain's HTTP RPCs. A result is the chain's answer, the same from
- * any RPC, so it is final. So is an `eth_call`'s error answer: the call ran and failed, in
- * whichever words that client has for it. Anything else moves the request to the next RPC: no
- * answer, an HTTP error, an answer that the RPC can't serve the request, such as a rate limit
- * or a block it doesn't have, or a refusal of another method, such as one the RPC lacks or its
- * plan leaves out.
+ * any RPC, so it is final. So is an `eth_call`'s error answer, unless the RPC says it can't
+ * serve the call or lacks the method: the call ran and failed, in whichever words that client
+ * has for it. Sent with an HTTP error, only a failed execution in known words is final, as the
+ * body may be the RPC's own complaint, such as a revoked key.
+ *
+ * Anything else moves the request to the next RPC: no answer, an HTTP error, an answer that the
+ * RPC can't serve the request, such as a rate limit or a block it doesn't have, or a refusal of
+ * another method, such as one the RPC lacks or its plan leaves out.
  *
  * When no RPC serves the request, the caller gets the outcome a retry is likeliest to change:
  * the first can't-serve answer, else an HTTP error that isn't a refusal, else an RPC that
@@ -94,9 +99,11 @@ impl Service<RequestPacket> for FailoverTransport {
 					Ok(response) => response.as_error().cloned(),
 					Err(err) => error_answer(err),
 				};
-				let settled = match &answer {
-					Some(answer) => is_call && !not_served(answer) && !lacks_method(answer),
-					None => outcome.is_ok(),
+				let settled = match (&outcome, &answer) {
+					(Ok(_), None) => true,
+					(Ok(_), Some(answer)) =>
+						is_call && !not_served(answer) && !lacks_method(answer),
+					(Err(err), _) => is_call && is_failed_execution(err),
 				};
 				if settled {
 					if failed_over {
@@ -168,7 +175,6 @@ pub mod tests {
 	};
 
 	use super::*;
-	use crate::errors::is_failed_execution;
 
 	/** How a mock RPC answers every request. */
 	#[derive(Debug, Clone)]
@@ -476,6 +482,14 @@ pub mod tests {
 		let (outcome, order) = call([&limited.url, &reverted.url]).await;
 		assert!(is_failed_execution(&outcome.unwrap_err()));
 		assert_eq!(order, [1, 0]);
+		// Any other error sent with an HTTP error may be the RPC's own, such as a revoked key.
+		let unauthorized = MockRpc::start(Reply::Rejected(401, -32000, "invalid key")).await;
+		let (outcome, order) = call([&unauthorized.url, &live.url]).await;
+		assert_eq!(outcome.unwrap().to_string(), "0x2a");
+		assert_eq!(order, [1, 0]);
+		let (outcome, _) = call([&unauthorized.url, &limited.url]).await;
+		let err = outcome.unwrap_err();
+		assert_eq!(err.as_error_resp().map(|answer| answer.code), Some(-32005), "{err}");
 		// An RPC that can't serve the call, or lacks the method, hands it on.
 		for first in [&limited.url, &lagging.url, &lacking.url] {
 			let (outcome, _) = call([first, &live.url]).await;

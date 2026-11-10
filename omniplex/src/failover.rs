@@ -1,7 +1,8 @@
 //! Failover between a chain's RPC URLs. A request goes to the RPC that answered last, then to
 //! each other one in turn while it fails, as SubQuery failed over between endpoints. There is
 //! no failing back: the RPC that answers stays first until it fails. An RPC that only refuses a
-//! request, such as a method it lacks, stays first for the requests it does serve.
+//! request, such as a method it lacks, stays first for the requests it does serve, unless it
+//! refused with an HTTP error.
 
 use std::{
 	sync::{
@@ -20,9 +21,10 @@ use alloy::{
 };
 use tower_service::Service;
 
-use crate::errors::{
-	error_answer, failed_execution, is_answer, is_refusal, lacks_method, not_served,
-};
+use crate::errors::{error_answer, is_answer, is_refusal, lacks_method, not_served};
+
+/** The method that runs a contract. Its error answer is the call's own failure. */
+const CALL: &str = "eth_call";
 
 /** Which of a chain's RPCs to try first: the one that answered last. */
 #[derive(Debug, Default)]
@@ -44,11 +46,12 @@ impl Failover {
 }
 
 /**
- * An alloy transport over a chain's HTTP RPCs. A result or a failed execution is the chain's
- * answer, the same from any RPC, so it is final. Anything else moves the request to the next
- * RPC: no answer, an HTTP error, an answer that the RPC can't serve the request, such as a rate
- * limit or a block it doesn't have, or a refusal, such as a method it lacks or a plan without
- * it.
+ * An alloy transport over a chain's HTTP RPCs. A result is the chain's answer, the same from
+ * any RPC, so it is final. So is an `eth_call`'s error answer: the call ran and failed, in
+ * whichever words that client has for it. Anything else moves the request to the next RPC: no
+ * answer, an HTTP error, an answer that the RPC can't serve the request, such as a rate limit
+ * or a block it doesn't have, or a refusal of another method, such as one the RPC lacks or its
+ * plan leaves out.
  *
  * When no RPC serves the request, the caller gets the outcome a retry is likeliest to change:
  * the first can't-serve answer, else an HTTP error that isn't a refusal, else an RPC that
@@ -80,18 +83,19 @@ impl Service<RequestPacket> for FailoverTransport {
 		let this = self.clone();
 		Box::pin(async move {
 			let several = this.transports.len() > 1;
+			let is_call = request.method_names().all(|method| method == CALL);
 			let (mut unserved, mut failure, mut refused, mut lacking) = (None, None, None, None);
+			// Whether an RPC before this one failed, rather than only refused the request.
+			let mut failed_over = false;
 			for index in this.failover.order(this.transports.len()) {
 				let mut transport = this.transports[index].clone();
-				// Whether an RPC before this one failed, rather than only refused the request.
-				let failed_over = unserved.is_some() || failure.is_some();
 				let outcome = transport.call(request.clone()).await;
 				let answer = match &outcome {
 					Ok(response) => response.as_error().cloned(),
 					Err(err) => error_answer(err),
 				};
 				let settled = match &answer {
-					Some(answer) => failed_execution(answer),
+					Some(answer) => is_call && !not_served(answer) && !lacks_method(answer),
 					None => outcome.is_ok(),
 				};
 				if settled {
@@ -100,6 +104,10 @@ impl Service<RequestPacket> for FailoverTransport {
 					}
 					return outcome;
 				}
+				// An HTTP error says the RPC itself is unwell or unwilling, whatever its body.
+				let refused_only =
+					outcome.is_ok() && answer.as_ref().is_some_and(|answer| !not_served(answer));
+				failed_over |= !refused_only;
 				let (kept, problem) = match &answer {
 					Some(answer) if not_served(answer) => (&mut unserved, "couldn't serve it"),
 					Some(answer) if lacks_method(answer) => (&mut lacking, "lacks it"),
@@ -160,6 +168,7 @@ pub mod tests {
 	};
 
 	use super::*;
+	use crate::errors::is_failed_execution;
 
 	/** How a mock RPC answers every request. */
 	#[derive(Debug, Clone)]
@@ -171,6 +180,8 @@ pub mod tests {
 		Status(u16),
 		/** A JSON-RPC error sent with an HTTP error status. */
 		Rejected(u16, i64, &'static str),
+		/** The response's own fields as JSON: its `result`, its `error`, or both. */
+		Body(&'static str),
 		/** No logs for an `eth_getLogs` of at most this many blocks, and a range limit for a
 		 * longer one. Anything else gets `0x1`. */
 		LogsWithin(u64),
@@ -268,6 +279,12 @@ pub mod tests {
 					"error": { "code": code, "message": message },
 				}),
 			),
+			Reply::Body(fields) => {
+				let mut response: serde_json::Value = serde_json::from_str(fields).unwrap();
+				response["jsonrpc"] = "2.0".into();
+				response["id"] = request["id"].clone();
+				(200, response)
+			},
 			Reply::LogsWithin(most) => {
 				let block = |field: &str| {
 					let hex = request["params"][0][field].as_str().unwrap_or("0x0");
@@ -382,12 +399,17 @@ pub mod tests {
 		let limited = MockRpc::start(Reply::Error(-32005, "daily request limit exceeded")).await;
 		let lagging = MockRpc::start(Reply::Error(-32000, "header not found")).await;
 		let throttled = MockRpc::start(Reply::Error(-32000, "Too Many Requests")).await;
+		let slowed = MockRpc::start(Reply::Status(429)).await;
+		let rejecting =
+			MockRpc::start(Reply::Rejected(403, -32005, "request limit exceeded")).await;
 		for first in [
 			closed_url().await,
 			busy.url.clone(),
 			limited.url.clone(),
 			lagging.url.clone(),
 			throttled.url.clone(),
+			slowed.url.clone(),
+			rejecting.url.clone(),
 		] {
 			let (provider, transport) = provider_over(&[&first, &live.url]);
 			assert_eq!(provider.get_block_number().await.unwrap(), 42, "after {first}");
@@ -400,19 +422,65 @@ pub mod tests {
 	async fn an_rpc_that_only_refuses_the_request_stays_first() {
 		let live = MockRpc::start(Reply::Result("0x2a")).await;
 		let lacking = MockRpc::start(Reply::Error(-32601, LACKS_METHOD)).await;
-		let rejecting = MockRpc::start(Reply::Rejected(403, -32601, LACKS_METHOD)).await;
 		let off_plan = MockRpc::start(Reply::Error(-32600, OFF_PLAN)).await;
-		let rejecting_plan = MockRpc::start(Reply::Rejected(403, -32600, OFF_PLAN)).await;
-		for first in [&lacking, &rejecting, &off_plan, &rejecting_plan] {
+		for first in [&lacking, &off_plan] {
 			let (provider, transport) = provider_over(&[&first.url, &live.url]);
 			assert_eq!(provider.get_block_number().await.unwrap(), 42);
 			assert_eq!(transport.failover.order(2).collect::<Vec<_>>(), [0, 1]);
 		}
-		// A plain HTTP error says nothing of the request, so that RPC loses first place.
+		// One that refuses with an HTTP error loses first place, whatever the error's body.
 		let forbidden = MockRpc::start(Reply::Status(403)).await;
-		let (provider, transport) = provider_over(&[&forbidden.url, &live.url]);
-		assert_eq!(provider.get_block_number().await.unwrap(), 42);
-		assert_eq!(transport.failover.order(2).collect::<Vec<_>>(), [1, 0]);
+		let unauthorized = MockRpc::start(Reply::Rejected(401, -32000, "invalid key")).await;
+		let rejecting = MockRpc::start(Reply::Rejected(403, -32601, LACKS_METHOD)).await;
+		for first in [&forbidden, &unauthorized, &rejecting] {
+			let (provider, transport) = provider_over(&[&first.url, &live.url]);
+			assert_eq!(provider.get_block_number().await.unwrap(), 42);
+			assert_eq!(transport.failover.order(2).collect::<Vec<_>>(), [1, 0]);
+		}
+	}
+
+	#[tokio::test]
+	async fn an_eth_call_error_is_final_unless_the_rpc_could_not_serve_the_call() {
+		let call = |urls: [&str; 2]| {
+			let urls = urls.map(String::from);
+			async move {
+				let (provider, transport) = provider_over(&[&urls[0], &urls[1]]);
+				let outcome = provider.call(Default::default()).await;
+				(outcome, transport.failover.order(2).collect::<Vec<_>>())
+			}
+		};
+		// A precompile's failure, in words no list of failed executions has.
+		let failed = MockRpc::start(Reply::Error(-32000, "invalid input length")).await;
+		let live = MockRpc::start(Reply::Result("0x2a")).await;
+		let limited = MockRpc::start(Reply::Error(-32005, "daily request limit exceeded")).await;
+		let lagging = MockRpc::start(Reply::Error(-32000, "missing trie node")).await;
+		let lacking = MockRpc::start(Reply::Error(-32601, LACKS_METHOD)).await;
+		let closed = closed_url().await;
+		// The call failed, whatever the other RPCs would say.
+		for other in [&live.url, &limited.url, &lagging.url, &closed] {
+			let (outcome, order) = call([&failed.url, other]).await;
+			let err = outcome.unwrap_err();
+			assert_eq!(err.as_error_resp().map(|answer| answer.code), Some(-32000), "{err}");
+			assert_eq!(order, [0, 1]);
+		}
+		// After an RPC that couldn't serve the call, the failure is still final, and its RPC
+		// goes first.
+		for first in [&limited.url, &lagging.url, &closed] {
+			let (outcome, order) = call([first, &failed.url]).await;
+			let err = outcome.unwrap_err();
+			assert!(err.to_string().contains("invalid input length"), "{err}");
+			assert_eq!(order, [1, 0]);
+		}
+		// The same holds for a revert sent with an HTTP error.
+		let reverted = MockRpc::start(Reply::Rejected(400, 3, "execution reverted")).await;
+		let (outcome, order) = call([&limited.url, &reverted.url]).await;
+		assert!(is_failed_execution(&outcome.unwrap_err()));
+		assert_eq!(order, [1, 0]);
+		// An RPC that can't serve the call, or lacks the method, hands it on.
+		for first in [&limited.url, &lagging.url, &lacking.url] {
+			let (outcome, _) = call([first, &live.url]).await;
+			assert_eq!(outcome.unwrap().to_string(), "0x2a");
+		}
 	}
 
 	#[tokio::test]
@@ -426,11 +494,6 @@ pub mod tests {
 		let (provider, _) = provider_over(&[&closed_url().await, &busy.url]);
 		let err = provider.get_block_number().await.unwrap_err();
 		assert!(is_answer(&err), "{err}");
-		// A revert is final, even with an HTTP error, so it beats an earlier RPC's rate limit.
-		let reverted = MockRpc::start(Reply::Rejected(400, 3, "execution reverted")).await;
-		let (provider, _) = provider_over(&[&limited.url, &reverted.url]);
-		let err = provider.get_block_number().await.unwrap_err();
-		assert!(error_answer(&err).is_some_and(|answer| failed_execution(&answer)), "{err}");
 	}
 
 	#[tokio::test]
@@ -476,8 +539,19 @@ pub mod tests {
 			let err = failure(urls.map(String::as_str)).await;
 			assert_eq!(code(&err), Some(-32600), "{err}");
 		}
-		let err = failure([&forbidden.url, &lacking.url]).await;
-		assert!(is_refusal(&err) && code(&err).is_none(), "{err}");
+		// A plain HTTP refusal is one too.
+		for urls in [
+			[&forbidden.url, &lacking.url],
+			[&forbidden.url, &off_plan.url],
+			[&off_plan.url, &forbidden.url],
+		] {
+			let err = failure(urls.map(String::as_str)).await;
+			assert!(is_refusal(&err) && code(&err).is_none(), "{err}");
+		}
+		// One RPC of three that may serve the request is enough to retry it.
+		let (provider, _) = provider_over(&[&off_plan.url, &limited.url, &lacking.url]);
+		let err = provider.get_block_number().await.unwrap_err();
+		assert_eq!(code(&err), Some(-32005), "{err}");
 	}
 
 	#[tokio::test]

@@ -179,7 +179,7 @@ impl SubstrateRpc {
 	 * node behind a block answers a lookup at its own head, as if the block held nothing.
 	 */
 	pub async fn ensure_imported(&self, number: u64) -> anyhow::Result<()> {
-		let _hash: String = self
+		let _hash: Value = self
 			.call_ahead("chain_getBlockHash", json!([number]), Value::is_null)
 			.await
 			.with_context(|| format!("waiting for a node with block {number}"))?;
@@ -321,6 +321,23 @@ mod tests {
 		let rpc = SubstrateRpc::new(&[&behind.url, &node.url], reqwest::Client::new());
 		rpc.ensure_imported(7).await.unwrap();
 		assert_eq!(rpc.failover.order(2).collect::<Vec<_>>(), [1, 0]);
+		// With every node behind or down, the block is waited for.
+		let closed = crate::failover::tests::closed_url().await;
+		for other in [&behind.url, &closed] {
+			let rpc = SubstrateRpc::new(&[&behind.url, other], reqwest::Client::new());
+			let err = rpc.ensure_imported(7).await.unwrap_err();
+			assert!(crate::errors::is_transient(&err), "{err:#}");
+			assert_eq!(rpc.failover.order(2).collect::<Vec<_>>(), [0, 1]);
+		}
+	}
+
+	#[tokio::test]
+	async fn a_null_error_beside_a_result_is_a_result() {
+		use crate::failover::tests::{MockRpc, Reply};
+		let node = MockRpc::start(Reply::Body(r#"{"result":"Nexus","error":null}"#)).await;
+		let rpc = SubstrateRpc::new(&[&node.url], reqwest::Client::new());
+		let name: String = rpc.call("system_chain", json!([])).await.unwrap();
+		assert_eq!(name, "Nexus");
 	}
 
 	#[tokio::test]

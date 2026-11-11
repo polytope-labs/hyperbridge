@@ -415,6 +415,12 @@ export class LimitOrderService {
 		return { books: limits.books, minOrderSizes: limits.serverInfo.minOrderSizes, chains: limits.chains ?? [] }
 	}
 
+	/** The EIP-712 domain every message signed to the orderbook is signed under, from the cached limits. */
+	async signingDomain(): Promise<{ name: string; version: string }> {
+		const { eip712DomainName, eip712DomainVersion } = (await this.limits()).serverInfo
+		return { name: eip712DomainName, version: eip712DomainVersion }
+	}
+
 	/**
 	 * Reads `serverInfo` and `books`, reusing the last read for {@link LIMITS_TTL_MS}.
 	 *

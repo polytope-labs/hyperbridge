@@ -14,6 +14,8 @@ import type {
 	PostedOrder,
 	PostedOrderPage,
 	RejectionCode,
+	ScreeningFailureCode,
+	ScreenOrderResult,
 	SolverStatus,
 	SubmitBidResult,
 	SubmitOrderResult,
@@ -136,6 +138,17 @@ const CANCEL_ORDER_MUTATION = `
 	}
 `
 
+const SCREEN_ORDER_MUTATION = `
+	mutation ScreenOrder($solver: Address!, $commitment: Bytes!, $timestamp: Int!, $signature: Bytes!, $order: Bytes) {
+		screenOrder(solver: $solver, commitment: $commitment, timestamp: $timestamp, signature: $signature, order: $order) {
+			__typename
+			... on OrderScreened { commitment verdict }
+			... on MessageRejected { code message }
+			... on ScreeningFailed { failureCode: code message retryable }
+		}
+	}
+`
+
 /**
  * Every document this client sends.
  *
@@ -152,6 +165,7 @@ export const ORDERBOOK_DOCUMENTS = {
 	heartbeat: HEARTBEAT_MUTATION,
 	myOrders: MY_ORDERS_QUERY,
 	cancelOrder: CANCEL_ORDER_MUTATION,
+	screenOrder: SCREEN_ORDER_MUTATION,
 } as const
 
 /**
@@ -329,6 +343,52 @@ export class OrderbookClient {
 		throw new OrderbookRequestError(`Unknown cancelOrder result ${cancelOrder.__typename}`)
 	}
 
+	/**
+	 * Asks the orderbook to screen the parties to a swapper's order, its user and beneficiary,
+	 * against Chainalysis. Signed as EIP-712 `ScreenOrder(solver, commitment, timestamp)`, from a
+	 * solver holding an active order on the book (`NO_ACTIVE_ORDER`). `order` is
+	 * `abi.encode(order)`, which the orderbook reads only while the indexer has not indexed the
+	 * order. The signature is spent once checked, so any retry is signed again.
+	 */
+	async screenOrder(params: {
+		solver: HexString
+		commitment: HexString
+		timestamp: number
+		signature: HexString
+		order?: HexString
+	}): Promise<ScreenOrderResult> {
+		const { screenOrder } = await this.request<{ screenOrder: RawScreenOrder }>(SCREEN_ORDER_MUTATION, {
+			...params,
+			order: params.order ?? null,
+		})
+		switch (screenOrder.__typename) {
+			case "OrderScreened":
+				if (screenOrder.verdict !== "FLAGGED" && screenOrder.verdict !== "UNFLAGGED") {
+					throw new OrderbookRequestError(`Unknown screening verdict ${screenOrder.verdict}`)
+				}
+				return {
+					kind: "screened",
+					commitment: screenOrder.commitment!,
+					flagged: screenOrder.verdict === "FLAGGED",
+				}
+			case "MessageRejected":
+				return {
+					kind: "rejected",
+					code: screenOrder.code as MessageRejectionCode,
+					message: screenOrder.message!,
+				}
+			case "ScreeningFailed":
+				return {
+					kind: "failed",
+					code: screenOrder.failureCode!,
+					message: screenOrder.message!,
+					retryable: screenOrder.retryable ?? false,
+				}
+			default:
+				throw new OrderbookRequestError(`Unknown screenOrder result ${screenOrder.__typename}`)
+		}
+	}
+
 	async heartbeat(params: { solver: HexString; timestamp: number; signature: HexString }): Promise<HeartbeatResult> {
 		const { heartbeat } = await this.request<{ heartbeat: RawHeartbeat }>(HEARTBEAT_MUTATION, params)
 		if (heartbeat.__typename === "HeartbeatAccepted") {
@@ -449,6 +509,20 @@ interface RawCancelOrder {
 	commitment?: HexString
 	code?: string
 	message?: string
+}
+
+interface RawScreenOrder {
+	__typename: string
+	commitment?: HexString
+	verdict?: string
+	code?: string
+	/**
+	 * `ScreeningFailed.code` under an alias. It is a `ScreeningFailureCode` where
+	 * `MessageRejected.code` is a `MessageRejectionCode`, as in {@link RawSubmitOrder.failureCode}.
+	 */
+	failureCode?: ScreeningFailureCode
+	message?: string
+	retryable?: boolean
 }
 
 interface RawLevelOrderPage {

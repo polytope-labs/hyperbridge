@@ -144,8 +144,6 @@ async function build() {
 		{ maxConcurrentOrders: 1 } as never,
 		{
 			loggers: undefined,
-			getHyperbridgeWsUrl: () => undefined,
-			getSubstratePrivateKey: () => undefined,
 			getIntentGatewayAddress: () => GATEWAY,
 			getRpcUrls: () => ["https://rpc.example"],
 		} as never,
@@ -272,8 +270,6 @@ async function confirmedAfter(confirmedAfterMs: (expiryMs: number) => number) {
 		{ maxConcurrentOrders: 1 } as never,
 		{
 			loggers: undefined,
-			getHyperbridgeWsUrl: () => undefined,
-			getSubstratePrivateKey: () => undefined,
 			getConfiguredChainIds: () => [137, 8453],
 			isUserAllowed: () => true,
 			getIntentGatewayAddress: () => GATEWAY,

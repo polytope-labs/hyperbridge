@@ -131,8 +131,8 @@ export class EventMonitor extends EventEmitter {
 		const { commitment, filler, chainId, transactionHash } = event
 		const ours = filler?.toLowerCase() === this.fillerAddress
 		// Every fill on a configured chain, ours or a rival's: the activity feed
-		// uses it to settle an order's outcome after a bid, and the filler retracts
-		// its own bids on an order a rival completed.
+		// uses it to settle an order's outcome after a bid, and the filler stops
+		// bidding on an order a rival completed.
 		this.emit("orderFillObserved", {
 			commitment,
 			filler,

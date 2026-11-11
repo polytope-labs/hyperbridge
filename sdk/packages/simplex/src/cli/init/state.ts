@@ -20,8 +20,6 @@ export interface WizardState {
 	 */
 	prefillConfig?: FillerConfigFile
 	signer?: SignerConfig
-	substratePrivateKey?: string
-	hyperbridgeWsUrl?: string
 	/** `[assets]` escape hatch entries created for custom exotic tokens. */
 	assets?: FillerTomlConfig["assets"]
 	/** Top-level per-chain confirmation policies. */

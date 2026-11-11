@@ -2,7 +2,6 @@ import { describe, it, expect, vi } from "vitest"
 import { BalanceProvider, type VaultBalanceSource } from "@/services/BalanceProvider"
 import type { ChainClientManager } from "@/services/ChainClientManager"
 import type { FillerConfigService } from "@/services/FillerConfigService"
-import { deriveSubstrateKeyPair, POLKADOT_UNIFIED_SS58_PREFIX } from "@/services/substrate-key"
 
 const USDC = "0xaaaa000000000000000000000000000000000001"
 const USDT = "0xaaaa000000000000000000000000000000000002"
@@ -288,25 +287,5 @@ describe("BalanceProvider", () => {
 		} finally {
 			vi.useRealTimers()
 		}
-	})
-})
-
-describe("substrate-key", () => {
-	// 20s: first touch of @polkadot/wasm-crypto, which is slow under suite load.
-	it("derives the same address for 0x-prefixed and bare hex seeds", async () => {
-		const seed = "1234567890123456789012345678901234567890123456789012345678901234"
-		const bare = await deriveSubstrateKeyPair(seed)
-		const prefixed = await deriveSubstrateKeyPair(`0x${seed}`)
-		expect(bare.address).toBe(prefixed.address)
-	}, 20_000)
-
-	it("derives from mnemonics and URIs", async () => {
-		const mnemonic = "bottom drive obey lake curtain smoke basket hold race lonely fit walk"
-		const fromMnemonic = await deriveSubstrateKeyPair(mnemonic)
-		const fromUri = await deriveSubstrateKeyPair("//Alice")
-		const { encodeAddress } = await import("@polkadot/util-crypto")
-		expect(fromMnemonic.address).toBe(encodeAddress(fromMnemonic.publicKey, POLKADOT_UNIFIED_SS58_PREFIX))
-		expect(fromUri.address).toBe(encodeAddress(fromUri.publicKey, POLKADOT_UNIFIED_SS58_PREFIX))
-		expect(fromMnemonic.address).not.toBe(fromUri.address)
 	})
 })

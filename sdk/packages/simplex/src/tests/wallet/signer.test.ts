@@ -266,8 +266,6 @@ describe("Simplex.start signer wiring", () => {
 		const config = {
 			simplex: {
 				signer: { type: SignerType.PrivateKey, key: KEY },
-				substratePrivateKey: "seed",
-				hyperbridgeWsUrl: "wss://example",
 			},
 			chains: [{ rpcUrls: ["https://rpc.example"], bundlerUrl: "https://bundler.example" }],
 		} as unknown as SimplexConfig

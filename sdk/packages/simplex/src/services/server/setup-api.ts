@@ -8,10 +8,9 @@ import { fetchChainId, FillerConfigService, validateRpcUrls } from "@/services/F
 import type { ChainFunding } from "@/services/chain-funding"
 import { readChainFundingFromUnverifiedRpcs } from "@/services/read-chain-funding"
 import { normaliseSecretPhrase, secretPhraseSigner, SignerType, validateSignerConfig } from "@/services/wallet"
-import { deriveSubstrateKeyPair, generateSubstrateKey } from "@/services/substrate-key"
 import { ERC20_ABI } from "@/config/abis/ERC20"
 import { emitFillerToml, writeConfigFileAtomic } from "@/cli/init/emit-toml"
-import { chainByChainId, chainsForNetwork, HYPERBRIDGE_WS_DEFAULTS } from "@/cli/init/chains"
+import { chainByChainId, chainsForNetwork } from "@/cli/init/chains"
 import { deriveAlchemyRpc } from "@/cli/init/derive/alchemy"
 import { maskSecret, withTimeout, PROBE_TIMEOUT_MS } from "@/cli/init/prompt-utils"
 import { DEFAULT_MAX_CONCURRENT_ORDERS } from "@/cli/init/state"
@@ -91,7 +90,6 @@ export async function handleSetupRequest(
 		}
 		const defaults: SetupDefaults = {
 			chains: mainnetChains,
-			hyperbridgeWs: { mainnet: HYPERBRIDGE_WS_DEFAULTS.mainnet },
 			usdStables: [...USD_STABLE_SYMBOLS],
 			maxConcurrentOrders: DEFAULT_MAX_CONCURRENT_ORDERS,
 			configPath: setup.configPath,
@@ -144,10 +142,6 @@ export async function handleSetupRequest(
 				return sendJson(res, 200, await validateToken(body))
 			case "derive-evm-address":
 				return deriveEvmAddress(body, res)
-			case "generate-substrate-key":
-				return sendJson(res, 200, await substrateKey(body))
-			case "check-substrate-balance":
-				return sendJson(res, 200, await checkSubstrateBalance(body))
 			case "chain-funding":
 				return sendJson(res, 200, await chainFunding(body, deps))
 			case "preview": {
@@ -271,15 +265,6 @@ function deriveSecretPhraseAddress(body: Record<string, unknown>, res: ServerRes
 	return sendJson(res, 200, { address })
 }
 
-async function substrateKey(body: Record<string, unknown>) {
-	const key = body.key === undefined ? undefined : String(body.key)
-	if (key) {
-		const pair = await deriveSubstrateKeyPair(key)
-		return { address: pair.address }
-	}
-	return generateSubstrateKey()
-}
-
 /** Reads one chain's funding through the wizard's RPCs, before any filler exists. */
 async function defaultReadFunding(chainId: number, rpcUrls: string[], wallet: Hex): Promise<ChainFunding> {
 	const configService = new FillerConfigService([{ chainId, rpcUrls }])
@@ -300,38 +285,6 @@ async function chainFunding(body: Record<string, unknown>, deps: Required<SetupD
 	)
 	// Several reads in sequence (fee token, balances, gas price, allowance), so twice a single probe's budget.
 	return withTimeout(deps.readFunding(chainId, rpcUrls, wallet), PROBE_TIMEOUT_MS * 2, "Balance check")
-}
-
-async function checkSubstrateBalance(body: Record<string, unknown>) {
-	const wsUrl = String(body.wsUrl ?? "").trim()
-	const key = String(body.key ?? "").trim()
-	if (!wsUrl) throw new Error("wsUrl is required")
-	if (!key) throw new Error("key is required")
-
-	const pair = await deriveSubstrateKeyPair(key)
-	const { ApiPromise, WsProvider } = await import("@polkadot/api")
-	const provider = new WsProvider(wsUrl, 1_000)
-	const api = await withTimeout(
-		ApiPromise.create({ provider, throwOnConnect: true }),
-		20_000,
-		"Hyperbridge connection",
-	)
-	try {
-		// biome-ignore lint/suspicious/noExplicitAny: polkadot API type
-		const account = (await api.query.system.account(pair.address)) as any
-		const decimals = (api.registry.chainDecimals as number[])[0] ?? 12
-		const free = BigInt(account.data.free.toString())
-		const reserved = BigInt(account.data.reserved.toString())
-		return {
-			address: pair.address,
-			free: free.toString(),
-			reserved: reserved.toString(),
-			decimals,
-			funded: free > 0n,
-		}
-	} finally {
-		await api.disconnect().catch(() => {})
-	}
 }
 
 interface GatedConfig {
@@ -385,6 +338,7 @@ export function maskToml(config: FillerConfigFile, chainLabels?: string[]): stri
 		}
 		if (signer.phrase !== undefined) signer.phrase = SECRET_PHRASE_MASK
 	}
+	// No longer read, but an old config may still carry it.
 	if (masked.simplex.substratePrivateKey) {
 		masked.simplex.substratePrivateKey = maskSecret(masked.simplex.substratePrivateKey)
 	}

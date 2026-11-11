@@ -8,7 +8,6 @@ import { startMockRpc, type MockRpc } from "../helpers/mock-rpc"
 import { stubOrderScanner } from "../helpers/stub-scanner"
 
 const CHAIN_ID = 8453
-const SUBSTRATE_SEED = `0x${"11".repeat(32)}`
 
 // The mock answers eth_supportedEntryPoints with EntryPoint v0.7 alone, which no
 // SolverAccount validates against. It stands in for Hyperbridge's bundler on Base.
@@ -34,7 +33,7 @@ afterAll(() => {
 
 function config(): FillerTomlConfig {
 	return {
-		simplex: { substratePrivateKey: SUBSTRATE_SEED, hyperbridgeWsUrl: "ws://127.0.0.1:1" },
+		simplex: {},
 		chains: [{ rpcUrls: [rpc.url] }],
 		orderbook: { url: "https://orderbook.example/graphql" },
 	}

@@ -215,11 +215,6 @@ export const INIT_CHAINS: InitChainMeta[] = [
 	},
 ]
 
-export const HYPERBRIDGE_WS_DEFAULTS: Record<InitNetwork, string> = {
-	mainnet: "wss://nexus.rpc.polytope.technology",
-	testnet: "wss://gargantua.rpc.polytope.technology",
-}
-
 /** The chains the wizards and the Chains panel offer: those Hyperbridge runs a bundler for. */
 export function chainsForNetwork(network: InitNetwork): InitChainMeta[] {
 	return INIT_CHAINS.filter((chain) => chain.network === network && chain.hyperbridgeBundlerUrl)

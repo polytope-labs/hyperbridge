@@ -670,8 +670,6 @@ async function setUpMainnetFx() {
 
 	const fillerConfigForService: FillerServiceConfig = {
 		maxConcurrentOrders: 5,
-		hyperbridgeWsUrl: process.env.HYPERBRIDGE_NEXUS,
-		substratePrivateKey: process.env.SECRET_PHRASE,
 	}
 
 	const chainConfigService = new FillerConfigService(testChainConfigs, fillerConfigForService)
@@ -722,8 +720,6 @@ async function setUpMainnetFxBase() {
 
 	const fillerConfigForService: FillerServiceConfig = {
 		maxConcurrentOrders: 5,
-		hyperbridgeWsUrl: process.env.HYPERBRIDGE_NEXUS,
-		substratePrivateKey: process.env.SECRET_PHRASE,
 	}
 
 	const chainConfigService = new FillerConfigService(testChainConfigs, fillerConfigForService)
@@ -778,8 +774,6 @@ async function setUpMainnetFxBsc() {
 
 	const fillerConfigForService: FillerServiceConfig = {
 		maxConcurrentOrders: 5,
-		hyperbridgeWsUrl: process.env.HYPERBRIDGE_NEXUS,
-		substratePrivateKey: process.env.SECRET_PHRASE,
 	}
 
 	const chainConfigService = new FillerConfigService(testChainConfigs, fillerConfigForService)
@@ -830,8 +824,6 @@ async function setUpMainnetFxArbitrum() {
 
 	const fillerConfigForService: FillerServiceConfig = {
 		maxConcurrentOrders: 5,
-		hyperbridgeWsUrl: process.env.HYPERBRIDGE_NEXUS,
-		substratePrivateKey: process.env.SECRET_PHRASE,
 	}
 
 	const chainConfigService = new FillerConfigService(testChainConfigs, fillerConfigForService)
@@ -884,8 +876,6 @@ async function setUpMainnetFxArbitrumToBase() {
 
 	const fillerConfigForService: FillerServiceConfig = {
 		maxConcurrentOrders: 5,
-		hyperbridgeWsUrl: process.env.HYPERBRIDGE_NEXUS,
-		substratePrivateKey: process.env.SECRET_PHRASE,
 	}
 
 	const chainConfigService = new FillerConfigService(testChainConfigs, fillerConfigForService)

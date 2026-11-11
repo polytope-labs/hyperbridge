@@ -7,7 +7,6 @@ import { assembleConfig, initialState } from "./state"
 describe("wizard bundlers", () => {
 	const defaults = {
 		chains: chainsForNetwork("mainnet"),
-		hyperbridgeWs: { mainnet: "wss://nexus.rpc.polytope.technology" },
 		usdStables: ["USDC", "USDT"],
 		maxConcurrentOrders: 5,
 		configPath: "/tmp/filler-config.toml",

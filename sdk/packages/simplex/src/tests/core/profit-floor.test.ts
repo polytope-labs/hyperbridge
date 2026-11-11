@@ -24,8 +24,6 @@ function build(profitability: number, feeCheckWaived: boolean) {
 		{ maxConcurrentOrders: 1 } as never,
 		{
 			loggers: undefined,
-			getHyperbridgeWsUrl: () => undefined,
-			getSubstratePrivateKey: () => undefined,
 		} as never,
 		{ getPublicClient: () => ({ getBlockNumber: async () => 100n }) } as never,
 		{ cacheService: { isPartialFill: () => false, isFeeCheckWaived: () => feeCheckWaived } } as never,

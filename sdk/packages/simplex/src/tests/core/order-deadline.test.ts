@@ -27,8 +27,6 @@ function build(getBlockNumber: () => Promise<bigint>) {
 		{ maxConcurrentOrders: 1 } as never,
 		{
 			loggers: undefined,
-			getHyperbridgeWsUrl: () => undefined,
-			getSubstratePrivateKey: () => undefined,
 		} as never,
 		{ getPublicClient: () => ({ getBlockNumber }) } as never,
 		{ cacheService: { isPartialFill: () => false, isFeeCheckWaived: () => false } } as never,

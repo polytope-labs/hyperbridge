@@ -90,11 +90,13 @@ export interface FillerTomlConfig {
 		logging?: string
 		watchOnly?: boolean | Record<string, boolean>
 		/**
-		 * The Hyperbridge account that signs bid extrinsics and holds BRIDGE for their deposits.
-		 * Optional: without it the solver bids on the HyperFX orderbook alone.
+		 * Removed in 0.18.6: simplex bids on the HyperFX orderbook alone and no longer uses a
+		 * Hyperbridge account. Accepted and never read, so older configs still load; boot warns
+		 * when a config carries it. A rewrite of the file keeps it, so the account's key, which
+		 * may still hold BRIDGE, is not lost; delete it by hand once that is recovered.
 		 */
 		substratePrivateKey?: string
-		/** The Hyperbridge WebSocket endpoint bids go to. Required when a key is set. */
+		/** Removed in 0.18.6, with `substratePrivateKey`. Accepted and never read. */
 		hyperbridgeWsUrl?: string
 		/**
 		 * Hyperbridge indexer GraphQL endpoint, used to backfill order details on
@@ -135,9 +137,9 @@ export interface FillerTomlConfig {
 		 *
 		 * Written into `FillOptions.validUntil` and enforced by `fillOrder`, which reverts
 		 * `FillExpired` past it. This is how long the quoted price stands as a firm commitment:
-		 * the order's `deadline` is chosen by the placer with no ceiling, and retracting the bid
-		 * on Hyperbridge does not reach the destination chain, so without it a signed bid stays
-		 * executable indefinitely and is taken up only once the rate has moved against us.
+		 * the order's `deadline` is chosen by the placer with no ceiling, and the orderbook cannot
+		 * withdraw a bid, so without it a signed bid stays executable indefinitely and is taken up
+		 * only once the rate has moved against us.
 		 *
 		 * Configured in seconds but written on-chain in blocks, converted per destination chain.
 		 */
@@ -356,11 +358,6 @@ export function validateConfig(config: FillerTomlConfig, cliWatchOnly = false): 
 	// The --watch-only CLI flag forces global watch-only, so honour it here too
 	// (otherwise the flag's own config would still trip the checks it exempts).
 	const allChainsWatchOnly = cliWatchOnly || config.simplex?.watchOnly === true
-
-	// A solver without a Hyperbridge key bids on the orderbook alone; with one it needs somewhere to send bids.
-	if (config.simplex?.substratePrivateKey && !config.simplex.hyperbridgeWsUrl) {
-		throw new Error("simplex.hyperbridgeWsUrl is required when simplex.substratePrivateKey is set")
-	}
 
 	if (!config.chains || config.chains.length === 0) {
 		throw new Error("At least one chain must be configured")

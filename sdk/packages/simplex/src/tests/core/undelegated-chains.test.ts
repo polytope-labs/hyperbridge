@@ -7,8 +7,8 @@ import { stubOrderScanner } from "../helpers/stub-scanner"
 /**
  * A chain whose EIP-7702 delegation failed at boot must not be bid on. The
  * bundler's estimate injects the SolverAccount code by state override, so an
- * undelegated EOA's bid passes estimation and pays the Hyperbridge bid fees and
- * deposit for a fill that can never execute.
+ * undelegated EOA's bid passes estimation and goes on the orderbook as a bid that
+ * can never execute.
  */
 
 const OUR_ADDRESS = "0xAAAA00000000000000000000000000000000AAAA" as HexString
@@ -51,8 +51,6 @@ function build(
 		{ maxConcurrentOrders: options.maxConcurrentOrders ?? 1 } as never,
 		{
 			loggers: undefined,
-			getHyperbridgeWsUrl: () => undefined,
-			getSubstratePrivateKey: () => undefined,
 			getConfiguredChainIds: () => [1, 8453],
 			isUserAllowed,
 			getTargetGasUnits: () => 1_000_000,
@@ -74,9 +72,9 @@ function build(
 		undefined,
 		new MemoryDataStore().bids,
 	)
-	// `setupSolverSelection` bails without a Hyperbridge connection, and delegates
-	// through this service. Both are stubbed to the failure under test.
-	;(filler as any).hyperbridge = Promise.resolve({})
+	// Intake skips a solver-selection order with nowhere to bid, and `setupSolverSelection`
+	// delegates through this service, stubbed to the failure under test.
+	filler.setOrderbook({ submitBid: async () => ({ kind: "rejected", code: "NO_LIMIT_ORDER", message: "" }) } as never)
 	;(filler as any).delegationService = { setupDelegationOnChains, isDelegated }
 	return { filler, isUserAllowed, delegate, isDelegated, onChain, cache }
 }

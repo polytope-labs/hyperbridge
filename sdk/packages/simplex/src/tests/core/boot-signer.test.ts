@@ -17,7 +17,6 @@ import { stubOrderScanner } from "../helpers/stub-scanner"
  */
 
 const CHAIN_ID = 31337
-const SUBSTRATE_SEED = `0x${"11".repeat(32)}`
 
 let rpc: MockRpc
 
@@ -32,8 +31,6 @@ afterAll(() => {
 function config(overrides: Partial<FillerTomlConfig["simplex"]> = {}): FillerTomlConfig {
 	return {
 		simplex: {
-			substratePrivateKey: SUBSTRATE_SEED,
-			hyperbridgeWsUrl: "ws://127.0.0.1:1",
 			...overrides,
 		},
 		chains: [{ rpcUrls: [rpc.url] }],

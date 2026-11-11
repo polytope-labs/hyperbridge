@@ -175,7 +175,7 @@ export class ActivityRecorder extends EventEmitter {
 				error?: string
 			}) =>
 				this.record({
-					// An accepted bid: the order is now Hyperbridge's to award.
+					// A bid the orderbook holds: the order is now the swapper's to execute.
 					type: commitment && success ? "bid" : "executed",
 					orderId: orderId ?? null,
 					success: Boolean(success),

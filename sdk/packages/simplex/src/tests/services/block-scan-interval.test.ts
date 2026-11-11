@@ -14,8 +14,6 @@ function baseToml(blockScanIntervalSeconds?: number): FillerTomlConfig {
 		simplex: {
 			signer: { type: "privateKey", key: `0x${"11".repeat(32)}` },
 			maxConcurrentOrders: 1,
-			substratePrivateKey: "0xabc",
-			hyperbridgeWsUrl: "wss://example",
 			blockScanIntervalSeconds,
 		},
 		chains: [{ rpcUrls: ["https://mainnet.base.org"], bundlerUrl: "https://b" }],

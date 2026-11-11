@@ -1,11 +1,10 @@
 import type { HexString } from "@hyperbridge/sdk"
-import type { BridgeTopUpStage, TopUpPayToken } from "@/services/BridgeTopUp"
 
 /**
  * The persistence contract for a running filler.
  *
- * Everything simplex must remember across a restart lives behind these four
- * stores: submitted bids (so deposits can be reclaimed), the order-activity
+ * Everything simplex must remember across a restart lives behind these
+ * stores: placed bids (so a fill is settled against the limit order that priced it), the order-activity
  * feed, the operator's limit orders, and a scrap of operator state. Nothing
  * else in the filler touches a database, a file, or a data directory.
  *
@@ -32,34 +31,44 @@ export interface SimplexDataStore {
 // Bids
 // ===========================================================================
 
-/** A bid submitted to Hyperbridge's solver-selection pallet. */
+/**
+ * A bid this filler placed, or tried to.
+ *
+ * Simplex posts bids to the HyperFX orderbook. Releases before 0.18.6 also placed them on
+ * Hyperbridge's solver-selection pallet, and their rows carry that history: `pending`,
+ * `extrinsicHash`, `blockHash`, `retracted`, `retractedAt`, `retractExtrinsicHash` and `dead` are
+ * written only by those releases and are never changed now.
+ */
 export interface StoredBid {
 	id: number
 	commitment: string
-	/** The identifier Hyperbridge files the bid under; see {@link BidInsert.bid}. */
+	/** The bid's identifier; see {@link BidInsert.bid}. */
 	bid: string | null
+	/** The Hyperbridge `place_bid` extrinsic, on rows from before 0.18.6. */
 	extrinsicHash: string | null
 	blockHash: string | null
-	success: boolean
 	/**
-	 * The submission timed out with the extrinsic still in Hyperbridge's pool. It
-	 * may yet land and reserve a deposit, so the sweep treats it as reclaimable
-	 * even though `success` is false.
+	 * A venue holds the bid: the orderbook, or, on rows from before 0.18.6, Hyperbridge. False for
+	 * a bid no venue took.
 	 */
+	success: boolean
+	/** On rows from before 0.18.6: the `place_bid` extrinsic was still in Hyperbridge's pool. */
 	pending: boolean
+	/** Why no venue took the bid, as the orderbook said. */
 	error: string | null
 	/** SQLite-style "YYYY-MM-DD HH:MM:SS" in UTC. Sorts lexicographically. */
 	createdAt: string
+	/** On rows from before 0.18.6: the bid was retracted from Hyperbridge. */
 	retracted: boolean
 	retractedAt: string | null
 	retractExtrinsicHash: string | null
-	/** The order was seen filled on-chain, so this bid can never win — reclaim its deposit now. */
+	/** On rows from before 0.18.6: the order was seen filled, so the retraction was due at once. */
 	dead: boolean
 	/**
-	 * The HyperFX orderbook took this bid, so a swapper can execute it whatever Hyperbridge said.
-	 * The orderbook serves a bid for its TTL and nothing withdraws it, so this never changes; the
-	 * bid is live there until its op's `validUntil`. False for a bid the orderbook refused or was
-	 * not offered, and for rows from before bids went to the orderbook.
+	 * The HyperFX orderbook took this bid, so a swapper can execute it. The orderbook serves a
+	 * bid for its TTL and nothing withdraws it, so this never changes; the bid is live there until
+	 * its op's `validUntil`. False for a bid the orderbook refused, and for rows from before bids
+	 * went to the orderbook.
 	 */
 	onOrderbook: boolean
 	/**
@@ -95,20 +104,15 @@ export interface BidPricing {
 export interface BidInsert {
 	commitment: string
 	/**
-	 * The identifier Hyperbridge files the bid under, `keccak256` of its calldata. Bids on one
-	 * incoming order share a commitment, and this is what tells them apart. It is also what
-	 * retracting the bid names, so it is recorded here at placement rather than looked up later:
-	 * a bid still in Hyperbridge's pool is not in its storage yet, but its retraction, sent after it
-	 * from the same account, lands after it and reclaims its deposit all the same.
+	 * The bid's identifier, `keccak256` of its op's calldata. Bids on one incoming order share a
+	 * commitment, and this is what tells them apart: a fill is attributed to one of them by it,
+	 * and recorded against it so a replayed fill is not counted twice.
 	 */
 	bid?: string
 	/** The limit order that priced this bid; see {@link StoredBid.pricedBy}. */
 	pricedBy?: BidPricing
-	extrinsicHash?: string
-	blockHash?: string
+	/** The orderbook holds the bid; see {@link StoredBid.success}. */
 	success: boolean
-	/** Submission is still in the pool; see {@link StoredBid.pending}. */
-	pending?: boolean
 	error?: string
 	/** The orderbook holds this bid; see {@link StoredBid.onOrderbook}. */
 	onOrderbook?: boolean
@@ -116,23 +120,19 @@ export interface BidInsert {
 
 export interface BidStats {
 	total: number
-	/** Bids a venue took: Hyperbridge, or the orderbook alone. */
+	/** Bids a venue took. */
 	successful: number
 	/** Bids no venue took. */
 	failed: number
-	retracted: number
-	/** Deposits still locked: successful or pending, and not yet retracted. */
-	pendingRetraction: number
 }
 
 /**
- * Persistent record of every bid submitted to Hyperbridge.
+ * Persistent record of every bid the filler placed.
  *
- * This is the money-critical store: a successful bid locks a deposit that is
- * only reclaimable by retracting it, and the retraction sweep finds what to
- * reclaim by querying here. An implementation that loses writes leaks deposits,
- * so `store` must be durable before it resolves — do not buffer it in memory
- * and flush later.
+ * A fill names the order it filled, not the bid that executed, so settlement reads the bids on
+ * that order from here to attribute the fill to the limit order that priced one. A row lost
+ * before it is stored is a fill that is not recorded against its limit order, so `store` must be
+ * durable before it resolves.
  */
 export interface BidStore {
 	store(bid: BidInsert): Promise<void>
@@ -140,39 +140,6 @@ export interface BidStore {
 	byCommitment(commitment: string): Promise<StoredBid | null>
 	/** Every bid for any of `commitments`, newest first. Empty input resolves empty. */
 	byCommitments(commitments: string[]): Promise<StoredBid[]>
-	/** Unretracted bids whose deposit may still be locked: confirmed or pooled. */
-	unretractedReclaimable(): Promise<StoredBid[]>
-	/**
-	 * Bids due for retraction: successful *or still pending*, unretracted, and
-	 * either older than `maxAgeMs` or flagged dead. Pending counts because a
-	 * pooled extrinsic that later lands reserves a deposit exactly like a
-	 * confirmed one. Dead bids ignore the age cut — their deposit is
-	 * reclaimable immediately, so a failed attempt retries on the next sweep
-	 * rather than waiting out the TTL.
-	 */
-	expiredUnretracted(maxAgeMs: number): Promise<StoredBid[]>
-	/**
-	 * Marks a bid retracted. Also called when the chain reports `BidNotFound`:
-	 * bids only leave the pallet by retraction, so "no bid" means there is
-	 * nothing left to reclaim and no hash is available.
-	 *
-	 * Resolves false when no unretracted bid matched (already retracted, or never
-	 * stored) — the caller treats that as success, not an error.
-	 *
-	 * With `rows` (the {@link StoredBid.id}s) only those bids are marked: a retraction
-	 * closes the bids it sent retractions for, not one stored on the commitment while it
-	 * was in flight. Without, every unretracted bid on the commitment is marked. An empty
-	 * `rows` marks nothing.
-	 */
-	markRetracted(commitment: string, retractExtrinsicHash: string | null, rows?: readonly number[]): Promise<boolean>
-	/**
-	 * Flags a bid dead, so the sweep retries its retraction next cycle rather than after
-	 * the TTL: its order was filled on-chain, or a retraction selected it and could not
-	 * close it. With `rows` (the {@link StoredBid.id}s) only those bids are flagged;
-	 * without, every unretracted bid on the commitment. An empty `rows` flags nothing.
-	 * False when nothing matched.
-	 */
-	markDead(commitment: string, rows?: readonly number[]): Promise<boolean>
 	/**
 	 * Every bid a limit order priced, newest first, from each bid's `pricedBy`. What
 	 * makes a `remaining` explicable to the operator: which bids drew on the order.
@@ -180,7 +147,7 @@ export interface BidStore {
 	byLimitOrder(limitOrderId: string, limit?: number): Promise<StoredBid[]>
 	/** Newest first. Implementations should cap `limit` at a few hundred. */
 	recent(limit?: number): Promise<StoredBid[]>
-	/** Bids no venue took (neither Hyperbridge nor the orderbook), newest first — for debugging. */
+	/** Bids no venue took, newest first — for debugging. */
 	failed(limit?: number): Promise<StoredBid[]>
 	byDateRange(from: Date, to: Date): Promise<StoredBid[]>
 	stats(): Promise<BidStats>
@@ -191,8 +158,9 @@ export interface BidStore {
 // ===========================================================================
 
 /**
- * `bid`: this filler's bid for the order was accepted by Hyperbridge (txHash is
- * the extrinsic hash). `filled`: this filler filled the order on chain. `lost`:
+ * `bid`: the HyperFX orderbook holds this filler's bid for the order (rows from
+ * before 0.18.6 also mean Hyperbridge took it, txHash its extrinsic hash).
+ * `filled`: this filler filled the order on chain. `lost`:
  * another filler did (reason carries its address). `executed`: a direct fill
  * attempt or a failed bid.
  */
@@ -435,7 +403,7 @@ export interface LimitOrderFill {
 	limitOrderId: string
 	/** The swap order the fill settled. */
 	commitment: string
-	/** The identifier Hyperbridge filed the executed bid under, when known. */
+	/** The executed bid's identifier (see {@link BidInsert.bid}), when known. */
 	bid: string | null
 	/** What the fill drew the limit order down by, at 1e18 in the token it pays. */
 	amount: string
@@ -548,162 +516,6 @@ export interface RuntimeState {
 	paused?: boolean
 	/** Notification rules, browser subscriptions, and the per-installation VAPID identity. */
 	notifications?: NotificationRuntimeState
-	/** The latest BRIDGE top-up, kept so an open order is resumed or reclaimed after a restart. */
-	bridgeTopUp?: StoredBridgeTopUp
-}
-
-export interface StoredBridgeTopUp {
-	id: string
-	/** Source state machine id the order was placed on. */
-	chain: string
-	token: TopUpPayToken
-	amountIn: string
-	bridgeOut: string
-	stage: BridgeTopUpStage
-	createdAt: number
-	updatedAt: number
-	/** The order as placed, bigints encoded by `serializeOrder`. */
-	order: string
-	/** Signs the order's bid selection; it authorizes nothing beyond this order. */
-	sessionPrivateKey?: HexString
-	commitment?: HexString
-	placeTxHash?: HexString
-	/**
-	 * The wallet nonce a native placement tx was sent with. Only the wallet's nonce moving past it
-	 * shows the tx can no longer be mined; a node that forgot the tx shows nothing.
-	 */
-	placeTxNonce?: number
-	/**
-	 * The placement UserOp the bundler accepted when its receipt never arrived. The batch may have
-	 * been mined, so the record stays pending and the op is looked up again; without it a restart
-	 * would declare that nothing was escrowed while the order could still be live.
-	 */
-	placeUserOpHash?: HexString
-	/** The EntryPoint `nonce` the op was signed with, as a decimal string (the record is JSON-persisted). */
-	placeUserOpNonce?: string
-	/** The EntryPoint `nonceKey` the op was signed with, as a decimal string. */
-	placeUserOpNonceKey?: string
-	/**
-	 * Whether a UserOp placement's paymaster attached a validity deadline (Permit2 mode). A
-	 * bootstrap op has none, so it can still land; without this a restart cannot tell them apart.
-	 */
-	placeUserOpExpires?: boolean
-	/**
-	 * When the placement batch was submitted, in ms. Dates a UserOp's permit window. Records from
-	 * before this was recorded are dated by `stageTimes.placing`, then `createdAt`; `updatedAt` is
-	 * rewritten by every save, so it never ages.
-	 */
-	placeSubmittedAt?: number
-	/**
-	 * The order's session-key address, matched against `OrderPlaced.session`. A placement receipt
-	 * can carry other users' placements (a UserOp is a bundle), so only the log naming this address
-	 * is this top-up's.
-	 */
-	placeSession?: HexString
-	/** Block the paying chain was at before the placement was submitted, as a decimal string; the scan starts here. */
-	placeFromBlock?: string
-	/**
-	 * The next block a recovery scan reads, as a decimal string. Saved after each chunk and trailing
-	 * the tip by the evidence margin; the next scan starts a margin below it, so a page a lagging
-	 * backend served empty is read again.
-	 */
-	placeScannedTo?: string
-	fillTxHash?: HexString
-	/**
-	 * The cancel's transaction. With no `reclaimSubmission` it is a cancel whose send was confirmed
-	 * (the only way it was ever written before submissions were kept), and is handed to the SDK as is.
-	 */
-	reclaimTxHash?: HexString
-	/**
-	 * The cancel as submitted, kept until the `ORDER_CANCELED` step is recorded. It is settled from
-	 * on-chain evidence before the SDK is handed a hash or a new cancel is sent: a duplicate
-	 * cross-chain cancel does not revert, it dispatches another GET request and pays the relayer fee
-	 * again. See {@link StoredSubmission}.
-	 */
-	reclaimSubmission?: StoredSubmission
-	/** The HyperFungibleToken request that carries the BRIDGE to Hyperbridge. */
-	deliveryCommitment?: HexString
-	/** The Hyperbridge extrinsic that delivered it, when this filler relayed it. */
-	deliveryTxHash?: HexString
-	/** Bids seen for the order. */
-	bidCount?: number
-	/** When each stage was entered, in ms. */
-	stageTimes?: Partial<Record<BridgeTopUpStage, number>>
-	/** What the order's executor reported, oldest first: bids, the selection and the fill. */
-	events?: TopUpExecutionEvent[]
-	/** The solver that filled the order, from the executor or the indexer. */
-	filler?: HexString
-	/** The BRIDGE request's progress from BSC into Hyperbridge, from the indexer. */
-	deliveryStatuses?: DeliveryStatus[]
-	/** The unfilled order's recovery, step by step, as the SDK's cancel flow reported it. */
-	recoverySteps?: RecoveryStepRecord[]
-	/** The GET request a cross-chain cancel dispatched; Hyperbridge answers it with the refund response. */
-	getCommitment?: HexString
-	/** Hyperbridge's finalized response, which refunds the escrow when submitted on the source. */
-	claimCalldata?: HexString
-	/** The filler's own refund claim, when no relayer delivered it in time. */
-	claimTxHash?: HexString
-	error?: string
-}
-
-/**
- * A submission as kept in the JSON state: bigints as decimal strings, plus the evidence window of
- * the chain scan that settles it.
- */
-export type StoredSubmission = (
-	| { kind: "tx"; txHash: HexString; nonce: number; submittedAt: number }
-	| {
-			kind: "userOp"
-			userOpHash: HexString
-			nonce: string
-			nonceKey: string
-			/** Whether the paymaster attached a validity deadline; see {@link StoredBridgeTopUp.placeUserOpExpires}. */
-			expires: boolean
-			submittedAt: number
-	  }
-) & {
-	/** The paying chain's height, read before the send, as a decimal string; the evidence scan starts a margin below it. */
-	fromBlock: string
-	/** The next block the scan reads, as a decimal string; see {@link StoredBridgeTopUp.placeScannedTo}. */
-	scannedTo?: string
-}
-
-export interface RecoveryStepRecord {
-	step:
-		| "DESTINATION_FINALIZED"
-		| "ORDER_CANCELED"
-		| "SOURCE_FINALIZED"
-		| "HYPERBRIDGE_DELIVERED"
-		| "HYPERBRIDGE_FINALIZED"
-		| "FUNDS_CLAIMED"
-	/** When the step completed, in ms. */
-	timestamp: number
-	txHash?: HexString
-}
-
-export interface DeliveryStatus {
-	/** Dispatched on BSC, BSC final on Hyperbridge, delivered to Hyperbridge. */
-	status: "SOURCE" | "SOURCE_FINALIZED" | "DESTINATION"
-	/** In ms. */
-	timestamp: number
-	txHash: HexString
-}
-
-export interface TopUpBidPreview {
-	solverAddress: HexString
-	/** Output budgets as raw token units, the token as bytes32. */
-	outputs: { token: HexString; amount: string }[]
-}
-
-export interface TopUpExecutionEvent {
-	status: "NEW_BID" | "BIDS_RECEIVED" | "BID_SELECTED" | "FILLED"
-	/** When the filler saw it, in ms. */
-	timestamp: number
-	bidCount?: number
-	bids?: TopUpBidPreview[]
-	selectedSolver?: HexString
-	userOpHash?: HexString
-	txHash?: HexString
 }
 
 export interface NotificationSettings {

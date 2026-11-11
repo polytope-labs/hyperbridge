@@ -19,8 +19,6 @@ function toml(minPartialFillUsd?: number): FillerTomlConfig {
 		orderbook: { url: "https://orderbook.example/graphql" },
 		simplex: {
 			maxConcurrentOrders: 5,
-			substratePrivateKey: "seed phrase here",
-			hyperbridgeWsUrl: "wss://nexus.rpc.polytope.technology",
 			minPartialFillUsd,
 		},
 		chains: [{ rpcUrls: ["https://rpc.example"], bundlerUrl: "https://bundler.example" }],

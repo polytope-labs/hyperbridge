@@ -193,8 +193,6 @@ export interface AllowlistConfig {
 export interface FillerConfig {
 	maxConcurrentOrders: number
 	logging?: LogLevel
-	hyperbridgeWsUrl?: string
-	substratePrivateKey?: string
 	entryPointAddress?: string
 	/**
 	 * Optional gas fee bump configuration for UserOperation gas estimation.
@@ -550,14 +548,6 @@ export class FillerConfigService {
 		return this.chainConfigService.getHyperbridgeAddress()
 	}
 
-	getHyperbridgeWsUrl(): string | undefined {
-		return this.fillerConfig?.hyperbridgeWsUrl
-	}
-
-	getSubstratePrivateKey(): string | undefined {
-		return this.fillerConfig?.substratePrivateKey
-	}
-
 	getEntryPointAddress(chain: string): HexString | undefined {
 		return this.chainConfigService.getEntryPointAddress(chain)
 	}
@@ -661,7 +651,7 @@ export class FillerConfigService {
 	 *
 	 * A bid is a firm price the placer may take up at a moment of their choosing; this is the
 	 * only thing bounding that window, since the order deadline is placer-controlled and
-	 * Hyperbridge-side retraction does not reach the destination chain.
+	 * the orderbook cannot withdraw a bid.
 	 */
 	getBidValiditySeconds(): number {
 		return this.fillerConfig?.bidValiditySeconds ?? 300

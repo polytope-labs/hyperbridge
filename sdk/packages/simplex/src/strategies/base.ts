@@ -1,26 +1,19 @@
 import type { Order, ExecutionResult, HexString } from "@hyperbridge/sdk"
 import type { Decimal } from "decimal.js"
-import type { BidPlacer } from "@/core/bid-venues"
+import type { BidPlacer } from "@/core/bid-placer"
 import type { SubmitBidResult } from "@/orderbook/types"
 
 /**
- * An execution outcome that can also report a still-pooled bid, and what the orderbook said.
+ * An execution outcome, and what the HyperFX orderbook said.
  *
- * `success`, `txHash`, `pending` and `error` are Hyperbridge's answer. `submitBid` can time out
- * with the extrinsic still in Hyperbridge's pool. That is neither success nor failure: the
- * extrinsic may yet land and reserve a deposit, so the bid record has to be reclaimable even
- * though `success` is false. Widened here rather than on the SDK's `ExecutionResult` so simplex
- * does not need an unreleased SDK.
- *
- * A bid goes to the HyperFX orderbook as well, and to it alone when the filler holds no BRIDGE
- * for the Hyperbridge deposit; `orderbook` is that venue's answer. A bid the orderbook holds is
- * live whatever Hyperbridge said.
+ * Under solver selection a bid is placed when the orderbook holds it: `success` is true when the
+ * orderbook accepted the bid or already had it, and `error` says why it does not otherwise. A bid
+ * is no transaction, so `txHash` is unset.
  */
 export interface FillResult extends ExecutionResult {
-	pending?: boolean
 	/**
-	 * The identifier Hyperbridge files the bid under, once its op was built:
-	 * `keccak256` of its calldata. It tells the bids on one order apart, and retracting the bid names it.
+	 * The bid's identifier, once its op was built: `keccak256` of its calldata. It tells the bids
+	 * on one order apart, and names the bid a fill is attributed to.
 	 */
 	bid?: HexString
 	/** The orderbook's answer; absent when the bid was not offered to it. */
@@ -35,9 +28,8 @@ export interface FillerStrategy {
 	calculateProfitability(order: Order): Promise<number>
 
 	/**
-	 * Places the strategy's bid on `order` through `bids`, the venues the filler bids on
-	 * (Hyperbridge and the HyperFX orderbook). Without `bids` the destination selects no
-	 * solver, so there is nothing to bid on.
+	 * Places the strategy's bid on `order` through `bids`, which posts it to the HyperFX
+	 * orderbook. Without `bids` the destination selects no solver, so there is nothing to bid on.
 	 */
 	executeOrder(order: Order, bids?: BidPlacer): Promise<FillResult>
 

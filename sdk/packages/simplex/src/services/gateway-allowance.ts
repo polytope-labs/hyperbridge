@@ -74,7 +74,7 @@ export interface StaleGatewayAllowanceDeps {
 
 /**
  * The EntryPoint nonce key the revoke ops use. The revoke runs at boot, when the other key-0
- * senders do too (`bridgeTopUp.restore()`, then the first vault sweep about 30s later); two ops on
+ * senders do too (the first vault sweep, about 30s later); two ops on
  * one key read the same `getNonce`, so the bundler would reject or replace one and the revoke would
  * fall back to a native send or time out. A lane of its own never competes with them.
  *

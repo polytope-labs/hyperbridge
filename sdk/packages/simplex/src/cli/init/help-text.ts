@@ -9,9 +9,6 @@ export const WHY = {
 	signer: "This wallet signs every fill and holds your stablecoin float on each chain. It's the identity of your filler.",
 	secretPhrase:
 		"A secret phrase is a BIP-39 mnemonic of 12 to 24 English words. The filler signs with the wallet at m/44'/60'/0'/0/0 unless you pick another account index. The phrase is written to the config file in plain text, protected only by the file's permissions, the same as a private key.",
-	substrateKey:
-		"Bids are posted to the HyperFX orderbook and, with this Substrate account, to Hyperbridge as well. The account signs the bid extrinsics and must hold BRIDGE tokens for their deposits and fees, claimed back after fills. Leave it empty to bid on the orderbook alone.",
-	hyperbridgeWs: "WebSocket endpoint of the Hyperbridge chain, used to submit and track solver bids.",
 	confirmations:
 		"Blocks to wait before filling a cross-chain order, scaled by order value — protects you from reorgs unwinding the deposit after you've paid out.",
 	concurrency: "How many orders are processed at once. Lower it if your RPCs rate-limit (429s).",
@@ -25,7 +22,6 @@ export const WHY = {
 export const FUNDING_CHECKLIST = [
 	"Fund the filler wallet on every selected chain: native token for gas + stablecoins to fill with (docs suggest ~$10k per chain to start).",
 	"Keep at least 5 USDC or USDT on each chain for the Simplex gas paymaster; those 5 are held back for gas, and fills, sends and top-ups spend only what is above them. A chain whose fee token has no EIP-2612 permit (BNB Chain) also needs native dust once, to approve that token to Permit2.",
-	"Fund the Substrate account with BRIDGE tokens for bid fees (claimed back automatically).",
 	"Use premium RPC endpoints with archive access; free tiers will rate-limit.",
 	"Once the solver is running, post limit orders from the dashboard: simplex fills nothing until one is open.",
 ].join("\n")

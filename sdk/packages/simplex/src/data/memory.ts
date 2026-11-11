@@ -26,9 +26,8 @@ import type {
 } from "./types"
 
 /**
- * Rows kept per collection before pruning. Bid rows are pruned settled-first —
- * a row whose deposit is still reclaimable (successful or pending, unretracted)
- * survives any cap, since the retraction sweep finds work by querying this store.
+ * Rows kept per collection before pruning, oldest first. A bid row matters to settlement only
+ * within its validity window, which is minutes, so the oldest go first.
  */
 const MAX_ROWS = 10_000
 
@@ -46,12 +45,7 @@ export function sqliteDatetime(date: Date): string {
 	return date.toISOString().replace("T", " ").replace(/\.\d{3}Z$/, "")
 }
 
-/** A bid whose deposit may be locked on Hyperbridge: confirmed, or still pooled. */
-function reclaimable(row: StoredBid): boolean {
-	return row.success || row.pending
-}
-
-/** A bid some venue took: Hyperbridge, or the orderbook. */
+/** A bid some venue took: the orderbook, or, on a row from before 0.18.6, Hyperbridge. */
 function placed(row: StoredBid): boolean {
 	return row.success || row.onOrderbook
 }
@@ -69,10 +63,10 @@ class MemoryBidStore implements BidStore {
 			id: this.nextId++,
 			commitment: bid.commitment,
 			bid: bid.bid ?? null,
-			extrinsicHash: bid.extrinsicHash ?? null,
-			blockHash: bid.blockHash ?? null,
+			extrinsicHash: null,
+			blockHash: null,
 			success: bid.success,
-			pending: bid.pending === true,
+			pending: false,
 			error: bid.error ?? null,
 			createdAt: sqliteDatetime(new Date()),
 			retracted: false,
@@ -82,53 +76,15 @@ class MemoryBidStore implements BidStore {
 			onOrderbook: bid.onOrderbook === true,
 			pricedBy: bid.pricedBy ?? null,
 		})
-		if (this.rows.length > MAX_ROWS) {
-			// Only ever drop rows with nothing left to reclaim. A successful or pending
-			// bid holds a Hyperbridge deposit that the sweep finds by querying this
-			// store, so evicting one by age strands it — and this store is the
-			// library's default, which is exactly where that is least survivable.
-			const settled = this.rows.filter((row) => row.retracted || (!row.success && !row.pending))
-			const excess = this.rows.length - MAX_ROWS
-			const drop = new Set(settled.slice(0, excess))
-			if (drop.size > 0) this.rows = this.rows.filter((row) => !drop.has(row))
-		}
+		if (this.rows.length > MAX_ROWS) this.rows = this.rows.slice(this.rows.length - MAX_ROWS)
 	}
 
 	async byCommitment(commitment: string): Promise<StoredBid | null> {
-		// Newest wins: a commitment can be re-bid after a retraction.
+		// Newest wins: one order can carry several bids.
 		for (let i = this.rows.length - 1; i >= 0; i--) {
 			if (this.rows[i].commitment === commitment) return { ...this.rows[i] }
 		}
 		return null
-	}
-
-	async unretractedReclaimable(): Promise<StoredBid[]> {
-		return this.rows.filter((row) => reclaimable(row) && !row.retracted).map((row) => ({ ...row }))
-	}
-
-	async expiredUnretracted(maxAgeMs: number): Promise<StoredBid[]> {
-		const cutoff = sqliteDatetime(new Date(Date.now() - maxAgeMs))
-		return this.rows
-			.filter((row) => reclaimable(row) && !row.retracted && (row.dead || row.createdAt < cutoff))
-			.map((row) => ({ ...row }))
-	}
-
-	async markRetracted(
-		commitment: string,
-		retractExtrinsicHash: string | null,
-		rows?: readonly number[],
-	): Promise<boolean> {
-		const only = rows ? new Set(rows) : undefined
-		let changed = false
-		for (const row of this.rows) {
-			if (row.commitment !== commitment || row.retracted) continue
-			if (only && !only.has(row.id)) continue
-			row.retracted = true
-			row.retractedAt = sqliteDatetime(new Date())
-			row.retractExtrinsicHash = retractExtrinsicHash
-			changed = true
-		}
-		return changed
 	}
 
 	async byLimitOrder(limitOrderId: string, limit = 100): Promise<StoredBid[]> {
@@ -137,18 +93,6 @@ class MemoryBidStore implements BidStore {
 			.slice(-capLimit(limit))
 			.reverse()
 			.map((row) => ({ ...row }))
-	}
-
-	async markDead(commitment: string, rows?: readonly number[]): Promise<boolean> {
-		const only = rows ? new Set(rows) : undefined
-		let changed = false
-		for (const row of this.rows) {
-			if (row.commitment !== commitment || row.retracted || row.dead) continue
-			if (only && !only.has(row.id)) continue
-			row.dead = true
-			changed = true
-		}
-		return changed
 	}
 
 	async recent(limit = 100): Promise<StoredBid[]> {
@@ -188,8 +132,6 @@ class MemoryBidStore implements BidStore {
 			total: this.rows.length,
 			successful: this.rows.filter(placed).length,
 			failed: this.rows.filter((row) => !placed(row)).length,
-			retracted: this.rows.filter((row) => row.retracted).length,
-			pendingRetraction: this.rows.filter((row) => reclaimable(row) && !row.retracted).length,
 		}
 	}
 }
@@ -475,9 +417,9 @@ class MemoryStateStore implements StateStore {
  * `data` option.
  *
  * Nothing survives the process. That is fine for tests, short-lived embedded
- * fillers and watch-only observers, but a filler that submits bids should use a
- * durable store: a lost bid record is a Hyperbridge deposit nobody retracts.
- * Settled rows are evicted past a cap; live bids (deposits still reclaimable) are never dropped.
+ * fillers and watch-only observers, but a filler that places bids should use a
+ * durable store: a bid record lost on a restart is a fill that is not recorded
+ * against the limit order that priced it. Bid rows are evicted oldest first past a cap.
  */
 class MemoryInventoryStore implements InventoryStore {
 	private rows: InventorySnapshot[] = []

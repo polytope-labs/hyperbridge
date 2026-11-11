@@ -33,6 +33,8 @@ Paging: `Orders.tsx` requests `/api/activity/history?page=N&pageSize=20`. `UiSer
 their newest row id, counts distinct orders for `total`, then loads the page's rows in one `IN`
 query — and `bids.byCommitments(orderIds)` (bid `commitment` is the order id), returning each order
 with its rows (newest first) and bids (newest first), plus the newest order-less events for page
-one's footer. The status, legs, user and links derive from the rows as before; the Bids cell counts
-accepted (successful, unretracted), retracted and failed bids with a tooltip per bid. An SSE frame
+one's footer. The status, legs, user and links derive from the rows as before; the Bids cell shows
+the latest bid: **Orderbook** when the orderbook holds it, **Failed** with the orderbook's refusal on
+hover, and, for a bid from before 0.18.6 that Hyperbridge took, its placement and retraction
+extrinsics. An SSE frame
 of any kind schedules a re-read of the current page after 400 ms.

@@ -309,27 +309,6 @@
 		margin-bottom: 0;
 	}
 
-	.substrate-account-options {
-		grid-template-columns: 1fr;
-		gap: 1.5rem;
-	}
-
-	.substrate-import-option {
-		padding-top: 1.5rem;
-		padding-left: 0;
-		border-top: 1px solid var(--border);
-		border-left: 0;
-	}
-
-	.substrate-balance {
-		grid-template-columns: 1fr;
-		align-items: start;
-	}
-
-	.substrate-balance-button {
-		justify-self: start;
-	}
-
 	.recovery-dialog {
 		width: calc(100% - 1rem);
 		max-height: calc(100dvh - 1rem);

@@ -17,8 +17,6 @@ const minimalSameAsset: FillerConfigFile = {
 			key: "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d",
 		},
 		maxConcurrentOrders: 5,
-		substratePrivateKey: "bottom drive obey lake curtain smoke basket hold race lonely fit walk",
-		hyperbridgeWsUrl: "wss://nexus.rpc.polytope.technology",
 	},
 	chains: [
 		{ rpcUrls: ["https://eth-mainnet.g.alchemy.com/v2/someKey"] },
@@ -37,8 +35,6 @@ const crossAssetWithCurves: FillerConfigFile = {
 			signWith: "0x2222222222222222222222222222222222222222",
 		},
 		maxConcurrentOrders: 3,
-		substratePrivateKey: "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789",
-		hyperbridgeWsUrl: "wss://gargantua.rpc.polytope.technology",
 		logging: "info",
 	},
 	confirmationPolicies: {
@@ -64,6 +60,7 @@ const kitchenSink: FillerConfigFile = {
 			grpcTarget: "api.mpcvault.com:443",
 		},
 		maxConcurrentOrders: 8,
+		// No longer read, but kept on a rewrite: the key may still hold BRIDGE.
 		substratePrivateKey: "seed",
 		hyperbridgeWsUrl: "wss://nexus.rpc.polytope.technology",
 		logging: "debug",
@@ -174,6 +171,16 @@ describe("emitFillerToml", () => {
 		const parsed = parse(emitted) as FillerConfigFile
 		const signer = await signerFromToml(parsed.simplex.signer)
 		expect(signer?.address).toBe("0x70997970C51812dc3A010C7d01b50e0d17dc79C8")
+	})
+
+	it("keeps an older config's Hyperbridge key, marked unused, and writes none for a new one", () => {
+		const legacy = emitFillerToml(kitchenSink)
+		expect(legacy).toMatch(/# No longer used: Simplex bids on the HyperFX orderbook alone[^\n]*\n[^\n]*\nsubstratePrivateKey = "seed"/)
+		expect(parse(legacy).simplex.hyperbridgeWsUrl).toBe("wss://nexus.rpc.polytope.technology")
+
+		const fresh = emitFillerToml(minimalSameAsset)
+		expect(fresh).not.toContain("substratePrivateKey")
+		expect(fresh).not.toContain("hyperbridgeWsUrl")
 	})
 
 	it("drops a bundlerUrl an older config still carries", () => {

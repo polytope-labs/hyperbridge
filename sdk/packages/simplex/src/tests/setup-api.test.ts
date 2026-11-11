@@ -7,7 +7,6 @@ import { UiServer, type SetupContext } from "@/services/server/UiServer"
 import { validateConfig, type FillerConfigFile } from "@/config/filler-toml"
 import { SignerType, signerFromToml } from "@/services/wallet"
 import { SECRET_PHRASE_MASK } from "@/services/server/setup-api"
-import { deriveSubstrateKeyPair } from "@/services/substrate-key"
 import { startMockRpc, type MockRpc } from "./helpers/mock-rpc"
 import { encryptedConfigStore, isEncryptedConfig } from "@/config/storage"
 
@@ -62,8 +61,6 @@ describe("setup API", () => {
 			simplex: {
 				signer: { type: SignerType.PrivateKey, key: TEST_KEY },
 				maxConcurrentOrders: 5,
-				substratePrivateKey: "bottom drive obey lake curtain smoke basket hold race lonely fit walk",
-				hyperbridgeWsUrl: "wss://nexus.rpc.polytope.technology",
 			},
 			// A bundler an older config named, with a provider key in it: never written back or shown.
 			chains: [{ rpcUrls: [rpcUrl], bundlerUrl: "https://api.pimlico.io/v2/1/rpc?apikey=secretpimlicokey" }],
@@ -78,7 +75,7 @@ describe("setup API", () => {
 		const defaults = await res.json()
 		expect(defaults.chains).toHaveLength(5)
 		expect(defaults.chains.every((chain: { network: string }) => chain.network === "mainnet")).toBe(true)
-		expect(defaults.hyperbridgeWs).toEqual({ mainnet: "wss://nexus.rpc.polytope.technology" })
+		expect(defaults).not.toHaveProperty("hyperbridgeWs")
 		expect(defaults).not.toHaveProperty("testnetConfirmationPoints")
 	})
 
@@ -244,21 +241,12 @@ describe("setup API", () => {
 		expectNoPhraseWords(text, DISTINCT_PHRASE)
 	})
 
-	it("generates a substrate key whose address matches re-derivation", async () => {
-		const { base } = await startInitServer()
-		const res = await (await post(base, "generate-substrate-key", {})).json()
-		expect(res.mnemonic.split(" ")).toHaveLength(12)
-		const pair = await deriveSubstrateKeyPair(res.mnemonic)
-		expect(pair.address).toBe(res.address)
-
-		const pasted = await (await post(base, "generate-substrate-key", { key: res.mnemonic })).json()
-		expect(pasted).toEqual({ address: res.address })
-	})
-
 	it("previews a masked TOML without leaking secrets", async () => {
 		rpc = await startMockRpc({ chainId: 1 })
 		const { base } = await startInitServer()
 		const config = minimalConfig(rpc.url)
+		// An older config's Hyperbridge account: no longer read, still a secret.
+		config.simplex.substratePrivateKey = "bottom drive obey lake curtain smoke basket hold race lonely fit walk"
 
 		const res = await (await post(base, "preview", { config })).json()
 		expect(res.ok).toBe(true)
@@ -431,7 +419,7 @@ describe("setup API", () => {
 	it("rejects invalid configs before writing anything", async () => {
 		const { base, configPath, onSaveAndStart } = await startInitServer()
 		const config = minimalConfig("http://127.0.0.1:1")
-		config.simplex.substratePrivateKey = ""
+		config.chains = []
 
 		const res = await post(base, "save-and-start", { config })
 		expect(res.status).toBe(400)

@@ -26,8 +26,6 @@ function build(watchOnly: Record<number, boolean> = {}) {
 		{ maxConcurrentOrders: 1, watchOnly } as never,
 		{
 			loggers: undefined,
-			getHyperbridgeWsUrl: () => undefined,
-			getSubstratePrivateKey: () => undefined,
 			getConfiguredChainIds: () => [1, 2],
 			isUserAllowed,
 		} as never,

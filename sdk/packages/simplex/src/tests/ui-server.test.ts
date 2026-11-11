@@ -76,7 +76,6 @@ function fakePauseControl(): PauseControl & { paused: boolean } {
 				evaluating: 0,
 				queuedFills: 0,
 				activeFills: 0,
-				retractions: 0,
 				rebalancing: 0,
 			}
 		},
@@ -92,8 +91,6 @@ function fakeConfig(): FillerConfigFile {
 			signer: { type: SignerType.PrivateKey, key: "0xab" },
 			maxConcurrentOrders: 5,
 			queue: { maxRechecks: 10, recheckDelayMs: 30000 },
-			substratePrivateKey: "seed",
-			hyperbridgeWsUrl: "wss://example",
 		},
 		chains: [{ rpcUrls: ["https://rpc.example"] }],
 	}
@@ -336,7 +333,6 @@ describe("UiServer (operator mode)", () => {
 			evaluating: 0,
 			queuedFills: 0,
 			activeFills: 0,
-			retractions: 0,
 			rebalancing: 0,
 		})
 		expect(payload.chains).toEqual([8453, 56])
@@ -599,8 +595,8 @@ describe("UiServer (operator mode)", () => {
 		await activity.record({ type: "rebalance", success: true, reason: "1/1 transfers executed" })
 		await activity.record({ type: "detected", orderId: "order-2" })
 		await activity.record({ type: "filled", orderId: "order-2", volumeUsd: 120, profitUsd: 1.2, chainId: 8453 })
-		await operator.data.bids.store({ commitment: "order-2", success: false, error: "InsufficientDeposit" })
-		await operator.data.bids.store({ commitment: "order-2", success: true, extrinsicHash: "0xext" })
+		await operator.data.bids.store({ commitment: "order-2", success: false, error: "NO_LIMIT_ORDER: no limit order" })
+		await operator.data.bids.store({ commitment: "order-2", success: true, onOrderbook: true })
 
 		const first = await (await fetch(`${base}/api/activity/history?page=1&pageSize=1`)).json()
 		expect(first.page).toBe(1)

@@ -13,7 +13,6 @@ import {
 	type WizardState,
 } from "./state"
 import { StepSigner } from "./steps/Signer"
-import { StepSubstrate } from "./steps/Substrate"
 import { StepChains } from "./steps/Chains"
 import { StepTreasury } from "./steps/Treasury"
 import { StepReview } from "./steps/Review"
@@ -64,15 +63,6 @@ export function signerRequirements(state: WizardState): string[] {
 	return fields.filter(([, value]) => !value.trim()).map(([label]) => `Enter the Turnkey ${label.toLowerCase()}.`)
 }
 
-/** The Hyperbridge account is optional: without one the solver bids on the orderbook alone. With one, bids need an endpoint. */
-function substrateRequirements(state: WizardState): string[] {
-	const issues: string[] = []
-	if (state.substrateKey.trim() && !state.hyperbridgeWsUrl.trim().startsWith("ws")) {
-		issues.push("Enter a Hyperbridge WebSocket URL beginning with ws:// or wss://.")
-	}
-	return issues
-}
-
 function chainRequirements(state: WizardState, defaults: SetupDefaults): string[] {
 	// Every chain is watched, so each needs an endpoint whether or not it fills.
 	const missingRpc = state.chains
@@ -119,13 +109,6 @@ const STEPS: Array<{
 		description: "Choose the wallet infrastructure that will identify Simplex and authorize every fill.",
 		component: StepSigner,
 		requirements: signerRequirements,
-	},
-	{
-		id: "substrate",
-		title: "Hyperbridge account",
-		description: "Connect the account Simplex uses to submit bids and settle execution fees on Hyperbridge.",
-		component: StepSubstrate,
-		requirements: substrateRequirements,
 	},
 	{
 		id: "chains",

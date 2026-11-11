@@ -64,9 +64,9 @@ const simplex = await Simplex.start({
 ```
 
 <Callout type="warn">
-    The default `MemoryDataStore` keeps nothing across a restart. A solver that submits bids should
-    pass a durable store: a successful bid locks a deposit that is only reclaimable by retraction,
-    and the retraction sweep finds what to reclaim by querying the bid store.
+    The default `MemoryDataStore` keeps nothing across a restart. A solver that places bids should
+    pass a durable store: a fill is recorded against the limit order that priced its bid from the
+    bid store's rows.
 </Callout>
 
 ## Properties
@@ -170,7 +170,7 @@ activity(limit?: number, beforeId?: number): Promise<ActivityEvent[]>
 
 ### bids(limit?)
 
-Bids submitted to Hyperbridge, newest first.
+Bids this solver placed or tried to place on the HyperFX orderbook, newest first.
 
 ```typescript lineNumbers
 bids(limit?: number): Promise<StoredBid[]>
@@ -184,8 +184,7 @@ Bid counts by state.
 bidStats(): Promise<BidStats>
 ```
 
-**Returns:** `{ total, successful, failed, retracted, pendingRetraction }`. Watch
-`pendingRetraction` — those are deposits still locked in the solver-selection pallet.
+**Returns:** `{ total, successful, failed }`: every bid, those a venue took, and those none did.
 
 ### setAllowlist(allowlist)
 
@@ -586,7 +585,7 @@ history(limit?: number): Promise<WalletTx[]>
 ```
 
 `balances()` returns the last refreshed snapshot — `updatedAt` is `null` until the first refresh
-lands, and the shape is `{ updatedAt, chains: ChainBalanceRow[], hyperbridge? }`. Each chain's row
+lands, and the shape is `{ updatedAt, chains: ChainBalanceRow[] }`. Each chain's row
 covers the native token, USDC, USDT and every token in the orderbook's books. Its `funding` says
 whether the wallet can fill there: `feeToken` (the gateway fee token and its balance), `nativeSetup`
 (native the paymaster's setup still needs, or `null`), `funded`, and `delegated`, which is true once
@@ -724,14 +723,6 @@ promises. The async signature is what lets a consumer back these with Postgres, 
 store(bid: BidInsert): Promise<void>
 byCommitment(commitment: string): Promise<StoredBid | null>
 byCommitments(commitments: string[]): Promise<StoredBid[]>
-unretractedReclaimable(): Promise<StoredBid[]>
-expiredUnretracted(maxAgeMs: number): Promise<StoredBid[]>
-markRetracted(
-    commitment: string,
-    retractExtrinsicHash: string | null,
-    rows?: readonly number[],
-): Promise<boolean>
-markDead(commitment: string, rows?: readonly number[]): Promise<boolean>
 byLimitOrder(limitOrderId: string, limit?: number): Promise<StoredBid[]>
 recent(limit?: number): Promise<StoredBid[]>
 failed(limit?: number): Promise<StoredBid[]>
@@ -740,38 +731,26 @@ stats(): Promise<BidStats>
 ```
 
 <Callout type="warn">
-    The correctness-critical store. A successful bid locks a deposit only reclaimable by retraction,
-    and the sweep finds what to reclaim by querying here — an implementation that loses writes leaks
-    deposits. `store` must be durable before it resolves; do not buffer in memory and flush later.
+    A fill names the order it filled, not the bid that executed, so Simplex reads the bids on that
+    order from here to record the fill against the limit order that priced one. `store` must be
+    durable before it resolves; do not buffer in memory and flush later.
 </Callout>
 
-`expiredUnretracted` returns bids that are successful or still pending, unretracted, and either older than `maxAgeMs`
-or flagged dead. Dead bids ignore the age cut because their deposit is reclaimable immediately, so a
-failed attempt retries on the next sweep rather than waiting out the TTL.
+`StoredBid`: `id`, `commitment`, `bid`, `success`, `onOrderbook`, `error`, `createdAt`, `pricedBy`,
+and, written only by releases before 0.18.6 that also bid on Hyperbridge, `extrinsicHash`,
+`blockHash`, `pending`, `retracted`, `retractedAt`, `retractExtrinsicHash` and `dead`.
 
-`markRetracted` is also called when the chain reports `BidNotFound`: bids only leave the pallet by
-retraction, so "no bid" means there is nothing left to reclaim and no hash is available. Both mark
-methods resolve `false` when nothing matched, which callers treat as success rather than an error.
-
-`rows` is a list of `StoredBid.id`s. With it, `markRetracted` and `markDead` act on those bids only;
-without it, on every unretracted bid on the commitment; an empty list matches nothing. A store must
-honour `rows`. A store that ignores it closes or flags every bid on the commitment, so retracting
-one limit order's bid retracts another's.
-
-`StoredBid`: `id`, `commitment`, `bid`, `extrinsicHash`, `blockHash`, `success`, `pending`, `error`,
-`createdAt`, `retracted`, `retractedAt`, `retractExtrinsicHash`, `dead`, `pricedBy`.
+`success` is whether a venue took the bid: the HyperFX orderbook, or Hyperbridge on an older row.
+`onOrderbook` is whether the orderbook holds it; it serves a bid until its TTL, and nothing
+withdraws it. `BidInsert` carries `commitment`, `bid`, `success`, `error`, `onOrderbook` and
+`pricedBy`.
 
 Several bids can share a commitment — the solver sends one bid per matching limit order — so `bid`
-(the identifier Hyperbridge files it under) tells them apart. `pricedBy` (`BidPricing`:
+(`keccak256` of the bid's calldata) tells them apart. `pricedBy` (`BidPricing`:
 `{ limitOrderId, payout, take?, takeDecimals? }`, or `null`) names the limit order that priced the
 bid and what the bid signed against it. It is written once when the bid is stored and never changed;
-nothing is held against the order. `byLimitOrder` reads back the bids an order priced.
-
-`pending` marks a submission that timed out with its extrinsic still in Hyperbridge's pool. It is
-neither success nor failure: the extrinsic may yet land and reserve a deposit, so a pending row
-counts as reclaimable in `unretractedReclaimable`, `expiredUnretracted` and the `pendingRetraction`
-stat. Treating it as a plain failure is how a deposit goes unnoticed and unreclaimed. `createdAt` is SQLite-style
-`"YYYY-MM-DD HH:MM:SS"` in UTC so it sorts lexicographically.
+nothing is held against the order. `byLimitOrder` reads back the bids an order priced. `createdAt`
+is SQLite-style `"YYYY-MM-DD HH:MM:SS"` in UTC so it sorts lexicographically.
 
 ### ActivityStore
 

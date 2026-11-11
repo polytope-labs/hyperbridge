@@ -15,8 +15,6 @@ const minimalConfig = (): FillerTomlConfig => ({
 	simplex: {
 		maxConcurrentOrders: 5,
 		queue: { maxRechecks: 10, recheckDelayMs: 30000 },
-		substratePrivateKey: "seed phrase here",
-		hyperbridgeWsUrl: "wss://nexus.rpc.polytope.technology",
 	},
 	chains: [{ rpcUrls: ["https://eth-mainnet.g.alchemy.com/v2/key"] }],
 })
@@ -29,8 +27,6 @@ describe("validateConfig", () => {
 	it("accepts the example config shape parsed from TOML", () => {
 		const example = readFileSync(resolve(__dirname, "../../../filler-config-example.toml"), "utf-8")
 		const config = parse(example) as FillerConfigFile
-		config.simplex.substratePrivateKey = "seed"
-		config.simplex.hyperbridgeWsUrl = "wss://example"
 		for (const chain of config.chains) {
 			chain.rpcUrls = ["https://rpc.example"]
 		}
@@ -53,18 +49,18 @@ describe("validateConfig", () => {
 		expect(() => validateConfig(config)).not.toThrow()
 	})
 
-	// A solver without a Hyperbridge key bids on the orderbook alone.
-	it("accepts a config without a substratePrivateKey or hyperbridgeWsUrl", () => {
+	// Simplex no longer uses a Hyperbridge account, but a config written for one must still load.
+	it("loads an older config that still carries substratePrivateKey and hyperbridgeWsUrl", () => {
 		const config = minimalConfig()
-		config.simplex.substratePrivateKey = undefined
-		config.simplex.hyperbridgeWsUrl = undefined
+		config.simplex.substratePrivateKey = "seed phrase here"
+		config.simplex.hyperbridgeWsUrl = "wss://nexus.rpc.polytope.technology"
 		expect(() => validateConfig(config)).not.toThrow()
 	})
 
-	it("rejects a hyperbridgeWsUrl missing while a substratePrivateKey is set", () => {
+	it("loads a key that once needed a hyperbridgeWsUrl without one", () => {
 		const config = minimalConfig()
-		config.simplex.hyperbridgeWsUrl = ""
-		expect(() => validateConfig(config)).toThrow(/hyperbridgeWsUrl is required when simplex.substratePrivateKey is set/)
+		config.simplex.substratePrivateKey = "seed phrase here"
+		expect(() => validateConfig(config)).not.toThrow()
 	})
 
 	it("loads an older config that still carries [[pairs]]", () => {
@@ -160,8 +156,6 @@ describe("validateConfig [simplex.overfillProtection]", () => {
 		// The same parse every entry point (`simplex run`, `simplex init`, the desktop) reads the file with.
 		const example = readFileSync(resolve(__dirname, "../../../filler-config-example.toml"), "utf-8")
 		const config = parse(`${example}\n[simplex.overfillProtection]\nmaxOverfillBps = 500\n`) as FillerConfigFile
-		config.simplex.substratePrivateKey = "seed"
-		config.simplex.hyperbridgeWsUrl = "wss://example"
 		for (const chain of config.chains) chain.rpcUrls = ["https://rpc.example"]
 		expect(() => validateConfig(config)).not.toThrow()
 	})

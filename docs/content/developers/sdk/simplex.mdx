@@ -38,8 +38,6 @@ const config: SimplexConfig = {
         maxConcurrentOrders: 5,
         // Seconds between block scans per chain. Defaults to 3, minimum 0.1.
         blockScanIntervalSeconds: 3,
-        substratePrivateKey: process.env.SUBSTRATE_KEY!,
-        hyperbridgeWsUrl: "wss://hyperbridge-mainnet-rpc.blockops.network",
     },
     chains: [
         { rpcUrls: ["https://base.example"] },
@@ -249,9 +247,9 @@ created, its activity feed, and whether the operator paused it. That lives behin
 `SimplexDataStore` interface.
 
 The default is in-memory and lost on exit, which is fine for tests and watch-only observers. **A
-solver that submits bids needs a durable store** — a successful bid locks a deposit on Hyperbridge
-that is only reclaimable by retracting it, and the retraction sweep finds what to reclaim by
-querying the bid store. Lose those records and you leak deposits.
+solver that places bids needs a durable store** — a fill names the order it filled, not the bid
+that executed, so Simplex reads the bids on that order back from the bid store to record the fill
+against the limit order that priced it. Lose those records and fills go unrecorded.
 
 The bundled SQLite store is a separate entry point. It runs on Node's built-in `node:sqlite`, so
 there is no native module to install or compile — the package just needs Node 22.23.4+, 24.22.1+ or 26.12.1+:
@@ -271,7 +269,7 @@ To use your own backend — Postgres, Redis, a hosted API — implement the inte
 import type { SimplexDataStore } from "@hyperbridge/simplex"
 
 const store: SimplexDataStore = {
-    // store, byCommitment, expiredUnretracted, markRetracted, markDead, …
+    // store, byCommitment, byCommitments, byLimitOrder, recent, failed, stats, …
     bids: myBidStore,
     // record, recent, fills, recordWalletTx, walletTxs
     activity: myActivityLog,
@@ -470,7 +468,7 @@ await simplex.pause()
 await simplex.resume()
 simplex.status()
 await simplex.activity()
-await simplex.bidStats()   // watch `pendingRetraction`: deposits still locked
+await simplex.bidStats()   // { total, successful, failed }
 ```
 
 ## Persisting runtime edits
@@ -511,7 +509,7 @@ const [solverA, solverB] = await Promise.all([
 ```
 
 Give each its own data directory. Two solvers sharing one bid store would each see the other's bids
-as theirs to retract.
+as theirs, and record each other's fills against their own limit orders.
 
 Started like that, each solver scans the chains itself. Two solvers watching Base issue two
 identical `getLogs` streams forever, because the filter carries nothing solver-specific — so at any

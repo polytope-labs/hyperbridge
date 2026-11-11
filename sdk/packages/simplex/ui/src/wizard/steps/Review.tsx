@@ -99,8 +99,8 @@ export function StepReview({ state, defaults }: StepProps) {
 			<section className="card review-accounts-section">
 				<header className="review-section-heading">
 					<span className="markets-kicker">Funding checklist</span>
-					<h2>Fund your accounts</h2>
-					<p>These are the two identities Simplex will use after launch.</p>
+					<h2>Fund your wallet</h2>
+					<p>This is the identity Simplex will use after launch.</p>
 				</header>
 
 				<div className="review-account-list">
@@ -119,25 +119,6 @@ export function StepReview({ state, defaults }: StepProps) {
 							</p>
 							<div className="review-account-value">
 								<CopyHash value={evmAddress} chars={42} copyLabel="Copy filler wallet address" />
-							</div>
-						</article>
-					)}
-					{state.substrateAddress && (
-						<article className="review-account-row">
-							<div className="review-account-heading">
-								<div>
-									<h3>Hyperbridge account</h3>
-									<span>Bid submission account</span>
-								</div>
-								<span className="review-account-network">SUBSTRATE</span>
-							</div>
-							<p>Fund with BRIDGE for bid fees. Claimed fees return automatically after fills.</p>
-							<div className="review-account-value">
-								<CopyHash
-									value={state.substrateAddress}
-									chars={64}
-									copyLabel="Copy Hyperbridge account address"
-								/>
 							</div>
 						</article>
 					)}

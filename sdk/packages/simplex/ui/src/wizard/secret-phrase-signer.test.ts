@@ -20,7 +20,6 @@ describe("wizard secret phrase signer", () => {
 
 	const defaults = {
 		chains: chainsForNetwork("mainnet"),
-		hyperbridgeWs: { mainnet: "wss://nexus.rpc.polytope.technology" },
 		usdStables: ["USDC", "USDT"],
 		maxConcurrentOrders: 5,
 		configPath: "/tmp/filler-config.toml",
@@ -40,7 +39,6 @@ describe("wizard secret phrase signer", () => {
 			signerType: "secretPhrase",
 			signerPhrase: `  ${PHRASE} `,
 			signerAccountIndex,
-			substrateKey: `0x${"22".repeat(32)}`,
 			orderbook: {
 				url: DEFAULT_ORDERBOOK_URLS.mainnet,
 				books: [{ id: "USDC-cNGN", base: "USDC", quote: "cNGN" }],

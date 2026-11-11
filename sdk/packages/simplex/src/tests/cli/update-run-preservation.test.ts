@@ -73,8 +73,6 @@ describe("CLI wizard update run", () => {
 			},
 		]
 		state.signer = config.simplex.signer
-		state.substratePrivateKey = config.simplex.substratePrivateKey
-		state.hyperbridgeWsUrl = config.simplex.hyperbridgeWsUrl
 		state.assets = wizardAssets
 		state.confirmationPolicies = wizardConfirmationPolicies
 		// carryPrefillExtras equivalents
@@ -101,6 +99,14 @@ describe("CLI wizard update run", () => {
 		expect(assembled.simplex.watchOnly).toEqual({ "56": true })
 		expect(assembled.simplex.logging).toBe("warn")
 		expect(assembled.simplex.gasFeeBump).toEqual(existing.simplex.gasFeeBump)
+	})
+
+	it("keeps an older config's Hyperbridge key, which no longer runs anything but may hold BRIDGE", () => {
+		const assembled = simulateUpdateRun()
+
+		expect(assembled.simplex.substratePrivateKey).toBe(existing.simplex.substratePrivateKey)
+		expect(assembled.simplex.hyperbridgeWsUrl).toBe(existing.simplex.hyperbridgeWsUrl)
+		expect(emitFillerToml(assembled)).toContain(`substratePrivateKey = "${existing.simplex.substratePrivateKey}"`)
 	})
 
 	it("drops a leftover [simplex.overfillProtection]", () => {
@@ -187,8 +193,6 @@ describe("CLI wizard update run", () => {
 			},
 		]
 		state.signer = existing.simplex.signer
-		state.substratePrivateKey = existing.simplex.substratePrivateKey
-		state.hyperbridgeWsUrl = existing.simplex.hyperbridgeWsUrl
 		// A bare [allowlist.bySource] header parses to an empty table; emit
 		// drops it, so assembly must too.
 		state.allowlist = { bySource: {} }
@@ -207,8 +211,6 @@ describe("CLI wizard update run", () => {
 			},
 		]
 		state.signer = existing.simplex.signer
-		state.substratePrivateKey = existing.simplex.substratePrivateKey
-		state.hyperbridgeWsUrl = existing.simplex.hyperbridgeWsUrl
 		state.rebalancing = { triggerPercentage: 0.2 } as FillerConfigFile["rebalancing"]
 		const assembled = assembleConfig(state)
 		expect(assembled.rebalancing).toBeUndefined()

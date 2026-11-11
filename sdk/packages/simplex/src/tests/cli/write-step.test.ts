@@ -39,8 +39,6 @@ function updateRunState(config: FillerConfigFile) {
 	state.prefillConfig = JSON.parse(JSON.stringify(config))
 	state.chains = [{ meta: INIT_CHAINS.find((c) => c.chainId === 1)!, rpcUrls: ["https://eth.example/rpc"] }]
 	state.signer = config.simplex.signer
-	state.substratePrivateKey = config.simplex.substratePrivateKey
-	state.hyperbridgeWsUrl = config.simplex.hyperbridgeWsUrl
 	state.maxConcurrentOrders = config.simplex.maxConcurrentOrders ?? state.maxConcurrentOrders
 	return state
 }

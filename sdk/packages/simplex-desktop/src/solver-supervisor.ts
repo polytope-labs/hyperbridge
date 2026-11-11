@@ -58,7 +58,6 @@ function parseSolverWork(value: unknown): SolverWork | undefined {
 		"evaluating",
 		"queuedFills",
 		"activeFills",
-		"retractions",
 		"rebalancing",
 	]
 	if (!fields.every((field) => typeof candidate[field] === "number" && candidate[field] >= 0)) return undefined
@@ -67,7 +66,6 @@ function parseSolverWork(value: unknown): SolverWork | undefined {
 		evaluating: candidate.evaluating as number,
 		queuedFills: candidate.queuedFills as number,
 		activeFills: candidate.activeFills as number,
-		retractions: candidate.retractions as number,
 		rebalancing: candidate.rebalancing as number,
 	}
 }
@@ -81,7 +79,6 @@ export function solverIsIdle(status: SolverStatus): boolean {
 			work.evaluating === 0 &&
 			work.queuedFills === 0 &&
 			work.activeFills === 0 &&
-			work.retractions === 0 &&
 			work.rebalancing === 0,
 	)
 }

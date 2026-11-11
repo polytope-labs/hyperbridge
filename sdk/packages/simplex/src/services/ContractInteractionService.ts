@@ -113,7 +113,7 @@ const LIMIT_ORDER_PRE_VERIFICATION_GAS = 50_000n
 /**
  * Allowance added to every bid's validity window, in seconds, for bid discovery.
  *
- * The head is read before the bid is built, signed, submitted to Hyperbridge and finally
+ * The head is read before the bid is built, signed, posted to the orderbook and finally
  * discovered and selected — all wall-clock time that has passed by the time a fill lands.
  * It is denominated in seconds precisely because that lag does not scale with block time: a
  * flat block count would be worth 60s on Ethereum and 1.25s on Arbitrum for the same delay.
@@ -667,7 +667,7 @@ export class ContractInteractionService {
 
 	/**
 	 * Checks if solver selection mode is active on the destination chain
-	 * When active, fillers must submit bids to Hyperbridge instead of filling directly
+	 * When active, fillers must post bids (to the HyperFX orderbook) instead of filling directly
 	 *
 	 * @param chain - The chain identifier to check
 	 * @returns True if solver selection is active
@@ -877,7 +877,7 @@ export class ContractInteractionService {
 	}
 
 	/**
-	 * Prepares a signed PackedUserOperation for bid submission to Hyperbridge
+	 * Prepares a signed PackedUserOperation for a bid on the HyperFX orderbook
 	 *
 	 * Uses cached gas estimates from prior profitability check (estimateGasFillPost)
 	 * to avoid redundant RPC calls.
@@ -885,8 +885,8 @@ export class ContractInteractionService {
 	 * @param order - The order to prepare a bid for
 	 * @param entryPointAddress - The ERC-4337 EntryPoint address on the destination chain
 	 * @param solverAccountAddress - The solver's smart account address
-	 * @returns The commitment, the encoded UserOp, and the identifier Hyperbridge files the bid under
-	 *   (`keccak256` of its calldata)
+	 * @returns The commitment, the encoded UserOp, and the bid's identifier (`keccak256` of its
+	 *   calldata)
 	 *
 	 * Several limit orders can serve one incoming order, and simplex bids each of
 	 * them separately. Each bid's nonce key binds its own calldata, so it signs the
@@ -1045,7 +1045,7 @@ export class ContractInteractionService {
 			preVerificationGas,
 		})
 
-		// Encode the UserOp as bytes for submission to Hyperbridge
+		// SCALE-encode the UserOp: the bytes the orderbook takes as a bid
 		const encodedUserOp = encodeUserOpScale(userOp)
 
 		this.logger.info(
@@ -1110,8 +1110,8 @@ export class ContractInteractionService {
 	 * Last block on the destination chain at which a bid signed now may still execute.
 	 *
 	 * A bid is a firm quote the order placer takes up whenever they like, and nothing else
-	 * bounds that window — `order.deadline` is placer-chosen with no ceiling, and retracting
-	 * on Hyperbridge leaves the destination-chain calldata untouched. An unbounded bid is a
+	 * bounds that window — `order.deadline` is placer-chosen with no ceiling, and the orderbook
+	 * cannot withdraw a bid. An unbounded bid is a
 	 * free option on this filler's inventory, exercised only once the rate has moved against
 	 * us. This caps its tenor.
 	 *

@@ -574,8 +574,6 @@ async function setUp() {
 
 	const fillerConfigForService: FillerServiceConfig = {
 		maxConcurrentOrders: 5,
-		hyperbridgeWsUrl: process.env.HYPERBRIDGE_GARGANTUA,
-		substratePrivateKey: process.env.SECRET_PHRASE,
 	}
 
 	const chainConfigService = new FillerConfigService(testChainConfigs, fillerConfigForService)

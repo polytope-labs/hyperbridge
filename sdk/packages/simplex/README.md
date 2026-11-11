@@ -33,8 +33,6 @@ import { SqliteDataStore } from "@hyperbridge/simplex/sqlite"
 const config: SimplexConfig = {
     simplex: {
         maxConcurrentOrders: 5,
-        substratePrivateKey: process.env.SUBSTRATE_KEY!,
-        hyperbridgeWsUrl: "wss://nexus.rpc.polytope.technology",
     },
     chains: [{ rpcUrls: ["https://base.example"] }, { rpcUrls: ["https://ethereum.example"] }],
     orderbook: { url: "https://orderbook.hyperfx.finance/mainnet/graphql" },

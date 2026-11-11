@@ -52,14 +52,15 @@ export function emitFillerToml(config: FillerConfigFile, options: EmitOptions = 
 		push("# Watch-only mode: monitor orders without filling. Boolean (global) or per-chain map.")
 		push(kv("watchOnly", config.simplex.watchOnly))
 	}
+	// No longer read. Kept rather than dropped: the key controls a Hyperbridge account that may
+	// still hold BRIDGE, and a rewrite must not delete the operator's only copy of it.
 	if (config.simplex.substratePrivateKey !== undefined) {
-		push("# Substrate account (hex seed or mnemonic) that signs bid extrinsics on Hyperbridge.")
-		push("# It must hold BRIDGE tokens for deposits and fees; fees are claimed back after fills.")
-		push("# Without it, bids go to the HyperFX orderbook alone.")
+		push("# No longer used: Simplex bids on the HyperFX orderbook alone. This Hyperbridge account")
+		push("# may still hold BRIDGE; recover it, then delete this line and hyperbridgeWsUrl.")
 		push(kv("substratePrivateKey", config.simplex.substratePrivateKey))
 	}
 	if (config.simplex.hyperbridgeWsUrl !== undefined) {
-		push("# Hyperbridge WebSocket endpoint used to submit solver bids.")
+		push("# No longer used; see substratePrivateKey.")
 		push(kv("hyperbridgeWsUrl", config.simplex.hyperbridgeWsUrl))
 	}
 	if (config.simplex.indexerUrl) push(kv("indexerUrl", config.simplex.indexerUrl))

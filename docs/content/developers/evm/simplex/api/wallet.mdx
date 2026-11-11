@@ -13,7 +13,7 @@ These routes read what the solver holds and move it. The dashboard's balances on
 
 ## GET /api/balances
 
-Returns the solver's balances on every chain, including what it holds in vaults and its Hyperbridge account. Simplex refreshes this snapshot every minute, so the route answers immediately with the latest one.
+Returns the solver's balances on every chain, including what it holds in vaults. Simplex refreshes this snapshot every minute, so the route answers immediately with the latest one.
 
 ```bash lineNumbers
 curl -s $SIMPLEX/api/balances
@@ -48,8 +48,7 @@ curl -s $SIMPLEX/api/balances
       ]
     }
   ],
-  "issues": [],
-  "hyperbridge": { "address": "5F…", "free": 120.5, "reserved": 10 }
+  "issues": []
 }
 ```
 
@@ -63,7 +62,6 @@ Amounts are numbers in whole tokens.
 | `chains[].usdc`, `usdt`, `exotics` | Wallet balances only, as a quick summary. |
 | `chains[].assets` | The full picture per token, described below. |
 | `issues` | Each read that failed, with the `chainId`, what it was reading (`chain`, `native`, `token` or `vault`) and the error. |
-| `hyperbridge` | The Hyperbridge account's BRIDGE balance, `free` and `reserved`. Reserved BRIDGE includes the deposits locked by live bids. |
 
 In `assets`, each entry adds up one token on one chain:
 

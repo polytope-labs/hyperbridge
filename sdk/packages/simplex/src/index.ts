@@ -194,7 +194,6 @@ export type {
 	BalanceIssue,
 	BalanceSnapshot,
 	ChainBalanceRow,
-	HyperbridgeBalance,
 	VaultBalanceRow,
 } from "@/services/BalanceProvider"
 export type {

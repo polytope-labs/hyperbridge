@@ -1,5 +1,4 @@
-import { join } from "node:path"
-import { formatUnits, toHex } from "viem"
+import { formatUnits } from "viem"
 import { IntentFiller } from "@/core/filler"
 import { FXFiller } from "@/strategies/fx"
 import type { VaultConfig, FundingVenue } from "@/funding/types"
@@ -7,8 +6,6 @@ import { VaultFundingPlanner } from "@/funding/vault/VaultFundingPlanner"
 import { VaultLiquidityState } from "@/funding/vault/VaultLiquidityState"
 import { TokenSender } from "@/services/TokenSender"
 import { revokeStaleGatewayAllowances } from "@/services/gateway-allowance"
-import { BridgeTopUp } from "@/services/BridgeTopUp"
-import { deriveSubstrateKeyPair } from "@/services/substrate-key"
 import { formatChainKey, parseChainKey } from "@/config/interpolated-curve"
 import { AssetRegistry, normalizeSymbol } from "@/config/asset-registry"
 import type { ChainConfig, FillerConfig, HexString } from "@hyperbridge/sdk"
@@ -132,8 +129,6 @@ export interface FillerRuntime {
 	vaultPreflight(vaults: VaultToml[]): Promise<void>
 	/** Operator-initiated outbound transfers (dashboard Send). */
 	tokenSender: TokenSender
-	/** Buys BRIDGE on BSC for the filler's Hyperbridge account. Absent without a substrate key. */
-	bridgeTopUp?: BridgeTopUp
 	startedAt: number
 	/** Stops everything bootFiller started. Idempotent; does NOT process.exit. */
 	shutdown(signal: string): Promise<void>
@@ -165,7 +160,7 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 
 	// Everything constructed past this point needs tearing down if a later step
 	// throws. `initialize()` legitimately rejects (delegation on an unfunded EOA),
-	// and without this the Hyperbridge socket, scanners and timers outlive the
+	// and without this the scanners and timers outlive the
 	// failure with nothing holding a reference to stop them.
 	const started: Array<() => Promise<void> | void> = []
 	const unwind = async () => {
@@ -182,6 +177,13 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 	// time the dashboard rewrites the file.
 	if ("pairs" in config) {
 		logger.warn("[[pairs]] is no longer read and can be deleted from the config")
+	}
+	// Likewise the Hyperbridge account releases before 0.18.6 bid with. Simplex bids on the
+	// orderbook alone now, so neither key is read.
+	if (config.simplex.substratePrivateKey !== undefined || config.simplex.hyperbridgeWsUrl !== undefined) {
+		logger.warn(
+			"simplex.substratePrivateKey and simplex.hyperbridgeWsUrl are ignored: Simplex bids on the HyperFX orderbook alone and no longer uses a Hyperbridge account. Recover any BRIDGE the account still holds, then delete both from the config",
+		)
 	}
 	// Likewise [simplex.overfillProtection], which `simplex init` wrote uncommented. Not
 	// rejected: refusing it would crash-loop a deployment that has carried it for months,
@@ -204,8 +206,6 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 	const fillerConfigForService: FillerServiceConfig = {
 		maxConcurrentOrders: config.simplex.maxConcurrentOrders ?? DEFAULT_MAX_CONCURRENT_ORDERS,
 		logging: config.simplex.logging as LogLevel | undefined,
-		substratePrivateKey: config.simplex.substratePrivateKey,
-		hyperbridgeWsUrl: config.simplex.hyperbridgeWsUrl,
 		entryPointAddress: config.simplex.entryPointAddress,
 		rebalancing: config.rebalancing,
 		targetGasUnits: config.simplex.targetGasUnits,
@@ -299,8 +299,8 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 		sharedCacheService,
 	)
 
-	// Bid records are how submitted deposits are found again for retraction, so
-	// the store is wired in before anything can bid.
+	// Bid records are what a fill is attributed to its limit order from, so the store
+	// is wired in before anything can bid.
 	const bidStore = options.data.bids
 
 	// Sponsors self-initiated UserOps (delegation, vault sweep/redeem) via the
@@ -418,8 +418,7 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 		config.orderbook.requestTimeoutMs ?? DEFAULT_ORDERBOOK_TIMEOUT_MS,
 		options.loggers,
 	)
-	// Every bid is posted to the orderbook too, and to it alone when the account holds no
-	// BRIDGE for the Hyperbridge deposit.
+	// Every bid is posted to the orderbook, the only venue simplex bids on.
 	intentFiller.setOrderbook(orderbookClient)
 	const limitOrderService = new LimitOrderService(
 		options.data.limitOrders,
@@ -537,8 +536,6 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 		tokens: bookTokens,
 		vaultBalances: vaultVenue,
 		feeToken: async (chain) => (await contractService.getFeeTokenWithDecimals(chain)).address,
-		hyperbridge: intentFiller.hyperbridgeConnection,
-		substratePrivateKey: config.simplex.substratePrivateKey,
 	})
 
 	// Read operator state BEFORE anything starts: this is a call into a
@@ -619,8 +616,7 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 		logger.warn(`Shutting down intent filler (${signal})...`)
 		balanceProvider.stop()
 		vaultVenue?.stopSweeping()
-		// Before the filler: an expiry tick queues retractions, and one landing after the
-		// filler's drain would find Hyperbridge disconnected.
+		// Before the filler: a reconcile pass settles through the filler's queue.
 		lifecycle.stop()
 		await intentFiller.stop()
 		// Exit all vault positions back to the underlying asset (best-effort).
@@ -629,8 +625,8 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 		if (options.ownsData) await options.data.close?.()
 	}
 
-	// One delegation view shared by the operator's sends and the BRIDGE top-up. TokenSender reads
-	// it to refuse a native batch on an undelegated wallet, which would succeed and do nothing.
+	// TokenSender reads the delegation to refuse a native batch on an undelegated wallet, which
+	// would succeed and do nothing.
 	const delegationService = new DelegationService(chainClientManager, configService, runtimeSigner)
 	const tokenSender = new TokenSender(
 		chainClientManager,
@@ -655,30 +651,6 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 			logger: moduleLogger(options.loggers, "gateway-allowance"),
 		})
 	}
-	// BRIDGE trades only on mainnet BSC, so a testnet filler has nothing to top up with.
-	const bridgeTopUp =
-		config.simplex.substratePrivateKey && network === "mainnet"
-			? new BridgeTopUp({
-					clientManager: chainClientManager,
-					delegation: delegationService,
-					configService,
-					tokenSender,
-					state: options.data.state,
-					storagePath: join(options.data.dataDir ?? process.cwd(), ".hyperbridge-cache"),
-					indexerUrl,
-					solver: runtimeSigner.address as HexString,
-					substratePublicKey: toHex((await deriveSubstrateKeyPair(config.simplex.substratePrivateKey)).publicKey),
-					hyperbridge: intentFiller.hyperbridgeConnection,
-					// Lets the dashboard show the new BRIDGE balance as soon as a top-up is delivered.
-					refreshBridgeBalance: () => balanceProvider.refreshHyperbridgeBalance(),
-					// Sizes its evidence margins at the block times measured when simplex started.
-					blockTimeSeconds: (chain) => contractService.blockTimeSeconds(chain),
-					loggers: options.loggers,
-				})
-			: undefined
-	// Picks up a top-up a previous run left open: resumes its order or its reclaim.
-	void bridgeTopUp?.restore()
-
 	return {
 		intentFiller,
 		limitOrders: limitOrderService,
@@ -704,7 +676,6 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 		configPath: options.configPath,
 		startedAt: Date.now(),
 		tokenSender,
-		bridgeTopUp,
 		vaultPreflight: async (vaults) => {
 			const byChain: Record<string, VaultConfig[]> = {}
 			for (const row of vaults) {

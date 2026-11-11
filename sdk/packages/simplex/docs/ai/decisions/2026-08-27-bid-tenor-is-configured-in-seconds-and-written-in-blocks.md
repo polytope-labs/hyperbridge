@@ -25,25 +25,23 @@ the Simplex paymaster, the Permit2 deadline (head timestamp plus the window plus
 validating it later than that. Blocks that cannot be read fall back to the declared figure, then to 2s. That answer is
 not kept: a chain left unmeasured at startup, or added afterwards, is measured at its first use.
 
-The same startup measurement sizes the other block conversions in simplex: the fx strategy's estimate of an order's
-deadline timestamp and the BRIDGE top-up's evidence margin (300s of blocks below the tip).
+The same startup measurement sizes the fx strategy's estimate of an order's deadline timestamp.
 
 300 seconds is chosen to cover the quote-to-fill path and little more: cross-chain confirmation waits reach roughly
 180s on the deepest default policies, so 5 minutes clears the mechanical part of the round trip while keeping the
 window over which the quoted price is a firm commitment short. On a volatile pair that is the number that matters —
 optionality handed to the placer scales with time, and USDC/CNGN reprices in steps rather than drifting.
 
-The cost is on the other side and worth watching. A bid is not consumed when signed: it waits in the coprocessor
+The cost is on the other side and worth watching. A bid is not consumed when signed: it waits on the orderbook
 until the placer selects a solver, so an expiry shorter than the selection window is lost revenue rather than lost
-money. `BID_TTL_MS` (the 1-hour retraction sweep) is the only stated expectation in the tree for how long selection
-takes, and 5 minutes sits well inside it — if bids are observed lapsing unselected, this is the knob, and raising it
-is a pricing decision rather than a correctness one.
+money. The orderbook serves a bid for its `serverInfo.bidTtlSecs` (600 s on testnet) — if bids are observed lapsing
+unselected, this is the knob, and raising it is a pricing decision rather than a correctness one.
 
-It is deliberately not tied to `BID_TTL_MS`: that TTL governs reclaiming a deposit, this governs how long we are
-short an option, and the two should not be assumed to move together.
+It is deliberately not tied to `bidTtlSecs`: that TTL governs how long the orderbook serves the bid, this governs how
+long we are short an option, and the two should not be assumed to move together.
 
 The window carries a 30-second discovery allowance on top of the configured validity, added before the conversion so
-the rounding happens once. The head is read before the bid is built, signed, submitted to Hyperbridge and finally
+the rounding happens once. The head is read before the bid is built, signed, posted to the orderbook and finally
 discovered and selected, so it is already behind by the time a fill lands, and the block time is an average rather
 than exact.
 

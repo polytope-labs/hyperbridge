@@ -1084,8 +1084,7 @@ export class LimitOrderService {
 	}
 
 	/**
-	 * Takes an expired order off the book and closes the row, and reports it so the bids
-	 * it priced, which would otherwise still pay out at its price, are retracted.
+	 * Takes an expired order off the book, closes the row, and reports it.
 	 *
 	 * Guarded like every other posting write: an order the operator cancelled, or a fill
 	 * closed, while the entry was coming down keeps that status and is not reported here.

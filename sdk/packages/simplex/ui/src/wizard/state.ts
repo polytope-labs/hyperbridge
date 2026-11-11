@@ -75,11 +75,6 @@ export interface WizardState {
 		grpcTarget: string
 	}
 	turnkey: { organizationId: string; apiPublicKey: string; apiPrivateKey: string; signWith: string }
-	substrateKey: string
-	substrateAddress?: string
-	generatedMnemonic?: string
-	hyperbridgeWsUrl: string
-	balanceCheck?: { funded: boolean; free: string; decimals: number }
 	chains: ChainDraft[]
 	/** The orderbook's books, read when the wizard opens. */
 	orderbook?: SetupOrderbook
@@ -103,8 +98,6 @@ export function initialState(defaults: SetupDefaults): WizardState {
 			grpcTarget: "",
 		},
 		turnkey: { organizationId: "", apiPublicKey: "", apiPrivateKey: "", signWith: "" },
-		substrateKey: "",
-		hyperbridgeWsUrl: defaults.hyperbridgeWs.mainnet,
 		chains: defaults.chains.map((meta) => ({
 				meta,
 				enabled: false,
@@ -214,10 +207,6 @@ export function assembleConfig(state: WizardState, defaults: SetupDefaults): Fil
 			// The form collects plain strings; the config type wants the signer union / hex addresses.
 			signer: signer as FillerConfig["simplex"]["signer"],
 			maxConcurrentOrders: defaults.maxConcurrentOrders,
-			// Omitted without a key: the solver then bids on the orderbook alone.
-			...(state.substrateKey.trim()
-				? { substratePrivateKey: state.substrateKey.trim(), hyperbridgeWsUrl: state.hyperbridgeWsUrl.trim() }
-				: {}),
 		},
 		orderbook: { url: state.orderbook?.url ?? DEFAULT_ORDERBOOK_URLS.mainnet },
 		chains: chains.map((c) => ({ rpcUrls: c.rpcUrls.map((u) => u.trim()).filter(Boolean) })),

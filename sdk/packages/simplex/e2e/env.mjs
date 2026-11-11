@@ -13,18 +13,12 @@ export function readEnv() {
 		solver1Key: "E2E_SOLVER1_PRIVATE_KEY",
 		solver2Key: "E2E_SOLVER2_PRIVATE_KEY",
 		solver3Key: "E2E_SOLVER3_PRIVATE_KEY",
-		solver1Substrate: "E2E_SOLVER1_SUBSTRATE_KEY",
-		solver2Substrate: "E2E_SOLVER2_SUBSTRATE_KEY",
-		solver3Substrate: "E2E_SOLVER3_SUBSTRATE_KEY",
 		user1Key: "E2E_USER1_PRIVATE_KEY",
 		user2Key: "E2E_USER2_PRIVATE_KEY",
 	}
 	const missing = Object.values(names).filter((name) => !process.env[name])
 	if (missing.length > 0) throw new Error(`Missing environment variables: ${missing.join(", ")}`)
 	const env = Object.fromEntries(Object.entries(names).map(([key, name]) => [key, process.env[name]]))
-	// The account that tops the solvers' Hyperbridge balances up. Optional: without it a solver
-	// short of BRIDGE is reported rather than funded.
-	env.substrateFunder = process.env.SECRET_PHRASE
 	// Simplex posts to the orderbook URL as given; a deployment's base URL serves GraphQL under it.
 	const orderbook = env.orderbook.replace(/\/+$/, "")
 	env.orderbook = orderbook.endsWith("/graphql") ? orderbook : `${orderbook}/graphql`
@@ -107,9 +101,8 @@ export const EXTRA_LEVELS = {
  * Each scenario runs against a freshly posted book: the standing orders, plus the extra
  * solver 1 levels it names. `minFills` is the fewest fill transactions it must take. A scenario
  * with `check: "limit"` or `check: "refusal"` must also pass the checks of the on-chain limit in
- * e2e/budget.mjs. One with `noKey` runs that solver (by index) with no Hyperbridge key at all, so
- * its bids can only reach the orderbook; `check: "orderbook"` then requires the order to be filled
- * by that solver from a bid the orderbook served and Hyperbridge never held. One with
+ * e2e/budget.mjs. `check: "orderbook"` requires that Hyperbridge served no solver's bid (simplex
+ * bids on the orderbook alone) and that the order was filled from a bid the orderbook served. One with
  * `noCoprocessor` has the swapper's SDK run without an `IntentsCoprocessor`, reading bids from the
  * orderbook alone; `check: "orderbook-read"` requires a fill from bids the orderbook served.
  *
@@ -199,12 +192,10 @@ export const SCENARIOS = {
 		legs: [{ tokenIn: "USDC", amountIn: "0.5", tokenOut: "cNGN", minOut: "778.5" }],
 		minFills: 1,
 	},
-	// The `same-chain` swap with solver 1, the best priced, running with no Hyperbridge key: its
-	// bid goes to the orderbook alone, where the SDK reads it beside the others' bids and executes
-	// it first. The other two solvers bid through Hyperbridge as usual.
+	// The `same-chain` swap, checking where the bids went: simplex bids on the orderbook alone, so
+	// Hyperbridge serves no solver's bid, and the order is filled from a bid the orderbook served.
 	"orderbook-only-bid": {
 		check: "orderbook",
-		noKey: 0,
 		user: 0,
 		source: "EVM-97",
 		dest: "EVM-97",

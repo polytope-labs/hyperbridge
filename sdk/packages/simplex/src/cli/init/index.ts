@@ -10,7 +10,6 @@ import { migrateLegacyConfig } from "./migrate-legacy"
 import { newWizardState, type Prefill } from "./state"
 import { stepChains } from "./steps/chains"
 import { stepSigner } from "./steps/signer"
-import { stepHyperbridge } from "./steps/hyperbridge"
 import { stepFineTune } from "./steps/finetune"
 import { stepWrite, startFiller } from "./steps/write"
 
@@ -46,7 +45,6 @@ export async function runInit(options: InitOptions): Promise<void> {
 	state.prefillConfig = prefill?.config
 	await stepChains(state, prefill)
 	await stepSigner(state, prefill)
-	await stepHyperbridge(state, prefill)
 
 	// Salvage loop: a failure at the write gate must not lose everything the
 	// operator typed — offer to redo the tuning step with the same state.
@@ -91,7 +89,7 @@ async function handleExistingConfig(outputPath: string): Promise<Prefill | undef
 				}
 			} catch (error) {
 				// A failed migration must not discard the whole prefill: chains,
-				// signer, substrate and vault values still carry over. Skip
+				// signer and vault values still carry over. Skip
 				// validation, since the half-migrated config would not pass it.
 				log.warn(
 					`Legacy strategy migration failed (${error instanceof Error ? error.message : String(error)}) — its confirmation policies can't be prefilled; everything else still is.`,

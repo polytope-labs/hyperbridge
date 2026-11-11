@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from "vitest"
 import { bytes20ToBytes32, type HexString } from "@hyperbridge/sdk"
-import { BridgeBalanceGate, type BidPlacer } from "@/core/bid-venues"
+import { type BidPlacer, bidRefusal, orderbookHoldsBid } from "@/core/bid-placer"
 import { IntentFiller } from "@/core/filler"
-import { MemoryDataStore } from "@/data/memory"
+import { MemoryDataStore, sqliteDatetime } from "@/data/memory"
 import type { SubmitBidResult } from "@/orderbook/types"
 import { CacheService } from "@/services/CacheService"
 import type { FillResult } from "@/strategies/base"
@@ -10,11 +10,10 @@ import { stubOrderScanner } from "../helpers/stub-scanner"
 import { fakeClient, limitOrderService, limitOrderStore, ORDERBOOK_FIXTURES } from "../helpers/limit-orders"
 
 /**
- * A bid the orderbook holds is a bid a swapper can execute, whatever Hyperbridge said: a filler
- * without BRIDGE for the deposit bids on the orderbook alone. Such a bid is recorded as live
- * there, counted as a placed bid, left alone by the retraction sweep (there is no deposit to
- * reclaim and the orderbook serves it until its TTL), and a fill it wins is settled against the
- * limit order that priced it like any other.
+ * Simplex bids on the HyperFX orderbook alone. A bid is placed when the orderbook holds it: it is
+ * recorded as placed, reported as a successful execution, and a fill it wins is settled against
+ * the limit order that priced it. A bid the orderbook refuses, or a post that gets no answer, is a
+ * failed bid carrying the orderbook's reason.
  */
 
 const { CHAIN, USDC, ONE } = ORDERBOOK_FIXTURES
@@ -43,25 +42,26 @@ const ACCEPTED: SubmitBidResult = {
 const USER_OP = "0x0102" as HexString
 const logger = { trace: vi.fn(), debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn(), fatal: vi.fn() }
 
-describe("a bid the orderbook holds", () => {
+describe("bidding on the orderbook", () => {
 	/**
-	 * A filler whose strategy answers every order with `result`, or, given `through`, places
-	 * one signed op through the venues the filler hands it and answers with what they said.
+	 * A filler whose strategy places one signed op through the placer the filler hands it and
+	 * answers as the FX strategy does: placed when the orderbook holds it.
 	 */
-	function fillerWith(result: Omit<FillResult, "commitment" | "bid"> | { through: true }) {
+	function bidding() {
 		const cache = new CacheService()
+		const placers: (BidPlacer | undefined)[] = []
 		const strategy = {
 			name: "test",
 			canFill: async () => true,
 			calculateProfitability: async () => 1,
-			executeOrder: async (_order: unknown, venues?: BidPlacer) => {
-				if (!("through" in result)) return { ...result, commitment: COMMITMENT, bid: BID }
-				const placed = await venues!.place(COMMITMENT, USER_OP, BID)
+			executeOrder: async (_order: unknown, placer?: BidPlacer): Promise<FillResult> => {
+				placers.push(placer)
+				if (!placer) return { success: false, error: "no placer" }
+				const answer = await placer.place(COMMITMENT, USER_OP)
 				return {
-					success: placed.hyperbridge?.success === true,
-					txHash: placed.hyperbridge?.extrinsicHash,
-					error: placed.hyperbridge?.error,
-					orderbook: placed.orderbook,
+					success: orderbookHoldsBid(answer),
+					error: bidRefusal(answer),
+					orderbook: answer,
 					commitment: COMMITMENT,
 					bid: BID,
 				}
@@ -75,8 +75,6 @@ describe("a bid the orderbook holds", () => {
 			{ maxConcurrentOrders: 1 } as never,
 			{
 				loggers: { get: () => logger },
-				getHyperbridgeWsUrl: () => undefined,
-				getSubstratePrivateKey: () => undefined,
 				getIntentGatewayAddress: () => "0xGATE",
 				getRpcUrls: () => ["https://rpc.example"],
 				getTargetGasUnits: () => 1n,
@@ -89,100 +87,116 @@ describe("a bid the orderbook holds", () => {
 			undefined,
 			bids,
 		)
-		const executed: { success: boolean; error?: string }[] = []
+		const executed: { success: boolean; error?: string; txHash?: string }[] = []
+		const filled: unknown[] = []
 		filler.monitor.on("orderExecuted", (event: { success: boolean; error?: string }) => executed.push(event))
+		filler.monitor.on("orderFilled", (event: unknown) => filled.push(event))
 		const run = async (id = "0xorder") => {
 			;(filler as any).executeOrder({ id, source: "EVM-1", destination: "EVM-1" }, strategy, true, { toNumber: () => 1 }, 1)
 			await (filler as any).chainQueues.get(1).onIdle()
 		}
-		return { filler, bids, executed, run }
+		return { filler, bids, executed, filled, placers, run }
 	}
 
-	/** A Hyperbridge whose account holds `free`, for the gate to read. */
-	function hyperbridgeHolding(free: bigint, submitBid = vi.fn(async () => ({ success: true, extrinsicHash: "0xext" }))) {
-		const api = {
-			query: {
-				system: { account: async () => ({ data: { free: { toString: () => free.toString() } } }) },
-				intentsCoprocessor: { storageDepositFee: async () => ({ toString: () => "0" }) },
-			},
-			consts: {
-				intentsCoprocessor: { storageDepositFee: { toString: () => "1000" } },
-				balances: { existentialDeposit: { toString: () => "100" } },
-			},
-			tx: { intentsCoprocessor: { placeBid: () => ({ paymentInfo: async () => ({ partialFee: { toString: () => "10" } }) }) } },
-		}
-		return { queryApi: async () => api, getKeyPair: () => ({ address: "5Filler" }), submitBid }
-	}
-
-	it("warns once across bids while the account holds no BRIDGE, and posts each to the orderbook", async () => {
-		const { filler, bids, run } = fillerWith({ through: true })
-		const hyperbridge = hyperbridgeHolding(0n)
+	it("posts the signed op to the orderbook and records the bid placed", async () => {
+		const { filler, bids, executed, filled, run } = bidding()
 		const postBid = vi.fn(async () => ACCEPTED)
-		;(filler as any).hyperbridge = Promise.resolve(hyperbridge)
-		;(filler as any).bridgeBalance = new BridgeBalanceGate(hyperbridge as never, logger as never)
 		filler.setOrderbook({ submitBid: postBid } as never)
-		logger.warn.mockClear()
 
-		await run("0xorder-1")
-		await run("0xorder-2")
+		await run()
 
-		expect(postBid).toHaveBeenCalledTimes(2)
-		expect(hyperbridge.submitBid).not.toHaveBeenCalled()
-		expect(logger.warn.mock.calls.filter((call) => /orderbook alone/.test(call[1]))).toHaveLength(1)
-		expect((await bids.byCommitments([COMMITMENT])).map((row) => row.onOrderbook)).toEqual([true, true])
+		expect(postBid).toHaveBeenCalledExactlyOnceWith(USER_OP)
+		expect(await bids.byCommitment(COMMITMENT)).toMatchObject({
+			bid: BID,
+			success: true,
+			onOrderbook: true,
+			pending: false,
+			extrinsicHash: null,
+			error: null,
+		})
+		expect(executed).toEqual([expect.objectContaining({ success: true, error: undefined, txHash: undefined })])
+		// A bid is not a fill: the event names the commitment, which the activity feed reads as a bid.
+		expect(filled).toEqual([expect.objectContaining({ commitment: COMMITMENT })])
+		expect(await bids.stats()).toEqual({ total: 1, successful: 1, failed: 0 })
 	})
 
-	it("without a Hyperbridge key still delegates the SolverAccount and bids on the orderbook alone", async () => {
-		const { filler, bids, executed, run } = fillerWith({ through: true })
+	it("counts a bid the orderbook already held as placed", async () => {
+		const { filler, bids, executed, run } = bidding()
+		filler.setOrderbook({ submitBid: async () => ({ ...ACCEPTED, kind: "unchanged" }) } as never)
+
+		await run()
+
+		expect(await bids.byCommitment(COMMITMENT)).toMatchObject({ success: true, onOrderbook: true })
+		expect(executed).toEqual([expect.objectContaining({ success: true })])
+	})
+
+	it("records a bid the orderbook refused as failed, with its reason", async () => {
+		const { filler, bids, executed, filled, run } = bidding()
+		filler.setOrderbook({
+			submitBid: async () => ({ kind: "rejected", code: "NO_LIMIT_ORDER", message: "no limit order" }),
+		} as never)
+
+		await run()
+
+		expect(await bids.byCommitment(COMMITMENT)).toMatchObject({
+			success: false,
+			onOrderbook: false,
+			error: "NO_LIMIT_ORDER: no limit order",
+		})
+		expect(executed).toEqual([expect.objectContaining({ success: false, error: "NO_LIMIT_ORDER: no limit order" })])
+		expect(filled).toEqual([])
+		expect(await bids.failed()).toHaveLength(1)
+	})
+
+	it("records a post that got no answer as a failed bid instead of throwing", async () => {
+		const { filler, bids, executed, run } = bidding()
+		filler.setOrderbook({
+			submitBid: async () => {
+				throw new Error("Could not reach the orderbook")
+			},
+		} as never)
+
+		await run()
+
+		expect(await bids.byCommitment(COMMITMENT)).toMatchObject({
+			success: false,
+			error: "REQUEST_FAILED: Could not reach the orderbook",
+		})
+		expect(executed).toEqual([expect.objectContaining({ success: false })])
+	})
+
+	it("delegates the SolverAccount and funds the EntryPoint with no Hyperbridge account at all", async () => {
+		const { filler, run } = bidding()
 		const setupDelegationOnChains = vi.fn(async () => ({ success: true, results: { "EVM-1": true } }))
 		;(filler as any).delegation = () => ({ setupDelegationOnChains })
+		const topUpEntryPointDeposit = vi.fn(async () => undefined)
+		;(filler as any).contractService.topUpEntryPointDeposit = topUpEntryPointDeposit
+		;(filler as any).configService.getSimplexPaymasterAddress = () => undefined
 		const postBid = vi.fn(async () => ACCEPTED)
 		filler.setOrderbook({ submitBid: postBid } as never)
 
 		await (filler as any).setupSolverSelection(["EVM-1"], { requireAll: true })
 		expect(setupDelegationOnChains).toHaveBeenCalledWith(["EVM-1"])
+		expect(topUpEntryPointDeposit).toHaveBeenCalledWith("EVM-1", 1n)
 
 		await run()
 		expect(postBid).toHaveBeenCalledWith(USER_OP)
-		expect(await bids.byCommitment(COMMITMENT)).toMatchObject({ success: false, onOrderbook: true })
-		expect(executed).toEqual([expect.objectContaining({ success: true })])
 	})
 
-	it("is stored as live on the orderbook, counted as placed, and left to expire there", async () => {
-		const { bids, executed, run } = fillerWith({ success: false, orderbook: ACCEPTED })
-		await run()
+	it("hands the strategy no placer for a destination that selects no solver", async () => {
+		const { filler, placers } = bidding()
+		filler.setOrderbook({ submitBid: async () => ACCEPTED } as never)
+		const strategy = (filler as any).strategies[0]
 
-		const row = await bids.byCommitment(COMMITMENT)
-		expect(row).toMatchObject({ bid: BID, success: false, pending: false, onOrderbook: true, retracted: false })
-		expect(executed).toEqual([expect.objectContaining({ success: true, error: undefined })])
-		// No deposit on Hyperbridge, so nothing for the sweep to reclaim.
-		expect(await bids.expiredUnretracted(0)).toEqual([])
-		expect(await bids.unretractedReclaimable()).toEqual([])
+		;(filler as any).executeOrder({ id: "0xorder", source: "EVM-1", destination: "EVM-1" }, strategy, false, { toNumber: () => 1 }, 1)
+		await (filler as any).chainQueues.get(1).onIdle()
+
+		expect(placers).toEqual([undefined])
 	})
+})
 
-	it("records a bid Hyperbridge took as well, with the deposit to reclaim", async () => {
-		const { bids, run } = fillerWith({ success: true, txHash: "0xext", orderbook: ACCEPTED })
-		await run()
-
-		expect(await bids.byCommitment(COMMITMENT)).toMatchObject({ success: true, onOrderbook: true, extrinsicHash: "0xext" })
-		expect(await bids.unretractedReclaimable()).toHaveLength(1)
-	})
-
-	it("is a failed bid when the orderbook refused it and Hyperbridge did not take it", async () => {
-		const { bids, executed, run } = fillerWith({
-			success: false,
-			error: "Dispatch error: intentsCoprocessor::InsufficientBalance",
-			orderbook: { kind: "rejected", code: "NO_LIMIT_ORDER", message: "no limit order" },
-		})
-		await run()
-
-		expect(await bids.byCommitment(COMMITMENT)).toMatchObject({ success: false, onOrderbook: false })
-		expect(executed).toEqual([
-			expect.objectContaining({ success: false, error: "Dispatch error: intentsCoprocessor::InsufficientBalance" }),
-		])
-	})
-
-	it("settles the fill it wins against the limit order that priced it", async () => {
+describe("settling a fill an orderbook bid won", () => {
+	async function settlingFiller() {
 		const data = new MemoryDataStore()
 		const limitOrders = await limitOrderStore([
 			{ id: LIMIT_ORDER, base: "USDC", quote: "CNGN", side: "ASK", fillChain: CHAIN, price: "1500", size: "1000" },
@@ -196,8 +210,6 @@ describe("a bid the orderbook holds", () => {
 			[],
 			{},
 			{
-				getHyperbridgeWsUrl: () => undefined,
-				getSubstratePrivateKey: () => undefined,
 				getBidValiditySeconds: () => 300,
 				getSimplexPaymasterAddress: () => "0x0000000000000000000000000000000000000001",
 			} as any,
@@ -213,28 +225,44 @@ describe("a bid the orderbook holds", () => {
 		filler.contractService = { getTokenDecimals: async () => DECIMALS }
 		filler.setLimitOrderService(service)
 
-		// Posted to the orderbook alone: no BRIDGE for the deposit.
-		await data.bids.store({
-			commitment: COMMITMENT,
-			bid: BID,
-			success: false,
-			onOrderbook: true,
-			pricedBy: { limitOrderId: LIMIT_ORDER, payout: (charged * ONE).toString(), take: (charged * 1500n * ONE).toString() },
-		})
+		const fill = () => {
+			filler.monitor.emit("orderFilledOnChain", {
+				commitment: COMMITMENT,
+				filler: OUR_ADDRESS,
+				chainId: 8453,
+				outputs: [{ token: bytes20ToBytes32(USDC), amount: charged * UNIT }],
+				inputs: [{ token: bytes20ToBytes32(ORDERBOOK_FIXTURES.CNGN), amount: charged * 1500n * ONE }],
+				complete: true,
+			})
+			return filler.settlementQueue.onIdle()
+		}
+		const pricedBy = { limitOrderId: LIMIT_ORDER, payout: (charged * ONE).toString(), take: (charged * 1500n * ONE).toString() }
+		return { data, limitOrders, filler, fill, pricedBy, charged }
+	}
 
-		filler.monitor.emit("orderFilledOnChain", {
-			commitment: COMMITMENT,
-			filler: OUR_ADDRESS,
-			chainId: 8453,
-			outputs: [{ token: bytes20ToBytes32(USDC), amount: charged * UNIT }],
-			inputs: [{ token: bytes20ToBytes32(ORDERBOOK_FIXTURES.CNGN), amount: charged * 1500n * ONE }],
-			complete: true,
-		})
-		await filler.settlementQueue.onIdle()
+	it("records the fill against the limit order that priced the bid", async () => {
+		const { data, limitOrders, fill, pricedBy, charged } = await settlingFiller()
+		await data.bids.store({ commitment: COMMITMENT, bid: BID, success: true, onOrderbook: true, pricedBy })
+
+		await fill()
 
 		const fills = await limitOrders.fills(LIMIT_ORDER)
 		expect(fills).toHaveLength(1)
 		expect(fills[0]).toMatchObject({ commitment: COMMITMENT, bid: BID, amount: (charged * ONE).toString() })
 		expect((await limitOrders.get(LIMIT_ORDER))!.remaining).toBe((750n * ONE).toString())
+	})
+
+	it("does not attribute a fill to a bid placed longer ago than its validity window", async () => {
+		const { data, limitOrders, fill, pricedBy } = await settlingFiller()
+		await data.bids.store({ commitment: COMMITMENT, bid: BID, success: true, onOrderbook: true, pricedBy })
+		// Older than bidValiditySeconds plus the discovery pad and the permit skew: its op expired.
+		const [row] = await data.bids.byCommitments([COMMITMENT])
+		;(data.bids as any).rows.find((stored: { id: number }) => stored.id === row.id).createdAt = sqliteDatetime(
+			new Date(Date.now() - 60 * 60 * 1000),
+		)
+
+		await fill()
+
+		expect(await limitOrders.fills(LIMIT_ORDER)).toEqual([])
 	})
 })

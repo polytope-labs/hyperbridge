@@ -23,9 +23,9 @@ behaviour in a commit that is not about locking.
 Rejected: catching `SQLITE_BUSY` and retrying in the store. That reimplements, worse, what
 SQLite's own busy handler does in C, and it would have to be added at ten call sites.
 
-Rejected: leaving it at 0 and treating contention as a caller problem. The callers are the fill
-loop and the retraction sweep; neither has anywhere to put the error, and the bid store is the
-record that makes a locked deposit reclaimable.
+Rejected: leaving it at 0 and treating contention as a caller problem. The caller is the fill
+loop, which has nowhere to put the error, and the bid store is the record a fill is attributed to
+its limit order from.
 
 **The guards.** `db.isOpen` (Node 22.15+) and `db.isTransaction` (22.16+, and never backported to
 the 23 line) are read to decide whether to close and whether to roll back. Written as `!db.isOpen`

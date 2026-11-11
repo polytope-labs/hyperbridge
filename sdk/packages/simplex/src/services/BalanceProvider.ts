@@ -1,6 +1,5 @@
 import { EventEmitter } from "node:events"
 import { formatUnits } from "viem"
-import type { IntentsCoprocessor } from "@hyperbridge/sdk"
 import { nativeTokenSymbol } from "@/cli/init/chains"
 import { LIMIT_ORDER_FEE_RESERVE_TOKENS } from "@/config/defaults"
 import { ERC20_ABI } from "@/config/abis/ERC20"
@@ -11,7 +10,6 @@ import { moduleLogger, type Logger } from "./Logger"
 import { readChainFunding } from "./read-chain-funding"
 import type { ChainFunding } from "./chain-funding"
 import type { NativeSetupNeed } from "./native-setup"
-import { deriveSubstrateKeyPair } from "./substrate-key"
 
 export interface ChainBalanceRow {
 	chainId: number
@@ -72,19 +70,12 @@ export interface BalanceIssue {
 
 export type BalanceSnapshotStatus = "loading" | "fresh" | "partial" | "unavailable"
 
-export interface HyperbridgeBalance {
-	address: string
-	free: number
-	reserved: number
-}
-
 export interface BalanceSnapshot {
 	/** null until the first refresh attempt completes. */
 	updatedAt: number | null
 	status: BalanceSnapshotStatus
 	chains: ChainBalanceRow[]
 	issues: BalanceIssue[]
-	hyperbridge?: HyperbridgeBalance
 }
 
 /** Narrow read-only seam implemented by the vault funding planner. */
@@ -102,13 +93,6 @@ export interface BalanceProviderOptions {
 	 * without a restart.
 	 */
 	tokens: () => Promise<Record<string, string[]>>
-	/**
-	 * The filler's Hyperbridge connection, reused rather than dialled again. A second socket to the
-	 * same node doubles the reconnect traffic during an outage for a balance read that is only
-	 * needed once a minute.
-	 */
-	hyperbridge?: Promise<IntentsCoprocessor>
-	substratePrivateKey?: string
 	refreshIntervalMs?: number
 	vaultBalances?: VaultBalanceSource
 	/** The fee token of a chain's host, which marks the asset a limit order holds some of back. */
@@ -117,15 +101,13 @@ export interface BalanceProviderOptions {
 
 /**
  * Periodically collects wallet balances (native, USDC, USDT and the other tokens
- * of the orderbook's books per chain, plus the BRIDGE balance of the substrate
- * account) into a plain snapshot,
- * consumed by the UI JSON API and `wallet.balances()`.
+ * of the orderbook's books per chain) into a plain snapshot, consumed by the UI
+ * JSON API and `wallet.balances()`.
  */
 export class BalanceProvider extends EventEmitter {
 	private snapshot: BalanceSnapshot = { updatedAt: null, status: "loading", chains: [], issues: [] }
 	private stopped = false
 	private refreshInterval?: NodeJS.Timeout
-	private hyperbridgeInterval?: NodeJS.Timeout
 	private logger: Logger
 	private options: BalanceProviderOptions
 	private intervalMs: number
@@ -142,19 +124,11 @@ export class BalanceProvider extends EventEmitter {
 		await this.refresh()
 		if (this.stopped) return
 		this.refreshInterval = setInterval(() => void this.refresh(), this.intervalMs)
-
-		if (this.options.hyperbridge && this.options.substratePrivateKey) {
-			this.trackHyperbridgeBalance().catch((err) => {
-				this.logger.warn({ err }, "Failed to start Hyperbridge balance tracking")
-			})
-		}
 	}
 
 	stop(): void {
 		this.stopped = true
 		if (this.refreshInterval) clearInterval(this.refreshInterval)
-		if (this.hyperbridgeInterval) clearInterval(this.hyperbridgeInterval)
-		// The Hyperbridge connection belongs to the filler; it is not ours to close.
 	}
 
 	getSnapshot(): BalanceSnapshot {
@@ -224,7 +198,6 @@ export class BalanceProvider extends EventEmitter {
 			status: issues.length === 0 ? "fresh" : hasData ? "partial" : "unavailable",
 			chains: rows,
 			issues,
-			hyperbridge: this.snapshot.hyperbridge,
 		}
 		this.emit("snapshot", this.snapshot)
 		this.logger.debug({ chains: chainIds.length }, "Balances refreshed")
@@ -415,47 +388,6 @@ export class BalanceProvider extends EventEmitter {
 		} catch (err) {
 			issues.push({ chainId, source: "token", asset: symbol, message: errorMessage(err) })
 		}
-	}
-
-	private hyperbridgeAccount?: { coprocessor: IntentsCoprocessor; address: string }
-
-	/**
-	 * Re-reads the filler's BRIDGE balance on Hyperbridge, outside the once-a-minute interval:
-	 * a BRIDGE top-up calls it the moment its delivery lands, so the dashboard's reload shows
-	 * the new balance. A failed read leaves the last snapshot in place. No-op while tracking
-	 * is not initialized (no Hyperbridge key).
-	 */
-	async refreshHyperbridgeBalance(): Promise<void> {
-		const hyperbridge = this.hyperbridgeAccount
-		if (!hyperbridge) return
-		try {
-			// Queried over HTTP, so a websocket outage does not stall the balance read; a failed
-			// request leaves the last snapshot in place and the next tick picks it up.
-			const api = await hyperbridge.coprocessor.queryApi()
-			const account = (await api.query.system.account(hyperbridge.address)) as any
-			const decimals = (api.registry.chainDecimals as number[])[0] ?? 12
-
-			const free = Number.parseFloat(formatUnits(BigInt(account.data.free.toString()), decimals))
-			const reserved = Number.parseFloat(formatUnits(BigInt(account.data.reserved.toString()), decimals))
-
-			this.snapshot = { ...this.snapshot, hyperbridge: { address: hyperbridge.address, free, reserved } }
-		} catch (err) {
-			this.logger.warn({ err }, "Failed to fetch Hyperbridge balance")
-		}
-	}
-
-	private async trackHyperbridgeBalance(): Promise<void> {
-		const coprocessor = await this.options.hyperbridge!
-		const keypair = await deriveSubstrateKeyPair(this.options.substratePrivateKey!)
-		const address = keypair.address
-		this.hyperbridgeAccount = { coprocessor, address }
-
-		await this.refreshHyperbridgeBalance()
-		// stop() may have run while the awaits above were in flight; a timer
-		// installed now would outlive the provider.
-		if (this.stopped) return
-		this.hyperbridgeInterval = setInterval(() => void this.refreshHyperbridgeBalance(), this.intervalMs)
-		this.logger.info({ address }, "Hyperbridge balance tracking initialized")
 	}
 }
 

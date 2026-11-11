@@ -1,5 +1,5 @@
 import type { FillResult, FillerStrategy } from "@/strategies/base"
-import { type BidPlacer, orderbookHoldsBid } from "@/core/bid-venues"
+import { type BidPlacer, bidRefusal, orderbookHoldsBid } from "@/core/bid-placer"
 import {
 	type Order,
 	type HexString,
@@ -888,7 +888,7 @@ export class FXFiller implements FillerStrategy {
 	}
 
 	/**
-	 * Executes an order by placing a bid through the filler's venues.
+	 * Executes an order by placing a bid on the HyperFX orderbook.
 	 *
 	 * Assumes that `calculateProfitability` has already been called for the
 	 * given order so that filler outputs are cached in `contractService`.
@@ -902,7 +902,7 @@ export class FXFiller implements FillerStrategy {
 			if (!bids) {
 				return {
 					success: false,
-					error: "FXFiller requires the UserOp path (the filler's bid venues must be provided)",
+					error: "FXFiller requires the UserOp path (the filler's bid placer must be provided)",
 				}
 			}
 
@@ -921,12 +921,12 @@ export class FXFiller implements FillerStrategy {
 	// =========================================================================
 
 	/**
-	 * Prepares the bid UserOp for the given order and places it through the filler's venues.
+	 * Prepares the bid UserOp for the given order and posts it to the orderbook.
 	 *
 	 * Uses the filler outputs previously cached by `calculateProfitability`.
 	 * Approval bundling and UserOp construction are handled by
-	 * `ContractInteractionService.prepareBidUserOp`. The result's `success`, `txHash`,
-	 * `pending` and `error` are Hyperbridge's answer; `orderbook` is the orderbook's.
+	 * `ContractInteractionService.prepareBidUserOp`. The result's `success` says whether the
+	 * orderbook holds the bid; `orderbook` is its full answer.
 	 */
 	private async submitBid(order: Order, startTime: number, bids: BidPlacer): Promise<FillResult> {
 		const entryPointAddress = this.configService.getEntryPointAddress(order.destination)
@@ -946,53 +946,19 @@ export class FXFiller implements FillerStrategy {
 			solverAccountAddress,
 		)
 
-		const placed = await bids.place(commitment, userOp, bid)
-		const onHyperbridge = placed.hyperbridge
-		const onOrderbook = placed.orderbook
-
+		const onOrderbook = await bids.place(commitment, userOp)
 		const processingTimeMs = Date.now() - startTime
-		const venue = onOrderbook ? { orderbook: onOrderbook } : {}
-		if (onHyperbridge?.success) {
-			this.logger.info({ commitment, orderbook: onOrderbook?.kind }, "Bid submitted successfully")
-			return {
-				success: true,
-				txHash: onHyperbridge.extrinsicHash,
-				strategyUsed: this.name,
-				processingTimeMs,
-				commitment,
-				bid,
-				...venue,
-			}
-		}
-
-		if (onHyperbridge && orderbookHoldsBid(onOrderbook)) {
-			// Live on the orderbook, so a swapper can still execute it; Hyperbridge's refusal is worth knowing, not an outage.
-			this.logger.warn(
-				{ commitment, error: onHyperbridge.error, pending: onHyperbridge.pending },
-				"Hyperbridge did not take the bid; the orderbook holds it",
-			)
-		} else if (onHyperbridge) {
-			this.logger.error(
-				{ commitment, error: onHyperbridge.error, pending: onHyperbridge.pending, orderbook: onOrderbook?.kind },
-				"Bid submission failed",
-			)
-		} else if (orderbookHoldsBid(onOrderbook)) {
-			this.logger.info({ commitment }, "Bid posted to the orderbook")
-		} else {
-			this.logger.error({ commitment, orderbook: onOrderbook }, "Bid reached no venue")
-		}
-		// `pending` and the hash ride along: a pooled extrinsic that later lands
-		// reserves a deposit, so the sweep must be able to find and trace it.
+		const placed = orderbookHoldsBid(onOrderbook)
+		// A refusal or a failed post is logged where it happened, with its code.
+		if (placed) this.logger.info({ commitment, orderbook: onOrderbook.kind }, "Bid posted to the orderbook")
 		return {
-			success: false,
-			pending: onHyperbridge?.pending === true,
-			txHash: onHyperbridge?.extrinsicHash,
-			error: onHyperbridge?.error,
+			success: placed,
+			error: bidRefusal(onOrderbook),
 			strategyUsed: this.name,
 			processingTimeMs,
 			commitment,
 			bid,
-			...venue,
+			orderbook: onOrderbook,
 		}
 	}
 

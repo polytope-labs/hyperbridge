@@ -63,8 +63,6 @@ async function build() {
 		{ maxConcurrentOrders: 1 } as never,
 		{
 			loggers: undefined,
-			getHyperbridgeWsUrl: () => undefined,
-			getSubstratePrivateKey: () => undefined,
 			getIntentGatewayAddress: () => "0xGATE",
 			getRpcUrls: () => ["https://rpc.example"],
 		} as never,

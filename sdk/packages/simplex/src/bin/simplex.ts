@@ -33,7 +33,6 @@ import { signerFromToml, type Signer } from "@/services/wallet"
 import { UiServer, type OperatorContext } from "@/services/server/UiServer"
 import { LogStore } from "@/services/server/LogStore"
 import { TunnelService } from "@/services/tunnel/TunnelService"
-import { deriveSubstrateKeyPair } from "@/services/substrate-key"
 
 // ASCII art header
 const ASCII_HEADER = `
@@ -173,14 +172,8 @@ async function operatorContextFrom(
 	writeConfigFile?: (path: string, content: string) => void,
 ): Promise<OperatorContext> {
 	const runtime = simplex.internals
-	const substrateKey = runtime.config.simplex.substratePrivateKey
-	const substrateAddress = substrateKey
-		? await deriveSubstrateKeyPair(substrateKey)
-				.then((pair) => pair.address)
-				.catch(() => undefined)
-		: undefined
 	return {
-		addresses: { evm: runtime.fillerAddress, substrate: substrateAddress },
+		addresses: { evm: runtime.fillerAddress },
 		filler: runtime.intentFiller,
 		balances: runtime.balanceProvider,
 		config: runtime.config,
@@ -233,7 +226,6 @@ async function operatorContextFrom(
 			return runtime.resolvedChains.find((c) => c.chainId === chainId)?.rpcUrls[0]
 		},
 		send: (params) => runtime.tokenSender.send(params),
-		bridgeTopUp: runtime.bridgeTopUp,
 		tunnel,
 		version: packageJson.version,
 		startedAt: runtime.startedAt,

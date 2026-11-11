@@ -29,8 +29,8 @@ const BID_COLUMNS = `
  *
  * `node:sqlite` is synchronous, so every method here resolves immediately —
  * the promises exist to satisfy the interface, not because work is deferred.
- * That also means `store` is durable the moment it resolves, which is what the
- * retraction sweep relies on.
+ * That also means `store` is durable the moment it resolves, which is what
+ * settlement relies on.
  */
 function parseJson(raw: string | null): unknown {
 	if (!raw) return null
@@ -109,9 +109,8 @@ export class SqliteBidStore implements BidStore {
 			this.db.exec(`ALTER TABLE bids ADD COLUMN ${column} INTEGER NOT NULL DEFAULT 0`)
 			this.logger.info({ column }, "Migrated bid storage schema")
 		}
-		// A row written before bids carried an identifier has none, and nothing to retract through
-		// the current calls. A row written before `priced_by` reads its provenance from
-		// `reservations` instead.
+		// A row written before bids carried an identifier has none. A row written before
+		// `priced_by` reads its provenance from `reservations` instead.
 		for (const column of ["bid", "reservations", "priced_by"] as const) {
 			if (columns.has(column)) continue
 			this.db.exec(`ALTER TABLE bids ADD COLUMN ${column} TEXT`)
@@ -140,16 +139,13 @@ export class SqliteBidStore implements BidStore {
 	async store(bid: BidInsert): Promise<void> {
 		const result = this.db
 			.prepare(`
-				INSERT INTO bids (commitment, bid, extrinsic_hash, block_hash, success, pending, error, on_orderbook, priced_by)
-				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+				INSERT INTO bids (commitment, bid, success, error, on_orderbook, priced_by)
+				VALUES (?, ?, ?, ?, ?, ?)
 			`)
 			.run(
 				bid.commitment,
 				bid.bid ?? null,
-				bid.extrinsicHash || null,
-				bid.blockHash || null,
 				bid.success ? 1 : 0,
-				bid.pending ? 1 : 0,
 				bid.error || null,
 				bid.onOrderbook ? 1 : 0,
 				bid.pricedBy ? JSON.stringify(bid.pricedBy) : null,
@@ -165,56 +161,12 @@ export class SqliteBidStore implements BidStore {
 		return row ? this.toStoredBid(row) : null
 	}
 
-	async unretractedReclaimable(): Promise<StoredBid[]> {
-		const rows = this.db
-			.prepare(`SELECT ${BID_COLUMNS} FROM bids WHERE (success = 1 OR pending = 1) AND retracted = 0 ORDER BY created_at ASC`)
-			.all()
-		// biome-ignore lint/suspicious/noExplicitAny: raw sqlite row
-		return (rows as any[]).map((row) => this.toStoredBid(row))
-	}
-
-	async expiredUnretracted(maxAgeMs: number): Promise<StoredBid[]> {
-		// Cutoff must match SQLite's datetime('now') format — see sqliteDatetime.
-		const cutoff = sqliteDatetime(new Date(Date.now() - maxAgeMs))
-		const rows = this.db
-			.prepare(`
-				SELECT ${BID_COLUMNS}
-				FROM bids
-				WHERE (success = 1 OR pending = 1) AND retracted = 0 AND (dead = 1 OR created_at < ?)
-				ORDER BY created_at ASC
-			`)
-			.all(cutoff)
-		// biome-ignore lint/suspicious/noExplicitAny: raw sqlite row
-		return (rows as any[]).map((row) => this.toStoredBid(row))
-	}
-
 	async byDateRange(from: Date, to: Date): Promise<StoredBid[]> {
 		const rows = this.db
 			.prepare(`SELECT ${BID_COLUMNS} FROM bids WHERE created_at BETWEEN ? AND ? ORDER BY created_at DESC`)
 			.all(sqliteDatetime(from), sqliteDatetime(to))
 		// biome-ignore lint/suspicious/noExplicitAny: raw sqlite row
 		return (rows as any[]).map((row) => this.toStoredBid(row))
-	}
-
-	async markRetracted(
-		commitment: string,
-		retractExtrinsicHash: string | null,
-		rows?: readonly number[],
-	): Promise<boolean> {
-		if (rows?.length === 0) return false
-		const result = this.db
-			.prepare(`
-				UPDATE bids
-				SET retracted = 1, retracted_at = datetime('now'), retract_extrinsic_hash = ?
-				WHERE commitment = ? AND retracted = 0${rows ? ` AND id IN (${rows.map(() => "?").join(",")})` : ""}
-			`)
-			.run(retractExtrinsicHash, commitment, ...(rows ?? []))
-
-		if (result.changes > 0) {
-			this.logger.info({ commitment, retractExtrinsicHash }, "Bid marked as retracted")
-			return true
-		}
-		return false
 	}
 
 	async byLimitOrder(limitOrderId: string, limit = 100): Promise<StoredBid[]> {
@@ -233,21 +185,6 @@ export class SqliteBidStore implements BidStore {
 			.filter((bid) => bid.pricedBy?.limitOrderId === limitOrderId)
 	}
 
-	async markDead(commitment: string, rows?: readonly number[]): Promise<boolean> {
-		if (rows?.length === 0) return false
-		const result = this.db
-			.prepare(
-				`UPDATE bids SET dead = 1 WHERE commitment = ? AND retracted = 0 AND dead = 0${rows ? ` AND id IN (${rows.map(() => "?").join(",")})` : ""}`,
-			)
-			.run(commitment, ...(rows ?? []))
-
-		if (result.changes > 0) {
-			this.logger.debug({ commitment }, "Bid marked dead, due for retraction on the next sweep")
-			return true
-		}
-		return false
-	}
-
 	async stats(): Promise<BidStats> {
 		// COUNT is always a number; every SUM is null when the table is empty,
 		// which is what the `|| 0`s below are for.
@@ -256,9 +193,7 @@ export class SqliteBidStore implements BidStore {
 				SELECT
 					COUNT(*) as total,
 					SUM(CASE WHEN success = 1 OR on_orderbook = 1 THEN 1 ELSE 0 END) as successful,
-					SUM(CASE WHEN success = 0 AND on_orderbook = 0 THEN 1 ELSE 0 END) as failed,
-					SUM(CASE WHEN retracted = 1 THEN 1 ELSE 0 END) as retracted,
-					SUM(CASE WHEN (success = 1 OR pending = 1) AND retracted = 0 THEN 1 ELSE 0 END) as pendingRetraction
+					SUM(CASE WHEN success = 0 AND on_orderbook = 0 THEN 1 ELSE 0 END) as failed
 				FROM bids
 			`)
 			.get() as unknown as Record<keyof BidStats, number | null>
@@ -267,8 +202,6 @@ export class SqliteBidStore implements BidStore {
 			total: stats.total || 0,
 			successful: stats.successful || 0,
 			failed: stats.failed || 0,
-			retracted: stats.retracted || 0,
-			pendingRetraction: stats.pendingRetraction || 0,
 		}
 	}
 

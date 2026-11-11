@@ -220,7 +220,6 @@ export function Operator(props: { status: StatusOperator; refresh: () => void })
 							balances={balances}
 							runtime={{ pending, onTogglePause: togglePause, onStop: stopFiller }}
 							onOpenAnalytics={() => setTab("analytics")}
-							onBalancesChanged={load}
 						/>
 					) : null}
 
@@ -274,9 +273,6 @@ export function Operator(props: { status: StatusOperator; refresh: () => void })
 				{status.addresses ? (
 					<div className="operator-identity-list">
 						<IdentityRow label="Filler wallet" value={status.addresses.evm} />
-						{status.addresses.substrate ? (
-							<IdentityRow label="Hyperbridge account" value={status.addresses.substrate} />
-						) : null}
 					</div>
 				) : null}
 				{status.configPath ? (

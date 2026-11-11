@@ -43,8 +43,8 @@ Every route on this page returns activity events. Each event is one step in an o
 |---|---|
 | `detected` | The solver saw the order being placed. |
 | `skipped` | It decided not to fill the order. `reason` says why. |
-| `bid` | Hyperbridge accepted its bid. `txHash` is the bid's extrinsic. |
-| `executed` | A bid attempt that Hyperbridge did not accept. `reason` holds the error. |
+| `bid` | The HyperFX orderbook holds its bid. On rows from before 0.18.6, Hyperbridge accepted it and `txHash` is the bid's extrinsic. |
+| `executed` | A bid attempt that no venue accepted. `reason` holds the orderbook's refusal. |
 | `filled` | This solver filled the order. `txHash` is the fill transaction. |
 | `lost` | Another solver filled the order. `reason` holds that solver's address. |
 | `rebalance` | A rebalancing transfer. It belongs to no order. |
@@ -125,11 +125,11 @@ curl -s "$SIMPLEX/api/activity/bids?limit=20"
 ```json lineNumbers
 {
   "bids": [ "…" ],
-  "stats": { "total": 402, "successful": 390, "failed": 12, "retracted": 371, "pendingRetraction": 19 }
+  "stats": { "total": 402, "successful": 390, "failed": 12 }
 }
 ```
 
-`pendingRetraction` counts deposits that are still locked: bids that were accepted, or may still land, and have not been retracted.
+`successful` counts bids a venue took, and `failed` those none did.
 
 ### The bid object
 
@@ -137,14 +137,13 @@ curl -s "$SIMPLEX/api/activity/bids?limit=20"
 |---|---|
 | `id` | The bid's row ID. |
 | `commitment` | The order the bid is for. |
-| `bid` | The ID Hyperbridge files the bid under. Bids on one order share a commitment, and this tells them apart. |
-| `extrinsicHash`, `blockHash` | Where the bid landed on Hyperbridge. |
-| `success` | Whether Hyperbridge accepted the bid. |
-| `pending` | The submission timed out while the extrinsic was still in Hyperbridge's pool, so it may still land. |
-| `error` | Why the bid failed, or `null`. |
+| `bid` | The bid's ID, `keccak256` of its calldata. Bids on one order share a commitment, and this tells them apart. |
+| `success` | Whether a venue took the bid: the orderbook, or, before 0.18.6, Hyperbridge. |
+| `onOrderbook` | Whether the HyperFX orderbook holds the bid. It serves a bid until its TTL, and nothing withdraws it. |
+| `error` | Why the bid failed, as the orderbook's code and message, or `null`. |
 | `createdAt` | When it was placed, in UTC, as `YYYY-MM-DD HH:MM:SS`. |
-| `retracted`, `retractedAt`, `retractExtrinsicHash` | Whether the bid's deposit has been reclaimed, when, and in which extrinsic. |
-| `dead` | The order was filled on-chain, so the bid can never win. Its deposit is reclaimed straight away. |
+| `extrinsicHash`, `blockHash`, `pending` | Bids from before 0.18.6 only: where the bid landed on Hyperbridge, or that it was still in Hyperbridge's pool. |
+| `retracted`, `retractedAt`, `retractExtrinsicHash`, `dead` | Bids from before 0.18.6 only: whether the bid's Hyperbridge deposit was reclaimed, when, and in which extrinsic, and whether its order had been filled. |
 | `pricedBy` | The [limit order](/developers/evm/simplex/api/limit-orders) that priced the bid, or `null`: its `limitOrderId`, the `payout` the bid offered (1e18-scaled), and the `take` it signed in the input token's own units with `takeDecimals`. Set when the bid is placed and never changed. |
 
 ## GET /api/events

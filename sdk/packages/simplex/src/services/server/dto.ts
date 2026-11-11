@@ -74,7 +74,6 @@ export interface KnownVault {
 export interface SetupDefaults {
 	/** The desktop and browser setup wizard only configures live deployments. */
 	chains: Array<InitChainMeta & { network: "mainnet" }>
-	hyperbridgeWs: { mainnet: string }
 	usdStables: string[]
 	maxConcurrentOrders: number
 	configPath: string
@@ -106,7 +105,6 @@ export interface SolverWork {
 	evaluating: number
 	queuedFills: number
 	activeFills: number
-	retractions: number
 	rebalancing: number
 }
 
@@ -121,7 +119,7 @@ export interface StatusOperator {
 	chains: number[]
 	/** Absent when the filler was started from a config object rather than a file. */
 	configPath?: string
-	addresses?: { evm: string; substrate?: string }
+	addresses?: { evm: string }
 	chainLabels?: Record<string, string>
 }
 
@@ -196,12 +194,12 @@ export interface ActivityEventDto {
 
 export type { ActivityType, OrderLeg, OrderSummary } from "@/data/types"
 
-/** GET /api/activity/history — one page of orders, each with its rows and Hyperbridge bids. */
+/** GET /api/activity/history — one page of orders, each with its rows and bids. */
 export interface OrderHistoryDto {
 	page: number
 	pageSize: number
 	total: number
-	/** Network the running chains belong to; picks the Hyperbridge explorer for bid extrinsics. */
+	/** Network the running chains belong to; picks the Hyperbridge explorer for the extrinsics of bids from before 0.18.6. */
 	network: InitNetwork
 	orders: Array<{
 		orderId: string
@@ -218,14 +216,16 @@ export interface OrderHistoryDto {
 export interface BidDto {
 	id: number
 	commitment: string
+	/** The Hyperbridge `place_bid` extrinsic, on bids from before 0.18.6. */
 	extrinsicHash: string | null
-	/** Hyperbridge took the bid. */
+	/** A venue took the bid: the orderbook, or, on bids from before 0.18.6, Hyperbridge. */
 	success: boolean
 	error: string | null
-	/** The HyperFX orderbook took the bid, which a swapper can execute whether or not Hyperbridge did. */
+	/** The HyperFX orderbook took the bid. */
 	onOrderbook: boolean
 	/** SQLite-style "YYYY-MM-DD HH:MM:SS" in UTC. */
 	createdAt: string
+	/** On bids from before 0.18.6: retracted from Hyperbridge. */
 	retracted: boolean
 	retractedAt: string | null
 	retractExtrinsicHash: string | null
@@ -235,8 +235,6 @@ export interface BidStatsDto {
 	total: number
 	successful: number
 	failed: number
-	retracted: number
-	pendingRetraction: number
 }
 
 /** GET /api/analytics/profitability */

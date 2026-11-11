@@ -11,8 +11,8 @@ import type { OrderSummary, SimplexDataStore } from "@/data/types"
  * Backwards compatibility for operator data directories (#1236).
  *
  * The store moved from better-sqlite3 to `node:sqlite`. Operators have `bids.db`
- * and `activity.db` files already on disk, and a bid row is how a locked deposit
- * is found again for retraction — losing one strands funds. So the fixtures under
+ * and `activity.db` files already on disk, and a bid row is what a fill is
+ * attributed to its limit order from. So the fixtures under
  * `fixtures/legacy-v0` are real database files *written by better-sqlite3*, at
  * the schema that shipped before the in-place column migrations
  * (`dead`/`pending`, `order_json`, `token_in`/`amount_in`). Regenerate them with
@@ -83,45 +83,20 @@ describe("SqliteDataStore: data directories written by better-sqlite3", () => {
 		expect(failed).toMatchObject({ success: false, error: "insufficient balance", extrinsicHash: null })
 	})
 
-	// The reason this file exists: a deposit is only reclaimable if its bid row
-	// still comes back out of the operator's existing database.
-	it("still finds the locked deposit a legacy bid row records", async () => {
-		const { store } = openLegacyStore()
-
-		expect((await store.bids.unretractedReclaimable()).map((bid) => bid.commitment)).toEqual([WON])
-		expect((await store.bids.expiredUnretracted(60 * 60 * 1000)).map((bid) => bid.commitment)).toEqual([WON])
-	})
-
 	it("aggregates legacy rows without tripping over NULL sums", async () => {
 		const { store } = openLegacyStore()
 
-		expect(await store.bids.stats()).toEqual({
-			total: 3,
-			successful: 2,
-			failed: 1,
-			retracted: 1,
-			pendingRetraction: 1,
-		})
+		expect(await store.bids.stats()).toEqual({ total: 3, successful: 2, failed: 1 })
 	})
 
 	it("writes into a legacy bids.db and migrates it on disk", async () => {
 		const { store, dir } = openLegacyStore()
 		const fresh = `0x${"dd".repeat(32)}`
 
-		await store.bids.store({
-			commitment: fresh,
-			success: true,
-			pending: true,
-			extrinsicHash: `0x${"ee".repeat(32)}`,
-		})
-		expect((await store.bids.byCommitment(fresh))?.pending).toBe(true)
-
-		expect(await store.bids.markDead(WON)).toBe(true)
-		expect((await store.bids.byCommitment(WON))?.dead).toBe(true)
-		expect(await store.bids.markRetracted(WON, null)).toBe(true)
-		expect((await store.bids.byCommitment(WON))?.retracted).toBe(true)
-		// Already retracted, so the guarded UPDATE matches nothing the second time.
-		expect(await store.bids.markRetracted(WON, null)).toBe(false)
+		await store.bids.store({ commitment: fresh, bid: `0x${"ee".repeat(32)}`, success: true, onOrderbook: true })
+		expect(await store.bids.byCommitment(fresh)).toMatchObject({ success: true, onOrderbook: true, pending: false, dead: false })
+		// The legacy row is left as it was.
+		expect(await store.bids.byCommitment(WON)).toMatchObject({ success: true, retracted: false, dead: false })
 
 		await store.close?.()
 		const db = new DatabaseSync(join(dir, "bids.db"))
@@ -131,6 +106,7 @@ describe("SqliteDataStore: data directories written by better-sqlite3", () => {
 		db.close()
 		expect(columns).toContain("dead")
 		expect(columns).toContain("pending")
+		expect(columns).toContain("on_orderbook")
 	})
 
 	it("reads a WAL-mode activity.db that predates order_json", async () => {

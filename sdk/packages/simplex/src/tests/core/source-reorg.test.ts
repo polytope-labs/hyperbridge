@@ -65,8 +65,6 @@ function build(options: { confirmationBlocks?: number; readContract?: ReadContra
 		{ maxConcurrentOrders: 1 } as never,
 		{
 			loggers: undefined,
-			getHyperbridgeWsUrl: () => undefined,
-			getSubstratePrivateKey: () => undefined,
 			getConfiguredChainIds: () => [137, 8453],
 			isUserAllowed: () => true,
 			getIntentGatewayAddress: () => GATEWAY,

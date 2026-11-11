@@ -41,7 +41,6 @@ function idleSolver() {
 			evaluating: 0,
 			queuedFills: 0,
 			activeFills: 0,
-			retractions: 0,
 			rebalancing: 0,
 		},
 	}
@@ -94,7 +93,6 @@ describe("desktop update coordinator", () => {
 					evaluating: 0,
 					queuedFills: 0,
 					activeFills: 1,
-					retractions: 0,
 					rebalancing: 0,
 				},
 			})),
@@ -365,7 +363,6 @@ describe("desktop update coordinator", () => {
 					evaluating: 0,
 					queuedFills: 1,
 					activeFills: 0,
-					retractions: 0,
 					rebalancing: 0,
 				},
 			})),

@@ -13,7 +13,7 @@ These routes work only while the wizard is open. Once the filler runs, they answ
 
 ## GET /api/setup/defaults
 
-Returns what the wizard offers: the chains, the Hyperbridge endpoint, and the tokens and vaults known on each chain.
+Returns what the wizard offers: the chains, and the tokens and vaults known on each chain.
 
 ```bash lineNumbers
 curl -s $SIMPLEX/api/setup/defaults
@@ -22,7 +22,6 @@ curl -s $SIMPLEX/api/setup/defaults
 | Field | Description |
 |---|---|
 | `chains` | Each mainnet chain the wizard can configure, with its label, explorer and default RPC endpoints. |
-| `hyperbridgeWs` | The default Hyperbridge WebSocket endpoint, as `mainnet`. |
 | `usdStables` | The symbols counted as US dollar stablecoins. |
 | `maxConcurrentOrders` | The default for `[simplex] maxConcurrentOrders`. |
 | `configPath` | Where the wizard writes the config unless told otherwise. |
@@ -113,28 +112,6 @@ curl -s -X POST $SIMPLEX/api/setup/derive-evm-address \
 ```
 
 The key must be 64 hex characters, with or without `0x`. Anything else answers `400`.
-
-## POST /api/setup/generate-substrate-key
-
-Creates the Hyperbridge account that places bids. With an empty body, it generates a new account and returns its mnemonic and address. With `key`, a seed or mnemonic you already have, it returns only that account's address.
-
-```bash lineNumbers
-curl -s -X POST -H 'X-Simplex-UI: 1' $SIMPLEX/api/setup/generate-substrate-key
-# → { "mnemonic": "…", "address": "5F…" }
-```
-
-## POST /api/setup/check-substrate-balance
-
-Reads a Hyperbridge account's BRIDGE balance. Bids need BRIDGE for fees and deposits.
-
-```bash lineNumbers
-curl -s -X POST $SIMPLEX/api/setup/check-substrate-balance \
-    -H 'Content-Type: application/json' -H 'X-Simplex-UI: 1' \
-    -d '{ "wsUrl": "wss://nexus.rpc.polytope.technology", "key": "…" }'
-# → { "address": "5F…", "free": "…", "reserved": "0", "decimals": 12, "funded": true }
-```
-
-`free` and `reserved` are in the token's smallest unit, so divide by 10 to the power of `decimals`. `funded` is `true` when the free balance is above zero.
 
 ## POST /api/setup/preview
 

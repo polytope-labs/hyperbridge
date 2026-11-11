@@ -27,9 +27,7 @@ inline state; Sonner displays the retry message.
 CLI/PWA installs write private keys to `filler-config.toml` in plaintext. Native desktop instead
 offers passkey setup/unlock on macOS and Windows and password fallback (default on Linux).
 It encrypts its profile config and all
-subsequent runtime edits. Unix creation is atomic and mode `0600`;
-`simplex.substratePrivateKey` remains required even when the EVM signer is Turnkey or
-MPC Vault. The CLI's TCP dashboard is unauthenticated and loopback is shared by all local users, so a
+subsequent runtime edits. Unix creation is atomic and mode `0600`. The CLI's TCP dashboard is unauthenticated and loopback is shared by all local users, so a
 shared macOS or Linux host uses `--ui-socket` plus SSH forwarding, or the authenticated tunnel. The
 native desktop dashboard uses its private socket. Passkey ceremonies briefly open a random-port
 loopback HTTP listener for the system browser, with per-request tokens and WebAuthn verification;

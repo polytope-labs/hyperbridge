@@ -27,9 +27,7 @@ another file explicitly. Docker examples mount the file at `/data/filler-config.
     broadly shared backups, and restrict the containing directory to the operator account.
 </Callout>
 
-`simplex.substratePrivateKey` is a raw Substrate seed or mnemonic used to sign Hyperbridge bid
-extrinsics, and it is required in **every** signer mode. Turnkey and MPC Vault protect the EVM signer,
-but they do not remove this raw key from disk. Their API credentials are also stored in this file.
+Turnkey and MPC Vault keep the EVM signing key off this file, but their API credentials are stored in it.
 
 ## `[simplex]`
 
@@ -42,12 +40,6 @@ maxConcurrentOrders = 5
 blockScanIntervalSeconds = 3
 # trace | debug | info | warn | error
 logging             = "info"
-
-# Required for solver selection
-# Hex seed or mnemonic for Hyperbridge extrinsics
-substratePrivateKey = "0x.."
-# Hyperbridge WebSocket endpoint
-hyperbridgeWsUrl    = "wss://nexus.rpc.polytope.technology"
 
 # Order size in USD below which an order's fees must cover gas.
 # Optional — defaults to 20. 0 never checks fees.
@@ -248,7 +240,7 @@ Simplex can only watch any other chain. It [refuses to fill there](/developers/e
 
 ## Delegation & Gas Payment
 
-Simplex always uses the solver selection path: it submits a signed bid to Hyperbridge via `IntentsCoprocessor` rather than calling `fillOrder` directly. This requires `substratePrivateKey` and `hyperbridgeWsUrl` in `[simplex]`.
+Simplex always uses the solver selection path: rather than calling `fillOrder` directly, it posts a signed bid to the HyperFX orderbook named under `[orderbook]`, and the swapper's SDK executes it. Bidding needs no Hyperbridge account. See [Bids](#bids).
 
 Solver selection requires each solver's EOA to be delegated to the `SolverAccount` contract. Simplex performs this automatically at startup via EIP-7702:
 
@@ -256,6 +248,24 @@ Solver selection requires each solver's EOA to be delegated to the `SolverAccoun
 - **Fallback** — if the bundler path fails or the chain has no paymaster, Simplex sends a direct type-0x04 delegation tx using the solver's native balance. On paymaster-less chains it also keeps the ERC-4337 EntryPoint deposit topped up to cover `targetGasUnits` (default 3,000,000) at the current gas price.
 
 No manual steps are required — delegation is idempotent and skipped if the EOA is already delegated to the correct contract.
+
+## Bids
+
+Every bid is a signed fill UserOperation that Simplex posts to the HyperFX orderbook. The orderbook accepts a bid only while you hold an open limit order on the leg's book for the order's destination chain. It serves the bid until its TTL, and nothing can withdraw it. The bid's `bidValiditySeconds` bounds when it can execute.
+
+A bid is **placed** when the orderbook holds it. The dashboard's order history shows such a bid as **Orderbook**, and a bid the orderbook refused as **Failed**, with the orderbook's reason on hover.
+
+### Upgrading from a Hyperbridge account
+
+Before 0.18.6, Simplex also placed bids on Hyperbridge with a Substrate account (`substratePrivateKey` and `hyperbridgeWsUrl`), and could buy BRIDGE for that account from the dashboard. Simplex no longer reads either key. A config that still has them loads, and boot logs a warning. When Simplex rewrites the file, it keeps them, so the key is not lost while the account may still hold BRIDGE.
+
+The account's BRIDGE does not come back on its own:
+
+- **Bid deposits.** Each bid Hyperbridge took reserved a storage deposit, which only a retraction releases. Simplex 0.18.6 retracts nothing. The simplest route is to let 0.18.5 finish before you upgrade: pause new fills, and wait until the **Orders** page shows no *retractions pending*. The sweep retracts bids older than an hour, every five minutes. If you have already upgraded, run 0.18.5 again on the same data directory to finish, or retract each bid by hand with the account's key: submit `intentsCoprocessor.retractBid(commitment, bid)` for every row of `bids.db` that has an `extrinsic_hash` and `retracted = 0`.
+- **A BRIDGE top-up.** A top-up the dashboard started and did not finish is an IntentGateway order paid from your wallet. Finish or reclaim it with 0.18.5 before you upgrade.
+- **Free BRIDGE.** Move it with any Substrate wallet that imports the key.
+
+Once the account is empty, delete `substratePrivateKey` and `hyperbridgeWsUrl` from the config.
 
 ## Allowlist
 

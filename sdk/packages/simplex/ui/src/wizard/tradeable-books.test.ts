@@ -16,7 +16,6 @@ describe("wizard books from the orderbook", () => {
 
 	const defaults = {
 		chains: chainsForNetwork("mainnet"),
-		hyperbridgeWs: { mainnet: "wss://nexus.rpc.polytope.technology" },
 		usdStables: ["USDC", "USDT"],
 		maxConcurrentOrders: 5,
 		configPath: "/tmp/filler-config.toml",
@@ -41,7 +40,6 @@ describe("wizard books from the orderbook", () => {
 		return {
 			...state,
 			signerKey: `0x${"11".repeat(32)}`,
-			substrateKey: `0x${"22".repeat(32)}`,
 			orderbook: { url: DEFAULT_ORDERBOOK_URLS.mainnet, books },
 			chains: state.chains.map((chain) =>
 				chainIds.includes(chain.meta.chainId) ? { ...chain, enabled: true } : chain,

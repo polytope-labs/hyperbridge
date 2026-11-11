@@ -26,7 +26,7 @@ export { SqliteStateStore } from "./state"
  * How long a write waits for another connection's lock before giving up.
  * Matches the default better-sqlite3 applied for us; `node:sqlite` defaults to 0,
  * which turns any momentary contention into an instant SQLITE_BUSY throw — and a
- * lost bid write is a deposit the retraction sweep can no longer find.
+ * lost bid write is a fill that cannot be attributed to its limit order.
  *
  * Set through the PRAGMA rather than `DatabaseSync`'s `timeout` option on purpose.
  * That option only exists in Node >=22.18 and >=24 (`@types/node` says 22.16, which

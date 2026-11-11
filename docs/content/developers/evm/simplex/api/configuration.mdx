@@ -48,7 +48,7 @@ curl -s $SIMPLEX/api/config
 | Field | Description |
 |---|---|
 | `configPath` | The config file changes are saved to. Absent when the filler was started from a config object. |
-| `toml` | The running config as TOML. The signer's key and API credentials, the Substrate key, Binance credentials, and API keys inside RPC URLs are masked. |
+| `toml` | The running config as TOML. The signer's key and API credentials, a Hyperbridge key an older config still carries, Binance credentials, and API keys inside RPC URLs are masked. |
 | `logLevel` | The current log level. |
 | `vaultConfigured` | Whether the solver started with a vault treasury. |
 | `allowlistUsers` | The addresses on the order allowlist. Empty means every address is accepted. |

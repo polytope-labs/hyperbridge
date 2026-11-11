@@ -134,8 +134,6 @@ function operatorContext(): OperatorContext & { configPath: string } {
 	const config: FillerConfigFile = {
 		simplex: {
 			signer: { type: SignerType.PrivateKey, key: "0xab" },
-			substratePrivateKey: "seed",
-			hyperbridgeWsUrl: "wss://example",
 		},
 		chains: [],
 	}
@@ -165,7 +163,6 @@ function operatorContext(): OperatorContext & { configPath: string } {
 				evaluating: 0,
 				queuedFills: 0,
 				activeFills: 0,
-				retractions: 0,
 				rebalancing: 0,
 			}),
 			getWatchOnly: () => ({}),
@@ -220,7 +217,6 @@ describe("UiServer Unix socket listen mode", () => {
 			evaluating: 0,
 			queuedFills: 0,
 			activeFills: 0,
-			retractions: 0,
 			rebalancing: 0,
 		})
 

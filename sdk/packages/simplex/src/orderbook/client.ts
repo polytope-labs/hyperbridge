@@ -273,8 +273,7 @@ export class OrderbookClient {
 	}
 
 	/**
-	 * Posts a bid on a swapper's order: the signed fill UserOp, SCALE-encoded, exactly as it goes
-	 * to Hyperbridge. The orderbook verifies it as it does a limit order, except that it need not
+	 * Posts a bid on a swapper's order: the signed fill UserOp, SCALE-encoded. The orderbook verifies it as it does a limit order, except that it need not
 	 * be phantom and carries no TTL, and accepts it only from a solver holding an active limit
 	 * order on the leg's book filling on the order's destination (`NO_LIMIT_ORDER`). It serves
 	 * the bid under the order's commitment for `serverInfo.bidTtlSecs`; there is no withdrawing

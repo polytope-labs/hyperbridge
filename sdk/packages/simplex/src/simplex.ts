@@ -71,8 +71,8 @@ export interface SimplexOptions {
 	 * Persistence backend. Defaults to an in-process store that is lost on exit —
 	 * fine for tests and watch-only observers, but a filler that submits bids
 	 * should pass a durable one (`SqliteDataStore` from
-	 * `@hyperbridge/simplex/sqlite`, or your own). A lost bid record is a
-	 * Hyperbridge deposit nobody retracts.
+	 * `@hyperbridge/simplex/sqlite`, or your own). A lost bid record is a fill
+	 * that is not recorded against the limit order that priced it.
 	 */
 	data?: SimplexDataStore
 	/**
@@ -350,10 +350,8 @@ export class LimitOrderController {
 
 	async cancel(id: string): Promise<CancelledLimitOrder> {
 		const cancelled = await this.service.cancel(id)
-		// The cancel withdraws the price from the book, but bids it already priced would
-		// still pay out at it. Retracting them never fails the cancel: errors are logged,
-		// and the stale-bid sweep is the backstop.
-		await this.runtime.intentFiller.retractBidsForLimitOrder(id)
+		// Bids the order already priced stay on the orderbook until their TTL, and can execute
+		// until their own `validUntil`; the order's on-chain budget caps what they can still fill.
 		this.emit("limit-order:cancelled", { order: cancelled.order })
 		return cancelled
 	}
@@ -1001,14 +999,6 @@ export class Simplex extends EventEmitter {
 				this.emit("limit-order:resized", { order: event.order, delivered: event.delivered.toString() })
 			} else if (event.kind === "filled") {
 				this.emit("limit-order:filled", { order: event.order })
-				// A fill settled on the filler also retracts, but a close that came from the
-				// tally reconciliation did not pass through settlement. The pass is
-				// idempotent: its snapshot skips rows that are already retracted.
-				void this.runtime.intentFiller.retractBidsForLimitOrder(event.order.id)
-			} else if (event.kind === "expired" || event.kind === "rejected") {
-				// The order is off the book, but bids it priced still pay out at its price
-				// until they are retracted. Never rejects; the sweep is the backstop.
-				void this.runtime.intentFiller.retractBidsForLimitOrder(event.order.id)
 			}
 		})
 	}
@@ -1105,15 +1095,12 @@ export class Simplex extends EventEmitter {
 		return this.runtime.data.activity.recent(limit, beforeId)
 	}
 
-	/** Bids submitted to Hyperbridge, newest first. */
+	/** Bids this filler placed or tried to place, newest first. */
 	bids(limit?: number): Promise<StoredBid[]> {
 		return this.runtime.data.bids.recent(limit)
 	}
 
-	/**
-	 * Bid counts by state. `pendingRetraction` is the one to watch: those are
-	 * deposits still locked in the solver-selection pallet.
-	 */
+	/** Bid counts: every bid, those a venue took, and those none did. */
 	bidStats(): Promise<BidStats> {
 		return this.runtime.data.bids.stats()
 	}

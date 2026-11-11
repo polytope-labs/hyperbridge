@@ -32,7 +32,7 @@ function expectNoPhraseWords(text: string, phrase: string) {
 function prefillWith(signer: SignerConfig): Prefill {
 	return {
 		config: {
-			simplex: { signer, substratePrivateKey: "seed", hyperbridgeWsUrl: "wss://nexus.rpc.polytope.technology" },
+			simplex: { signer },
 			chains: [],
 		},
 		chainIds: [],

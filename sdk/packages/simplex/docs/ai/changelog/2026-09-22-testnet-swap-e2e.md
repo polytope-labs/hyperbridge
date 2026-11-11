@@ -25,7 +25,7 @@ not exceed the order's size. A tally that cannot be read is logged and does not 
 | `multi-leg-levels` | both pairs, solver 1's levels only |
 | `multi-leg-same-input` | two 5.5 USDC → cNGN legs against a level that takes 10 |
 | `onchain-limit` | 0.5 USDC for cNGN on BSC Chapel, then the checks of the on-chain limit |
-| `orderbook-only-bid` | the same swap, with solver 1 running with no Hyperbridge key |
+| `orderbook-only-bid` | the same swap, checking that no solver's bid reached Hyperbridge |
 | `orderbook-only-swapper` | the same swap, with the swapper's SDK given no `IntentsCoprocessor` |
 | `onchain-limit-refusal` | the same swap, with the best bid's limit order left one unit short of what it pays |
 
@@ -60,15 +60,13 @@ exactly what it approved. The runner then reads from the chain that:
 Both scenarios fail whatever their outcome when a solver's account on the fill chain is not
 delegated to an implementation with `spent`, and the reason names what the account delegates to.
 
-`orderbook-only-bid` (`check: "orderbook"`, `noKey: 0`) covers a solver bidding with no Hyperbridge
-account. Before its book is posted, the runner restarts solver 1 on a config with no
-`substratePrivateKey` or `hyperbridgeWsUrl` (the data directory and EVM key stay), so simplex posts
-its bid to the orderbook alone, while solvers 2 and 3 bid through Hyperbridge as usual. The swap
-worker points the SDK at the orderbook under test (`withOrderbook`), and whenever bids arrive reads
+`orderbook-only-bid` (`check: "orderbook"`) covers where solvers bid. Since 0.18.6 simplex posts
+every bid to the orderbook alone, and the solvers run with no Hyperbridge account. The swap worker
+points the SDK at the orderbook under test (`withOrderbook`), and whenever bids arrive reads
 `intents_getBidsForOrder` and the orderbook's `bids(commitment)` to record which solvers each venue
 serves (`result.venues`, also a column of the summary). The scenario passes when the order is
-filled, solver 1's address is among the orderbook's bids and not among Hyperbridge's, and a fill is
-solver 1's. Solver 1 is restarted on its own key before the next scenario, whatever the outcome.
+filled, Hyperbridge served no solver's bid, and a fill came from a solver whose bid the orderbook
+served.
 
 `orderbook-only-swapper` (`check: "orderbook-read"`, `noCoprocessor: true`) covers the other side:
 the swap worker creates the SDK's `IntentGateway` with no `IntentsCoprocessor`, so it reads bids from
@@ -114,11 +112,9 @@ by another simplex instance.
 | `E2E_BSC_TESTNET_BUNDLER_URL` | BSC Chapel ERC-4337 bundler serving the chain's EntryPoint; CI uses Hyperbridge's (`https://bundler.polytope.technology/bsc-chapel`) |
 | `E2E_POLYGON_AMOY_BUNDLER_URL` | Polygon Amoy ERC-4337 bundler serving the chain's EntryPoint; CI uses Hyperbridge's (`https://bundler.polytope.technology/polygon-amoy`) |
 | `E2E_ORDERBOOK_URL` | HyperFX orderbook URL; `/graphql` is appended unless it already ends with it |
-| `E2E_HYPERBRIDGE_WS_URL` | Hyperbridge (Gargantua) WebSocket endpoint |
+| `E2E_HYPERBRIDGE_WS_URL` | Hyperbridge (Gargantua) WebSocket endpoint, which the swapper's SDK reads bids from |
 | `E2E_SOLVER{1,2,3}_PRIVATE_KEY` | solver EVM keys, funded on both chains |
-| `E2E_SOLVER{1,2,3}_SUBSTRATE_KEY` | solver Hyperbridge accounts (mnemonic or hex seed) holding BRIDGE for bid fees |
 | `E2E_USER{1,2}_PRIVATE_KEY` | user EVM keys with gas on both chains |
-| `SECRET_PHRASE` | optional: the Hyperbridge account solvers are topped up with BRIDGE from |
 
 Optional: `E2E_SCENARIO_TIMEOUT_MIN` (default 10) and `E2E_WORKDIR` (default a temp directory).
 Output is redacted against every `E2E_*` value, both as given and as completed (the orderbook URL

@@ -61,8 +61,6 @@ async function build(options: { slow?: boolean } = {}) {
 		[],
 		{},
 		{
-			getHyperbridgeWsUrl: () => undefined,
-			getSubstratePrivateKey: () => undefined,
 			// A paymaster on the chain, so the fill path skips the EntryPoint top-up.
 			getSimplexPaymasterAddress: () => "0x0000000000000000000000000000000000000001",
 		} as any,

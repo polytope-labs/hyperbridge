@@ -48,7 +48,8 @@ function statusOf(events: ActivityEventDto[], bids: BidDto[]): Status {
 		}
 	}
 	if (find("bid")) {
-		// Awaiting the on-chain outcome, unless the bid has since been pulled.
+		// Awaiting the on-chain outcome. Only a bid from before 0.18.6 can have been
+		// retracted, from Hyperbridge.
 		const latest = bids[0]
 		return latest?.retracted ? { label: "Bid retracted", tone: "" } : { label: "Bid placed", tone: "" }
 	}
@@ -63,7 +64,7 @@ function statusOf(events: ActivityEventDto[], bids: BidDto[]): Status {
 	return { label: "Detected", tone: "" }
 }
 
-/** Hyperbridge's explorer for the network the filler bids on. */
+/** Hyperbridge's explorer, for the extrinsics of bids from before 0.18.6. */
 function hyperbridgeExplorer(network: OrderHistoryDto["network"]): string {
 	return externalLinks.hyperbridgeExplorers[network]
 }
@@ -94,26 +95,22 @@ function clockOf(at: string): string {
 }
 
 /**
- * The order's latest bid as two explorer links: up for the bid extrinsic, down
- * for its retraction. Re-bids after a retraction replace earlier ones. A failed
- * bid has no extrinsic to link, so it shows as text with the error on hover. A
- * bid the orderbook holds that Hyperbridge did not take (no BRIDGE for the
- * deposit, or a refusal) has nothing to link either, and says where it is.
+ * Where the order's latest bid is. A bid the orderbook holds says so; a bid it
+ * refused shows as text with the refusal on hover. A bid from before 0.18.6
+ * that Hyperbridge took shows as two explorer links: up for the bid extrinsic,
+ * down for its retraction.
  */
 function BidLinks(props: { bid: BidDto | undefined; explorer: string }) {
 	const { bid, explorer } = props
 	if (!bid) return <Empty />
+	if (bid.onOrderbook) {
+		return (
+			<span className="history-bids" title={`Posted to the orderbook ${clockOf(bid.createdAt)}`}>
+				<strong>Orderbook</strong>
+			</span>
+		)
+	}
 	if (!bid.success) {
-		if (bid.onOrderbook) {
-			return (
-				<span
-					className="history-bids"
-					title={bid.error ? `Posted to the orderbook; Hyperbridge: ${bid.error}` : "Posted to the orderbook only"}
-				>
-					<strong>Orderbook</strong>
-				</span>
-			)
-		}
 		return (
 			<span className="history-bids" title={bid.error ?? undefined}>
 				<strong>Failed</strong>
@@ -356,10 +353,6 @@ export function Orders(props: { chainLabels?: Record<string, string> }) {
 						<span>Failed</span>
 						<strong>{stats.failed}</strong>
 					</div>
-					<div>
-						<span>Retracted</span>
-						<strong>{stats.retracted}</strong>
-					</div>
 				</section>
 			) : null}
 			<section className="operator-section">
@@ -368,12 +361,7 @@ export function Orders(props: { chainLabels?: Record<string, string> }) {
 						<span className="eyebrow">Orders</span>
 						<h2>Order history</h2>
 					</div>
-					<span className="row" style={{ gap: "0.5rem" }}>
-						{stats?.pendingRetraction ? (
-							<span className="badge warn">{stats.pendingRetraction} retractions pending</span>
-						) : null}
-						<span className={`badge ${live ? "ok" : "warn"}`}>{live ? "live" : "reconnecting…"}</span>
-					</span>
+					<span className={`badge ${live ? "ok" : "warn"}`}>{live ? "live" : "reconnecting…"}</span>
 				</div>
 				{history && orders.length === 0 && (
 					<p className="operator-empty">

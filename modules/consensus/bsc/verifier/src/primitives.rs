@@ -14,7 +14,7 @@
 // limitations under the License.
 
 use alloc::vec::Vec;
-use alloy_primitives::{B256, FixedBytes};
+use alloy_primitives::{FixedBytes, B256};
 use alloy_rlp::Decodable;
 use alloy_rlp_derive::{RlpDecodable, RlpEncodable};
 use anyhow::anyhow;
@@ -78,10 +78,10 @@ pub struct ExtraData {
 	pub vote_data: VoteData,
 	pub vote_address_set: u64,
 	/// The Parlia `TurnLength` carried in every epoch (checkpoint) header's `extra_data`
-	/// since the BOHR fork. It is `1` on pre-BOHR headers and on non-epoch headers that
-	/// carry no validator section. It governs where the real chain rotates its validator
-	/// set — see [`rotation_block`].
-	pub turn_length: u64,
+	/// since the BOHR fork (a single byte). It is `1` on pre-BOHR headers and on non-epoch
+	/// headers that carry no validator section. It governs where the real chain rotates its
+	/// validator set — see [`rotation_block`].
+	pub turn_length: u8,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -187,9 +187,9 @@ pub fn parse_extra<H: Keccak256, C: Config>(
 				// In Bohr fork there is an extra byte for turn
 				// https://github.com/bnb-chain/bsc/blob/26a4d4fda656cc78436c1931aaea5dc3ed33eeeb/consensus/parlia/parlia.go#L383
 				let turn_index = validator_bytes_total_length - VALIDATOR_NUMBER_SIZE;
-				// The turn byte sits immediately after the validator entries. Parlia rejects a
-				// zero turn length, so clamp to a minimum of 1 to keep [`rotation_block`] sane.
-				extra.turn_length = core::cmp::max(remaining_data[turn_index] as u64, 1);
+				// The turn byte sits immediately after the validator entries. It is stored raw;
+				// `rotation_block` applies the single `>= 1` clamp Parlia requires.
+				extra.turn_length = remaining_data[turn_index];
 				let index = turn_index + TURN_LENGTH_SIZE;
 				&remaining_data[index..]
 			} else {

@@ -14,7 +14,7 @@
 
 use anyhow::{anyhow, Error};
 use bsc_verifier::{
-	primitives::{compute_epoch, parse_extra, BscClientUpdate, Config, VALIDATOR_BIT_SET_SIZE},
+	primitives::{compute_epoch, parse_extra, BscClientUpdate, Config},
 	verify_bsc_header, VerificationResult,
 };
 use codec::{Decode, Encode};
@@ -286,11 +286,11 @@ async fn next_consensus_update<C: Config>(
 		);
 
 		let epoch_block_number = enactment_epoch * epoch_length;
-		let rotation_block = get_rotation_block(
-			epoch_block_number,
-			consensus_state.current_validators.len() as u64,
-			epoch_length,
-		);
+		// Start the enactment scan at the BOHR-aware `rotation_block` recorded when the set was
+		// staged. The on-chain client promotes at `source_header.number >= rotation_block`, and
+		// the incoming set only signs a finalized source from that height, so there is nothing to
+		// enact below it. Scanning from the stale pre-BOHR offset instead submitted an update per
+		// block up to the real rotation that the client could not act on.
 		let mut block = rotation_block;
 		// Authority set rotation is valid between rotation_block and
 		// epoch_block+epoch_length
@@ -303,13 +303,14 @@ async fn next_consensus_update<C: Config>(
 					client.state_machine
 				));
 			};
-			// If header does not exist we have to wait until it does
+			// The enactment block is not on-chain yet. Don't block the task waiting for it:
+			// returning `None` lets the caller fall through to a steady-state finality update
+			// signed by the *current* (outgoing) set, which keeps `finalized_height` advancing
+			// through the window before `rotation_block`. Enactment is retried on the next poll.
 			let header = if let Some(header) = header {
 				header
 			} else {
-				// If header does not exist yet wait before continuing
-				tokio::time::sleep(Duration::from_secs(3)).await;
-				continue;
+				return Ok(None);
 			};
 
 			match client
@@ -515,17 +516,19 @@ fn apply_update_locally(
 	verification: &VerificationResult,
 	epoch_length: u64,
 ) {
-	// Promote a pending validator set exactly as the on-chain client does: only when the update's
-	// attested header lands in the epoch where the set is scheduled to activate and has reached the
-	// recorded rotation block.
+	// Promote a pending validator set exactly as the on-chain client does: only when the
+	// finalized `source_header` has reached the recorded rotation block, and only in the epoch
+	// where the set is scheduled to activate. This must mirror `ismp-bsc::verify_consensus`
+	// (which gates on the BLS-signed source height, not the attested height) or the locally
+	// chained state would diverge from what the counterparty applies.
 	if let Some(next_validators) = consensus_state.next_validators.clone() {
-		let attested_number = update.attested_header.number.low_u64();
-		let attested_epoch = compute_epoch(attested_number, epoch_length);
+		let source_number = update.source_header.number.low_u64();
+		let source_epoch = compute_epoch(source_number, epoch_length);
 		let rotation_epoch = compute_epoch(next_validators.rotation_block, epoch_length);
-		if attested_epoch == rotation_epoch && attested_number >= next_validators.rotation_block {
+		if source_epoch == rotation_epoch && source_number >= next_validators.rotation_block {
 			consensus_state.current_validators = next_validators.validators;
 			consensus_state.next_validators = None;
-			consensus_state.current_epoch = attested_epoch;
+			consensus_state.current_epoch = source_epoch;
 		}
 	}
 

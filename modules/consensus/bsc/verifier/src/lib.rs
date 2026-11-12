@@ -111,19 +111,13 @@ pub fn verify_bsc_header<H: Keccak256, C: Config>(
 		Err(Error::NonConsecutiveFinalization)?
 	}
 
-	// Bind the (unsigned) attested header to the BLS-signed vote. A Parlia header's vote
-	// attestation always justifies its direct parent, so the block carrying this vote sits at
-	// `target_number + 1`. `target_number` is covered by the aggregate signature
-	// (`keccak256(rlp(vote_data))`), whereas `attested_header.number` is not: without this
-	// binding a submitter could set `attested_header.number` to any value independent of the
-	// finalized `source_header` and thereby choose which validator set the client promotes to
-	// (keeping a compromised outgoing set in charge past its rotation block). Pinning it to the
-	// signed `target_number` removes that freedom.
-	if update.attested_header.number.low_u64() !=
-		extra_data.vote_data.target_number.saturating_add(1)
-	{
-		Err(Error::AttestedHeaderNotChildOfTarget)?
-	}
+	// NOTE: we deliberately do not bind `attested_header.number` to the vote's `target_number`.
+	// Since Fermi (BEP-590) a Parlia vote may justify any of the attesting header's last
+	// `kAncestorGenerationDepth` (3) ancestors, not only its direct parent, so the attesting
+	// header does not always sit at `target_number + 1` (e.g. mainnet block 132941639 votes for
+	// target 132941637). The unsigned `attested_header.number` is instead never trusted for the
+	// validator-set promotion decision: the client gates promotion on the BLS-signed
+	// `source_header.number` (see `ismp-bsc::verify_consensus`), which needs no such binding.
 
 	let participants: Vec<BlsPublicKey> = current_validators
 		.iter()
@@ -181,7 +175,7 @@ pub fn verify_bsc_header<H: Keccak256, C: Config>(
             let epoch_header = update.epoch_header_ancestry[0].clone();
             let epoch_header_extra_data = parse_extra::<H, C>(&epoch_header)
                 .map_err(|_| Error::ParseEpochExtraData)?;
-            let turn_length = epoch_header_extra_data.turn_length;
+            let turn_length = epoch_header_extra_data.turn_length as u64;
             let validators = epoch_header_extra_data
                 .validators
                 .into_iter()
@@ -207,7 +201,7 @@ pub fn verify_bsc_header<H: Keccak256, C: Config>(
         } else if update.source_header.number.low_u64() % epoch_length == 0 {
             let epoch_header_extra_data = parse_extra::<H, C>(&update.source_header)
                 .map_err(|_| Error::ParseEpochExtraData)?;
-            let turn_length = epoch_header_extra_data.turn_length;
+            let turn_length = epoch_header_extra_data.turn_length as u64;
             let validators = epoch_header_extra_data
                 .validators
                 .into_iter()
@@ -480,7 +474,8 @@ mod tests {
 	}
 
 	/// Set up an adjacent, hash-bound source/target pair plus an attested header whose
-	/// `number` the caller controls, so the attested-binding check can be exercised on its own.
+	/// `number` the caller controls, so the handling of the attested header number can be
+	/// exercised on its own.
 	fn adjacent_update_with_attested_number(attested_number: u64) -> BscClientUpdate {
 		let mask: u64 = (1u64 << 21) - 1;
 		let source_header = plain_header(10, H256::repeat_byte(0x11));
@@ -503,35 +498,23 @@ mod tests {
 		}
 	}
 
-	/// The attested header's `number` must equal the BLS-signed `target_number + 1`. A
-	/// mismatch (here the submitter set it far below the finalized source) is rejected before
-	/// any validator-set promotion can be influenced. (HYPERBR-2724)
+	/// Since Fermi (BEP-590) the attesting header need not sit at `target_number + 1` — a vote
+	/// may justify any of the header's last 3 ancestors. The verifier must therefore accept an
+	/// attested header whose `number` is further above the signed target (here `target + 3`),
+	/// reaching the signature stage rather than rejecting on the header number. The source/target
+	/// pair stays adjacent and hash-bound, which is what finalization actually requires.
 	#[test]
-	fn rejects_attested_header_not_child_of_target() {
+	fn accepts_attested_header_above_target_fermi() {
 		let validators = dummy_validators(21);
-		// target_number is 11, so the only valid attested number is 12; 5 must be rejected.
-		let update = adjacent_update_with_attested_number(5);
-		let err = verify_bsc_header::<TestHost, Testnet>(&validators, update, 1000)
-			.expect_err("attested header not bound to the signed target must be rejected");
-		assert!(
-			format!("{err}").contains("not the direct child of the signed vote target"),
-			"unexpected error: {err:?}"
-		);
-	}
-
-	/// When the attested header *is* the signed target's child (`target_number + 1`), the
-	/// binding passes and verification proceeds to the signature stage. This pins that the
-	/// binding, not some earlier check, is what gates the number. (HYPERBR-2724)
-	#[test]
-	fn accepts_attested_header_child_of_target_then_checks_signature() {
-		let validators = dummy_validators(21);
-		let update = adjacent_update_with_attested_number(12);
+		// source #10, target #11 (adjacent); attested #14 is target + 3, a valid Fermi vote
+		// carrier that the old `attested == target + 1` binding would have rejected.
+		let update = adjacent_update_with_attested_number(14);
 		let err = verify_bsc_header::<TestHost, Testnet>(&validators, update, 1000)
 			.expect_err("dummy aggregate signature fails downstream");
 		let msg = format!("{err}");
 		assert!(
-			!msg.contains("not the direct child of the signed vote target"),
-			"binding should have passed, got: {msg}"
+			!msg.contains("direct child"),
+			"attested header number must not be gated against the target; got: {msg}"
 		);
 	}
 

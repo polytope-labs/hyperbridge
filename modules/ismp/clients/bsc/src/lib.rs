@@ -79,8 +79,8 @@ impl<
 		trusted_consensus_state: Vec<u8>,
 		proof: Vec<u8>,
 	) -> Result<(Vec<u8>, ismp::consensus::VerifiedCommitments), ismp::error::Error> {
-		let bsc_client_update = BscClientUpdate::decode(&mut &proof[..])
-			.map_err(|_| Error::DecodeBscClientUpdate)?;
+		let bsc_client_update =
+			BscClientUpdate::decode(&mut &proof[..]).map_err(|_| Error::DecodeBscClientUpdate)?;
 
 		let mut consensus_state = ConsensusState::decode(&mut &trusted_consensus_state[..])
 			.map_err(|_| Error::DecodeConsensusState)?;
@@ -94,39 +94,33 @@ impl<
 
 		let epoch_length = Pallet::<T>::epoch_length().ok_or(Error::EpochLengthNotSet)?;
 		if let Some(next_validators) = consensus_state.next_validators.clone() {
-			let attested_number = bsc_client_update.attested_header.number.low_u64();
-			let attested_epoch = compute_epoch(attested_number, epoch_length);
+			let source_number = bsc_client_update.source_header.number.low_u64();
+			let source_epoch = compute_epoch(source_number, epoch_length);
 			let rotation_epoch = compute_epoch(next_validators.rotation_block, epoch_length);
-			// Promote the pending validator set only when the submitted update is in the
-			// specific epoch where that set is scheduled to activate, and the attested
-			// header has reached the recorded `rotation_block`. The previous rule —
-			// "any update whose `attested.number % epoch_length` is past the rotation
-			// midpoint" — promoted the pending set in any later epoch, so an attacker
-			// holding the keys of a stale `next_validators` (e.g. retired or compromised
-			// validators) could submit an update many epochs later, get their set
-			// promoted to `current_validators`, and then have their forged
-			// `source_header`'s `state_root` accepted as a BSC state commitment. Binding
-			// rotation to the recorded `rotation_block`'s epoch prevents that reuse.
+			// Promote the pending validator set only when the finalized `source_header` has
+			// reached the recorded `rotation_block`, and only in the epoch where that set is
+			// scheduled to activate. Gating on `source_header.number` (not the attested height)
+			// is what makes this sound:
 			//
-			// `attested_number` is safe to gate on here because `verify_bsc_header` binds it
-			// to the BLS-signed `vote_data.target_number` (`attested == target + 1`): a
-			// submitter can no longer hold `attested_number` below `rotation_block` while
-			// finalizing a `source_header` past it, which would otherwise let a compromised
-			// outgoing set keep signing past its rotation.
-			if attested_epoch == rotation_epoch && attested_number >= next_validators.rotation_block {
-				// During authority set rotation, the source header must be from the same epoch as
-				// the attested header.
-				let source_header_epoch =
-					compute_epoch(bsc_client_update.source_header.number.low_u64(), epoch_length);
-				if source_header_epoch != attested_epoch {
-					Err(Error::SourceHeaderEpochMismatch {
-						attested_epoch,
-						source_epoch: source_header_epoch,
-					})?
-				}
+			// * Parlia verifies a vote for target `T` against the snapshot at `T - 1`, and the
+			//   snapshot switches sets exactly when block `rotation_block` is applied. With the
+			//   adjacency check in `verify_bsc_header` the finalized source is `T - 1`, so the
+			//   incoming set signs a finalized source iff `source_header.number >= rotation_block`.
+			// * `source_header.number` is covered by the BLS-signed `vote_data` (`source_hash`),
+			//   whereas `attested_header.number` is not. A compromised *outgoing* set therefore
+			//   cannot keep itself in charge past its rotation by choosing the unsigned attested
+			//   height: it can never finalize a source at or beyond `rotation_block`.
+			// * It needs no `attested == target + 1` binding, so Fermi's relaxed vote targets
+			//   (BEP-590) do not matter, and it removes the two-block early promotion that gating
+			//   on the attested height caused.
+			//
+			// Restricting promotion to `source_epoch == rotation_epoch` keeps a stale
+			// `next_validators` (e.g. retired/compromised keys) from being promoted by an update
+			// submitted epochs later and having its forged `source_header` state root accepted.
+			if source_epoch == rotation_epoch && source_number >= next_validators.rotation_block {
 				consensus_state.current_validators = next_validators.validators;
 				consensus_state.next_validators = None;
-				consensus_state.current_epoch = attested_epoch;
+				consensus_state.current_epoch = source_epoch;
 			}
 		}
 
@@ -234,12 +228,10 @@ impl<
 		// that carry the same vote. A genuine BSC equivocation is a slashable double
 		// vote: two quorum-signed votes for the same target block number but
 		// different target hashes.
-		let vote_1 = parse_extra::<H, C>(&header_1)
-			.map_err(|_| Error::InvalidFraudProof)?
-			.vote_data;
-		let vote_2 = parse_extra::<H, C>(&header_2)
-			.map_err(|_| Error::InvalidFraudProof)?
-			.vote_data;
+		let vote_1 =
+			parse_extra::<H, C>(&header_1).map_err(|_| Error::InvalidFraudProof)?.vote_data;
+		let vote_2 =
+			parse_extra::<H, C>(&header_2).map_err(|_| Error::InvalidFraudProof)?.vote_data;
 
 		if vote_1.target_number != vote_2.target_number {
 			Err(Error::InvalidFraudProof)?

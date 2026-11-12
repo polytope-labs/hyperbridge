@@ -55,13 +55,6 @@ pub enum Error {
 	/// The epoch header has no validator set encoded.
 	#[error("Epoch header provided does not have a validator set present in its extra data")]
 	MissingValidatorSet,
-	/// The attested header's number is not `vote_data.target_number + 1`. A Parlia vote
-	/// attestation justifies the attesting block's direct parent, so the header carrying it
-	/// must sit one block above the signed target. The attested header's `number` is not
-	/// covered by the vote signature, so this binding stops a submitter from choosing it
-	/// independently of the finalized source header.
-	#[error("Attested header is not the direct child of the signed vote target")]
-	AttestedHeaderNotChildOfTarget,
 
 	// -- client-wrapper (produced by `ismp-bsc`) --
 	/// The submitted consensus proof failed to SCALE-decode into a `BscClientUpdate`.
@@ -81,18 +74,6 @@ pub enum Error {
 	/// No epoch length configured for the client.
 	#[error("Epoch length not set")]
 	EpochLengthNotSet,
-	/// During an authority-set rotation, the source header must be from
-	/// the same epoch as the attested header.
-	#[error(
-		"Source header epoch {source_epoch} does not match attested epoch {attested_epoch} \
-		 during authority set rotation"
-	)]
-	SourceHeaderEpochMismatch {
-		/// Epoch derived from the attested header number.
-		attested_epoch: u64,
-		/// Epoch derived from the source header number.
-		source_epoch: u64,
-	},
 	/// An update would advance `finalized_height` into an epoch beyond the one the
 	/// client holds validators for, without a staged rotation. Accepting it would
 	/// strand the client: `current_epoch`/`current_validators` would lag a full

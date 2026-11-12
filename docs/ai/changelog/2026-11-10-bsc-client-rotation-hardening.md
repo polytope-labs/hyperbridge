@@ -1,72 +1,55 @@
 # BSC consensus client: validator-set rotation hardening
 
-Hardens the on-chain BSC (Parlia) consensus client around authority-set rotation. Three
-independent issues are fixed; all live in the on-chain verifier/client, not the relayer.
+Hardens the on-chain BSC (Parlia) consensus client and the relayer that feeds it around
+authority-set rotation. All three fixes concern how and when the client promotes a staged
+validator set.
 
-## 1. Rotation point now tracks the BOHR `TurnLength`
+## 1. Rotation point tracks the Bohr `TurnLength`
 
-`parse_extra` previously skipped the BOHR turn byte without reading it, and the verifier
-staged `next_validators.rotation_block = epoch_boundary + validators.len()/2` — the
-pre-BOHR rule. Since the BOHR fork the real chain rotates at
-`minerHistoryCheckLen() = (len/2 + 1) * TurnLength - 1` into the epoch (e.g. 21 validators,
-`TurnLength = 8` → +87, not +10). The stale offset opened the promotion window ~80 blocks
-early, so for that window the client promoted the incoming set and then rejected every
-still-valid outgoing-set-signed update, stalling `finalized_height` for ~80 blocks each
-epoch.
+`parse_extra` previously skipped the Bohr turn byte without reading it, and the client staged
+`rotation_block = epoch_boundary + validators.len() / 2` — the pre-Bohr rule. Since the Bohr
+fork the chain switches the validator set at
+`minerHistoryCheckLen() = (len / 2 + 1) * TurnLength - 1` blocks into the epoch (21 validators,
+`TurnLength = 8` → +87, not +10).
 
-- `ExtraData` now carries `turn_length` (read from the epoch header's turn byte, default 1
-  pre-BOHR / for non-epoch headers, clamped to ≥ 1).
-- New `primitives::rotation_block(epoch_boundary, validator_count, turn_length)` computes the
-  authoritative point; both verifier staging branches use it.
-- The off-chain `bsc_prover::get_rotation_block` is intentionally unchanged: it is only a
-  relayer scan lower bound (the enactment loop walks forward and locally re-verifies each
-  candidate), so a pre-BOHR value is still safe. Its doc comment now points at the on-chain
-  helper as authoritative.
+- `ExtraData` now carries the `turn_length` byte, and `primitives::rotation_block(epoch_boundary,
+  validator_count, turn_length)` computes the Bohr-aware switch point used when staging.
+- The relayer's enactment scan starts at the stored `rotation_block` instead of re-deriving the
+  pre-Bohr offset, and no longer blocks the task on a not-yet-produced enactment block — it
+  falls through to a steady-state update signed by the current set, so `finalized_height` keeps
+  advancing through the window before `rotation_block`.
 
-## 2. Promotion bound to the signed finalized height
+`rotation_block` uses the outgoing validator count (the set active across the window), matching
+Parlia, which evaluates `minerHistoryCheckLen()` on the pre-switch snapshot. The `TurnLength`
+used is the staged epoch header's; this is exact while `TurnLength` is constant (8 on both
+networks) and differs only in the single epoch after a `TurnLength` governance change.
 
-The promotion gate reads `attested_header.number`, which is **not** covered by the BLS vote
-signature (the vote signs `vote_data` only). A submitter could set `attested_header.number`
-independently of the finalized `source_header`, choosing which validator set verifies an
-update — e.g. keeping a compromised *outgoing* set in charge while finalizing a forged
-`source_header` past the rotation block.
+## 2. Promotion gated on the signed source height
 
-Fix: `verify_bsc_header` now binds the attested header to the signed vote. A Parlia vote
-attestation always justifies the attesting block's direct parent, so the carrying header
-sits at `vote_data.target_number + 1`. `target_number` is signed; `attested_header.number`
-must equal `target_number + 1` (`Error::AttestedHeaderNotChildOfTarget`). The promotion gate
-keeps using `attested_header.number`, which is now pinned to signed data, so it can no longer
-be decoupled from the finalized source. This keeps the gate aligned with the relayer's
-enactment loop (which selects the enactment update by local verification at the attested
-height), avoiding any liveness regression.
+Promotion is gated on `source_header.number`, not the attested header's number. The attested
+header's `number` is not covered by the BLS vote signature, so gating on it let a compromised
+*outgoing* set keep itself in charge past its rotation: it could sign a vote with a
+`target_number` below `rotation_block` while finalizing a forged source past it, and choose the
+unsigned attested height to dodge promotion.
+
+Parlia verifies a vote for target `T` against the snapshot at `T - 1`, and the snapshot switches
+sets when `rotation_block` is applied. With the adjacency check (`source` is `target`'s parent,
+`target` is `source`'s direct child) the finalized source is `T - 1`, so the incoming set signs a
+finalized source exactly when `source_header.number >= rotation_block`. The client now promotes
+when `source_header.number >= rotation_block` and `source_epoch == rotation_epoch`.
+`source_header.number` is bound by the signed `source_hash`, so a compromised outgoing set can
+never finalize a source at or beyond its rotation block. This also removes the two-block early
+promotion that gating on the attested height caused.
+
+The earlier `attested_header.number == target_number + 1` binding is removed: since Fermi
+(BEP-590, mainnet 2026-01-14) a Parlia vote may justify any of the attesting header's last three
+ancestors, so the attesting header no longer always sits at `target_number + 1` (e.g. mainnet
+block 132941639 votes for target 132941637), and the source-height gate needs no such binding.
 
 ## 3. Staged set must activate in `current_epoch + 1`
 
-Binding the epoch ancestry to `source_header`'s own epoch boundary still allowed a caller to
-stage the *current* epoch's own set as `next_validators`: a source in epoch E carrying a
-full-epoch ancestry back to E's boundary extracts E's set with a `rotation_block` already in
-the past. That set can never promote (its rotation epoch is E, which finality has left), and
-once finality crosses into E+1 the client is stranded until governance resets it — a
-permissionless freeze reachable at any epoch boundary.
-
-Fix: after extracting a staged set, the client requires its activation epoch
-(`compute_epoch(rotation_block)`) to equal `current_epoch + 1`
-(`Error::UnexpectedNextValidatorsEpoch`). The honest flow — stage epoch E+1's set while in
-epoch E — is unaffected; staging the current (or any non-next) epoch's set is rejected.
-
-## Files
-
-- `modules/consensus/bsc/verifier/src/primitives.rs` — `turn_length` on `ExtraData`, turn-byte
-  read, `rotation_block` helper.
-- `modules/consensus/bsc/verifier/src/lib.rs` — turn-length-aware staging, attested-header
-  binding, tests.
-- `modules/consensus/bsc/verifier/src/error.rs` — `AttestedHeaderNotChildOfTarget`,
-  `UnexpectedNextValidatorsEpoch`.
-- `modules/ismp/clients/bsc/src/lib.rs` — staged-set epoch guard; promotion comment.
-- `modules/consensus/bsc/prover/src/lib.rs` — doc comment only.
-
-## Validation
-
-`cargo test -p bsc-verifier --lib` (9 passed), `cargo test -p bsc-prover --lib
-get_rotation_block` (4 passed). `bsc-verifier`, `ismp-bsc`, `bsc-prover`, `tesseract-bsc`
-build clean.
+Binding the epoch ancestry to `source_header`'s own epoch boundary still allowed staging the
+*current* epoch's own set as `next_validators` (a source in epoch E carrying a full-epoch ancestry
+back to E's boundary). Such a set can never promote and strands the client once finality crosses
+into E+1. After extracting a staged set the client requires its activation epoch to equal
+`current_epoch + 1`; the honest flow (stage epoch E+1's set while in epoch E) is unaffected.

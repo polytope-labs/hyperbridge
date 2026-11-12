@@ -19,11 +19,6 @@ fork the chain switches the validator set at
   falls through to a steady-state update signed by the current set, so `finalized_height` keeps
   advancing through the window before `rotation_block`.
 
-`rotation_block` uses the outgoing validator count (the set active across the window), matching
-Parlia, which evaluates `minerHistoryCheckLen()` on the pre-switch snapshot. The `TurnLength`
-used is the staged epoch header's; this is exact while `TurnLength` is constant (8 on both
-networks) and differs only in the single epoch after a `TurnLength` governance change.
-
 ## 2. Promotion gated on the signed source height
 
 Promotion is gated on `source_header.number`, not the attested header's number. The attested

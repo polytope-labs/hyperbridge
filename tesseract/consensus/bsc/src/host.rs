@@ -14,7 +14,7 @@
 
 use anyhow::{anyhow, Error};
 use bsc_verifier::{
-	primitives::{compute_epoch, parse_extra, BscClientUpdate, Config},
+	primitives::{compute_epoch, parse_extra, should_promote_validators, BscClientUpdate, Config},
 	verify_bsc_header, VerificationResult,
 };
 use codec::{Decode, Encode};
@@ -523,12 +523,10 @@ fn apply_update_locally(
 	// chained state would diverge from what the counterparty applies.
 	if let Some(next_validators) = consensus_state.next_validators.clone() {
 		let source_number = update.source_header.number.low_u64();
-		let source_epoch = compute_epoch(source_number, epoch_length);
-		let rotation_epoch = compute_epoch(next_validators.rotation_block, epoch_length);
-		if source_epoch == rotation_epoch && source_number >= next_validators.rotation_block {
+		if should_promote_validators(source_number, next_validators.rotation_block, epoch_length) {
 			consensus_state.current_validators = next_validators.validators;
 			consensus_state.next_validators = None;
-			consensus_state.current_epoch = source_epoch;
+			consensus_state.current_epoch = compute_epoch(source_number, epoch_length);
 		}
 	}
 

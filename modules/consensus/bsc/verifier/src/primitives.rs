@@ -232,3 +232,39 @@ pub fn rotation_block(epoch_boundary: u64, validator_count: u64, turn_length: u6
 	let turn_length = turn_length.max(1);
 	epoch_boundary + (validator_count / 2 + 1) * turn_length - 1
 }
+
+/// Whether a finalized `source_header` at `source_number` should promote the staged validator
+/// set whose on-chain activation height is `rotation_block`.
+///
+/// Parlia verifies a vote for target `T` against the snapshot at `T - 1`, and the snapshot
+/// switches sets when block `rotation_block` is applied. With the adjacency check in
+/// `verify_bsc_header` the finalized source is `T - 1`, so the incoming set signs a finalized
+/// source exactly when `source_number >= rotation_block`. Promotion is additionally restricted to
+/// the epoch where that set activates (`source_epoch == rotation_epoch`), so a stale set can't be
+/// promoted by an update submitted epochs later. `source_number` is covered by the BLS-signed
+/// `vote_data`, so a compromised outgoing set can never satisfy this past its own rotation block.
+///
+/// Both the on-chain client and the relayer's local state mirror gate on this predicate, so they
+/// must stay in agreement.
+pub fn should_promote_validators(
+	source_number: u64,
+	rotation_block: u64,
+	epoch_length: u64,
+) -> bool {
+	compute_epoch(source_number, epoch_length) == compute_epoch(rotation_block, epoch_length) &&
+		source_number >= rotation_block
+}
+
+/// Whether a freshly staged validator set, activating at `rotation_block`, belongs to the epoch
+/// immediately after the one the client currently holds (`current_epoch`).
+///
+/// The honest rotation always stages the set of `current_epoch + 1`. Any other activation epoch
+/// means the ancestry pointed at the current (or a past) epoch's own set, which can never
+/// legitimately promote and would otherwise strand the client.
+pub fn staged_set_activates_next_epoch(
+	rotation_block: u64,
+	current_epoch: u64,
+	epoch_length: u64,
+) -> bool {
+	compute_epoch(rotation_block, epoch_length) == current_epoch + 1
+}

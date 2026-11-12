@@ -7,7 +7,10 @@ use alloc::{boxed::Box, collections::BTreeMap, vec, vec::Vec};
 pub use bsc_verifier::primitives::{Mainnet, Testnet};
 use bsc_verifier::{
 	ensure_finalized_epoch_consistent,
-	primitives::{compute_epoch, parse_extra, BscClientUpdate},
+	primitives::{
+		compute_epoch, parse_extra, should_promote_validators, staged_set_activates_next_epoch,
+		BscClientUpdate,
+	},
 	verify_bsc_header, Error, NextValidators, VerificationResult,
 };
 use codec::{Decode, Encode};
@@ -95,32 +98,19 @@ impl<
 		let epoch_length = Pallet::<T>::epoch_length().ok_or(Error::EpochLengthNotSet)?;
 		if let Some(next_validators) = consensus_state.next_validators.clone() {
 			let source_number = bsc_client_update.source_header.number.low_u64();
-			let source_epoch = compute_epoch(source_number, epoch_length);
-			let rotation_epoch = compute_epoch(next_validators.rotation_block, epoch_length);
-			// Promote the pending validator set only when the finalized `source_header` has
-			// reached the recorded `rotation_block`, and only in the epoch where that set is
-			// scheduled to activate. Gating on `source_header.number` (not the attested height)
-			// is what makes this sound:
-			//
-			// * Parlia verifies a vote for target `T` against the snapshot at `T - 1`, and the
-			//   snapshot switches sets exactly when block `rotation_block` is applied. With the
-			//   adjacency check in `verify_bsc_header` the finalized source is `T - 1`, so the
-			//   incoming set signs a finalized source iff `source_header.number >= rotation_block`.
-			// * `source_header.number` is covered by the BLS-signed `vote_data` (`source_hash`),
-			//   whereas `attested_header.number` is not. A compromised *outgoing* set therefore
-			//   cannot keep itself in charge past its rotation by choosing the unsigned attested
-			//   height: it can never finalize a source at or beyond `rotation_block`.
-			// * It needs no `attested == target + 1` binding, so Fermi's relaxed vote targets
-			//   (BEP-590) do not matter, and it removes the two-block early promotion that gating
-			//   on the attested height caused.
-			//
-			// Restricting promotion to `source_epoch == rotation_epoch` keeps a stale
-			// `next_validators` (e.g. retired/compromised keys) from being promoted by an update
-			// submitted epochs later and having its forged `source_header` state root accepted.
-			if source_epoch == rotation_epoch && source_number >= next_validators.rotation_block {
+			// Promote the pending set only when the finalized, BLS-signed `source_header` has
+			// reached the recorded `rotation_block` in the epoch where that set activates. Gating
+			// on the signed source height (not the unsigned attested height) is what keeps a
+			// compromised outgoing set from staying in charge past its rotation — see
+			// [`should_promote_validators`]. The relayer mirrors this exact predicate.
+			if should_promote_validators(
+				source_number,
+				next_validators.rotation_block,
+				epoch_length,
+			) {
 				consensus_state.current_validators = next_validators.validators;
 				consensus_state.next_validators = None;
-				consensus_state.current_epoch = source_epoch;
+				consensus_state.current_epoch = compute_epoch(source_number, epoch_length);
 			}
 		}
 
@@ -154,10 +144,13 @@ impl<
 			// E+1 it strands the client until governance resets it. Requiring the staged set's
 			// activation epoch to equal `current_epoch + 1` closes that path while leaving the
 			// honest flow (stage epoch E+1's set while in epoch E) untouched.
-			let staged_epoch = compute_epoch(next_validators.rotation_block, epoch_length);
-			if staged_epoch != consensus_state.current_epoch + 1 {
+			if !staged_set_activates_next_epoch(
+				next_validators.rotation_block,
+				consensus_state.current_epoch,
+				epoch_length,
+			) {
 				Err(Error::UnexpectedNextValidatorsEpoch {
-					staged_epoch,
+					staged_epoch: compute_epoch(next_validators.rotation_block, epoch_length),
 					current_epoch: consensus_state.current_epoch,
 				})?
 			}

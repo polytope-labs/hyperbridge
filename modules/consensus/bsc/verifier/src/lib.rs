@@ -270,7 +270,10 @@ mod tests {
 	use alloy_rlp::Encodable;
 	use geth_primitives::CodecHeader;
 	use primitive_types::{H160, H256, U256};
-	use primitives::{Testnet, VoteAttestationData, VoteData};
+	use primitives::{
+		should_promote_validators, staged_set_activates_next_epoch, Testnet, VoteAttestationData,
+		VoteData,
+	};
 
 	/// `sp_io::hashing::keccak_256` host wired into the `Keccak256` trait.
 	struct TestHost;
@@ -570,5 +573,54 @@ mod tests {
 
 		let parsed = parse_extra::<TestHost, Testnet>(&header).expect("header parses");
 		assert_eq!(parsed.turn_length, 1);
+	}
+
+	/// The promotion gate (shared by the on-chain client and the relayer mirror) fires exactly
+	/// when the signed source reaches `rotation_block` within the activation epoch, and never for
+	/// a source below it or in a different epoch.
+	#[test]
+	fn should_promote_validators_gate() {
+		let epoch_length = 200u64;
+		// Epoch 5 boundary at 1000; 21 validators, turn length 8 → rotation at 1087.
+		let rotation = rotation_block(1000, 21, 8);
+		assert_eq!(rotation, 1087);
+
+		// Source below the rotation block (outgoing set still signing) → no promotion.
+		assert!(!should_promote_validators(1086, rotation, epoch_length));
+		// Source exactly at the rotation block → promote.
+		assert!(should_promote_validators(1087, rotation, epoch_length));
+		// Source past the rotation block, same epoch → promote.
+		assert!(should_promote_validators(1150, rotation, epoch_length));
+		// Source at/after the rotation height but in a later epoch (a stale `next_validators`
+		// replayed an epoch on) → no promotion.
+		assert!(!should_promote_validators(1287, rotation, epoch_length));
+		// Source in an earlier epoch → no promotion.
+		assert!(!should_promote_validators(900, rotation, epoch_length));
+	}
+
+	/// The staging guard accepts a set that activates in `current_epoch + 1` and rejects a set
+	/// whose activation epoch is the current one (or any other), which can never promote.
+	#[test]
+	fn staged_set_activates_next_epoch_guard() {
+		let epoch_length = 200u64;
+		let current_epoch = 5u64;
+		// Set staged while in epoch 5 that activates in epoch 6 (rotation in [1200, 1399]).
+		assert!(staged_set_activates_next_epoch(
+			rotation_block(1200, 21, 8),
+			current_epoch,
+			epoch_length
+		));
+		// Set whose activation epoch is the current epoch 5 (rotation in [1000, 1199]) → rejected.
+		assert!(!staged_set_activates_next_epoch(
+			rotation_block(1000, 21, 8),
+			current_epoch,
+			epoch_length
+		));
+		// Set two epochs ahead → rejected.
+		assert!(!staged_set_activates_next_epoch(
+			rotation_block(1400, 21, 8),
+			current_epoch,
+			epoch_length
+		));
 	}
 }

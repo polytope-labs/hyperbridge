@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { ORDERBOOK_DOCUMENTS, OrderbookClient, graphqlEndpoint } from "@/orderbook/client"
+import { ORDERBOOK_DOCUMENTS, OrderbookClient, OrderbookRequestError, graphqlEndpoint } from "@/orderbook/client"
 
 /**
  * A deployment serves GraphQL under its base URL. An operator who configures the base alone used
@@ -45,9 +45,22 @@ describe("the orderbook endpoint", () => {
 		)
 		const client = new OrderbookClient("https://orderbook.hyperfx.finance/mainnet", 5_000)
 
-		expect(await client.supportsHeartbeatSigners()).toBe(true)
+		expect(await client.heartbeatSignerTtlSecs()).toBe(7200)
 		expect(JSON.parse(String(fetchMock.mock.calls[0][1]?.body)).query).not.toContain("minOrderTtlSecs")
 		expect(ORDERBOOK_DOCUMENTS.limits).not.toContain("heartbeatSignerTtlSecs")
+	})
+
+	it("reads an older orderbook refusing the heartbeat key field as no TTL, and a lost request as a failure", async () => {
+		const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+			new Response(JSON.stringify({ errors: [{ message: 'Unknown field "heartbeatSignerTtlSecs"' }] }), {
+				headers: { "content-type": "application/json" },
+			}),
+		)
+		const client = new OrderbookClient("https://orderbook.hyperfx.finance/mainnet", 5_000)
+		expect(await client.heartbeatSignerTtlSecs()).toBeNull()
+
+		fetchMock.mockRejectedValue(new Error("connection reset"))
+		await expect(client.heartbeatSignerTtlSecs()).rejects.toThrow(OrderbookRequestError)
 	})
 
 	it("names the endpoint in an HTTP failure, so a misconfigured URL is visible", async () => {

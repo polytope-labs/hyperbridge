@@ -392,12 +392,14 @@ export class OrderbookClient {
 		throw new OrderbookRequestError(`Unknown authorizeHeartbeatSigner result ${result.__typename}`)
 	}
 
-	/** Whether the orderbook takes heartbeat keys. One that predates them refuses the field this asks for. */
-	async supportsHeartbeatSigners(): Promise<boolean> {
-		return this.request(HEARTBEAT_SIGNER_TTL_QUERY, {}).then(
-			() => true,
-			() => false,
-		)
+	/**
+	 * How long an authorised heartbeat key lasts, or null on an orderbook that predates them. That
+	 * one refuses the field, which is an answer rather than a failure, so it is not logged as one.
+	 * A request that gets no answer still throws.
+	 */
+	async heartbeatSignerTtlSecs(): Promise<number | null> {
+		const body = await this.send<{ serverInfo: { heartbeatSignerTtlSecs: number } }>(HEARTBEAT_SIGNER_TTL_QUERY, {})
+		return body.errors?.length ? null : (body.data?.serverInfo.heartbeatSignerTtlSecs ?? null)
 	}
 
 	/**
@@ -420,6 +422,21 @@ export class OrderbookClient {
 	}
 
 	private async request<T>(query: string, variables: Record<string, unknown>): Promise<T> {
+		const body = await this.send<T>(query, variables)
+		if (body.errors?.length) {
+			const message = body.errors.map((error) => error.message).join("; ")
+			this.logger.warn({ url: this.url, message }, "Orderbook request failed")
+			throw new OrderbookRequestError(message)
+		}
+		if (!body.data) throw new OrderbookRequestError("Orderbook returned no data")
+		return body.data
+	}
+
+	/** Posts one GraphQL document and answers the body, errors and all. */
+	private async send<T>(
+		query: string,
+		variables: Record<string, unknown>,
+	): Promise<{ data?: T; errors?: { message: string }[] }> {
 		const controller = new AbortController()
 		const timer = setTimeout(() => controller.abort(), this.requestTimeoutMs)
 		let response: Response
@@ -442,17 +459,9 @@ export class OrderbookClient {
 			)
 		}
 
-		const body = (await response.json().catch((err) => {
+		return (await response.json().catch((err) => {
 			throw new OrderbookRequestError(`Orderbook returned a body that is not JSON: ${describe(err)}`)
 		})) as { data?: T; errors?: { message: string }[] }
-
-		if (body.errors?.length) {
-			const message = body.errors.map((error) => error.message).join("; ")
-			this.logger.warn({ url: this.url, message }, "Orderbook request failed")
-			throw new OrderbookRequestError(message)
-		}
-		if (!body.data) throw new OrderbookRequestError("Orderbook returned no data")
-		return body.data
 	}
 }
 

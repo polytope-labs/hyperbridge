@@ -220,7 +220,7 @@ describe.skipIf(!RUNNING && !BINARY)("a limit order on a running orderbook", () 
 
 	it("hands heartbeats to the heartbeat key once the solver is validated", async (ctx) => {
 		// An orderbook that predates heartbeat keys refuses the field, and the main key goes on signing.
-		if (!(await client.supportsHeartbeatSigners())) ctx.skip()
+		if ((await client.heartbeatSignerTtlSecs()) === null) ctx.skip()
 
 		const { order } = await service.create(REQUEST)
 		// A new solver is refused with SOLVER_NOT_VALIDATED until a validation cycle has read it.

@@ -193,6 +193,8 @@ export interface VaultHoldings {
 export class LimitOrderService {
 	private logger: Logger
 	private cachedLimits?: { limits: OrderbookLimits; readAt: number }
+	/** The orderbook's heartbeat key TTL, null when it predates heartbeat keys, reused like the limits. */
+	private cachedHeartbeatSignerTtl?: { secs: number | null; readAt: number }
 	private onEvent?: (event: LimitOrderEvent) => void
 	/** Re-signs in flight, by order id. A fill's resize waits one out rather than reposting alongside it. */
 	private readonly resigning = new Map<string, Promise<boolean>>()
@@ -856,8 +858,8 @@ export class LimitOrderService {
 	 */
 	async authorizeHeartbeatSigner(): Promise<void> {
 		if (!this.heartbeatSigner || !(await this.hasPostings())) return
-		// Held is checked after the probe, since the heartbeat clock may have authorised the key meanwhile.
-		if (!(await this.client.supportsHeartbeatSigners()) || this.delegatedHeartbeatSigner()) return
+		// Held is checked after the read, since the heartbeat clock may have authorised the key meanwhile.
+		if ((await this.heartbeatSignerTtlSecs()) === null || this.delegatedHeartbeatSigner()) return
 		this.heartbeatSignerUntil = await this.renewHeartbeatSigner(this.heartbeatSigner)
 	}
 
@@ -1227,15 +1229,29 @@ export class LimitOrderService {
 			.catch((err) => this.logger.warn({ err }, "Could not renew the heartbeat key"))
 	}
 
-	/** How long before the heartbeat key lapses to start renewing it. */
+	/**
+	 * How long before the heartbeat key lapses to start renewing it. Never more than half its
+	 * TTL, or a short one would put every tick inside the margin.
+	 */
 	private async renewalMarginMs(): Promise<number> {
-		return HEARTBEAT_SIGNER_RENEWAL_TICKS * (await this.heartbeatIntervalMs())
+		const ticksMs = HEARTBEAT_SIGNER_RENEWAL_TICKS * (await this.heartbeatIntervalMs())
+		const ttlSecs = await this.heartbeatSignerTtlSecs()
+		return ttlSecs === null ? ticksMs : Math.min(ticksMs, ttlSecs * 500)
+	}
+
+	private async heartbeatSignerTtlSecs(): Promise<number | null> {
+		const cached = this.cachedHeartbeatSignerTtl
+		if (cached && Date.now() - cached.readAt < LIMITS_TTL_MS) return cached.secs
+		const secs = await this.client.heartbeatSignerTtlSecs()
+		this.cachedHeartbeatSignerTtl = { secs, readAt: Date.now() }
+		return secs
 	}
 
 	/**
 	 * Has the main key authorise `heartbeatSigner`, answering when the authorisation lapses or
-	 * undefined when the orderbook refused it. A request that got no answer throws, leaving any
-	 * authorisation still held to run out on its own.
+	 * undefined when the orderbook refused it. A request that got no answer throws, and so does a
+	 * refusal of this message's timestamp alone, leaving any authorisation still held to run out
+	 * on its own while the next tick or reconciliation tries again.
 	 */
 	private renewHeartbeatSigner(heartbeatSigner: Signer): Promise<number | undefined> {
 		this.authorizing ??= this.signAndAuthorize(heartbeatSigner).finally(() => {
@@ -1254,6 +1270,9 @@ export class LimitOrderService {
 			message: { solver, signer, timestamp },
 		})
 		const result = await this.client.authorizeHeartbeatSigner({ solver, signer, timestamp, signature })
+		if (result.kind === "rejected" && TIMESTAMP_OBJECTIONS.includes(result.code)) {
+			throw new Error(`Orderbook refused the authorisation's timestamp: ${result.code}`)
+		}
 		if (result.kind === "rejected") {
 			this.logger.info(
 				{ code: result.code, message: result.message },

@@ -225,6 +225,54 @@ describe("the heartbeat key", () => {
 		},
 	)
 
+	it("keeps a held key when a renewal is refused only for its timestamp", async () => {
+		const client = fakeClient([])
+		const { service } = await authorised(client)
+		vi.useFakeTimers({ now: Date.now() + 7200_000 - 60_000 })
+		client.authorizationResults = [refusal("SIGNATURE_REUSED")]
+
+		await service.heartbeat()
+		await vi.waitFor(() => expect(client.authorizations).toHaveLength(2))
+		await service.heartbeat()
+		expect(client.heartbeatSignatures).toEqual(["0xbeat", "0xbeat"])
+	})
+
+	it("starts renewing no earlier than half way through a short TTL", async () => {
+		const client = fakeClient([])
+		// A 120 second TTL against a 30 second tick: five ticks would cover all of it.
+		client.heartbeatSignerTtlSecs = async () => 120
+		client.authorizationResults = [
+			{
+				kind: "authorized",
+				signer: HEARTBEAT_KEY,
+				authorizedUntil: new Date(Date.now() + 120_000).toISOString(),
+			},
+		]
+		const { service } = await authorised(client)
+
+		await service.heartbeat()
+		await service.heartbeat()
+		expect(client.heartbeatSignatures).toEqual(["0xbeat", "0xbeat"])
+		expect(client.authorizations).toHaveLength(1)
+	})
+
+	it("asks an older orderbook about heartbeat keys once per limits read, not every reconciliation", async () => {
+		const client = fakeClient([])
+		client.heartbeatSignersSupported = false
+		let reads = 0
+		const inner = client.heartbeatSignerTtlSecs.bind(client)
+		client.heartbeatSignerTtlSecs = () => {
+			reads += 1
+			return inner()
+		}
+		const { service } = await authorised(client)
+
+		await service.authorizeHeartbeatSigner()
+		await service.authorizeHeartbeatSigner()
+		expect(reads).toBe(1)
+		expect(client.authorizations).toEqual([])
+	})
+
 	it("never costs a heartbeat when the authorisation gets no answer", async () => {
 		const client = fakeClient([])
 		const { service } = await authorised(client)

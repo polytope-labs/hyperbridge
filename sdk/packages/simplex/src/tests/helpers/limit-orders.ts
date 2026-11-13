@@ -172,8 +172,8 @@ export function fakeClient(results: SubmitOrderResult[], cancels: CancelOrderRes
 				}
 			)
 		},
-		supportsHeartbeatSigners: async function (): Promise<boolean> {
-			return this.heartbeatSignersSupported
+		heartbeatSignerTtlSecs: async function (): Promise<number | null> {
+			return this.heartbeatSignersSupported ? 7200 : null
 		},
 		myOrders: async function (): Promise<PostedOrderPage> {
 			return { orders: this.entries, status: "ACTIVE" }

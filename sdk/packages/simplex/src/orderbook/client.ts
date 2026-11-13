@@ -1,6 +1,7 @@
 import type { HexString } from "@hyperbridge/sdk"
 import { defaultLoggerContext, type Logger, type LoggerContext } from "@/services/Logger"
 import type {
+	AuthorizeHeartbeatSignerResult,
 	CancelOrderResult,
 	FailureCode,
 	HeartbeatResult,
@@ -114,6 +115,26 @@ const HEARTBEAT_MUTATION = `
 	}
 `
 
+const AUTHORIZE_HEARTBEAT_SIGNER_MUTATION = `
+	mutation AuthorizeHeartbeatSigner($solver: Address!, $signer: Address!, $timestamp: Int!, $signature: Bytes!) {
+		authorizeHeartbeatSigner(solver: $solver, signer: $signer, timestamp: $timestamp, signature: $signature) {
+			__typename
+			... on HeartbeatSignerAuthorized { signer authorizedUntil }
+			... on MessageRejected { code message }
+		}
+	}
+`
+
+/**
+ * Asked on its own rather than with the rest of `serverInfo`: an orderbook that predates
+ * delegated heartbeats refuses the whole document over this one field.
+ */
+const HEARTBEAT_SIGNER_TTL_QUERY = `
+	query HeartbeatSignerTtl {
+		serverInfo { heartbeatSignerTtlSecs }
+	}
+`
+
 const MY_ORDERS_QUERY = `
 	query MyOrders($solver: Address!, $after: String) {
 		solver(address: $solver) {
@@ -150,6 +171,8 @@ export const ORDERBOOK_DOCUMENTS = {
 	submitOrder: SUBMIT_ORDER_MUTATION,
 	submitBid: SUBMIT_BID_MUTATION,
 	heartbeat: HEARTBEAT_MUTATION,
+	authorizeHeartbeatSigner: AUTHORIZE_HEARTBEAT_SIGNER_MUTATION,
+	heartbeatSignerTtl: HEARTBEAT_SIGNER_TTL_QUERY,
 	myOrders: MY_ORDERS_QUERY,
 	cancelOrder: CANCEL_ORDER_MUTATION,
 } as const
@@ -346,6 +369,40 @@ export class OrderbookClient {
 	}
 
 	/**
+	 * Lets `signer` heartbeat for `solver` until the returned `authorizedUntil`. Signed by the
+	 * solver's main key over EIP-712 AuthorizeHeartbeatSigner(solver, signer, timestamp), and it
+	 * replaces whichever heartbeat key the solver authorised before.
+	 */
+	async authorizeHeartbeatSigner(params: {
+		solver: HexString
+		signer: HexString
+		timestamp: number
+		signature: HexString
+	}): Promise<AuthorizeHeartbeatSignerResult> {
+		const { authorizeHeartbeatSigner: result } = await this.request<{ authorizeHeartbeatSigner: RawAuthorization }>(
+			AUTHORIZE_HEARTBEAT_SIGNER_MUTATION,
+			params,
+		)
+		if (result.__typename === "HeartbeatSignerAuthorized") {
+			return { kind: "authorized", signer: result.signer!, authorizedUntil: result.authorizedUntil ?? null }
+		}
+		if (result.__typename === "MessageRejected") {
+			return { kind: "rejected", code: result.code as MessageRejectionCode, message: result.message! }
+		}
+		throw new OrderbookRequestError(`Unknown authorizeHeartbeatSigner result ${result.__typename}`)
+	}
+
+	/**
+	 * How long an authorised heartbeat key lasts, or null on an orderbook that predates them. That
+	 * one refuses the field, which is an answer rather than a failure, so it is not logged as one.
+	 * A request that gets no answer still throws.
+	 */
+	async heartbeatSignerTtlSecs(): Promise<number | null> {
+		const body = await this.send<{ serverInfo: { heartbeatSignerTtlSecs: number } }>(HEARTBEAT_SIGNER_TTL_QUERY, {})
+		return body.errors?.length ? null : (body.data?.serverInfo.heartbeatSignerTtlSecs ?? null)
+	}
+
+	/**
 	 * One page of the solver's own orders as the orderbook holds them.
 	 *
 	 * A solver the orderbook has never accepted an order from is not an error:
@@ -365,6 +422,21 @@ export class OrderbookClient {
 	}
 
 	private async request<T>(query: string, variables: Record<string, unknown>): Promise<T> {
+		const body = await this.send<T>(query, variables)
+		if (body.errors?.length) {
+			const message = body.errors.map((error) => error.message).join("; ")
+			this.logger.warn({ url: this.url, message }, "Orderbook request failed")
+			throw new OrderbookRequestError(message)
+		}
+		if (!body.data) throw new OrderbookRequestError("Orderbook returned no data")
+		return body.data
+	}
+
+	/** Posts one GraphQL document and answers the body, errors and all. */
+	private async send<T>(
+		query: string,
+		variables: Record<string, unknown>,
+	): Promise<{ data?: T; errors?: { message: string }[] }> {
 		const controller = new AbortController()
 		const timer = setTimeout(() => controller.abort(), this.requestTimeoutMs)
 		let response: Response
@@ -387,17 +459,9 @@ export class OrderbookClient {
 			)
 		}
 
-		const body = (await response.json().catch((err) => {
+		return (await response.json().catch((err) => {
 			throw new OrderbookRequestError(`Orderbook returned a body that is not JSON: ${describe(err)}`)
 		})) as { data?: T; errors?: { message: string }[] }
-
-		if (body.errors?.length) {
-			const message = body.errors.map((error) => error.message).join("; ")
-			this.logger.warn({ url: this.url, message }, "Orderbook request failed")
-			throw new OrderbookRequestError(message)
-		}
-		if (!body.data) throw new OrderbookRequestError("Orderbook returned no data")
-		return body.data
 	}
 }
 
@@ -435,6 +499,14 @@ interface RawHeartbeat {
 	reactivatedOrders?: number
 	heartbeatDueBy?: string
 	solver?: { status: SolverStatus }
+	code?: string
+	message?: string
+}
+
+interface RawAuthorization {
+	__typename: string
+	signer?: string
+	authorizedUntil?: string | null
 	code?: string
 	message?: string
 }

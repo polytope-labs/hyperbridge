@@ -241,4 +241,11 @@ describe("validateConfig [orderbook]", () => {
 			/defaultTtlSecs must be an integer >= 900/,
 		)
 	})
+
+	it("refuses a quoted delegateHeartbeats, which would leave delegation on", () => {
+		const orderbook = { url: "https://example", delegateHeartbeats: "false" as unknown as boolean }
+		expect(() => validateConfig(withOrderbook(orderbook))).toThrow(
+			/delegateHeartbeats must be true or false; got the string "false"/,
+		)
+	})
 })

@@ -204,6 +204,11 @@ export interface OrderbookConfig {
 	/** How often to reconcile local limit orders against the orderbook, in seconds. */
 	reconcileIntervalSecs?: number
 	requestTimeoutMs?: number
+	/**
+	 * Whether heartbeats are signed by a key held in memory that the signer authorises
+	 * every couple of hours, rather than by the signer itself every tick. Defaults to true.
+	 */
+	delegateHeartbeats?: boolean
 }
 
 /**
@@ -341,6 +346,12 @@ function validateOrderbookConfig(orderbook: OrderbookConfig): void {
 		if (!Number.isInteger(value) || value < minimum) {
 			throw new Error(`orderbook.${name} must be an integer >= ${minimum}; got ${value}`)
 		}
+	}
+	// A quoted "false" would otherwise leave delegation on without a word.
+	if (orderbook.delegateHeartbeats !== undefined && typeof orderbook.delegateHeartbeats !== "boolean") {
+		throw new Error(
+			`orderbook.delegateHeartbeats must be true or false; got ${describeValue(orderbook.delegateHeartbeats)}`,
+		)
 	}
 }
 

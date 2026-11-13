@@ -229,6 +229,12 @@ The log names which check failed: `No profitable strategy found for order` means
     Simplex keeps the orderbook in sync on its own. It sends heartbeats so your postings stay live, withdraws expired orders every 30 seconds, and reconciles against the orderbook every `reconcileIntervalSecs` (5 minutes by default). Reconciliation reposts any order the orderbook has lost, cancels any entry that no longer has an order, and signs again any posting whose fill chain has moved to a different EntryPoint since it was posted. If the orderbook is unreachable when Simplex starts, filling still works, because Simplex prices from its local copy of your orders.
 </Callout>
 
+### Heartbeat key
+
+A heartbeat is a signed message, and Simplex sends one every 30 seconds. With an MPCVault or Turnkey signer that would be a billed remote signature each time, so Simplex generates a key in memory at startup and has your signer authorise it on the orderbook. That key then signs the heartbeats, and your signer only signs again to renew the authorisation a few heartbeats before it lapses, which is about every two hours. The key is never written to disk, so a restart generates a new one and costs one extra signature. Each authorisation is logged at `info`.
+
+Your signer signs the heartbeats itself whenever the key cannot. That happens on an orderbook that does not support heartbeat keys, for a new solver the orderbook has not validated yet, and after the orderbook refuses the key. A key that has only lapsed is authorised again straight away, and any other refusal waits for the next reconciliation, so two Simplex processes running as the same solver never take turns paying for it on every heartbeat. Set `delegateHeartbeats = false` under [`[orderbook]`](/developers/evm/simplex/configuration#orderbook) to always sign with your signer.
+
 ## Example: a two-sided USDC/cNGN market
 
 To buy and sell cNGN on Base with a 30 cNGN spread, post two orders:

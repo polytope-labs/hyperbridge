@@ -77,6 +77,7 @@ url = "https://orderbook.hyperfx.finance/mainnet/graphql"
 defaultTtlSecs        = 31536000  # lifetime of a new limit order (365 days). Minimum 900.
 reconcileIntervalSecs = 300       # how often postings are checked against the orderbook
 requestTimeoutMs      = 10000     # per-request timeout for orderbook calls
+delegateHeartbeats    = true      # sign heartbeats with an in-memory key the signer authorises
 ```
 
 | Field | Default | Description |
@@ -85,6 +86,7 @@ requestTimeoutMs      = 10000     # per-request timeout for orderbook calls
 | `defaultTtlSecs` | `31536000` (365 days) | How long a limit order lives when it is created without its own `ttlSecs`. This is the order's whole life, and nothing renews it. Must be at least `900`, and the orderbook may enforce a higher minimum. |
 | `reconcileIntervalSecs` | `300` | How often Simplex compares its open orders with the orderbook. It reposts any entry that has gone missing and cancels any entry no longer owned by an order. |
 | `requestTimeoutMs` | `10000` | Timeout for each orderbook request. |
+| `delegateHeartbeats` | `true` | Signs heartbeats with a key Simplex generates in memory at startup, which your signer authorises every couple of hours, instead of having your signer sign one every heartbeat. See [Heartbeat key](/developers/evm/simplex/limit-orders#heartbeat-key). |
 
 The limit orders themselves are not in this file. They are inventory you open and close while the filler runs, so they are stored in `bids.db` in the data directory and created from the dashboard or the [API](/developers/evm/simplex/api/limit-orders).
 

@@ -1,5 +1,6 @@
 import { join } from "node:path"
 import { formatUnits, toHex } from "viem"
+import { generatePrivateKey } from "viem/accounts"
 import { IntentFiller } from "@/core/filler"
 import { FXFiller } from "@/strategies/fx"
 import type { VaultConfig, FundingVenue } from "@/funding/types"
@@ -46,7 +47,7 @@ import { chainByChainId } from "@/cli/init/chains"
 import type { SimplexDataStore } from "@/data/types"
 import type { OrderScanner } from "@/scanner/types"
 import type { BinanceCexConfig } from "@/services/rebalancers/index"
-import type { Signer } from "@/services/wallet"
+import { privateKeySigner, type Signer } from "@/services/wallet"
 
 export interface BootOptions {
 	/** Where the config was loaded from, when it came from a file. Purely informational. */
@@ -436,6 +437,8 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 		vaultVenue,
 		// Read live from the filler: the operator can switch a chain's watch-only mode at runtime.
 		(chain) => intentFiller.getWatchOnly()[configService.getChainId(chain)] === true,
+		// A fresh key every start, never written anywhere: authorising it replaces the last one on the orderbook.
+		config.orderbook.delegateHeartbeats === false ? undefined : privateKeySigner(generatePrivateKey()),
 	)
 	// A fill has to work its limit order down and put the rest back on the book,
 	// which the filler cannot do until the service that owns the connection exists.

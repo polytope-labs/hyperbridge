@@ -33,6 +33,12 @@ export const DEFAULT_LIMIT_ORDER_TTL_SECONDS = 365 * 24 * 60 * 60
  */
 export const FALLBACK_HEARTBEAT_INTERVAL_MS = 60_000
 
+/**
+ * How many heartbeat ticks before its authorisation lapses the heartbeat key is
+ * authorised again, so a renewal that fails once still has ticks left to retry in.
+ */
+export const HEARTBEAT_SIGNER_RENEWAL_TICKS = 5
+
 export interface Book {
 	id: string
 	base: string
@@ -234,7 +240,7 @@ export type SubmitBidResult =
 	| { kind: "rejected"; code: RejectionCode; message: string }
 	| { kind: "failed"; code: FailureCode | "REQUEST_FAILED"; message: string; retryable: boolean }
 
-/** Why a signed message was refused, shared by `cancelOrder` and `heartbeat`. */
+/** Why a signed message was refused, shared by `cancelOrder`, `heartbeat` and `authorizeHeartbeatSigner`. */
 export const MESSAGE_REJECTION_CODES = [
 	"BAD_SIGNATURE",
 	"SOLVER_MISMATCH",
@@ -242,6 +248,9 @@ export const MESSAGE_REJECTION_CODES = [
 	"SIGNATURE_REUSED",
 	"UNKNOWN_ORDER",
 	"UNKNOWN_SOLVER",
+	// A heartbeat key is authorised only for a solver the orderbook has validated, and only for a while.
+	"SOLVER_NOT_VALIDATED",
+	"HEARTBEAT_SIGNER_EXPIRED",
 ] as const
 
 export type MessageRejectionCode = (typeof MESSAGE_REJECTION_CODES)[number]
@@ -250,6 +259,14 @@ export type SolverStatus = "ACTIVE" | "SUSPENDED"
 
 export type HeartbeatResult =
 	| { kind: "accepted"; status: SolverStatus; reactivatedOrders: number; heartbeatDueBy: string }
+	| { kind: "rejected"; code: MessageRejectionCode; message: string }
+
+/**
+ * The orderbook's answer to the main key authorising a heartbeat key. `authorizedUntil` is ISO-8601,
+ * and null only when the zero address revoked the key.
+ */
+export type AuthorizeHeartbeatSignerResult =
+	| { kind: "authorized"; signer: string; authorizedUntil: string | null }
 	| { kind: "rejected"; code: MessageRejectionCode; message: string }
 
 /** One page of the solver's own orders, as reconciliation walks them. */

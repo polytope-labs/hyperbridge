@@ -384,7 +384,7 @@ export class OrderbookClient {
 			params,
 		)
 		if (result.__typename === "HeartbeatSignerAuthorized") {
-			return { kind: "authorized", signer: result.signer!, authorizedUntil: result.authorizedUntil! }
+			return { kind: "authorized", signer: result.signer!, authorizedUntil: result.authorizedUntil ?? null }
 		}
 		if (result.__typename === "MessageRejected") {
 			return { kind: "rejected", code: result.code as MessageRejectionCode, message: result.message! }
@@ -392,13 +392,12 @@ export class OrderbookClient {
 		throw new OrderbookRequestError(`Unknown authorizeHeartbeatSigner result ${result.__typename}`)
 	}
 
-	/** How long an authorised heartbeat key lasts. Throws on an orderbook that predates them. */
-	async heartbeatSignerTtlSecs(): Promise<number> {
-		const { serverInfo } = await this.request<{ serverInfo: { heartbeatSignerTtlSecs: number } }>(
-			HEARTBEAT_SIGNER_TTL_QUERY,
-			{},
+	/** Whether the orderbook takes heartbeat keys. One that predates them refuses the field this asks for. */
+	async supportsHeartbeatSigners(): Promise<boolean> {
+		return this.request(HEARTBEAT_SIGNER_TTL_QUERY, {}).then(
+			() => true,
+			() => false,
 		)
-		return serverInfo.heartbeatSignerTtlSecs
 	}
 
 	/**
@@ -498,7 +497,7 @@ interface RawHeartbeat {
 interface RawAuthorization {
 	__typename: string
 	signer?: string
-	authorizedUntil?: string
+	authorizedUntil?: string | null
 	code?: string
 	message?: string
 }

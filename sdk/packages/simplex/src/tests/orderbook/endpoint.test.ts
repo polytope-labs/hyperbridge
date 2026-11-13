@@ -37,7 +37,7 @@ describe("the orderbook endpoint", () => {
 		expect(fetchMock.mock.calls[0][0]).toBe("https://orderbook.hyperfx.finance/mainnet/graphql")
 	})
 
-	it("asks for the heartbeat key's TTL on its own, so an older orderbook refuses that and nothing else", async () => {
+	it("asks whether heartbeat keys are supported on its own, so an older orderbook refuses that and nothing else", async () => {
 		const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
 			new Response(JSON.stringify({ data: { serverInfo: { heartbeatSignerTtlSecs: 7200 } } }), {
 				headers: { "content-type": "application/json" },
@@ -45,7 +45,7 @@ describe("the orderbook endpoint", () => {
 		)
 		const client = new OrderbookClient("https://orderbook.hyperfx.finance/mainnet", 5_000)
 
-		expect(await client.heartbeatSignerTtlSecs()).toBe(7200)
+		expect(await client.supportsHeartbeatSigners()).toBe(true)
 		expect(JSON.parse(String(fetchMock.mock.calls[0][1]?.body)).query).not.toContain("minOrderTtlSecs")
 		expect(ORDERBOOK_DOCUMENTS.limits).not.toContain("heartbeatSignerTtlSecs")
 	})

@@ -4,7 +4,6 @@ import type { LimitOrderSide, LimitOrderStore } from "@/data/types"
 import { ORDERBOOK_SCALE } from "@/orderbook/amounts"
 import { LimitOrderService, type CreateLimitOrderRequest, type VaultHoldings } from "@/orderbook/limit-orders"
 import type { LimitOrder } from "@/data/types"
-import { OrderbookRequestError } from "@/orderbook/client"
 import type { DelegationService } from "@/services/DelegationService"
 import type { Signer } from "@/services/wallet"
 import type {
@@ -72,7 +71,15 @@ const CNGN = "0x2222222222222222222222222222222222222222" as HexString
 const SOLVER = "0x3333333333333333333333333333333333333333" as HexString
 const ONE = ORDERBOOK_SCALE
 
-export const ORDERBOOK_FIXTURES = { CHAIN, USDC, CNGN, SOLVER, ONE }
+const HEARTBEAT_KEY = "0x5555555555555555555555555555555555555555" as HexString
+
+export const ORDERBOOK_FIXTURES = { CHAIN, USDC, CNGN, SOLVER, ONE, HEARTBEAT_KEY }
+
+/** An in-memory heartbeat key whose signature reads apart from the main key's `0xsig`. */
+export const heartbeatKey = {
+	address: HEARTBEAT_KEY,
+	signTypedData: async () => "0xbeat" as HexString,
+} as unknown as Signer
 
 export const LIMITS: OrderbookLimits = {
 	serverInfo: {
@@ -129,8 +136,8 @@ export function fakeClient(results: SubmitOrderResult[], cancels: CancelOrderRes
 		entries: [] as PostedOrder[],
 		heartbeatResults: [] as HeartbeatResult[],
 		authorizationResults: [] as AuthorizeHeartbeatSignerResult[],
-		/** Null for an orderbook that predates heartbeat keys. */
-		heartbeatSignerTtl: 7200 as number | null,
+		/** False for an orderbook that predates heartbeat keys. */
+		heartbeatSignersSupported: true,
 		limits: async () => LIMITS,
 		orderAt: async function (_solver: HexString, commitment: HexString) {
 			return this.entries.find((entry) => entry.commitment === commitment) ?? null
@@ -165,10 +172,8 @@ export function fakeClient(results: SubmitOrderResult[], cancels: CancelOrderRes
 				}
 			)
 		},
-		heartbeatSignerTtlSecs: async function (): Promise<number> {
-			if (this.heartbeatSignerTtl === null)
-				throw new OrderbookRequestError('Cannot query field "heartbeatSignerTtlSecs"')
-			return this.heartbeatSignerTtl
+		supportsHeartbeatSigners: async function (): Promise<boolean> {
+			return this.heartbeatSignersSupported
 		},
 		myOrders: async function (): Promise<PostedOrderPage> {
 			return { orders: this.entries, status: "ACTIVE" }

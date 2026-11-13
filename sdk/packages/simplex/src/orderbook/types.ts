@@ -261,9 +261,12 @@ export type HeartbeatResult =
 	| { kind: "accepted"; status: SolverStatus; reactivatedOrders: number; heartbeatDueBy: string }
 	| { kind: "rejected"; code: MessageRejectionCode; message: string }
 
-/** The orderbook's answer to the main key authorising a heartbeat key. `authorizedUntil` is ISO-8601. */
+/**
+ * The orderbook's answer to the main key authorising a heartbeat key. `authorizedUntil` is ISO-8601,
+ * and null only when the zero address revoked the key.
+ */
 export type AuthorizeHeartbeatSignerResult =
-	| { kind: "authorized"; signer: string; authorizedUntil: string }
+	| { kind: "authorized"; signer: string; authorizedUntil: string | null }
 	| { kind: "rejected"; code: MessageRejectionCode; message: string }
 
 /** One page of the solver's own orders, as reconciliation walks them. */

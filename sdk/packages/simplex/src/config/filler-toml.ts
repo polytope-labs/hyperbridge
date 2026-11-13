@@ -347,6 +347,12 @@ function validateOrderbookConfig(orderbook: OrderbookConfig): void {
 			throw new Error(`orderbook.${name} must be an integer >= ${minimum}; got ${value}`)
 		}
 	}
+	// A quoted "false" would otherwise leave delegation on without a word.
+	if (orderbook.delegateHeartbeats !== undefined && typeof orderbook.delegateHeartbeats !== "boolean") {
+		throw new Error(
+			`orderbook.delegateHeartbeats must be true or false; got ${describeValue(orderbook.delegateHeartbeats)}`,
+		)
+	}
 }
 
 export function validateConfig(config: FillerTomlConfig, cliWatchOnly = false): void {

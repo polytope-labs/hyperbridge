@@ -204,6 +204,11 @@ export interface OrderbookConfig {
 	/** How often to reconcile local limit orders against the orderbook, in seconds. */
 	reconcileIntervalSecs?: number
 	requestTimeoutMs?: number
+	/**
+	 * Whether heartbeats are signed by a key held in memory that the signer authorises
+	 * every couple of hours, rather than by the signer itself every tick. Defaults to true.
+	 */
+	delegateHeartbeats?: boolean
 }
 
 /**

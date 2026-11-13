@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { OrderbookClient, graphqlEndpoint } from "@/orderbook/client"
+import { ORDERBOOK_DOCUMENTS, OrderbookClient, graphqlEndpoint } from "@/orderbook/client"
 
 /**
  * A deployment serves GraphQL under its base URL. An operator who configures the base alone used
@@ -35,6 +35,19 @@ describe("the orderbook endpoint", () => {
 		await new OrderbookClient("https://orderbook.hyperfx.finance/mainnet", 5_000).limits()
 
 		expect(fetchMock.mock.calls[0][0]).toBe("https://orderbook.hyperfx.finance/mainnet/graphql")
+	})
+
+	it("asks for the heartbeat key's TTL on its own, so an older orderbook refuses that and nothing else", async () => {
+		const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+			new Response(JSON.stringify({ data: { serverInfo: { heartbeatSignerTtlSecs: 7200 } } }), {
+				headers: { "content-type": "application/json" },
+			}),
+		)
+		const client = new OrderbookClient("https://orderbook.hyperfx.finance/mainnet", 5_000)
+
+		expect(await client.heartbeatSignerTtlSecs()).toBe(7200)
+		expect(JSON.parse(String(fetchMock.mock.calls[0][1]?.body)).query).not.toContain("minOrderTtlSecs")
+		expect(ORDERBOOK_DOCUMENTS.limits).not.toContain("heartbeatSignerTtlSecs")
 	})
 
 	it("names the endpoint in an HTTP failure, so a misconfigured URL is visible", async () => {

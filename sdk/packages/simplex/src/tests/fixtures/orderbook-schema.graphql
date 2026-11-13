@@ -1,5 +1,7 @@
 scalar Address
 
+union AuthorizeHeartbeatSignerResult = HeartbeatSignerAuthorized | MessageRejected
+
 type BalanceConnection {
 	"""
 	Information to aid in pagination.
@@ -374,6 +376,18 @@ type HeartbeatAccepted {
 
 union HeartbeatResult = HeartbeatAccepted | MessageRejected
 
+type HeartbeatSignerAuthorized {
+	solver: Solver!
+	"""
+	The signer now authorised, or the zero address when this revoked it.
+	"""
+	signer: Address!
+	"""
+	When the authorisation lapses. Null when this revoked it.
+	"""
+	authorizedUntil: DateTime
+}
+
 """
 A pessimistic quote: one price, from the first level on the route, best first, deep enough to
 fill the whole trade by itself, or else the route's worst price when its levels together can.
@@ -432,6 +446,8 @@ enum MessageRejectionCode {
 	SIGNATURE_REUSED
 	UNKNOWN_ORDER
 	UNKNOWN_SOLVER
+	SOLVER_NOT_VALIDATED
+	HEARTBEAT_SIGNER_EXPIRED
 }
 
 type Mutation {
@@ -465,6 +481,12 @@ type Mutation {
 	Keep the signer's orders surfaced. Signs EIP-712 Heartbeat(solver, timestamp).
 	"""
 	heartbeat(solver: Address!, timestamp: Int!, signature: Bytes!): HeartbeatResult!
+	"""
+	Let `signer` sign the solver's heartbeats for `heartbeatSignerTtlSecs`, so the main key only
+	signs once per window. Signs EIP-712 AuthorizeHeartbeatSigner(solver, signer, timestamp)
+	with the solver's own key. The zero address revokes the current signer.
+	"""
+	authorizeHeartbeatSigner(solver: Address!, signer: Address!, timestamp: Int!, signature: Bytes!): AuthorizeHeartbeatSignerResult!
 }
 
 type Order {
@@ -1049,6 +1071,10 @@ type ServerInfo {
 	"""
 	signatureSkewSecs: Int!
 	"""
+	How long a heartbeat signer stays authorised before the solver has to authorise it again.
+	"""
+	heartbeatSignerTtlSecs: Int!
+	"""
 	Most UserOps one request may place, counted across all its `submitOrder`, `submitOrders`
 	and `submitBid` fields.
 	"""
@@ -1098,6 +1124,14 @@ type Solver {
 	"""
 	heartbeatDueBy: DateTime
 	suspendedAt: DateTime
+	"""
+	The key this solver authorised to sign its heartbeats, if any. It may have lapsed.
+	"""
+	heartbeatSigner: Address
+	"""
+	When the heartbeat signer stops being accepted, unless the solver authorises it again.
+	"""
+	heartbeatSignerAuthorizedUntil: DateTime
 	"""
 	The solver's balance rows, one per token per chain, oldest first, narrowed to a chain or a
 	symbol.

@@ -26,6 +26,7 @@ import type {
 	CancelOrderResult,
 	ChainInfo,
 	HeartbeatResult,
+	MessageRejectionCode,
 	OrderbookLimits,
 	OrderbookFilters,
 	OrderbookLevelQuery,
@@ -33,6 +34,7 @@ import type {
 	SubmitOrderResult,
 	TokenMinSize,
 } from "./types"
+import { HEARTBEAT_SIGNER_RENEWAL_TICKS } from "./types"
 
 /** How long a read of `serverInfo` and `books` is reused before being refreshed. */
 const LIMITS_TTL_MS = 5 * 60 * 1000
@@ -81,6 +83,15 @@ const HEARTBEAT_TYPES = {
 	EIP712Domain: EIP712_DOMAIN,
 	Heartbeat: [
 		{ name: "solver", type: "address" },
+		{ name: "timestamp", type: "uint64" },
+	],
+} as const
+
+const AUTHORIZE_HEARTBEAT_SIGNER_TYPES = {
+	EIP712Domain: EIP712_DOMAIN,
+	AuthorizeHeartbeatSigner: [
+		{ name: "solver", type: "address" },
+		{ name: "signer", type: "address" },
 		{ name: "timestamp", type: "uint64" },
 	],
 } as const
@@ -185,6 +196,10 @@ export class LimitOrderService {
 	private onEvent?: (event: LimitOrderEvent) => void
 	/** Re-signs in flight, by order id. A fill's resize waits one out rather than reposting alongside it. */
 	private readonly resigning = new Map<string, Promise<boolean>>()
+	/** When the orderbook stops taking heartbeats from {@link heartbeatSigner}, in ms. Unset while the main key heartbeats. */
+	private heartbeatSignerUntil?: number
+	/** An authorisation in flight, shared so the heartbeat and reconciliation clocks never pay for two. */
+	private authorizing?: Promise<boolean>
 
 	constructor(
 		private readonly store: LimitOrderStore,
@@ -205,6 +220,11 @@ export class LimitOrderService {
 		 * globally or for that chain). Live: the operator can flip it while running.
 		 */
 		private readonly isWatchOnly?: (chain: string) => boolean,
+		/**
+		 * A key held in memory that signs heartbeats once the main key has authorised it, so a
+		 * remote signer is not billed for one every tick. Without it the main key signs them all.
+		 */
+		private readonly heartbeatSigner?: Signer,
 	) {
 		this.logger = loggers.get("limit-orders")
 	}
@@ -808,7 +828,8 @@ export class LimitOrderService {
 	 * when there is nothing posted to keep alive.
 	 */
 	async heartbeat(): Promise<HeartbeatResult | null> {
-		if (!(await this.live()).some((order) => order.commitment)) return null
+		if (!(await this.hasPostings())) return null
+		await this.renewLapsingHeartbeatSigner()
 
 		const first = await this.signAndHeartbeat(nowSecs())
 		if (first.kind === "accepted") {
@@ -829,6 +850,21 @@ export class LimitOrderService {
 		return Math.max(1, Math.floor(heartbeatIntervalSecs / 2)) * 1000
 	}
 
+
+	/**
+	 * Authorises the heartbeat key when there are postings to keep alive and no
+	 * authorisation holds. Reconciliation calls this, which is how delegation is picked
+	 * back up after a refusal such as `SOLVER_NOT_VALIDATED`. An orderbook that does not
+	 * publish `heartbeatSignerTtlSecs` predates delegation, so the main key signs nothing for it.
+	 */
+	async authorizeHeartbeatSigner(): Promise<void> {
+		if (!this.heartbeatSigner || this.delegatedHeartbeatSigner() || !(await this.hasPostings())) return
+		const supported = await this.client.heartbeatSignerTtlSecs().then(
+			() => true,
+			() => false,
+		)
+		if (supported) await this.renewHeartbeatSigner(this.heartbeatSigner)
+	}
 
 	/**
 	 * Brings the orderbook's copy of the operator's orders back in line with ours.
@@ -1131,16 +1167,103 @@ export class LimitOrderService {
 		return entries
 	}
 
+	private async hasPostings(): Promise<boolean> {
+		return (await this.live()).some((order) => order.commitment)
+	}
+
+	/** The heartbeat key while its authorisation holds, or undefined when the main key has to sign. */
+	private delegatedHeartbeatSigner(): Signer | undefined {
+		return (this.heartbeatSignerUntil ?? 0) > Date.now() ? this.heartbeatSigner : undefined
+	}
+
+	/**
+	 * Signs with the heartbeat key while it is authorised. When the orderbook refuses it,
+	 * the key is authorised once more, and if that does not help the main key signs this
+	 * heartbeat and every one until reconciliation authorises the key again. A missed
+	 * heartbeat is a suspension, so no failure here may cost one.
+	 */
 	private async signAndHeartbeat(timestamp: number): Promise<HeartbeatResult> {
+		const delegated = this.delegatedHeartbeatSigner()
+		if (!delegated) return this.sendHeartbeat(this.signer, timestamp)
+
+		const first = await this.sendHeartbeat(delegated, timestamp)
+		if (!refusesHeartbeatSigner(first)) return first
+		this.logger.warn({ code: first.code }, "Orderbook refused the heartbeat key; authorising it again")
+		const second = (await this.renewHeartbeatSigner(delegated))
+			? await this.sendHeartbeat(delegated, timestamp)
+			: first
+		if (!refusesHeartbeatSigner(second)) return second
+
+		this.heartbeatSignerUntil = undefined
+		return this.sendHeartbeat(this.signer, timestamp)
+	}
+
+	private async sendHeartbeat(signer: Signer, timestamp: number): Promise<HeartbeatResult> {
 		const { eip712DomainName, eip712DomainVersion } = (await this.limits()).serverInfo
+		// The heartbeat is always the solver's, whichever key signs it.
 		const solver = this.signer.address
-		const signature = await this.signer.signTypedData({
+		const signature = await signer.signTypedData({
 			domain: { name: eip712DomainName, version: eip712DomainVersion },
 			types: HEARTBEAT_TYPES,
 			primaryType: "Heartbeat",
 			message: { solver, timestamp },
 		})
 		return this.client.heartbeat({ solver, timestamp, signature })
+	}
+
+	/** Re-authorises the heartbeat key a few ticks before its authorisation lapses. */
+	private async renewLapsingHeartbeatSigner(): Promise<void> {
+		const until = this.heartbeatSignerUntil
+		if (!this.heartbeatSigner || until === undefined) return
+		const marginMs = HEARTBEAT_SIGNER_RENEWAL_TICKS * (await this.heartbeatIntervalMs())
+		if (until - Date.now() > marginMs) return
+		await this.renewHeartbeatSigner(this.heartbeatSigner)
+	}
+
+	/**
+	 * Has the main key authorise `heartbeatSigner`, and answers whether the orderbook took
+	 * it. A refusal hands heartbeats back to the main key; a request that got no answer
+	 * leaves any authorisation still held to run out on its own.
+	 */
+	private renewHeartbeatSigner(heartbeatSigner: Signer): Promise<boolean> {
+		this.authorizing ??= this.signAndAuthorize(heartbeatSigner)
+			.then((until) => {
+				this.heartbeatSignerUntil = until
+				return until !== undefined
+			})
+			.catch((err) => {
+				this.logger.warn({ err }, "Could not authorise the heartbeat key")
+				return false
+			})
+			.finally(() => {
+				this.authorizing = undefined
+			})
+		return this.authorizing
+	}
+
+	/** When the authorisation lapses, in ms, or undefined when the orderbook refused it. */
+	private async signAndAuthorize(heartbeatSigner: Signer): Promise<number | undefined> {
+		const { eip712DomainName, eip712DomainVersion } = (await this.limits()).serverInfo
+		const solver = this.signer.address
+		const signer = heartbeatSigner.address
+		const timestamp = nowSecs()
+		const signature = await this.signer.signTypedData({
+			domain: { name: eip712DomainName, version: eip712DomainVersion },
+			types: AUTHORIZE_HEARTBEAT_SIGNER_TYPES,
+			primaryType: "AuthorizeHeartbeatSigner",
+			message: { solver, signer, timestamp },
+		})
+		const result = await this.client.authorizeHeartbeatSigner({ solver, signer, timestamp, signature })
+		if (result.kind === "rejected") {
+			this.logger.info(
+				{ code: result.code, message: result.message },
+				"Orderbook refused the heartbeat key; the main key signs heartbeats meanwhile",
+			)
+			return undefined
+		}
+		// One main key signature each, logged so an operator can match them against a signing bill.
+		this.logger.info({ signer, authorizedUntil: result.authorizedUntil }, "Main key authorised the heartbeat key")
+		return Date.parse(result.authorizedUntil)
 	}
 
 	/**
@@ -1379,6 +1502,21 @@ function spelledAs(book: { base: string; quote: string }, symbol: string): strin
 
 function nowSecs(): number {
 	return Math.floor(Date.now() / 1000)
+}
+
+/**
+ * The refusals that say the heartbeat key, not the heartbeat, is what the orderbook objects to.
+ * `SOLVER_MISMATCH` is a key the orderbook no longer holds for us, such as one replaced by
+ * another start.
+ */
+const HEARTBEAT_SIGNER_REFUSALS: readonly MessageRejectionCode[] = [
+	"HEARTBEAT_SIGNER_EXPIRED",
+	"SOLVER_MISMATCH",
+	"BAD_SIGNATURE",
+]
+
+function refusesHeartbeatSigner(result: HeartbeatResult): result is Extract<HeartbeatResult, { kind: "rejected" }> {
+	return result.kind === "rejected" && HEARTBEAT_SIGNER_REFUSALS.includes(result.code)
 }
 
 /** Whether this order is ours alone: a same-asset quote has no book to sit on. */

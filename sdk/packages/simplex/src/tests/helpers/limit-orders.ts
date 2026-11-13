@@ -4,8 +4,11 @@ import type { LimitOrderSide, LimitOrderStore } from "@/data/types"
 import { ORDERBOOK_SCALE } from "@/orderbook/amounts"
 import { LimitOrderService, type CreateLimitOrderRequest, type VaultHoldings } from "@/orderbook/limit-orders"
 import type { LimitOrder } from "@/data/types"
+import { OrderbookRequestError } from "@/orderbook/client"
 import type { DelegationService } from "@/services/DelegationService"
+import type { Signer } from "@/services/wallet"
 import type {
+	AuthorizeHeartbeatSignerResult,
 	CancelOrderResult,
 	HeartbeatResult,
 	OrderbookLimits,
@@ -113,12 +116,21 @@ export function postedOrder(overrides: Partial<PostedOrder> = {}): PostedOrder {
 export function fakeClient(results: SubmitOrderResult[], cancels: CancelOrderResult[] = []) {
 	const submitted: HexString[] = []
 	const heartbeats: number[] = []
+	/** The signature on each heartbeat, which tells the heartbeat key's from the main key's. */
+	const heartbeatSignatures: HexString[] = []
+	/** The heartbeat key each authorisation was for. */
+	const authorizations: HexString[] = []
 	return {
 		submitted,
 		heartbeats,
+		heartbeatSignatures,
+		authorizations,
 		/** Entries the orderbook holds for this solver, for reconciliation to walk. */
 		entries: [] as PostedOrder[],
 		heartbeatResults: [] as HeartbeatResult[],
+		authorizationResults: [] as AuthorizeHeartbeatSignerResult[],
+		/** Null for an orderbook that predates heartbeat keys. */
+		heartbeatSignerTtl: 7200 as number | null,
 		limits: async () => LIMITS,
 		orderAt: async function (_solver: HexString, commitment: HexString) {
 			return this.entries.find((entry) => entry.commitment === commitment) ?? null
@@ -129,8 +141,9 @@ export function fakeClient(results: SubmitOrderResult[], cancels: CancelOrderRes
 		},
 		cancelOrder: async (_params: { solver: HexString; commitment: HexString; timestamp: number; signature: HexString }) =>
 			cancels.shift() ?? ({ kind: "cancelled", commitment: "0xabc" as HexString } as CancelOrderResult),
-		heartbeat: async function (params: { timestamp: number }): Promise<HeartbeatResult> {
+		heartbeat: async function (params: { timestamp: number; signature: HexString }): Promise<HeartbeatResult> {
 			heartbeats.push(params.timestamp)
+			heartbeatSignatures.push(params.signature)
 			return (
 				this.heartbeatResults.shift() ?? {
 					kind: "accepted",
@@ -139,6 +152,23 @@ export function fakeClient(results: SubmitOrderResult[], cancels: CancelOrderRes
 					heartbeatDueBy: "2026-09-16T12:00:00.000Z",
 				}
 			)
+		},
+		authorizeHeartbeatSigner: async function (params: {
+			signer: HexString
+		}): Promise<AuthorizeHeartbeatSignerResult> {
+			authorizations.push(params.signer)
+			return (
+				this.authorizationResults.shift() ?? {
+					kind: "authorized",
+					signer: params.signer,
+					authorizedUntil: new Date(Date.now() + 7200_000).toISOString(),
+				}
+			)
+		},
+		heartbeatSignerTtlSecs: async function (): Promise<number> {
+			if (this.heartbeatSignerTtl === null)
+				throw new OrderbookRequestError('Cannot query field "heartbeatSignerTtlSecs"')
+			return this.heartbeatSignerTtl
 		},
 		myOrders: async function (): Promise<PostedOrderPage> {
 			return { orders: this.entries, status: "ACTIVE" }
@@ -163,6 +193,8 @@ export function limitOrderService(
 	delegationService?: DelegationService,
 	/** Whether a chain is watch-only, when the case cares. */
 	isWatchOnly?: (chain: string) => boolean,
+	/** The in-memory key heartbeats are signed with once authorised, when the case has one. */
+	heartbeatSigner?: Signer,
 ) {
 	const contractService = {
 		getTokenDecimals: async (token: string) => (token === USDC ? 6 : 18),
@@ -206,6 +238,7 @@ export function limitOrderService(
 		startingNonce,
 		vaultBalances,
 		isWatchOnly,
+		heartbeatSigner,
 	)
 	return { service, store }
 }

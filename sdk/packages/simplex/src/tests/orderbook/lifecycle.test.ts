@@ -92,6 +92,110 @@ describe("heartbeat", () => {
 	})
 })
 
+describe("the heartbeat key", () => {
+	afterEach(() => vi.useRealTimers())
+
+	const HEARTBEAT_KEY = "0x5555555555555555555555555555555555555555" as HexString
+	// biome-ignore lint/suspicious/noExplicitAny: the address and a recognisable signature are all the path reads
+	const heartbeatKey = { address: HEARTBEAT_KEY, signTypedData: async () => "0xbeat" as HexString } as any
+
+	/** A posted order, with the heartbeat key authorised the way reconciliation does it. */
+	const authorised = async (client = fakeClient([])) => {
+		const { service } = makeService(client, undefined, {}, () => 0n, undefined, undefined, undefined, heartbeatKey)
+		await service.create(REQUEST)
+		await service.authorizeHeartbeatSigner()
+		client.heartbeatSignatures.length = 0
+		return { client, service }
+	}
+
+	it("signs heartbeats once the main key has authorised it", async () => {
+		const { client, service } = await authorised()
+
+		expect(client.authorizations).toEqual([HEARTBEAT_KEY])
+		await service.heartbeat()
+		await service.heartbeat()
+		expect(client.heartbeatSignatures).toEqual(["0xbeat", "0xbeat"])
+		expect(client.authorizations).toHaveLength(1)
+	})
+
+	it("is not authorised again while its authorisation holds", async () => {
+		const { client, service } = await authorised()
+		await service.authorizeHeartbeatSigner()
+		expect(client.authorizations).toHaveLength(1)
+	})
+
+	it("is authorised again a few ticks before it lapses", async () => {
+		const { client, service } = await authorised()
+		vi.useFakeTimers({ now: Date.now() + 7200_000 - 60_000 })
+
+		await service.heartbeat()
+		expect(client.authorizations).toHaveLength(2)
+		expect(client.heartbeatSignatures).toEqual(["0xbeat"])
+	})
+
+	it("leaves the main key signing on an orderbook that predates it", async () => {
+		const client = fakeClient([])
+		client.heartbeatSignerTtl = null
+		const { service } = await authorised(client)
+
+		expect(client.authorizations).toEqual([])
+		await service.heartbeat()
+		expect(client.heartbeatSignatures).toEqual(["0xsig"])
+	})
+
+	it("leaves the main key signing until a solver is validated, and tries again on reconciliation", async () => {
+		const client = fakeClient([])
+		client.authorizationResults = [{ kind: "rejected", code: "SOLVER_NOT_VALIDATED", message: "not yet" }]
+		const { service } = await authorised(client)
+
+		await service.heartbeat()
+		expect(client.heartbeatSignatures).toEqual(["0xsig"])
+
+		await service.authorizeHeartbeatSigner()
+		await service.heartbeat()
+		expect(client.authorizations).toHaveLength(2)
+		expect(client.heartbeatSignatures).toEqual(["0xsig", "0xbeat"])
+	})
+
+	it("is authorised once more when the orderbook says it has lapsed", async () => {
+		const client = fakeClient([])
+		const { service } = await authorised(client)
+		client.heartbeatResults = [{ kind: "rejected", code: "HEARTBEAT_SIGNER_EXPIRED", message: "lapsed" }]
+
+		expect(await service.heartbeat()).toMatchObject({ kind: "accepted" })
+		expect(client.authorizations).toHaveLength(2)
+		expect(client.heartbeatSignatures).toEqual(["0xbeat", "0xbeat"])
+	})
+
+	it("hands the heartbeat to the main key when authorising again does not help", async () => {
+		const client = fakeClient([])
+		const { service } = await authorised(client)
+		// What the orderbook answers once another start has authorised a newer key.
+		client.heartbeatResults = [
+			{ kind: "rejected", code: "SOLVER_MISMATCH", message: "not the solver or its signer" },
+			{ kind: "rejected", code: "SOLVER_MISMATCH", message: "not the solver or its signer" },
+		]
+
+		expect(await service.heartbeat()).toMatchObject({ kind: "accepted" })
+		expect(client.heartbeatSignatures).toEqual(["0xbeat", "0xbeat", "0xsig"])
+
+		await service.heartbeat()
+		expect(client.heartbeatSignatures.at(-1)).toBe("0xsig")
+	})
+
+	it("never costs a heartbeat when the authorisation gets no answer", async () => {
+		const client = fakeClient([])
+		const { service } = await authorised(client)
+		client.heartbeatResults = [{ kind: "rejected", code: "HEARTBEAT_SIGNER_EXPIRED", message: "lapsed" }]
+		client.authorizeHeartbeatSigner = async () => {
+			throw new OrderbookRequestError("timed out")
+		}
+
+		expect(await service.heartbeat()).toMatchObject({ kind: "accepted" })
+		expect(client.heartbeatSignatures).toEqual(["0xbeat", "0xsig"])
+	})
+})
+
 describe("the operator's own expiry", () => {
 	/** An order expiring in an hour, and the clock wound past it. */
 	const withExpiry = async (results: SubmitOrderResult[] = []) => {
@@ -425,6 +529,24 @@ describe("LimitOrderLifecycle", () => {
 		lifecycle.stop()
 		await vi.advanceTimersByTimeAsync(300_000)
 		expect(client.heartbeats).toHaveLength(2)
+	})
+
+	it("authorises the heartbeat key on the way up", async () => {
+		const client = fakeClient([])
+		// biome-ignore lint/suspicious/noExplicitAny: the address and a signature are all the path reads
+		const { service } = makeService(client, undefined, {}, () => 0n, undefined, undefined, undefined, {
+			address: "0x5555555555555555555555555555555555555555",
+			signTypedData: async () => "0xbeat",
+		} as any)
+		await service.create(REQUEST)
+
+		const lifecycle = new LimitOrderLifecycle(service, {
+			reconcileIntervalSecs: 300,
+			reconcileTallies: async () => 0,
+		})
+		await lifecycle.start()
+		await vi.waitFor(() => expect(client.authorizations).toHaveLength(1))
+		lifecycle.stop()
 	})
 
 	it("reconciles on the way up rather than waiting out the first interval", async () => {

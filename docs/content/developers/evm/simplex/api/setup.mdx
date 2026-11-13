@@ -116,7 +116,7 @@ The key must be 64 hex characters, with or without `0x`. Anything else answers `
 
 ## POST /api/setup/generate-substrate-key
 
-Creates the Hyperbridge account that places bids. With an empty body, it generates a new account and returns its mnemonic and address. With `key`, a seed or mnemonic you already have, it returns only that account's address.
+Creates the optional Hyperbridge account that also places bids on Hyperbridge. With an empty body, it generates a new account and returns its mnemonic and address. With `key`, a seed or mnemonic you already have, it returns only that account's address.
 
 ```bash lineNumbers
 curl -s -X POST -H 'X-Simplex-UI: 1' $SIMPLEX/api/setup/generate-substrate-key
@@ -125,7 +125,7 @@ curl -s -X POST -H 'X-Simplex-UI: 1' $SIMPLEX/api/setup/generate-substrate-key
 
 ## POST /api/setup/check-substrate-balance
 
-Reads a Hyperbridge account's BRIDGE balance. Bids need BRIDGE for fees and deposits.
+Reads a Hyperbridge account's BRIDGE balance. Bids on Hyperbridge need BRIDGE for fees and deposits.
 
 ```bash lineNumbers
 curl -s -X POST $SIMPLEX/api/setup/check-substrate-balance \

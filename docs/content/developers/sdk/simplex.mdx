@@ -38,6 +38,8 @@ const config: SimplexConfig = {
         maxConcurrentOrders: 5,
         // Seconds between block scans per chain. Defaults to 3, minimum 0.1.
         blockScanIntervalSeconds: 3,
+        // Optional: a Hyperbridge account also places bids on Hyperbridge. Leave both
+        // out to bid on the HyperFX orderbook alone.
         substratePrivateKey: process.env.SUBSTRATE_KEY!,
         hyperbridgeWsUrl: "wss://hyperbridge-mainnet-rpc.blockops.network",
     },

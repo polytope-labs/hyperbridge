@@ -217,6 +217,8 @@ When a swap arrives, Simplex checks it against every open limit order. An order 
 
 The log names which check failed: `No profitable strategy found for order` means the order was priced, but at a loss.
 
+**Mainnet orders are screened before any bid.** Simplex asks the orderbook to screen the swap's user and beneficiary against Chainalysis, at the same time as it prices the swap and waits for confirmations. The orderbook screens each order once and keeps the verdict. A flagged swap is dropped. A swap that cannot be screened is dropped too, so nothing on mainnet is filled unscreened. The orderbook only answers a solver that has an active limit order on the book. Swaps whose source and destination are both testnets are not screened.
+
 **Partial fills.** If your matching orders cannot cover a whole swap, Simplex fills what they can. The gateway releases escrow in proportion to the output delivered. This works for same-chain and cross-chain orders. A partial fill collects no `order.fees`, because those go only to whoever completes the order, so partial fills are exempt from the fee check. Your rate's margin pays for their gas. Two kinds of order are never partially filled: orders carrying output calldata, which the gateway runs only on a full fill, and orders another solver has already partially filled.
 
 **Multi-leg orders** are priced leg by leg. A bid on only some of the legs is a partial fill, with the same limits.

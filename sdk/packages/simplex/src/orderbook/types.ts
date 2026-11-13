@@ -186,16 +186,18 @@ export const REJECTION_CODES = [
 	// A bid's alone: it is held to the solver's standing on the book, not to a TTL or a declaration.
 	"NO_LIMIT_ORDER",
 	"TOO_MANY_BIDS",
+	// Chainalysis screening flagged the solver's own address: refuses orders and bids alike.
+	"SOLVER_FLAGGED",
 ] as const
 
 export type RejectionCode = (typeof REJECTION_CODES)[number]
 
 /**
- * Why the orderbook could not decide an op at all. Ingest reads no chain, so it
- * is the database or the submission running out of time, and both are worth
- * another attempt.
+ * Why the orderbook could not decide an op at all: the database, the submission
+ * running out of time, or Chainalysis not answering for the submitting solver.
+ * All three are worth another attempt.
  */
-export const FAILURE_CODES = ["DATABASE_UNAVAILABLE", "TIMEOUT"] as const
+export const FAILURE_CODES = ["DATABASE_UNAVAILABLE", "TIMEOUT", "SCREENING_UNAVAILABLE"] as const
 
 export type FailureCode = (typeof FAILURE_CODES)[number]
 
@@ -234,7 +236,7 @@ export type SubmitBidResult =
 	| { kind: "rejected"; code: RejectionCode; message: string }
 	| { kind: "failed"; code: FailureCode | "REQUEST_FAILED"; message: string; retryable: boolean }
 
-/** Why a signed message was refused, shared by `cancelOrder` and `heartbeat`. */
+/** Why a signed message was refused, shared by `cancelOrder`, `heartbeat` and `screenOrder`. */
 export const MESSAGE_REJECTION_CODES = [
 	"BAD_SIGNATURE",
 	"SOLVER_MISMATCH",
@@ -242,9 +244,42 @@ export const MESSAGE_REJECTION_CODES = [
 	"SIGNATURE_REUSED",
 	"UNKNOWN_ORDER",
 	"UNKNOWN_SOLVER",
+	// `screenOrder` alone: the solver is not active, or holds no active, unexpired order on the book.
+	"NO_ACTIVE_ORDER",
 ] as const
 
 export type MessageRejectionCode = (typeof MESSAGE_REJECTION_CODES)[number]
+
+/**
+ * Why `screenOrder` could not screen an order. `SCREENING_DISABLED` is a server with no
+ * Chainalysis key, which is how the testnet orderbook runs.
+ */
+export const SCREENING_FAILURE_CODES = [
+	"SCREENING_DISABLED",
+	"MALFORMED_ORDER",
+	"ORDER_MISMATCH",
+	"ORDER_NOT_INDEXED",
+	"INDEXER_UNAVAILABLE",
+	"UNSUPPORTED_CHAIN",
+	"ORDER_NOT_ON_CHAIN",
+	"CHAIN_UNAVAILABLE",
+	"UNSCREENABLE_PARTY",
+	"PROVIDER_UNAVAILABLE",
+	"DATABASE_UNAVAILABLE",
+] as const
+
+export type ScreeningFailureCode = (typeof SCREENING_FAILURE_CODES)[number]
+
+/**
+ * The orderbook's answer to `screenOrder`. `screened` is the order's verdict, kept by the
+ * orderbook for good once any solver first asked; `flagged` when Chainalysis flags its user or a
+ * beneficiary. A `failed` answer that is `retryable` may succeed if signed again with a new
+ * timestamp and sent again.
+ */
+export type ScreenOrderResult =
+	| { kind: "screened"; commitment: HexString; flagged: boolean }
+	| { kind: "rejected"; code: MessageRejectionCode; message: string }
+	| { kind: "failed"; code: ScreeningFailureCode; message: string; retryable: boolean }
 
 export type SolverStatus = "ACTIVE" | "SUSPENDED"
 

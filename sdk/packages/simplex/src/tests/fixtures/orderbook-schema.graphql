@@ -361,6 +361,10 @@ scalar DateTime
 enum FailureCode {
 	DATABASE_UNAVAILABLE
 	TIMEOUT
+	"""
+	Chainalysis did not answer for the solver, after three retries. Nothing was placed.
+	"""
+	SCREENING_UNAVAILABLE
 }
 
 type HeartbeatAccepted {
@@ -432,6 +436,7 @@ enum MessageRejectionCode {
 	SIGNATURE_REUSED
 	UNKNOWN_ORDER
 	UNKNOWN_SOLVER
+	NO_ACTIVE_ORDER
 }
 
 type Mutation {
@@ -461,6 +466,24 @@ type Mutation {
 	Cancel one of the signer's orders. Signs EIP-712 CancelOrder(solver, commitment, timestamp).
 	"""
 	cancelOrder(solver: Address!, commitment: Bytes!, timestamp: Int!, signature: Bytes!): CancelOrderResult!
+	"""
+	Screen the parties to a swapper's order against Chainalysis: the user who placed it and each
+	beneficiary its output is paid to. Answers FLAGGED when any of them is, else UNFLAGGED; no
+	rating is given. Signs EIP-712 ScreenOrder(solver, commitment, timestamp), from an active
+	solver holding an active order on the book (`NO_ACTIVE_ORDER`).
+	
+	An order is screened once, on the first request about it, and its verdict kept for good:
+	every later request about it, from any solver, is answered from that verdict, and the order
+	is never screened again.
+	
+	The parties are read from the hyperbridge indexer. `order`, the swapper's order as
+	`abi.encode(order)`, is read instead while the indexer has not indexed it: it must hash to
+	`commitment`, and the gateway on its source chain must hold escrow for it
+	(`ORDER_NOT_ON_CHAIN`). A Chainalysis call that fails is retried three times; one still
+	failing fails the request (`PROVIDER_UNAVAILABLE`, retryable), and a party that is not an
+	EVM address cannot be screened (`UNSCREENABLE_PARTY`).
+	"""
+	screenOrder(solver: Address!, commitment: Bytes!, timestamp: Int!, signature: Bytes!, order: Bytes): ScreenOrderResult!
 	"""
 	Keep the signer's orders surfaced. Signs EIP-712 Heartbeat(solver, timestamp).
 	"""
@@ -591,6 +614,14 @@ type OrderEdge {
 type OrderRejected {
 	code: RejectionCode!
 	message: String!
+}
+
+"""
+Every party to the order, its user and each beneficiary, was screened live.
+"""
+type OrderScreened {
+	commitment: Bytes!
+	verdict: ScreeningVerdict!
 }
 
 enum OrderStatus {
@@ -952,6 +983,7 @@ enum RejectionCode {
 	MIN_ORDER_SIZE
 	NO_LIMIT_ORDER
 	TOO_MANY_BIDS
+	SOLVER_FLAGGED
 }
 
 """
@@ -1028,6 +1060,46 @@ type RouteLiquidity {
 	solverCount: Int!
 }
 
+union ScreenOrderResult = OrderScreened | MessageRejected | ScreeningFailed
+
+"""
+The order could not be screened. A retryable failure may succeed if the request is signed
+again with a new timestamp and sent again.
+"""
+type ScreeningFailed {
+	code: ScreeningFailureCode!
+	message: String!
+	retryable: Boolean!
+}
+
+enum ScreeningFailureCode {
+	SCREENING_DISABLED
+	MALFORMED_ORDER
+	ORDER_MISMATCH
+	ORDER_NOT_INDEXED
+	INDEXER_UNAVAILABLE
+	UNSUPPORTED_CHAIN
+	ORDER_NOT_ON_CHAIN
+	CHAIN_UNAVAILABLE
+	UNSCREENABLE_PARTY
+	PROVIDER_UNAVAILABLE
+	DATABASE_UNAVAILABLE
+}
+
+"""
+What Chainalysis says about the order's parties, screened for this request.
+"""
+enum ScreeningVerdict {
+	"""
+	A party's risk rating is one of the server's flag levels.
+	"""
+	FLAGGED
+	"""
+	No party's is.
+	"""
+	UNFLAGGED
+}
+
 """
 Limits and signing parameters solvers need to configure themselves.
 """
@@ -1075,13 +1147,18 @@ type ServerInfo {
 	"""
 	chains: [String!]!
 	"""
-	EIP-712 domain name for `CancelOrder` and `Heartbeat` messages.
+	EIP-712 domain name for `CancelOrder`, `Heartbeat` and `ScreenOrder` messages.
 	"""
 	eip712DomainName: String!
 	"""
-	EIP-712 domain version for `CancelOrder` and `Heartbeat` messages.
+	EIP-712 domain version for `CancelOrder`, `Heartbeat` and `ScreenOrder` messages.
 	"""
 	eip712DomainVersion: String!
+	"""
+	Whether Chainalysis screening is on: `[screening]` is configured with an API key, so
+	`screenOrder` answers and every order and bid's solver is screened live.
+	"""
+	screeningEnabled: Boolean!
 }
 
 enum Side {

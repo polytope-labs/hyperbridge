@@ -46,6 +46,19 @@ The order matched, but it is worth less than [`minOrderSizeUsd`](/developers/evm
 
 ---
 
+## **An order is dropped by screening**
+
+On mainnet, every order Simplex could fill is screened through the orderbook before it is bid on. The skip reason says what happened:
+
+| Skip reason | What it means |
+|---|---|
+| `Screening flagged the order` | Chainalysis flags the order's user or beneficiary. Simplex never bids on it. |
+| `Screening unavailable: NO_ACTIVE_ORDER` | The orderbook screens only for a solver with an active limit order on the book. Post a [limit order](/developers/evm/simplex/limit-orders), and check that heartbeats are not failing. |
+| `Screening unavailable: PROVIDER_UNAVAILABLE`, `ORDER_NOT_ON_CHAIN`, `REQUEST_FAILED` and similar | Simplex asked four times over about 3.5 seconds and got no verdict. The log line `Could not screen the order; dropping it` carries the orderbook's message. |
+| `Screening unavailable: SCREENING_DISABLED` | The orderbook has screening turned off, which only the testnet orderbook should. Check that `[orderbook] url` points at the mainnet orderbook. |
+
+---
+
 ## **A limit order is refused when posting**
 
 The form shows the reason. The common ones are:

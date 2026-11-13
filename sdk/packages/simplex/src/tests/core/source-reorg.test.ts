@@ -86,6 +86,8 @@ function build(options: { confirmationBlocks?: number; readContract?: ReadContra
 		undefined,
 		new MemoryDataStore().bids,
 	)
+	// Mainnet orders are screened before they are bid on; that is order-screening.test.ts's subject.
+	filler.setScreener({ screen: async () => ({ kind: "clear" }) })
 
 	// The evaluation is not what this file is about, but its result selects the
 	// path: a null passes on the order before any skip reason here is emitted.

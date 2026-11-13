@@ -230,7 +230,9 @@ impl BlockService {
 
 	pub async fn storage(&self, key: &[u8], at: u64) -> Result<Option<Vec<u8>>, BlockError> {
 		let hash = self.finalized_hash(at).await?;
-		self.rpc.storage(key, hash).await.map_err(|e| BlockError::from(e).at(at))
+		self.upstream(&format!("block {at}"), || self.rpc.storage(key, hash))
+			.await
+			.map_err(|e| BlockError::from(e).at(at))
 	}
 
 	pub async fn child_storage(
@@ -240,8 +242,7 @@ impl BlockService {
 		at: u64,
 	) -> Result<Option<Vec<u8>>, BlockError> {
 		let hash = self.finalized_hash(at).await?;
-		self.rpc
-			.child_storage(child_key, key, hash)
+		self.upstream(&format!("block {at}"), || self.rpc.child_storage(child_key, key, hash))
 			.await
 			.map_err(|e| BlockError::from(e).at(at))
 	}
@@ -600,6 +601,7 @@ mod tests {
 		fork_at: Option<u64>,
 		transient_failures: Mutex<HashMap<u64, u32>>,
 		transient_hits: AtomicUsize,
+		storage_failures: AtomicUsize,
 		delays: Mutex<HashMap<u64, Duration>>,
 	}
 
@@ -615,12 +617,27 @@ mod tests {
 				fork_at: None,
 				transient_failures: Mutex::new(HashMap::new()),
 				transient_hits: AtomicUsize::new(0),
+				storage_failures: AtomicUsize::new(0),
 				delays: Mutex::new(HashMap::new()),
 			}
 		}
 
 		fn fail_transient_at(&self, number: u64, times: u32) {
 			self.transient_failures.lock().unwrap().insert(number, times);
+		}
+
+		/** Rate-limits the next `times` storage reads, at any block. */
+		fn fail_storage(&self, times: usize) {
+			self.storage_failures.store(times, Ordering::SeqCst);
+		}
+
+		fn take_storage_failure(&self) -> Result<(), RpcError> {
+			match self.storage_failures.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |n| {
+				n.checked_sub(1)
+			}) {
+				Ok(_) => Err(RpcError::Transport("User error: RPC rate limit exceeded (-32999)".into())),
+				Err(_) => Ok(()),
+			}
 		}
 
 		fn delay_at(&self, number: u64, delay: Duration) {
@@ -672,6 +689,7 @@ mod tests {
 		}
 
 		async fn storage(&self, key: &[u8], at: H256) -> Result<Option<Vec<u8>>, RpcError> {
+			self.take_storage_failure()?;
 			self.inner.storage(key, at).await
 		}
 
@@ -681,6 +699,7 @@ mod tests {
 			key: &[u8],
 			at: H256,
 		) -> Result<Option<Vec<u8>>, RpcError> {
+			self.take_storage_failure()?;
 			self.inner.child_storage(child_key, key, at).await
 		}
 
@@ -854,6 +873,28 @@ mod tests {
 			Err(BlockError::NotFound(103))
 		));
 		assert_eq!(service.child_storage(b"child", b"key", 100).await.unwrap(), None);
+	}
+
+	#[tokio::test(start_paused = true)]
+	async fn storage_reads_retry_rate_limits() {
+		let rpc = Wrapped::new(fixture());
+		let service = new_service(rpc.clone(), 1000);
+
+		rpc.fail_storage(2);
+		assert_eq!(
+			service.storage(&timestamp_now_key(), 100).await.unwrap(),
+			Some(TIMESTAMP_MS.encode())
+		);
+		rpc.fail_storage(2);
+		assert_eq!(service.child_storage(b"child", b"key", 100).await.unwrap(), None);
+		assert!(service.cooling_down());
+
+		// `upstream_retries` is 2, so a third failure in a row reaches the caller.
+		rpc.fail_storage(3);
+		assert!(matches!(
+			service.storage(&timestamp_now_key(), 100).await,
+			Err(BlockError::At { number: 100, .. })
+		));
 	}
 
 	#[tokio::test]

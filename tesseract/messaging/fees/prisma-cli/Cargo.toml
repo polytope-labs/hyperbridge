@@ -5,4 +5,5 @@ edition = "2021"
 publish = false
 
 [dependencies]
-prisma-client-rust-cli = { git = "https://github.com/Brendonovich/prisma-client-rust.git", tag = "0.6.11", features = ["sqlite", "migrations"] }
+# Our fork of the archived upstream: 0.6.11 plus an import fix that Rust 1.98 and later need.
+prisma-client-rust-cli = { git = "https://github.com/polytope-labs/prisma-client-rust.git", tag = "0.6.11-polytope.1", features = ["sqlite", "migrations"] }

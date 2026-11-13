@@ -29,7 +29,7 @@ toml = "0.7.4"
 tracing = { workspace = true }
 tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
 primitive-types = { workspace = true }
-alloy = { workspace = true, features = ["provider-http", "rpc-types", "contract", "signer-local", "network", "providers", "transports", "reqwest", "provider-debug-api", "reqwest-default-tls"] }
+alloy = { workspace = true, features = ["provider-http", "rpc-types", "contract", "signer-local", "network", "providers", "transports", "reqwest", "provider-debug-api", "reqwest-native-tls"] }
 alloy-primitives = { workspace = true, default-features = true }
 alloy-sol-types = { workspace = true, default-features = true }
 

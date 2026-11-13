@@ -27,9 +27,10 @@ another file explicitly. Docker examples mount the file at `/data/filler-config.
     broadly shared backups, and restrict the containing directory to the operator account.
 </Callout>
 
-`simplex.substratePrivateKey` is a raw Substrate seed or mnemonic used to sign Hyperbridge bid
-extrinsics, and it is required in **every** signer mode. Turnkey and MPC Vault protect the EVM signer,
-but they do not remove this raw key from disk. Their API credentials are also stored in this file.
+`simplex.substratePrivateKey`, when you set it, is a raw Substrate seed or mnemonic used to sign
+Hyperbridge bid extrinsics. It is optional in every signer mode (see [Where bids go](#where-bids-go)).
+Turnkey and MPC Vault protect the EVM signer, but they do not remove this raw key from disk. Their API
+credentials are also stored in this file.
 
 ## `[simplex]`
 
@@ -43,10 +44,10 @@ blockScanIntervalSeconds = 3
 # trace | debug | info | warn | error
 logging             = "info"
 
-# Required for solver selection
-# Hex seed or mnemonic for Hyperbridge extrinsics
+# Optional — the Hyperbridge account that also places your bids on Hyperbridge.
+# Hex seed or mnemonic. Leave both out to bid on the HyperFX orderbook alone.
 substratePrivateKey = "0x.."
-# Hyperbridge WebSocket endpoint
+# Hyperbridge WebSocket endpoint. Required when substratePrivateKey is set.
 hyperbridgeWsUrl    = "wss://nexus.rpc.polytope.technology"
 
 # Order size in USD below which an order's fees must cover gas.
@@ -248,11 +249,20 @@ Fills execute as ERC-4337 UserOperations, which a bundler submits on chain. Simp
 
 Simplex can only watch any other chain. It [refuses to fill there](/developers/evm/simplex/troubleshooting), so list such a chain under `watchOnly`.
 
+## Where bids go
+
+Every bid is posted to the HyperFX orderbook named under `[orderbook]`. The orderbook accepts it only while you hold an open limit order on the leg's book for the order's destination chain, and serves it until its TTL.
+
+A Hyperbridge account is optional:
+
+- **Without `substratePrivateKey`**, Simplex bids on the orderbook alone. It needs no BRIDGE and opens no Hyperbridge connection.
+- **With `substratePrivateKey` and `hyperbridgeWsUrl`**, Simplex also submits each bid to Hyperbridge through `IntentsCoprocessor`, while the account holds enough BRIDGE for one bid's storage deposit and fee. When it does not, the bid goes to the orderbook alone, and Simplex logs a warning once. A bid on Hyperbridge locks its deposit until Simplex retracts the bid, which it does when the order is filled, or after an hour.
+
+A bid is placed when either venue holds it.
+
 ## Delegation & Gas Payment
 
-Simplex always uses the solver selection path: it submits a signed bid to Hyperbridge via `IntentsCoprocessor` rather than calling `fillOrder` directly. This requires `substratePrivateKey` and `hyperbridgeWsUrl` in `[simplex]`.
-
-Solver selection requires each solver's EOA to be delegated to the `SolverAccount` contract. Simplex performs this automatically at startup via EIP-7702:
+Simplex always uses the solver selection path: it places a signed bid, as [Where bids go](#where-bids-go) describes, rather than calling `fillOrder` directly. Solver selection requires each solver's EOA to be delegated to the `SolverAccount` contract. Simplex performs this automatically at startup via EIP-7702:
 
 - **Primary path** — builds a no-op UserOperation with an attached EIP-7702 authorization and submits it through Hyperbridge's bundler for the chain. When a paymaster is deployed on the chain — Circle Paymaster (USDC) preferred, then the `SimplexPaymaster` (USDC or USDT), live on Ethereum, Arbitrum, Base, Polygon and BSC — see [Mainnet Contract Addresses](/developers/evm/contract-addresses/mainnet) — and the solver holds at least one whole token of a supported stablecoin, the paymaster pays gas in that stablecoin so the solver never needs native gas for delegation. Tokens with EIP-2612 are authorized by permit; tokens without it (such as BSC stables) need a one-time funded `approve(Permit2, max)` from the solver EOA, after which every operation carries a per-op Permit2 signature and no native gas is needed again.
 - **Fallback** — if the bundler path fails or the chain has no paymaster, Simplex sends a direct type-0x04 delegation tx using the solver's native balance. On paymaster-less chains it also keeps the ERC-4337 EntryPoint deposit topped up to cover `targetGasUnits` (default 3,000,000) at the current gas price.

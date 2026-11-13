@@ -94,7 +94,8 @@ Simplex refuses to start, or to add or switch a chain, when a chain's bundler an
 
 ## **Bid submission fails**
 
-- Confirm that `substratePrivateKey` and `hyperbridgeWsUrl` are set, and that your Substrate account holds BRIDGE tokens.
+- A bid the orderbook refuses with `NO_LIMIT_ORDER` means you hold no open limit order on that leg's book for the order's destination chain.
+- If you set `substratePrivateKey`, confirm that `hyperbridgeWsUrl` is set too and that the account holds BRIDGE. Without enough BRIDGE for a bid's deposit and fee, Simplex still posts the bid to the orderbook, and logs once that bids go to the orderbook alone.
 - On chains with a paymaster (Circle or Simplex), make sure the solver's smart account holds at least 1 USDC (or 1 USDT for the `SimplexPaymaster`), so the paymaster can cover gas.
 - On chains without a paymaster, the solver needs a native balance. Simplex automatically tops up the ERC-4337 EntryPoint deposit to cover `targetGasUnits` (3M by default) at the current gas price.
 - If you use MPC Vault, verify that the client-signer container is running and reachable.

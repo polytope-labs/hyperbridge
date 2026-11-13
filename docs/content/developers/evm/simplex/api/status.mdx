@@ -63,7 +63,7 @@ curl -s $SIMPLEX/api/status
 | `chains` | The chain IDs the filler runs on. |
 | `chainLabels` | A display name for each chain ID. |
 | `configPath` | The config file that changes made through the API are saved to. Absent when the filler was started from a config object rather than a file. |
-| `addresses` | The solver's EVM address, and its Hyperbridge account. |
+| `addresses` | The solver's EVM address, and its Hyperbridge account as `substrate`, absent when none is configured. |
 
 While the setup wizard is open, it returns a shorter shape instead:
 

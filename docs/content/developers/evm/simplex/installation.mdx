@@ -48,7 +48,8 @@ version as `@hyperbridge/simplex`, so the version shown in the app identifies th
     in plaintext. Software running as your OS user remains within the desktop's trust boundary.
     Back up both `filler-config.toml` and `desktop-vault.json` and keep the recovery code somewhere
     private. A synced passkey alone cannot restore the config on another machine or OS account.
-    `simplex.substratePrivateKey` is required in every signer mode, including Turnkey and MPC Vault.
+    An optional `simplex.substratePrivateKey` is stored as a raw key in every signer mode, including
+    Turnkey and MPC Vault.
     See [Configuration](/developers/evm/simplex/configuration#where-the-config-lives-and-what-it-contains).
 </Callout>
 
@@ -105,7 +106,7 @@ simplex          # browser wizard: opens automatically when no config exists
 simplex init     # the same flow in the terminal
 ```
 
-Both ask only for the minimum needed to run: chains, signer and Hyperbridge account. Each mainnet chain starts with a set of [free public RPC endpoints](/developers/evm/simplex/configuration#free-rpc-endpoints), which you can replace, and fills through the [Hyperbridge bundler](/developers/evm/simplex/configuration#bundler), which neither wizard asks about. They point the `[orderbook]` section at the HyperFX orderbook for your network, and explain each value as they ask for it. Neither asks for prices. Once the solver is running, you set those by posting [limit orders](/developers/evm/simplex/limit-orders) from the dashboard. The browser wizard watches every mainnet chain and needs fills enabled on at least one. A chain's **Enable fills** unlocks once the filler wallet holds at least 5 of the gateway fee token there, USDC or USDT on BNB Chain, which the paymaster takes gas from. The paymaster charges far less per transaction and refunds what goes unused. BNB Chain also needs a little BNB once, for the paymaster's one-time approval. The browser wizard can also generate the Substrate account for bids and check its BRIDGE balance; when it finishes, the same process transitions straight into running the solver — no restart. A local web UI (status, pause/resume, balances, limit orders) stays available at `127.0.0.1:8686` while the solver runs (`--no-ui` for headless). Prefer a file-first workflow? Use the reference config below.
+Both ask only for the minimum needed to run: chains, signer and, optionally, a Hyperbridge account. Leave the account out to bid on the HyperFX orderbook alone. Each mainnet chain starts with a set of [free public RPC endpoints](/developers/evm/simplex/configuration#free-rpc-endpoints), which you can replace, and fills through the [Hyperbridge bundler](/developers/evm/simplex/configuration#bundler), which neither wizard asks about. They point the `[orderbook]` section at the HyperFX orderbook for your network, and explain each value as they ask for it. Neither asks for prices. Once the solver is running, you set those by posting [limit orders](/developers/evm/simplex/limit-orders) from the dashboard. The browser wizard watches every mainnet chain and needs fills enabled on at least one. A chain's **Enable fills** unlocks once the filler wallet holds at least 5 of the gateway fee token there, USDC or USDT on BNB Chain, which the paymaster takes gas from. The paymaster charges far less per transaction and refunds what goes unused. BNB Chain also needs a little BNB once, for the paymaster's one-time approval. If you want one, the browser wizard can generate the Hyperbridge account and check its BRIDGE balance. When it finishes, the same process transitions straight into running the solver — no restart. A local web UI (status, pause/resume, balances, limit orders) stays available at `127.0.0.1:8686` while the solver runs (`--no-ui` for headless). Prefer a file-first workflow? Use the reference config below.
 
 <Tabs items={["docker-compose.yml", "config.toml"]}>
 <Tab value="docker-compose.yml">
@@ -143,8 +144,10 @@ volumes:
 maxConcurrentOrders      = 5
 blockScanIntervalSeconds = 3
 logging                  = "info"
-hyperbridgeWsUrl         = "wss://nexus.rpc.polytope.technology"
-substratePrivateKey      = ""
+# Optional: a Hyperbridge account also places bids on Hyperbridge. Without one,
+# bids go to the HyperFX orderbook alone.
+# substratePrivateKey    = ""
+# hyperbridgeWsUrl       = "wss://nexus.rpc.polytope.technology"
 
 [simplex.signer]
 type                          = "mpcVault"

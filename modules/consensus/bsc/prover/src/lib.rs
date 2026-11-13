@@ -206,10 +206,15 @@ impl<C: Config> BscPosProver<C> {
 	}
 }
 
-// Get the maximum block that can be signed by the previous validator set before
-// authority set rotation occurs. Validator set change happens at
-// `block % epoch_length == validator_size / 2`, so this returns the smallest
-// `n >= block` satisfying that congruence.
+// Returns the smallest `n >= block` with `n % epoch_length == validator_size / 2`,
+// i.e. the pre-BOHR earliest point at which authority-set rotation could occur.
+//
+// This is a relayer-side scan bound only: the enactment loop starts here and walks
+// forward, locally verifying each candidate against the staged set, so a value at or
+// below the real rotation point is always safe. The authoritative, BOHR-aware rotation
+// height — `(validator_size / 2 + 1) * TurnLength - 1` into the epoch — is computed
+// on-chain by `bsc_verifier::primitives::rotation_block` from the epoch header's turn
+// length and is what the client actually gates promotion on.
 //
 // Closed-form (constant-time) — previously this walked one block at a time in a
 // loop which was O(epoch_length) in the worst case.

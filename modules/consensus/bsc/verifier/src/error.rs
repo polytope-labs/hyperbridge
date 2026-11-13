@@ -74,18 +74,6 @@ pub enum Error {
 	/// No epoch length configured for the client.
 	#[error("Epoch length not set")]
 	EpochLengthNotSet,
-	/// During an authority-set rotation, the source header must be from
-	/// the same epoch as the attested header.
-	#[error(
-		"Source header epoch {source_epoch} does not match attested epoch {attested_epoch} \
-		 during authority set rotation"
-	)]
-	SourceHeaderEpochMismatch {
-		/// Epoch derived from the attested header number.
-		attested_epoch: u64,
-		/// Epoch derived from the source header number.
-		source_epoch: u64,
-	},
 	/// An update would advance `finalized_height` into an epoch beyond the one the
 	/// client holds validators for, without a staged rotation. Accepting it would
 	/// strand the client: `current_epoch`/`current_validators` would lag a full
@@ -104,6 +92,20 @@ pub enum Error {
 		current_epoch: u64,
 		/// Whether a next validator set was staged for rotation.
 		next_validators_staged: bool,
+	},
+	/// A staged `next_validators` set did not belong to the epoch immediately after the
+	/// one the client currently holds. The honest rotation always stages the set of
+	/// `current_epoch + 1`; any other activation epoch means the ancestry pointed at the
+	/// current (or a past) epoch's own set, which can never legitimately promote.
+	#[error(
+		"Staged next validators activate in epoch {staged_epoch}, expected current epoch \
+		 {current_epoch} + 1"
+	)]
+	UnexpectedNextValidatorsEpoch {
+		/// Epoch in which the staged set would activate (derived from its `rotation_block`).
+		staged_epoch: u64,
+		/// The client's current validator-set epoch.
+		current_epoch: u64,
 	},
 	/// Fraud-proof header pair didn't satisfy "same height, different hash".
 	#[error("Invalid fraud proof")]

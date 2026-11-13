@@ -7,7 +7,10 @@ use alloc::{boxed::Box, collections::BTreeMap, vec, vec::Vec};
 pub use bsc_verifier::primitives::{Mainnet, Testnet};
 use bsc_verifier::{
 	ensure_finalized_epoch_consistent,
-	primitives::{compute_epoch, parse_extra, BscClientUpdate},
+	primitives::{
+		compute_epoch, parse_extra, should_promote_validators, staged_set_activates_next_epoch,
+		BscClientUpdate,
+	},
 	verify_bsc_header, Error, NextValidators, VerificationResult,
 };
 use codec::{Decode, Encode};
@@ -79,8 +82,8 @@ impl<
 		trusted_consensus_state: Vec<u8>,
 		proof: Vec<u8>,
 	) -> Result<(Vec<u8>, ismp::consensus::VerifiedCommitments), ismp::error::Error> {
-		let bsc_client_update = BscClientUpdate::decode(&mut &proof[..])
-			.map_err(|_| Error::DecodeBscClientUpdate)?;
+		let bsc_client_update =
+			BscClientUpdate::decode(&mut &proof[..]).map_err(|_| Error::DecodeBscClientUpdate)?;
 
 		let mut consensus_state = ConsensusState::decode(&mut &trusted_consensus_state[..])
 			.map_err(|_| Error::DecodeConsensusState)?;
@@ -94,33 +97,20 @@ impl<
 
 		let epoch_length = Pallet::<T>::epoch_length().ok_or(Error::EpochLengthNotSet)?;
 		if let Some(next_validators) = consensus_state.next_validators.clone() {
-			let attested_number = bsc_client_update.attested_header.number.low_u64();
-			let attested_epoch = compute_epoch(attested_number, epoch_length);
-			let rotation_epoch = compute_epoch(next_validators.rotation_block, epoch_length);
-			// Promote the pending validator set only when the submitted update is in the
-			// specific epoch where that set is scheduled to activate, and the attested
-			// header has reached the recorded `rotation_block`. The previous rule —
-			// "any update whose `attested.number % epoch_length` is past the rotation
-			// midpoint" — promoted the pending set in any later epoch, so an attacker
-			// holding the keys of a stale `next_validators` (e.g. retired or compromised
-			// validators) could submit an update many epochs later, get their set
-			// promoted to `current_validators`, and then have their forged
-			// `source_header`'s `state_root` accepted as a BSC state commitment. Binding
-			// rotation to the recorded `rotation_block`'s epoch prevents that reuse.
-			if attested_epoch == rotation_epoch && attested_number >= next_validators.rotation_block {
-				// During authority set rotation, the source header must be from the same epoch as
-				// the attested header.
-				let source_header_epoch =
-					compute_epoch(bsc_client_update.source_header.number.low_u64(), epoch_length);
-				if source_header_epoch != attested_epoch {
-					Err(Error::SourceHeaderEpochMismatch {
-						attested_epoch,
-						source_epoch: source_header_epoch,
-					})?
-				}
+			let source_number = bsc_client_update.source_header.number.low_u64();
+			// Promote the pending set only when the finalized, BLS-signed `source_header` has
+			// reached the recorded `rotation_block` in the epoch where that set activates. Gating
+			// on the signed source height (not the unsigned attested height) is what keeps a
+			// compromised outgoing set from staying in charge past its rotation — see
+			// [`should_promote_validators`]. The relayer mirrors this exact predicate.
+			if should_promote_validators(
+				source_number,
+				next_validators.rotation_block,
+				epoch_length,
+			) {
 				consensus_state.current_validators = next_validators.validators;
 				consensus_state.next_validators = None;
-				consensus_state.current_epoch = attested_epoch;
+				consensus_state.current_epoch = compute_epoch(source_number, epoch_length);
 			}
 		}
 
@@ -145,6 +135,25 @@ impl<
 		consensus_state.finalized_hash = hash;
 
 		if let Some(next_validators) = next_validators {
+			// A freshly staged set must belong to the epoch immediately after the one the client
+			// currently holds. Binding the ancestry to `source_header`'s own epoch boundary (in
+			// the verifier) still lets a caller stage the *current* epoch's own set as "next" —
+			// a source in epoch E carrying a full-epoch ancestry back to E's boundary extracts
+			// E's set, with a `rotation_block` already in the past. Such a set can never promote
+			// (its rotation epoch is E, which finality has left), and once finality crosses into
+			// E+1 it strands the client until governance resets it. Requiring the staged set's
+			// activation epoch to equal `current_epoch + 1` closes that path while leaving the
+			// honest flow (stage epoch E+1's set while in epoch E) untouched.
+			if !staged_set_activates_next_epoch(
+				next_validators.rotation_block,
+				consensus_state.current_epoch,
+				epoch_length,
+			) {
+				Err(Error::UnexpectedNextValidatorsEpoch {
+					staged_epoch: compute_epoch(next_validators.rotation_block, epoch_length),
+					current_epoch: consensus_state.current_epoch,
+				})?
+			}
 			consensus_state.next_validators = Some(next_validators);
 		}
 		consensus_state.finalized_height = finalized_header.number.low_u64();
@@ -212,12 +221,10 @@ impl<
 		// that carry the same vote. A genuine BSC equivocation is a slashable double
 		// vote: two quorum-signed votes for the same target block number but
 		// different target hashes.
-		let vote_1 = parse_extra::<H, C>(&header_1)
-			.map_err(|_| Error::InvalidFraudProof)?
-			.vote_data;
-		let vote_2 = parse_extra::<H, C>(&header_2)
-			.map_err(|_| Error::InvalidFraudProof)?
-			.vote_data;
+		let vote_1 =
+			parse_extra::<H, C>(&header_1).map_err(|_| Error::InvalidFraudProof)?.vote_data;
+		let vote_2 =
+			parse_extra::<H, C>(&header_2).map_err(|_| Error::InvalidFraudProof)?.vote_data;
 
 		if vote_1.target_number != vote_2.target_number {
 			Err(Error::InvalidFraudProof)?

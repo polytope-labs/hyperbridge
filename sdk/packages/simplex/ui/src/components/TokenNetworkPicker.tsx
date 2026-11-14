@@ -168,7 +168,7 @@ export function TokenNetworkPicker(props: {
 										</span>
 										<span className="token-picker-token-name">
 											<strong>
-												{token.name} <small>{token.symbol}</small>
+												{token.name} {token.name !== token.symbol && <small>{token.symbol}</small>}
 											</strong>
 											<span>{networkLabel(token.chainId)}</span>
 										</span>

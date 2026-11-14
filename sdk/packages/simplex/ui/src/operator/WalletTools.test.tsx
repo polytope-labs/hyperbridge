@@ -3,6 +3,7 @@ import { act } from "react"
 import { createRoot, type Root } from "react-dom/client"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { api } from "../api"
+import type { BalanceSnapshot } from "../types"
 import { WalletTools } from "./WalletTools"
 
 const USER_OP_HASH = `0x${"ab".repeat(32)}`
@@ -30,13 +31,18 @@ async function enter(input: HTMLInputElement, value: string) {
 	})
 }
 
-/** Opens the send sheet, fills the form and submits it through the review dialog. */
-async function send() {
+/** Opens the send dialog. */
+async function openSend() {
 	await click(element.querySelector<HTMLElement>(".operator-tool-row")!)
-	const sheet = document.querySelector<HTMLElement>('[role="dialog"]')!
+	return document.querySelector<HTMLElement>('[role="dialog"]')!
+}
+
+/** Opens the send dialog, fills the form and submits it through the review dialog. */
+async function send() {
+	const sheet = await openSend()
 	await enter(sheet.querySelector<HTMLInputElement>('input[placeholder="0.00"]')!, "25")
-	await enter(sheet.querySelector<HTMLInputElement>('input[placeholder="0x…"]')!, RECIPIENT)
-	await click(button(sheet, "Review transfer"))
+	await enter(sheet.querySelector<HTMLInputElement>('input[placeholder="Recipient address"]')!, RECIPIENT)
+	await click(button(sheet, "Send"))
 	const review = [...document.querySelectorAll<HTMLElement>('[role="dialog"]')].at(-1)!
 	await click(button(review, "Send 25 ETH"))
 	await flush()
@@ -77,12 +83,13 @@ afterEach(async () => {
 	vi.restoreAllMocks()
 })
 
-const render = async () => {
+const render = async (balances?: BalanceSnapshot) => {
 	await act(async () =>
 		root.render(
 			<WalletTools
 				chains={[8453]}
 				chainLabels={{ "8453": "Base" }}
+				balances={balances}
 				onBalancesChanged={onBalancesChanged}
 				onOpenChains={vi.fn()}
 			/>,
@@ -92,6 +99,37 @@ const render = async () => {
 }
 
 describe("send funds", () => {
+	it("fills the amount from a share of the balance, rounded down", async () => {
+		await render({
+			updatedAt: 1,
+			status: "fresh",
+			issues: [],
+			chains: [{ chainId: 8453, native: { symbol: "ETH", amount: 1.0000009 }, assets: [] }],
+		} as unknown as BalanceSnapshot)
+		const sheet = await openSend()
+		const amount = sheet.querySelector<HTMLInputElement>('input[placeholder="0.00"]')!
+		expect(sheet.querySelector(".send-asset-balance")?.textContent).toBe("1")
+
+		await click(button(sheet, "Max"))
+		expect(amount.value).toBe("1")
+		expect(button(sheet, "Max").getAttribute("aria-pressed")).toBe("true")
+		await click(button(sheet, "50%"))
+		expect(amount.value).toBe("0.5")
+	})
+
+	it("offers no share of a balance it has not read, and says when an address is not one", async () => {
+		await render()
+		const sheet = await openSend()
+		expect(button(sheet, "Max").disabled).toBe(true)
+
+		const recipient = sheet.querySelector<HTMLInputElement>('input[placeholder="Recipient address"]')!
+		await enter(recipient, "0x1234")
+		expect(sheet.querySelector(".send-address-note")?.textContent).toBe("Enter a valid address")
+		expect(button(sheet, "Send").disabled).toBe(true)
+		await enter(recipient, RECIPIENT)
+		expect(sheet.querySelector(".send-address-note")?.textContent).toBe("Valid address")
+	})
+
 	it("shows the explorer-linked tx hash on a confirmed send", async () => {
 		await render()
 		await send()

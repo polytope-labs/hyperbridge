@@ -698,18 +698,6 @@
 		padding-left: 1rem;
 	}
 
-	.operator-send-grid {
-		grid-template-columns: 1fr;
-	}
-
-	.operator-send-wide,
-	.operator-send-actions {
-		grid-column: auto;
-	}
-
-	.operator-send-actions button {
-		width: 100%;
-	}
 }
 
 @media (prefers-reduced-motion: reduce) {

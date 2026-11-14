@@ -1402,17 +1402,6 @@ button.operator-tool-row {
 	margin: 0;
 }
 
-.operator-send-grid {
-	display: grid;
-	grid-template-columns: repeat(2, minmax(0, 1fr));
-	gap: 0 0.8rem;
-	margin-top: 1.25rem;
-}
-
-.operator-send-grid .field {
-	margin: 0 0 0.9rem;
-}
-
 .operator-send-balance {
 	display: inline-flex;
 	align-items: baseline;
@@ -1434,15 +1423,301 @@ button.operator-tool-row {
 	color: var(--warn);
 }
 
-.operator-send-wide,
-.operator-send-actions {
-	grid-column: 1 / -1;
+/*
+ * Send: the asset on its network, the recipient, then the amount in one card with
+ * shares of the balance under it. The same layout as the HyperFX app's send.
+ */
+.market-dialog.send-dialog {
+	width: min(30rem, calc(100vw - 2rem));
 }
 
-.operator-send-actions {
+.send-form {
+	display: grid;
+	gap: 1rem;
+	/* The dialog body has horizontal padding only, so the form supplies its own. */
+	padding: 0.5rem 0 1.5rem;
+}
+
+.send-form > p {
+	margin: 0;
+}
+
+.send-asset {
+	display: grid;
+	gap: 0.6rem;
+}
+
+.send-asset .field {
+	margin: 0;
+}
+
+.send-asset .send-review-asset > svg {
+	width: 2rem;
+	height: 2rem;
+	color: var(--muted);
+}
+
+.send-asset-balance {
+	margin-left: auto;
+	font-size: 0.9375rem;
+	font-weight: 500;
+	font-variant-numeric: tabular-nums;
+	white-space: nowrap;
+}
+
+.send-asset-balance:not([data-status="available"]) {
+	color: var(--muted);
+	font-family: var(--font-sans);
+	font-size: 0.75rem;
+	font-weight: 400;
+}
+
+.send-asset .token-picker-trigger > svg {
+	margin-left: 0;
+}
+
+button.send-custom-toggle {
+	justify-self: start;
+	min-height: 0;
+	padding: 0;
+	border: 0;
+	background: none;
+	color: var(--muted);
+	font-size: 0.75rem;
+	font-weight: 400;
+	text-decoration: underline;
+	text-underline-offset: 0.2em;
+	cursor: pointer;
+}
+
+button.send-custom-toggle:hover {
+	color: var(--text-secondary);
+}
+
+.send-address {
+	display: grid;
+	gap: 0.375rem;
+}
+
+.send-address > label {
+	color: var(--muted);
+	font-size: 0.75rem;
+}
+
+.send-address-field {
 	display: flex;
-	justify-content: flex-end;
-	padding-top: 0.35rem;
+	align-items: center;
+	gap: 0.5rem;
+	min-height: 3.125rem;
+	padding: 0 0.5rem 0 0.75rem;
+	border: 1px solid var(--border);
+	border-radius: 1rem;
+	background: var(--control);
+	transition: border-color 180ms var(--ease-out);
+}
+
+.send-address-field:focus-within {
+	border-color: var(--border-strong);
+}
+
+.send-address-field input[type="text"] {
+	flex: 1;
+	min-width: 0;
+	min-height: 0;
+	padding: 0;
+	border: 0;
+	border-radius: 0;
+	background: transparent;
+	box-shadow: none;
+	font-size: 0.9375rem;
+	outline: none;
+}
+
+.send-address-status {
+	display: inline-flex;
+	flex: 0 0 auto;
+	align-items: center;
+	justify-content: center;
+	width: 1.5rem;
+	height: 1.5rem;
+	border-radius: 999px;
+	color: var(--muted);
+}
+
+.send-address-status svg,
+.send-address-status .chain-logo {
+	width: 1.5rem;
+	height: 1.5rem;
+}
+
+button.send-paste {
+	display: inline-flex;
+	flex: 0 0 auto;
+	align-items: center;
+	justify-content: center;
+	width: 2rem;
+	height: 2rem;
+	min-height: 0;
+	padding: 0;
+	border: 0;
+	border-radius: 0.5rem;
+	background: none;
+	color: var(--muted);
+	cursor: pointer;
+}
+
+button.send-paste:hover {
+	background: var(--card-raised);
+	color: var(--text);
+}
+
+button.send-paste svg {
+	width: 1.1rem;
+	height: 1.1rem;
+}
+
+.send-address-note {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.25rem;
+	margin: 0;
+	font-size: 0.75rem;
+}
+
+.send-address-note svg {
+	width: 0.875rem;
+	height: 0.875rem;
+}
+
+.send-address-note[data-state="ok"] {
+	color: var(--ok);
+}
+
+.send-address-note[data-state="error"],
+.send-amount-error {
+	color: var(--err);
+}
+
+.send-amount {
+	padding: 0.75rem;
+	border: 1px solid var(--border-strong);
+	border-radius: 0.75rem;
+	background: var(--control);
+	transition: border-color 180ms var(--ease-out);
+}
+
+.send-amount:focus-within {
+	border-color: var(--text-secondary);
+}
+
+.send-amount[data-invalid],
+.send-amount[data-invalid]:focus-within {
+	border-color: var(--err);
+}
+
+.send-amount-head {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 0.75rem;
+}
+
+.send-amount-head > label {
+	color: var(--muted);
+	font-size: 0.875rem;
+	font-weight: 500;
+}
+
+.send-amount-chip {
+	display: inline-flex;
+	flex: 0 0 auto;
+	align-items: center;
+	gap: 0.5rem;
+	padding: 0.4rem 0.75rem;
+	border: 1px solid var(--border);
+	border-radius: 999px;
+	background: var(--card);
+	font-size: 0.875rem;
+	font-weight: 500;
+}
+
+.send-amount-chip .token-icon {
+	width: 1.25rem;
+	height: 1.25rem;
+}
+
+.send-amount input[type="text"] {
+	width: 100%;
+	min-height: 0;
+	height: 3rem;
+	margin-top: 0.75rem;
+	padding: 0;
+	border: 0;
+	border-radius: 0;
+	background: transparent;
+	box-shadow: none;
+	font-size: 1.875rem;
+	font-weight: 500;
+	outline: none;
+}
+
+.send-amount[data-invalid] input[type="text"] {
+	color: var(--err);
+}
+
+.send-amount-error {
+	margin: 0.25rem 0 0;
+	font-size: 0.75rem;
+}
+
+.send-amount-foot {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	justify-content: space-between;
+	gap: 0.5rem;
+	margin-top: 0.75rem;
+}
+
+.send-percentages {
+	display: flex;
+	gap: 0.375rem;
+	margin-left: auto;
+}
+
+.send-percentages button {
+	height: 1.5rem;
+	min-height: 0;
+	padding: 0.25rem 0.6rem;
+	border: 0;
+	border-radius: 999px;
+	background: var(--card-raised);
+	color: var(--muted);
+	font-size: 0.75rem;
+	line-height: 1;
+	cursor: pointer;
+}
+
+.send-percentages button:hover:not(:disabled) {
+	color: var(--text);
+}
+
+.send-percentages button[aria-pressed="true"],
+.send-percentages button[aria-pressed="true"]:hover:not(:disabled) {
+	background: var(--text);
+	color: var(--accent-text);
+}
+
+.send-percentages button:disabled {
+	cursor: default;
+	opacity: 0.5;
+}
+
+.send-actions {
+	display: grid;
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+	gap: 0.75rem;
+	padding-top: 0.25rem;
 }
 
 .operator-send-tx-link {

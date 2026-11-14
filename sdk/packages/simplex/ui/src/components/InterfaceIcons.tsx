@@ -52,6 +52,24 @@ export function CopyIcon(props: IconProps) {
 	)
 }
 
+export function PasteIcon(props: IconProps) {
+	return (
+		<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" {...props}>
+			<path d="M7.5 4.5H6A1.5 1.5 0 0 0 4.5 6v9A1.5 1.5 0 0 0 6 16.5h8a1.5 1.5 0 0 0 1.5-1.5V6A1.5 1.5 0 0 0 14 4.5h-1.5" />
+			<rect x="7.5" y="3" width="5" height="3" rx="1" />
+			<path d="M10 9v4.5m0 0 1.75-1.75M10 13.5l-1.75-1.75" strokeLinecap="round" strokeLinejoin="round" />
+		</svg>
+	)
+}
+
+export function DashedCircleIcon(props: IconProps) {
+	return (
+		<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" {...props}>
+			<circle cx="10" cy="10" r="6.5" strokeDasharray="2.6 2.5" strokeLinecap="round" />
+		</svg>
+	)
+}
+
 export function ExternalLinkIcon(props: IconProps) {
 	return (
 		<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" {...props}>

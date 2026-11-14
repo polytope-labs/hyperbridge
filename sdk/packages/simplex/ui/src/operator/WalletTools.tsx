@@ -1,18 +1,14 @@
 import { useCallback, useLayoutEffect, useRef, useState } from "react"
 import { toast } from "sonner"
-import { chainByChainId } from "@/cli/init/chains"
 import { formatChainKey, parseChainKey } from "@/config/interpolated-curve"
 import { api } from "../api"
-import { SelectField } from "../components/AppSelect"
-import { SendConfirmDialog, type SendSummary } from "../components/SendConfirmDialog"
-import { ExternalLinkIcon } from "../components/InterfaceIcons"
 import { OperationLink } from "../components/OperationLink"
 import { OperatorSheet } from "../components/OperatorSheet"
 import { VaultRowsEditor } from "../components/VaultRowsEditor"
 import { useAction, usePolling } from "../lib/hooks"
 import { vaultRowsToToml, type VaultRowDraft } from "../lib/vault-rows"
-import type { BalanceSnapshot, ConfigDto, SendTokenOption, VaultSweepDto } from "../types"
-import { sendTokenOptionLabel, sendTokenOptionsForChain } from "./sendModel"
+import type { BalanceSnapshot, ConfigDto, VaultSweepDto } from "../types"
+import { SendDialog } from "./SendDialog"
 
 /** "2 vaults connected · Base, Arbitrum" for the drawer's summary line. */
 function describeConnectedVaults(vaults: ConfigDto["vaults"], chainLabel: (id: number | string) => string): string {
@@ -153,20 +149,15 @@ export function WalletTools(props: {
 				/>
 			</div>
 
-			<OperatorSheet
+			<SendDialog
 				open={panel === "send"}
 				onClose={() => setPanel(undefined)}
-				title="Send funds"
-				description="Transfer assets from the filler wallet. Confirm the recipient and network carefully."
-			>
-				<SendCard
-					chains={props.chains}
-					chainLabel={chainLabel}
-					sendTokens={config?.sendTokens}
-					balances={props.balances}
-					onSent={props.onBalancesChanged}
-				/>
-			</OperatorSheet>
+				chains={props.chains}
+				chainLabel={chainLabel}
+				sendTokens={config?.sendTokens}
+				balances={props.balances}
+				onSent={props.onBalancesChanged}
+			/>
 
 			<OperatorSheet
 				open={panel === "vaults"}
@@ -291,253 +282,4 @@ function describeSweep(result: VaultSweepDto, chainLabel: (id: number | string) 
 		return { tone: "ok", text: `Nothing to sweep — ${legs.join("; ")}` }
 	}
 	return { tone: "ok", text: "Nothing to sweep — no vault has a sweep threshold configured" }
-}
-
-/**
- * The `/api/send` response. A confirmed send carries its tx hash; a submission that was
- * broadcast but not confirmed comes back with `pending` and, for a sponsored UserOp, only its
- * own hash — no tx hash exists until it lands.
- */
-type SendResult =
-	| { pending?: false; txHash: string; redeemed: boolean }
-	| { pending: true; sponsored: boolean; txHash?: string; userOpHash?: string; message: string }
-
-function SendHash({ hash, explorerUrl }: { hash?: string; explorerUrl?: string }) {
-	if (!hash) return null
-	if (explorerUrl) {
-		return (
-			<a
-				className="operator-send-tx-link"
-				href={`${explorerUrl}/tx/${hash}`}
-				target="_blank"
-				rel="noreferrer"
-				title={hash}
-				aria-label={`Open transaction ${hash} on the block explorer in a new tab`}
-			>
-				<span className="mono">{hash.slice(0, 18)}…</span>
-				<ExternalLinkIcon aria-hidden="true" />
-			</a>
-		)
-	}
-	return (
-		<span className="mono" title={hash}>
-			{hash.slice(0, 18)}…
-		</span>
-	)
-}
-
-function SendCard(props: {
-	chains: number[]
-	chainLabel: (id: number | string) => string
-	sendTokens?: Record<string, SendTokenOption[]>
-	balances?: BalanceSnapshot
-	onSent: () => Promise<void> | void
-}) {
-	const [chain, setChain] = useState<string>()
-	const [token, setToken] = useState("native")
-	const [customToken, setCustomToken] = useState("")
-	const [amount, setAmount] = useState("")
-	const [to, setTo] = useState("")
-	const [result, setResult] = useState<(SendResult & { explorerUrl?: string })>()
-	const [sending, setSending] = useState(false)
-	const [review, setReview] = useState<SendSummary>()
-	const { run: act, error } = useAction()
-
-	const selectedChain = chain ?? formatChainKey(props.chains[0] ?? "")
-	const selectedChainId = parseChainKey(selectedChain)
-	const options = sendTokenOptionsForChain(props.sendTokens?.[selectedChain], selectedChainId)
-	const tokenAddress = token === "custom" ? customToken.trim() : token
-	const selected = options.find((o) => o.address === token)
-	const symbol = selected?.symbol ?? (token === "custom" ? "tokens" : token)
-	const balance = selectedSendBalance(props.balances, selectedChain, tokenAddress)
-	const ready = Boolean(amount.trim()) && /^0x[0-9a-fA-F]{40}$/.test(to.trim()) && tokenAddress !== ""
-
-	const network = props.chainLabel(selectedChainId ?? selectedChain)
-
-	/** Opens the review; nothing is submitted until it is confirmed. */
-	const openReview = () => {
-		const requested = Number.parseFloat(amount.trim())
-		const wallet = balance.wallet
-		const covered = wallet === null || !Number.isFinite(requested) ? null : Math.min(requested, wallet)
-		setReview({
-			amount: amount.trim(),
-			symbol,
-			native: tokenAddress === "native",
-			chainLabel: network,
-			to: to.trim(),
-			wallet,
-			available: balance.available,
-			fromWallet: covered,
-			fromVault: covered === null ? null : Math.max(0, requested - covered),
-			largestVault: balance.largestVault,
-		})
-	}
-
-	const send = () => {
-		const chainId = parseChainKey(selectedChain)
-		const explorerUrl = chainId === null ? undefined : chainByChainId(chainId)?.explorerUrl
-		setReview(undefined)
-		setResult(undefined)
-		setSending(true)
-		return act(async () => {
-			try {
-				const res = await api.post<SendResult>("/api/send", {
-					chain: selectedChain,
-					token: tokenAddress,
-					amount: amount.trim(),
-					to: to.trim(),
-				})
-				setResult({ ...res, explorerUrl })
-				// Clear the amount whatever the outcome: a send that came back pending (202) must
-				// not be re-submitted by the next click. `act` gets no "Sent" label here because a
-				// pending response sets `result`, and the success line already renders from it.
-				setAmount("")
-				await props.onSent()
-			} finally {
-				setSending(false)
-			}
-		})
-	}
-
-	return (
-		<div className="operator-panel-form">
-			<h2>Send</h2>
-			<p className="hint">
-				Send tokens out of the filler wallet. When the wallet balance falls short, vault holdings of the asset
-				are redeemed to cover the difference. Native gas is required on networks without a paymaster.
-			</p>
-			<div className="operator-send-grid">
-				<SelectField
-					label="Network"
-					value={selectedChain}
-					options={props.chains.map((id) => ({ value: formatChainKey(id), label: props.chainLabel(id) }))}
-					onValueChange={(nextChain) => {
-						setChain(nextChain)
-						setToken("native")
-					}}
-				/>
-				<SelectField
-					label="Asset"
-          value={token}
-					options={[
-						...options.map((option) => ({ value: option.address, label: sendTokenOptionLabel(option) })),
-						{ value: "custom", label: "Custom address…", separatorBefore: true, muted: true },
-					]}
-					onValueChange={setToken}
-				/>
-				{token === "custom" && (
-					<label className="field operator-send-wide">
-						<span>Token contract</span>
-						<input
-							type="text"
-							placeholder="0x…"
-							value={customToken}
-							onChange={(e) => setCustomToken(e.target.value)}
-						/>
-					</label>
-				)}
-				<label className="field">
-					<span className="field-label">
-						<span>Amount</span>
-						<small className="operator-send-balance" data-status={balance.status} aria-live="polite">
-							Available <strong>{balance.label}</strong>
-						</small>
-					</span>
-					<input type="text" placeholder="0.00" value={amount} onChange={(e) => setAmount(e.target.value)} />
-				</label>
-				<label className="field operator-send-wide">
-					<span>Recipient</span>
-					<input type="text" placeholder="0x…" value={to} onChange={(e) => setTo(e.target.value)} />
-				</label>
-				<div className="operator-send-actions operator-send-wide">
-					<button type="button" className="primary" disabled={!ready || sending} onClick={openReview}>
-						{sending ? "Sending…" : "Review transfer"}
-					</button>
-				</div>
-			</div>
-			{result && !result.pending && (
-				<p className="hint">
-					✓ Sent{result.redeemed && " (topped up from the vault)"} — tx{" "}
-					<SendHash hash={result.txHash} explorerUrl={result.explorerUrl} />
-				</p>
-			)}
-			{result?.pending && (
-				// A pending send is not a success, and its message is worded by the server for the
-				// sponsored (no tx hash) or native case. The hash is shown only when there is one.
-				<p className="warning">
-					⚠ {result.message}
-					{(result.txHash ?? result.userOpHash) && (
-						<>
-							{" — "}
-							<SendHash
-								hash={result.txHash ?? result.userOpHash}
-								explorerUrl={result.txHash ? result.explorerUrl : undefined}
-							/>
-						</>
-					)}
-				</p>
-			)}
-			{error && <p className="error">{error}</p>}
-			{review && (
-				<SendConfirmDialog
-					open
-					summary={review}
-					sending={sending}
-					onConfirm={() => void send()}
-					onCancel={() => setReview(undefined)}
-				/>
-			)}
-		</div>
-	)
-}
-
-interface SendBalance {
-	label: string
-	status: "loading" | "available" | "unavailable"
-	/** Underlying held directly by the wallet; null when unknown. */
-	wallet: number | null
-	/** Spendable wallet plus withdrawable vault assets; null when unknown. */
-	available: number | null
-	/** Largest single vault that could cover a shortfall — withdrawals draw on one vault, not several. */
-	largestVault: number
-}
-
-const UNKNOWN_BALANCE = { wallet: null, available: null, largestVault: 0 } as const
-
-function selectedSendBalance(balances: BalanceSnapshot | undefined, chain: string, token: string): SendBalance {
-	if (!balances || balances.status === "loading") return { label: "Loading…", status: "loading", ...UNKNOWN_BALANCE }
-
-	const chainId = parseChainKey(chain)
-	const chainBalance = balances.chains.find((row) => row.chainId === chainId)
-	if (!chainBalance) return { label: "Unavailable", status: "unavailable", ...UNKNOWN_BALANCE }
-
-	if (token === "native") {
-		// Native has no vault behind it: the wallet is the whole balance.
-		return chainBalance.native
-			? {
-					label: `${formatSendBalance(chainBalance.native.amount)} ${chainBalance.native.symbol}`,
-					status: "available",
-					wallet: chainBalance.native.amount,
-					available: chainBalance.native.amount,
-					largestVault: 0,
-				}
-			: { label: "Unavailable", status: "unavailable", ...UNKNOWN_BALANCE }
-	}
-
-	if (!token) return { label: "—", status: "loading", ...UNKNOWN_BALANCE }
-	const asset = chainBalance.assets.find((row) => row.address.toLowerCase() === token.toLowerCase())
-	if (asset?.available === null || asset?.available === undefined) {
-		return { label: "Unavailable", status: "unavailable", ...UNKNOWN_BALANCE }
-	}
-	return {
-		label: `${formatSendBalance(asset.available)} ${asset.symbol}`,
-		status: "available",
-		wallet: asset.wallet,
-		available: asset.available,
-		largestVault: asset.vaults.reduce((most, vault) => Math.max(most, vault.available), 0),
-	}
-}
-
-function formatSendBalance(value: number): string {
-	return value.toLocaleString(undefined, { maximumFractionDigits: 4 })
 }

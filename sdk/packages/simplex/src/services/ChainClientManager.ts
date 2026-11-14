@@ -2,10 +2,13 @@ import {
 	type PublicClient,
 	type WalletClient,
 	createPublicClient,
+	createTransport,
 	createWalletClient,
 	fallback,
 	http,
+	shouldThrow,
 	type Chain,
+	type EIP1193RequestFn,
 	type Transport,
 } from "viem"
 import { generatePrivateKey } from "viem/accounts"
@@ -26,18 +29,66 @@ const HTTP_TRANSPORT_OPTS = {
 } as const
 
 /**
- * Builds the viem transport for a chain. If more than one RPC URL is configured,
- * a `fallback` transport is returned so the public / wallet clients can failover
- * to a healthy provider on timeouts or 5xx responses. A single URL uses plain
- * `http`. This is distinct from `QuorumPublicClient`, which runs every provider
- * in parallel and cross-checks results — the regular clients only need
- * availability, not consensus.
+ * Builds the wallet client's transport. If more than one RPC URL is configured,
+ * a `fallback` transport is returned so the client fails over to a healthy
+ * provider on timeouts or 5xx responses. A single URL uses plain `http`.
+ *
+ * The order is kept on purpose: a transaction and the nonce read that follows
+ * it must reach the same node, and a transaction is broadcast to one endpoint.
  */
 function buildTransport(rpcUrls: readonly string[]): Transport {
 	if (rpcUrls.length === 1) {
 		return http(rpcUrls[0], HTTP_TRANSPORT_OPTS)
 	}
 	return fallback(rpcUrls.map((url) => http(url, HTTP_TRANSPORT_OPTS)))
+}
+
+/**
+ * Settles with the first endpoint to answer. A revert is an answer, by the rule
+ * `fallback` uses to stop failing over. An endpoint that is unreachable, times
+ * out or refuses the call is not, and the race rejects only when all of them fail.
+ */
+export function firstResponse<T>(requests: readonly Promise<T>[]): Promise<T> {
+	return new Promise((resolve, reject) => {
+		let failures = 0
+		let firstFailure: unknown
+		for (const request of requests) {
+			request.then(resolve, (error) => {
+				if (error instanceof Error && shouldThrow(error)) return reject(error)
+				firstFailure ??= error
+				failures += 1
+				if (failures === requests.length) reject(firstFailure)
+			})
+		}
+	})
+}
+
+/**
+ * Builds the public client's transport: every read goes to all of the chain's
+ * endpoints at once and the first answer is used, so a slow or dead endpoint
+ * costs nothing. `fallback` tries them in order instead, and each one that is
+ * down holds every read up for its retries.
+ *
+ * Like `fallback`, this only needs availability. `QuorumPublicClient` is the
+ * one that cross-checks answers.
+ */
+export function raceTransport(rpcUrls: readonly string[]): Transport {
+	if (rpcUrls.length === 1) {
+		return http(rpcUrls[0], HTTP_TRANSPORT_OPTS)
+	}
+	return ({ chain, timeout }) => {
+		// The other endpoints are the retry, so none retries on its own.
+		const endpoints = rpcUrls.map((url) =>
+			http(url, { ...HTTP_TRANSPORT_OPTS, retryCount: 0 })({ chain, retryCount: 0, timeout }),
+		)
+		return createTransport({
+			key: "race",
+			name: "Race",
+			type: "race",
+			request: (({ method, params }) =>
+				firstResponse(endpoints.map((endpoint) => endpoint.request({ method, params })))) as EIP1193RequestFn,
+		})
+	}
 }
 
 function walletClientCacheKey(chainId: number, accountAddress: string): string {
@@ -78,7 +129,7 @@ class ViemClientFactoryImpl {
 
 			const publicClient = createPublicClient({
 				chain,
-				transport: buildTransport(urls),
+				transport: raceTransport(urls),
 			})
 
 			this.publicClients.set(chainConfig.chainId, publicClient)

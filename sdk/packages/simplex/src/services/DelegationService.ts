@@ -863,23 +863,19 @@ export class DelegationService {
 	 * Sets up delegation on the specified chains where solver selection is active.
 	 */
 	async setupDelegationOnChains(chains: string[]): Promise<{ success: boolean; results: Record<string, boolean> }> {
-		const results: Record<string, boolean> = {}
-		let allSuccess = true
-
-		for (const chain of chains) {
-			try {
-				results[chain] = await this.setupDelegation(chain)
-				if (!results[chain]) {
-					allSuccess = false
+		// Side by side: delegation is per chain, so a slow chain does not hold the others up.
+		const outcomes = await Promise.all(
+			chains.map(async (chain) => {
+				try {
+					return await this.setupDelegation(chain)
+				} catch (error) {
+					this.logger.error({ chain, error }, "Failed to setup delegation on chain")
+					return false
 				}
-			} catch (error) {
-				this.logger.error({ chain, error }, "Failed to setup delegation on chain")
-				results[chain] = false
-				allSuccess = false
-			}
-		}
-
-		return { success: allSuccess, results }
+			}),
+		)
+		const results = Object.fromEntries(chains.map((chain, index) => [chain, outcomes[index]]))
+		return { success: outcomes.every(Boolean), results }
 	}
 
 	/**

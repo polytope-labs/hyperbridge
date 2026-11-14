@@ -85,33 +85,29 @@ export async function fetchChainId(rpcUrl: string): Promise<number> {
 	return Number(json.result)
 }
 
-/** How long startup waits for a chain's other endpoints once one of them has reported its chain id. */
-export const STRAGGLER_GRACE_MS = 1_000
-
 /** Why a probe is reported as failed when startup stopped waiting for it. */
-const STILL_PENDING = new Error(`no answer within ${STRAGGLER_GRACE_MS}ms of the chain's first endpoint`)
+const STILL_PENDING = new Error("had not answered when most of the chain's endpoints agreed on its chain id")
 
 /**
- * `Promise.allSettled`, except that it stops waiting `STRAGGLER_GRACE_MS` after
- * the first probe answers. A probe still pending then is reported as rejected
- * with `STILL_PENDING`. Without an answer it waits for every probe to fail.
+ * `Promise.allSettled`, except that it stops waiting once more than half of the
+ * probes have reported the same chain id. A probe still pending then is reported
+ * as rejected with `STILL_PENDING`. One endpoint alone never decides a chain that
+ * lists several, however fast it answers.
  */
-function settleAfterFirstAnswer<T>(probes: readonly Promise<T>[]): Promise<PromiseSettledResult<T>[]> {
+function settleOnMajority(probes: readonly Promise<number>[]): Promise<PromiseSettledResult<number>[]> {
 	return new Promise((resolve) => {
-		const results: Array<PromiseSettledResult<T> | undefined> = probes.map(() => undefined)
+		const results: Array<PromiseSettledResult<number> | undefined> = probes.map(() => undefined)
+		const votes = new Map<number, number>()
 		let pending = probes.length
-		let grace: NodeJS.Timeout | undefined
-		const finish = () => {
-			clearTimeout(grace)
-			resolve(results.map((result) => result ?? { status: "rejected", reason: STILL_PENDING }))
-		}
+		const finish = () => resolve(results.map((result) => result ?? { status: "rejected", reason: STILL_PENDING }))
 		if (pending === 0) finish()
 		probes.forEach((probe, index) => {
 			probe.then(
-				(value) => {
-					results[index] = { status: "fulfilled", value }
-					grace ??= setTimeout(finish, STRAGGLER_GRACE_MS)
-					if (--pending === 0) finish()
+				(chainId) => {
+					results[index] = { status: "fulfilled", value: chainId }
+					const agreeing = (votes.get(chainId) ?? 0) + 1
+					votes.set(chainId, agreeing)
+					if (--pending === 0 || agreeing * 2 > probes.length) finish()
 				},
 				(reason) => {
 					results[index] = { status: "rejected", reason }
@@ -144,10 +140,11 @@ export interface ResolveChainOptions {
  * process. Those endpoints stay in the list: they were probed, not adopted, and
  * the quorum client decides per call whether they can vote.
  *
- * It also stops waiting for a chain's slower endpoints a second after the first
- * one answers, and treats them like ones that could not answer. Their answers
- * are still checked when they arrive, and one for another chain is logged as an
- * error, but by then it can no longer stop the filler from starting.
+ * It also stops waiting for a chain's slower endpoints once more than half of
+ * them agree on the chain id, and treats the rest like ones that could not
+ * answer. Their answers are still checked when they arrive, and one for another
+ * chain is logged as an error, but by then it can no longer stop the filler
+ * from starting.
  *
  * Two cases are fatal either way, because both mean the config is wrong rather
  * than an endpoint being briefly unavailable:
@@ -164,7 +161,7 @@ export async function resolveChainConfigs(
 		chains.map(async (chain) => {
 			const rpcUrls = validateRpcUrls(chain.rpcUrls)
 			const requests = rpcUrls.map((url) => fetchChainId(url))
-			const probes = await (tolerateUnreachable ? settleAfterFirstAnswer(requests) : Promise.allSettled(requests))
+			const probes = await (tolerateUnreachable ? settleOnMajority(requests) : Promise.allSettled(requests))
 			const answered: Array<{ url: string; chainId: number }> = []
 			const silent: Array<{ url: string; error: unknown }> = []
 			probes.forEach((probe, i) => {
@@ -218,7 +215,7 @@ export async function resolveChainConfigs(
 				}
 				logger?.warn(
 					{ url, chainId: first.chainId, answered: answered.length, of: rpcUrls.length, err: error },
-					"RPC endpoint could not report its chainId at startup; keeping it for the quorum to judge per call",
+					"RPC endpoint did not report its chainId at startup; it stays in use without that check",
 				)
 			}
 			return { chainId: first.chainId, rpcUrls, bundlerUrl: hyperbridgeBundlerUrl(first.chainId) }

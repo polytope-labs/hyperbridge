@@ -16,6 +16,8 @@ const START_POLL_MS = 500
 export function useLaunch(state: WizardState, defaults: SetupDefaults) {
 	const [phase, setPhase] = useState<LaunchPhase>("editing")
 	const [error, setError] = useState<string>()
+	// Whether the last attempt got as far as writing the config. A refused save wrote nothing.
+	const [saved, setSaved] = useState(false)
 
 	useEffect(() => {
 		if (phase !== "starting") return
@@ -23,6 +25,8 @@ export function useLaunch(state: WizardState, defaults: SetupDefaults) {
 			try {
 				const status = await api.get<{ state: string; error?: string }>("/api/setup/start-status")
 				if (status.state === "running") {
+					// Stopped first: a navigation assigned again on every tick can restart itself.
+					clearInterval(timer)
 					window.location.href = "/"
 				} else if (status.state === "failed") {
 					setPhase("failed")
@@ -38,6 +42,7 @@ export function useLaunch(state: WizardState, defaults: SetupDefaults) {
 	const start = () => {
 		if (phase === "saving" || phase === "starting") return
 		setPhase("saving")
+		setSaved(false)
 		setError(undefined)
 		void api
 			.post("/api/setup/save-and-start", {
@@ -45,7 +50,10 @@ export function useLaunch(state: WizardState, defaults: SetupDefaults) {
 				chainLabels: chainLabels(state),
 				chainIds: state.chains.map((c) => c.meta.chainId),
 			})
-			.then(() => setPhase("starting"))
+			.then(() => {
+				setSaved(true)
+				setPhase("starting")
+			})
 			.catch((err) => {
 				setPhase("failed")
 				setError(err instanceof Error ? err.message : String(err))
@@ -54,6 +62,7 @@ export function useLaunch(state: WizardState, defaults: SetupDefaults) {
 
 	return {
 		phase,
+		saved,
 		start,
 		error: error
 			? formatSetupStartError(error, new Map(state.chains.map((chain) => [chain.meta.chainId, chain.meta.label])))

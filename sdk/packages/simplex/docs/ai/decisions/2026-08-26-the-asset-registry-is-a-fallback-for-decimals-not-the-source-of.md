@@ -12,7 +12,7 @@ during an outage would pin it for the lifetime of the process and silently outli
 that justified it. Leaving the cache empty means the next call retries the read and caches the
 real answer.
 
-The read goes through the plain fallback client, so the first endpoint to answer wins. Where the
+The read goes through the plain public client, so the first endpoint to answer wins. Where the
 registry knows the token, a successful read is cross-checked against it: a disagreement is a hard
 error (`refusing to price it`) and nothing is cached, so the next call re-reads. The registry stays
 the fallback and the cross-check, never the value written to the cache — where it agrees, the

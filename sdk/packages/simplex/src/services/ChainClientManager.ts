@@ -33,8 +33,8 @@ const HTTP_TRANSPORT_OPTS = {
  * a `fallback` transport is returned so the client fails over to a healthy
  * provider on timeouts or 5xx responses. A single URL uses plain `http`.
  *
- * The order is kept on purpose: a transaction and the nonce read that follows
- * it must reach the same node, and a transaction is broadcast to one endpoint.
+ * The order is kept on purpose: a transaction is broadcast to one endpoint, and
+ * the nonce it is built on has to come from the node it is sent to.
  */
 function buildTransport(rpcUrls: readonly string[]): Transport {
 	if (rpcUrls.length === 1) {
@@ -43,31 +43,87 @@ function buildTransport(rpcUrls: readonly string[]): Transport {
 	return fallback(rpcUrls.map((url) => http(url, HTTP_TRANSPORT_OPTS)))
 }
 
+/** How long the race waits for an endpoint that has something, once another has said there is nothing. */
+export const EMPTY_ANSWER_GRACE_MS = 1_000
+
 /**
- * Settles with the first endpoint to answer. A revert is an answer, by the rule
- * `fallback` uses to stop failing over. An endpoint that is unreachable, times
- * out or refuses the call is not, and the race rejects only when all of them fail.
+ * Whether an answer says there is nothing: no receipt, transaction or block
+ * (`null`), no logs (`[]`) or no code (`0x`). A node that is a block behind
+ * gives the same answer for something that exists.
  */
-export function firstResponse<T>(requests: readonly Promise<T>[]): Promise<T> {
+function isEmptyAnswer(method: string, result: unknown): boolean {
+	if (result === null) return true
+	if (Array.isArray(result)) return result.length === 0
+	return method === "eth_getCode" && result === "0x"
+}
+
+/** RPC error codes viem retries: unknown, limit exceeded and internal. Every other code is a refusal. */
+const RETRIED_RPC_CODES = [-1, -32005, -32603]
+
+/** Whether an endpoint refused the call, as opposed to failing to serve it. */
+function isRefusal(error: unknown): boolean {
+	const code = (error as { code?: unknown } | null)?.code
+	return typeof code === "number" && !RETRIED_RPC_CODES.includes(code)
+}
+
+/**
+ * Settles with the first endpoint to answer.
+ *
+ * A revert is an answer, by the rule `fallback` uses to stop failing over. An
+ * endpoint that is unreachable, times out or refuses the call is not, and the
+ * race rejects only when all of them fail. It then rejects with a failure viem
+ * retries, when there is one, so one endpoint's refusal does not end the read.
+ *
+ * An answer `isEmpty` calls empty is taken only when no endpoint has more: once
+ * all of them have settled, or `EMPTY_ANSWER_GRACE_MS` after the first empty one.
+ */
+export function firstResponse<T>(
+	requests: readonly Promise<T>[],
+	isEmpty: (value: T) => boolean = () => false,
+): Promise<T> {
 	return new Promise((resolve, reject) => {
-		let failures = 0
-		let firstFailure: unknown
+		if (requests.length === 0) return reject(new Error("No endpoint to ask"))
+		let pending = requests.length
+		let settled = false
+		let empty: { value: T } | undefined
+		let failure: unknown
+		let grace: NodeJS.Timeout | undefined
+		const settle = (finish: () => void) => {
+			settled = true
+			clearTimeout(grace)
+			finish()
+		}
+		// Nothing better came: the empty answer if there was one, else the failure.
+		const giveUp = () => settle(() => (empty ? resolve(empty.value) : reject(failure)))
 		for (const request of requests) {
-			request.then(resolve, (error) => {
-				if (error instanceof Error && shouldThrow(error)) return reject(error)
-				firstFailure ??= error
-				failures += 1
-				if (failures === requests.length) reject(firstFailure)
-			})
+			request.then(
+				(value) => {
+					if (settled) return
+					if (!isEmpty(value)) return settle(() => resolve(value))
+					empty ??= { value }
+					grace ??= setTimeout(giveUp, EMPTY_ANSWER_GRACE_MS)
+					if (--pending === 0) giveUp()
+				},
+				(error) => {
+					if (settled) return
+					if (error instanceof Error && shouldThrow(error)) return settle(() => reject(error))
+					if (failure === undefined || (isRefusal(failure) && !isRefusal(error))) failure = error
+					if (--pending === 0) giveUp()
+				},
+			)
 		}
 	})
 }
 
 /**
- * Builds the public client's transport: every read goes to all of the chain's
+ * Builds the public client's transport: a read goes to all of the chain's
  * endpoints at once and the first answer is used, so a slow or dead endpoint
  * costs nothing. `fallback` tries them in order instead, and each one that is
  * down holds every read up for its retries.
+ *
+ * Nonce reads are the exception. They go to the endpoints in order, like the
+ * wallet client's sends, because a transaction is built on the nonce its own
+ * node reports.
  *
  * Like `fallback`, this only needs availability. `QuorumPublicClient` is the
  * one that cross-checks answers.
@@ -76,17 +132,23 @@ export function raceTransport(rpcUrls: readonly string[]): Transport {
 	if (rpcUrls.length === 1) {
 		return http(rpcUrls[0], HTTP_TRANSPORT_OPTS)
 	}
+	// The other endpoints are the retry, so none retries on its own.
+	const single = rpcUrls.map((url) => http(url, { ...HTTP_TRANSPORT_OPTS, retryCount: 0 }))
 	return ({ chain, timeout }) => {
-		// The other endpoints are the retry, so none retries on its own.
-		const endpoints = rpcUrls.map((url) =>
-			http(url, { ...HTTP_TRANSPORT_OPTS, retryCount: 0 })({ chain, retryCount: 0, timeout }),
-		)
+		const endpoints = single.map((endpoint) => endpoint({ chain, retryCount: 0, timeout }))
+		// Retried by this transport as a whole, like the race.
+		const inOrder = fallback(single, { retryCount: 0 })({ chain, retryCount: 0, timeout })
 		return createTransport({
 			key: "race",
 			name: "Race",
 			type: "race",
 			request: (({ method, params }) =>
-				firstResponse(endpoints.map((endpoint) => endpoint.request({ method, params })))) as EIP1193RequestFn,
+				method === "eth_getTransactionCount"
+					? inOrder.request({ method, params })
+					: firstResponse(
+							endpoints.map((endpoint) => endpoint.request({ method, params })),
+							(result) => isEmptyAnswer(method, result),
+						)) as EIP1193RequestFn,
 		})
 	}
 }

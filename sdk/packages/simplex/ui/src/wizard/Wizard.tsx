@@ -228,9 +228,9 @@ export function Wizard(props: { defaults: SetupDefaults }) {
 						{launch.phase === "failed" && (
 							<div className="card" role="alert">
 								<p className="error">{launch.error}</p>
-								<p className="hint">
-									Your configuration is already saved. Correct it above, then retry.
-								</p>
+								{launch.saved && (
+									<p className="hint">Your configuration is saved. Correct it above, then retry.</p>
+								)}
 							</div>
 						)}
 					</div>
@@ -238,7 +238,12 @@ export function Wizard(props: { defaults: SetupDefaults }) {
 					{launch.phase !== "starting" && (
 						<footer className="footer-nav">
 							{stepIndex > 0 ? (
-								<button type="button" className="secondary" onClick={() => setStepIndex((i) => i - 1)}>
+								<button
+									type="button"
+									className="secondary"
+									disabled={launch.phase === "saving"}
+									onClick={() => setStepIndex((i) => i - 1)}
+								>
 									<span aria-hidden="true">←</span> Back
 								</button>
 							) : (

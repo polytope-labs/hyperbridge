@@ -19,10 +19,12 @@ Both can be added afterwards:
 ## Launching from the Chains step
 
 The Chains step's primary button is "Save config & start Simplex". It is enabled once the chains pass
-their checks and the assembled config passes `validateConfig`, the check the server runs again on
-save. The launch screen and a failed start's message are shown in that step, and a failed start
-turns the button into "Retry startup". `useLaunch` in `ui/src/wizard/launch.tsx` checks the start
-every 500 ms.
+their checks and the assembled config passes `validateConfig`. The server decides on save: it runs
+`validateConfig` again along with its own checks, and a config it refuses is not written.
+
+The launch screen and a failure's message are shown in that step, and a failure turns the button
+into "Retry startup". The "Your configuration is saved" hint appears only when the save went through
+and the start then failed. `useLaunch` in `ui/src/wizard/launch.tsx` checks the start every 500 ms.
 
 The wallet address to fund is on the Chains step. The config path and the rendered TOML are not shown.
 

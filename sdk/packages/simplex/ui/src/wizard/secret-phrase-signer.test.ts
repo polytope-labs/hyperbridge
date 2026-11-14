@@ -40,7 +40,6 @@ describe("wizard secret phrase signer", () => {
 			signerType: "secretPhrase",
 			signerPhrase: `  ${PHRASE} `,
 			signerAccountIndex,
-			substrateKey: `0x${"22".repeat(32)}`,
 			orderbook: {
 				url: DEFAULT_ORDERBOOK_URLS.mainnet,
 				books: [{ id: "USDC-cNGN", base: "USDC", quote: "cNGN" }],

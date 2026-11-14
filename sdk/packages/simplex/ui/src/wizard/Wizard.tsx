@@ -13,9 +13,7 @@ import {
 	type WizardState,
 } from "./state"
 import { StepSigner } from "./steps/Signer"
-import { StepSubstrate } from "./steps/Substrate"
 import { StepChains } from "./steps/Chains"
-import { StepTreasury } from "./steps/Treasury"
 import { StepReview } from "./steps/Review"
 import hyperfxLogo from "../assets/hyperfx-logo.webp"
 import { InstallAppButton } from "../components/InstallAppButton"
@@ -24,8 +22,6 @@ export interface StepProps {
 	state: WizardState
 	setState: React.Dispatch<React.SetStateAction<WizardState>>
 	defaults: SetupDefaults
-	/** Jumps to another step by id (e.g. "chains"); unknown ids are ignored. */
-	goToStep: (id: string) => void
 }
 
 export function signerRequirements(state: WizardState): string[] {
@@ -62,15 +58,6 @@ export function signerRequirements(state: WizardState): string[] {
 		["Wallet address", state.turnkey.signWith],
 	] as const
 	return fields.filter(([, value]) => !value.trim()).map(([label]) => `Enter the Turnkey ${label.toLowerCase()}.`)
-}
-
-/** The Hyperbridge account is optional: without one the solver bids on the orderbook alone. With one, bids need an endpoint. */
-function substrateRequirements(state: WizardState): string[] {
-	const issues: string[] = []
-	if (state.substrateKey.trim() && !state.hyperbridgeWsUrl.trim().startsWith("ws")) {
-		issues.push("Enter a Hyperbridge WebSocket URL beginning with ws:// or wss://.")
-	}
-	return issues
 }
 
 function chainRequirements(state: WizardState, defaults: SetupDefaults): string[] {
@@ -121,25 +108,11 @@ const STEPS: Array<{
 		requirements: signerRequirements,
 	},
 	{
-		id: "substrate",
-		title: "Hyperbridge account",
-		description: "Connect the account Simplex uses to submit bids and settle execution fees on Hyperbridge.",
-		component: StepSubstrate,
-		requirements: substrateRequirements,
-	},
-	{
 		id: "chains",
 		title: "Chains",
 		description: "Simplex watches every chain. Fund the wallet and enable fills where you will fill.",
 		component: StepChains,
 		requirements: chainRequirements,
-	},
-	{
-		id: "treasury",
-		title: "Treasury",
-		description: "Optionally connect vaults that keep idle liquidity productive and available for fills.",
-		component: StepTreasury,
-		requirements: () => [],
 	},
 	{
 		id: "review",
@@ -160,10 +133,6 @@ export function Wizard(props: { defaults: SetupDefaults }) {
 
 	const step = STEPS[stepIndex]
 	const StepComponent = step.component
-	const goToStep = (id: string) => {
-		const index = STEPS.findIndex((candidate) => candidate.id === id)
-		if (index >= 0) setStepIndex(index)
-	}
 	const requirements = step.requirements(state, props.defaults)
 	const canNext = requirements.length === 0
 	const requirementsId = `wizard-${step.id}-requirements`
@@ -250,7 +219,7 @@ export function Wizard(props: { defaults: SetupDefaults }) {
 					</header>
 
 					<div className="wizard-step-content">
-						<StepComponent state={state} setState={setState} defaults={props.defaults} goToStep={goToStep} />
+						<StepComponent state={state} setState={setState} defaults={props.defaults} />
 					</div>
 
 					<footer className="footer-nav">

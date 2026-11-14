@@ -51,7 +51,8 @@ from a contract or a block number from a node that is behind is returned as it i
 caller passes it. viem's replacement check reads the transaction's block and then its receipt. When
 those two reads land on endpoints at different heights, the receipt is missing for a transaction
 that has mined, and viem rejects the wait. With the check off, a missing receipt only means the wait
-polls again.
+polls again. A wait still ends early when every endpoint fails the receipt read on all four
+attempts, as it does with viem's default.
 
 The cost: a transaction that is replaced, for example re-sent with a higher fee from another tool
 using the same key, is not followed. The wait for the original hash times out. Simplex never

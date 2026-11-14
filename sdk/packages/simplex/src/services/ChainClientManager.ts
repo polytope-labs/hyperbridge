@@ -208,7 +208,7 @@ class ViemClientFactoryImpl {
 				 * transaction or acts on a replacement.
 				 */
 				waitForTransactionReceipt: (args: WaitForTransactionReceiptParameters<Chain>) =>
-					waitForTransactionReceipt(client, { checkReplacement: false, ...args }),
+					waitForTransactionReceipt(client, { ...args, checkReplacement: args.checkReplacement ?? false }),
 			}))
 
 			this.publicClients.set(chainConfig.chainId, publicClient)

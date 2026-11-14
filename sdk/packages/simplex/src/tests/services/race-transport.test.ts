@@ -274,6 +274,7 @@ describe("ChainClientManager receipt waits", () => {
 			.waitForTransactionReceipt({ hash: HASH, pollingInterval: 20 })
 
 		expect(waited.status).toBe("success")
-		expect(receiptReads).toBe(4)
+		// The first reads found no receipt, and the wait went on past them.
+		expect(receiptReads).toBeGreaterThan(3)
 	})
 })

@@ -92,7 +92,7 @@ const STILL_PENDING = new Error("had not answered when most of the chain's endpo
  * `Promise.allSettled`, except that it stops waiting once more than half of the
  * probes have reported the same chain id. A probe still pending then is reported
  * as rejected with `STILL_PENDING`. One fast endpoint does not end the wait for
- * a chain that lists several: the others are waited for until they agree or fail.
+ * a chain that lists several: that takes a majority, or every probe settling.
  */
 function settleOnMajority(probes: readonly Promise<number>[]): Promise<PromiseSettledResult<number>[]> {
 	return new Promise((resolve) => {

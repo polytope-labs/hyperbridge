@@ -3,21 +3,15 @@ import { toast } from "sonner"
 import { chainByChainId } from "@/cli/init/chains"
 import { formatChainKey, parseChainKey } from "@/config/interpolated-curve"
 import { api } from "../api"
+import { AmountInput, groupThousands } from "../components/AmountInput"
 import { ChainLogo } from "../components/ChainLogo"
-import {
-	CheckIcon,
-	ChevronDownIcon,
-	CloseIcon,
-	DashedCircleIcon,
-	ExternalLinkIcon,
-	PasteIcon,
-} from "../components/InterfaceIcons"
-import { SendConfirmDialog, type SendSummary } from "../components/SendConfirmDialog"
+import { CheckIcon, CloseIcon, DashedCircleIcon, ExternalLinkIcon, PasteIcon } from "../components/InterfaceIcons"
+import { SendReview, type SendSummary } from "../components/SendReview"
 import { TokenIcon } from "../components/TokenIcon"
-import { type PickerToken, TokenNetworkPicker } from "../components/TokenNetworkPicker"
 import { WizardDialog } from "../components/WizardDialog"
 import { useAction } from "../lib/hooks"
 import type { BalanceSnapshot, SendTokenOption } from "../types"
+import { type SendAssetOption, SendAssetSelect } from "./SendAssetSelect"
 import { sendTokenOptionsForChain } from "./sendModel"
 
 /**
@@ -68,13 +62,6 @@ function percentageAmount(available: number, percentage: number): string {
 	return amount.toLocaleString("en-US", { useGrouping: false, maximumFractionDigits: PERCENTAGE_FRACTION_DIGITS })
 }
 
-/** Groups the integer part only, so a long decimal keeps every digit. */
-function groupThousands(amount: string): string {
-	const [integer, fraction] = amount.split(".")
-	const grouped = integer.replace(/\B(?=(\d{3})+(?!\d))/g, ",")
-	return fraction ? `${grouped}.${fraction}` : grouped
-}
-
 function SendHash({ hash, explorerUrl }: { hash?: string; explorerUrl?: string }) {
 	if (!hash) return null
 	if (explorerUrl) {
@@ -101,7 +88,8 @@ function SendHash({ hash, explorerUrl }: { hash?: string; explorerUrl?: string }
 
 /**
  * Sends tokens out of the filler wallet: the asset on its network, the recipient, then the
- * amount. Nothing is submitted until the review that follows is confirmed.
+ * amount. The review replaces the form in the same dialog, and nothing is submitted until it
+ * is confirmed.
  */
 export function SendDialog(props: {
 	open: boolean
@@ -114,7 +102,6 @@ export function SendDialog(props: {
 }) {
 	const { chains, chainLabel, sendTokens, balances } = props
 	const [selectedKey, setSelectedKey] = useState<string>()
-	const [pickerOpen, setPickerOpen] = useState(false)
 	const [custom, setCustom] = useState(false)
 	const [customToken, setCustomToken] = useState("")
 	const [amount, setAmount] = useState("")
@@ -156,15 +143,33 @@ export function SendDialog(props: {
 	const ready = amountValid && !exceeds && addressValid && tokenAddress !== ""
 	const canPaste = typeof navigator !== "undefined" && typeof navigator.clipboard?.readText === "function"
 
-	const pickerTokens: PickerToken[] = assets.map((entry) => ({
-		key: entry.key,
-		chainId: entry.chainId,
-		symbol: entry.symbol,
-		name: entry.symbol,
-		balance: entry.balance.available,
-	}))
+	const balanceText = balance.available === null ? balance.label : formatSendBalance(balance.available)
+	const currentAsset: SendAssetOption = {
+		key: custom ? "" : (asset?.key ?? ""),
+		symbol: custom || !asset ? null : asset.symbol,
+		network,
+		balance: balanceText,
+		funded: (balance.available ?? 0) > 0,
+	}
+	/** Every sendable token, largest balance first. A balance that is not known yet sorts last. */
+	const assetOptions = useMemo<SendAssetOption[]>(
+		() =>
+			[...assets]
+				.sort((a, b) => (b.balance.available ?? -1) - (a.balance.available ?? -1))
+				.map((entry) => ({
+					key: entry.key,
+					symbol: entry.symbol,
+					network: chainLabel(entry.chainId),
+					balance:
+						entry.balance.available === null
+							? entry.balance.label
+							: formatSendBalance(entry.balance.available),
+					funded: (entry.balance.available ?? 0) > 0,
+				})),
+		[assets, chainLabel],
+	)
 
-	/** Opens the review; nothing is submitted until it is confirmed. */
+	/** Shows the review in place of the form; nothing is submitted until it is confirmed. */
 	const openReview = () => {
 		const wallet = balance.wallet
 		const covered = wallet === null ? null : Math.min(requested, wallet)
@@ -185,7 +190,6 @@ export function SendDialog(props: {
 	const send = () => {
 		const chainId = parseChainKey(chain)
 		const explorerUrl = chainId === null ? undefined : chainByChainId(chainId)?.explorerUrl
-		setReview(undefined)
 		setResult(undefined)
 		setSending(true)
 		return act(async () => {
@@ -203,6 +207,8 @@ export function SendDialog(props: {
 				setAmount("")
 				await props.onSent()
 			} finally {
+				// The review stays up while the send is in flight, then gives way to the outcome.
+				setReview(undefined)
 				setSending(false)
 			}
 		})
@@ -217,9 +223,10 @@ export function SendDialog(props: {
 	}
 
 	const success = result && !result.pending ? result : undefined
-	/** A finished send is cleared on the way out, so the dialog opens on the form again. */
+	/** A finished send and an open review are cleared on the way out, so the dialog opens on the form again. */
 	const close = () => {
 		if (success) setResult(undefined)
+		setReview(undefined)
 		props.onClose()
 	}
 
@@ -228,9 +235,21 @@ export function SendDialog(props: {
 			className="send-dialog"
 			open={props.open}
 			onClose={close}
-			title="Send from filler wallet"
-			description="Check the address and the network. A transfer cannot be undone."
+			title={review ? "Review transfer" : "Send from filler wallet"}
+			description={
+				review
+					? "Check the destination and the amount. Transfers cannot be undone."
+					: "Check the address and the network. A transfer cannot be undone."
+			}
 		>
+			{review ? (
+				<SendReview
+					summary={review}
+					sending={sending}
+					onConfirm={() => void send()}
+					onBack={() => setReview(undefined)}
+				/>
+			) : null}
 			{success ? (
 				<div className="send-success" role="status">
 					<span className="send-success-mark" aria-hidden="true">
@@ -263,178 +282,139 @@ export function SendDialog(props: {
 					</div>
 				</div>
 			) : null}
-			<div className="send-form" hidden={Boolean(success)}>
-				<div className="send-asset">
-					<button
-						type="button"
-						className="token-picker-trigger"
-						aria-label="Choose token to send"
-						onClick={() => setPickerOpen(true)}
-						disabled={assets.length === 0}
-					>
-						<span className="send-review-asset">
-							{custom ? <DashedCircleIcon aria-hidden="true" /> : <TokenIcon symbol={symbol} size="lg" />}
-							<span className="send-review-chain-badge">
-								<ChainLogo label={network} />
-							</span>
-						</span>
-						<span className="token-picker-token-name">
-							<strong>{custom ? "Custom token" : symbol}</strong>
-							<span>{network}</span>
-						</span>
-						<span className="send-asset-balance mono" data-status={balance.status}>
-							{balance.available === null ? balance.label : formatSendBalance(balance.available)}
-						</span>
-						<ChevronDownIcon aria-hidden="true" />
-					</button>
-					{custom ? (
-						<label className="field">
-							<span>Token contract on {network}</span>
-							<input
-								type="text"
-								placeholder="0x…"
-								value={customToken}
-								onChange={(e) => setCustomToken(e.target.value)}
-							/>
-						</label>
-					) : null}
-					<button type="button" className="send-custom-toggle" onClick={() => setCustom((value) => !value)}>
-						{custom ? "Choose a listed token" : "Token not listed? Send it by contract address"}
-					</button>
-				</div>
+			<div className="send-form" hidden={Boolean(success) || Boolean(review)}>
+				<SendAssetSelect
+					current={currentAsset}
+					options={assetOptions}
+					onSelect={(key) => {
+						setSelectedKey(key)
+						setCustom(false)
+					}}
+				/>
+				{/* Everything the open asset list covers. */}
+				<div className="send-fields">
+					<div className="send-custom">
+						{custom ? (
+							<label className="field">
+								<span>Token contract on {network}</span>
+								<input
+									type="text"
+									placeholder="0x…"
+									value={customToken}
+									onChange={(e) => setCustomToken(e.target.value)}
+								/>
+							</label>
+						) : null}
+						<button
+							type="button"
+							className="send-custom-toggle"
+							onClick={() => setCustom((value) => !value)}
+						>
+							{custom ? "Choose a listed token" : "Token not listed? Send it by contract address"}
+						</button>
+					</div>
 
-				<div className="send-address">
-					<label htmlFor={addressId}>To address</label>
-					<div className="send-address-field">
-						<span className="send-address-status" aria-hidden="true">
-							{addressValid ? <ChainLogo label={network} /> : <DashedCircleIcon />}
-						</span>
-						<input
-							id={addressId}
-							type="text"
-							value={to}
-							placeholder="Recipient address"
-							autoComplete="off"
-							autoCapitalize="off"
-							spellCheck={false}
-							onChange={(e) => setTo(e.target.value)}
-						/>
-						{canPaste ? (
-							<button
-								type="button"
-								className="send-paste"
-								aria-label="Paste from clipboard"
-								onClick={() => void paste()}
-							>
-								<PasteIcon aria-hidden="true" />
-							</button>
+					<div className="send-address">
+						<label htmlFor={addressId}>To address</label>
+						<div className="send-address-field">
+							<span className="send-address-status" aria-hidden="true">
+								{addressValid ? <ChainLogo label={network} /> : <DashedCircleIcon />}
+							</span>
+							<input
+								id={addressId}
+								type="text"
+								value={to}
+								placeholder="Recipient address"
+								autoComplete="off"
+								autoCapitalize="off"
+								spellCheck={false}
+								onChange={(e) => setTo(e.target.value)}
+							/>
+							{canPaste ? (
+								<button
+									type="button"
+									className="send-paste"
+									aria-label="Paste from clipboard"
+									onClick={() => void paste()}
+								>
+									<PasteIcon aria-hidden="true" />
+								</button>
+							) : null}
+						</div>
+						{recipient ? (
+							<p className="send-address-note" data-state={addressValid ? "ok" : "error"}>
+								{addressValid ? <CheckIcon aria-hidden="true" /> : <CloseIcon aria-hidden="true" />}
+								{addressValid ? "Valid address" : "Enter a valid address"}
+							</p>
 						) : null}
 					</div>
-					{recipient ? (
-						<p className="send-address-note" data-state={addressValid ? "ok" : "error"}>
-							{addressValid ? <CheckIcon aria-hidden="true" /> : <CloseIcon aria-hidden="true" />}
-							{addressValid ? "Valid address" : "Enter a valid address"}
-						</p>
-					) : null}
-				</div>
 
-				<div className="send-amount" data-invalid={exceeds || undefined}>
-					<div className="send-amount-head">
-						<label htmlFor={amountId}>Amount</label>
-						<span className="send-amount-chip">
-							{custom ? null : <TokenIcon symbol={symbol} />}
-							{custom ? "Custom token" : symbol}
-						</span>
-					</div>
-					<input
-						id={amountId}
-						type="text"
-						inputMode="decimal"
-						placeholder="0.00"
-						value={amount}
-						aria-invalid={exceeds || undefined}
-						onChange={(e) => setAmount(e.target.value.replace(/[^0-9.]/g, ""))}
-					/>
-					{exceeds ? <p className="send-amount-error">More than the {balance.label} available</p> : null}
-					<div className="send-amount-foot">
-						<small className="operator-send-balance" data-status={balance.status} aria-live="polite">
-							Available <strong>{balance.label}</strong>
-						</small>
-						<div className="send-percentages" role="group" aria-label="Share of the available balance">
-							{PERCENTAGES.map((percentage) => {
-								const fill = balance.available
-									? percentageAmount(balance.available, percentage)
-									: undefined
-								return (
-									<button
-										key={percentage}
-										type="button"
-										disabled={!fill}
-										aria-pressed={fill !== undefined && fill === amount.trim()}
-										onClick={() => fill && setAmount(fill)}
-									>
-										{percentage === 100 ? "Max" : `${percentage}%`}
-									</button>
-								)
-							})}
+					<div className="send-amount" data-invalid={exceeds || undefined}>
+						<div className="send-amount-head">
+							<label htmlFor={amountId}>Amount</label>
+							<span className="send-amount-chip">
+								{custom ? null : <TokenIcon symbol={symbol} />}
+								{custom ? "Custom token" : symbol}
+							</span>
+						</div>
+						<AmountInput id={amountId} value={amount} invalid={exceeds} onValueChange={setAmount} />
+						{exceeds ? <p className="send-amount-error">More than the {balance.label} available</p> : null}
+						<div className="send-amount-foot">
+							<small className="operator-send-balance" data-status={balance.status} aria-live="polite">
+								Available <strong>{balance.label}</strong>
+							</small>
+							<div className="send-percentages" role="group" aria-label="Share of the available balance">
+								{PERCENTAGES.map((percentage) => {
+									const fill = balance.available
+										? percentageAmount(balance.available, percentage)
+										: undefined
+									return (
+										<button
+											key={percentage}
+											type="button"
+											disabled={!fill}
+											aria-pressed={fill !== undefined && fill === amount.trim()}
+											onClick={() => fill && setAmount(fill)}
+										>
+											{percentage === 100 ? "Max" : `${percentage}%`}
+										</button>
+									)
+								})}
+							</div>
 						</div>
 					</div>
-				</div>
 
-				{tokenAddress === "native" ? (
-					<p className="hint">Keep some {symbol} for gas on networks without a paymaster.</p>
-				) : null}
-				{result?.pending && (
-					// A pending send is not a success, and its message is worded by the server for the
-					// sponsored (no tx hash) or native case. The hash is shown only when there is one.
-					<p className="warning">
-						⚠ {result.message}
-						{(result.txHash ?? result.userOpHash) && (
-							<>
-								{" — "}
-								<SendHash
-									hash={result.txHash ?? result.userOpHash}
-									explorerUrl={result.txHash ? result.explorerUrl : undefined}
-								/>
-							</>
-						)}
-					</p>
-				)}
-				{error && <p className="error">{error}</p>}
+					{tokenAddress === "native" ? (
+						<p className="hint">Keep some {symbol} for gas on networks without a paymaster.</p>
+					) : null}
+					{result?.pending && (
+						// A pending send is not a success, and its message is worded by the server for the
+						// sponsored (no tx hash) or native case. The hash is shown only when there is one.
+						<p className="warning">
+							⚠ {result.message}
+							{(result.txHash ?? result.userOpHash) && (
+								<>
+									{" — "}
+									<SendHash
+										hash={result.txHash ?? result.userOpHash}
+										explorerUrl={result.txHash ? result.explorerUrl : undefined}
+									/>
+								</>
+							)}
+						</p>
+					)}
+					{error && <p className="error">{error}</p>}
+				</div>
 
 				<div className="send-actions">
 					<button type="button" className="secondary" onClick={close} disabled={sending}>
 						Cancel
 					</button>
 					<button type="button" className="primary" disabled={!ready || sending} onClick={openReview}>
-						{sending ? "Sending…" : "Send"}
+						Send
 					</button>
 				</div>
 			</div>
-
-			<TokenNetworkPicker
-				open={pickerOpen}
-				onClose={() => setPickerOpen(false)}
-				title="Choose token to send"
-				networks={chains.map((chainId) => ({ chainId, label: chainLabel(chainId) }))}
-				tokens={pickerTokens}
-				selectedKey={custom ? undefined : asset?.key}
-				loading={!balances || balances.status === "loading"}
-				onSelect={(token) => {
-					setSelectedKey(token.key)
-					setCustom(false)
-					setPickerOpen(false)
-				}}
-			/>
-			{review && (
-				<SendConfirmDialog
-					open
-					summary={review}
-					sending={sending}
-					onConfirm={() => void send()}
-					onCancel={() => setReview(undefined)}
-				/>
-			)}
 		</WizardDialog>
 	)
 }

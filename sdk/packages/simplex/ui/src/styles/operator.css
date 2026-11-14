@@ -1427,7 +1427,8 @@ button.operator-tool-row {
  * Send: the asset on its network, the recipient, then the amount in one card with
  * shares of the balance under it. The same layout as the HyperFX app's send.
  */
-.market-dialog.send-dialog {
+/* Only the centred dialog is narrowed: on a phone it is a drawer, which spans the screen. */
+.market-dialog.send-dialog:not(.drawer-popup) {
 	width: min(30rem, calc(100vw - 2rem));
 }
 
@@ -1438,42 +1439,164 @@ button.operator-tool-row {
 	padding: 0.5rem 0 1.5rem;
 }
 
-.send-form > p {
+.send-fields {
+	display: grid;
+	grid-area: 2 / 1;
+	gap: 1rem;
+	min-width: 0;
+}
+
+.send-fields > p {
 	margin: 0;
 }
 
-.send-asset {
+/* The contract field and its toggle sit close under the asset row they belong to. */
+.send-custom {
 	display: grid;
 	gap: 0.6rem;
+	margin-top: -0.4rem;
 }
 
-.send-asset .field {
+.send-custom .field {
 	margin: 0;
 }
 
-.send-asset .send-review-asset > svg {
+/*
+ * The asset row and the list it opens. Both are rows of the form's grid: the list shares the
+ * fields' cell and is laid over them, so it covers them exactly and the dialog keeps its height.
+ */
+.send-asset-select {
+	display: contents;
+}
+
+/* What the list covers is hidden, not only painted over, so nothing shows at its corners or takes focus. */
+.send-asset-select[data-open] + .send-fields {
+	visibility: hidden;
+}
+
+.send-asset-trigger,
+.send-asset-option {
+	display: flex;
+	align-items: center;
+	justify-content: flex-start;
+	gap: 0.75rem;
+	width: 100%;
+	color: var(--text);
+	text-align: left;
+	cursor: pointer;
+}
+
+.send-asset-trigger {
+	padding: 0.65rem 0.9rem;
+	border: 1px solid var(--border-strong);
+	border-radius: 0.75rem;
+	background: var(--control);
+	transition: background-color 150ms ease;
+}
+
+.send-asset-trigger:disabled {
+	cursor: default;
+}
+
+.send-asset-trigger:hover:not(:disabled),
+.send-asset-trigger[aria-expanded="true"] {
+	background: var(--card-raised);
+}
+
+.send-asset-trigger > svg {
+	flex: 0 0 auto;
+	width: 1rem;
+	height: 1rem;
+	color: var(--muted);
+	transition: transform 150ms ease;
+}
+
+.send-asset-trigger[aria-expanded="true"] > svg {
+	transform: rotate(180deg);
+}
+
+.send-asset-list {
+	z-index: 1;
+	display: flex;
+	grid-area: 2 / 1;
+	flex-direction: column;
+	/* Sized by the fields it covers, never by its own rows. */
+	contain: size;
+	/* Closer to its row than the form's gap. */
+	margin: -0.625rem 0 0;
+	padding: 0.25rem;
+	overflow-y: auto;
+	overscroll-behavior: contain;
+	border: 1px solid var(--border-strong);
+	border-radius: 0.75rem;
+	background: var(--control);
+	box-shadow: 0 1.5rem 3rem rgba(0, 0, 0, 0.5);
+	list-style: none;
+	scrollbar-width: thin;
+	scrollbar-color: var(--border-strong) transparent;
+}
+
+.send-asset-option {
+	padding: 0.6rem 0.65rem;
+	border: 0;
+	border-radius: 0.5rem;
+	background: transparent;
+}
+
+.send-asset-option:hover {
+	background: var(--card-raised);
+}
+
+.send-asset-option[aria-current="true"] {
+	background: var(--card);
+}
+
+.send-asset-option:focus-visible {
+	box-shadow: inset 0 0 0 2px var(--focus);
+}
+
+.send-asset-select .send-review-asset > svg {
 	width: 2rem;
 	height: 2rem;
 	color: var(--muted);
 }
 
+.send-asset-name {
+	display: grid;
+	flex: 1 1 auto;
+	gap: 0.15rem;
+	min-width: 0;
+}
+
+.send-asset-name strong,
+.send-asset-name > span {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.send-asset-name strong {
+	font-size: 0.9375rem;
+	font-weight: 500;
+}
+
+.send-asset-name > span {
+	color: var(--muted);
+	font-size: 0.8125rem;
+}
+
 .send-asset-balance {
-	margin-left: auto;
+	flex: 0 0 auto;
 	font-size: 0.9375rem;
 	font-weight: 500;
 	font-variant-numeric: tabular-nums;
 	white-space: nowrap;
 }
 
-.send-asset-balance:not([data-status="available"]) {
+/* Nothing to send: an empty balance, or one that has not been read. */
+.send-asset-balance:not([data-funded]) {
 	color: var(--muted);
-	font-family: var(--font-sans);
-	font-size: 0.75rem;
 	font-weight: 400;
-}
-
-.send-asset .token-picker-trigger > svg {
-	margin-left: 0;
 }
 
 button.send-custom-toggle {
@@ -2706,8 +2829,10 @@ button.operator-runtime-stop:hover:not(:disabled) {
 	font-size: 0.875rem;
 }
 
+/* When the address has to wrap, split it into even lines, not one line and a stray character. */
 .send-review-address {
-	overflow-wrap: anywhere;
+	word-break: break-all;
+	text-wrap: balance;
 }
 
 .send-review-alert {
@@ -3601,6 +3726,15 @@ button.limit-order-side[data-side="ASK"]:hover:not(.is-selected) {
 
 .token-picker-keys kbd:last-child {
 	margin-right: 0;
+}
+
+/* The drawer has no surface of its own, so the picker brings the one its dialog has. */
+.token-picker.drawer-popup {
+	border: 1px solid var(--border-strong);
+	border-bottom: 0;
+	border-radius: 1rem 1rem 0 0;
+	background: var(--bg);
+	color: var(--text);
 }
 
 .token-picker.drawer-popup .token-picker-panes {

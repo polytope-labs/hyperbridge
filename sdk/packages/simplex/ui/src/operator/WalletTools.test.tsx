@@ -37,14 +37,13 @@ async function openSend() {
 	return document.querySelector<HTMLElement>('[role="dialog"]')!
 }
 
-/** Opens the send dialog, fills the form and submits it through the review dialog. */
+/** Opens the send dialog, fills the form and submits it through the review step. */
 async function send() {
 	const sheet = await openSend()
 	await enter(sheet.querySelector<HTMLInputElement>('input[placeholder="0.00"]')!, "25")
 	await enter(sheet.querySelector<HTMLInputElement>('input[placeholder="Recipient address"]')!, RECIPIENT)
 	await click(button(sheet, "Send"))
-	const review = [...document.querySelectorAll<HTMLElement>('[role="dialog"]')].at(-1)!
-	await click(button(review, "Send 25 ETH"))
+	await click(button(sheet.querySelector<HTMLElement>(".send-review")!, "Send 25 ETH"))
 	await flush()
 }
 
@@ -115,6 +114,94 @@ describe("send funds", () => {
 		expect(button(sheet, "Max").getAttribute("aria-pressed")).toBe("true")
 		await click(button(sheet, "50%"))
 		expect(amount.value).toBe("0.5")
+	})
+
+	it("lists every sendable token with the largest balance first, and sends the one picked", async () => {
+		const usdc = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
+		vi.mocked(api.get).mockResolvedValue({
+			toml: "",
+			logLevel: "info",
+			vaultConfigured: false,
+			allowlistUsers: [],
+			vaults: [],
+			sendTokens: {
+				"EVM-8453": [
+					{ symbol: "ETH", address: "native" },
+					{ symbol: "USDC", address: usdc },
+				],
+			},
+			knownVaults: {},
+		})
+		await render({
+			updatedAt: 1,
+			status: "fresh",
+			issues: [],
+			chains: [
+				{
+					chainId: 8453,
+					native: { symbol: "ETH", amount: 1 },
+					assets: [{ address: usdc, symbol: "USDC", wallet: 2500.5, available: 2500.5, vaults: [] }],
+				},
+			],
+		} as unknown as BalanceSnapshot)
+		const sheet = await openSend()
+		const trigger = sheet.querySelector<HTMLElement>(".send-asset-trigger")!
+		expect(sheet.querySelector(".send-asset-list")).toBeNull()
+
+		await click(trigger)
+		const rows = [...sheet.querySelectorAll<HTMLElement>(".send-asset-option")]
+		expect(rows.map((row) => row.textContent)).toEqual(["USDCBase2,500.5", "ETHBase1"])
+		expect(rows[1].getAttribute("aria-current")).toBe("true")
+
+		await click(rows[0])
+		expect(sheet.querySelector(".send-asset-list")).toBeNull()
+		expect(trigger.textContent).toBe("USDCBase2,500.5")
+
+		await enter(sheet.querySelector<HTMLInputElement>('input[placeholder="0.00"]')!, "1000")
+		await enter(sheet.querySelector<HTMLInputElement>('input[placeholder="Recipient address"]')!, RECIPIENT)
+		await click(button(sheet, "Send"))
+		await click(button(sheet.querySelector<HTMLElement>(".send-review")!, "Send 1,000 USDC"))
+		await flush()
+		expect(api.post).toHaveBeenCalledWith("/api/send", expect.objectContaining({ token: usdc, amount: "1000" }))
+	})
+
+	it("groups thousands in the amount while sending the plain value", async () => {
+		await render()
+		const sheet = await openSend()
+		const amount = sheet.querySelector<HTMLInputElement>('input[placeholder="0.00"]')!
+		await enter(amount, "2000")
+		expect(amount.value).toBe("2,000")
+		// What the browser reports after a digit is typed into the grouped text.
+		await enter(amount, "2,5000.5")
+		expect(amount.value).toBe("25,000.5")
+
+		await enter(sheet.querySelector<HTMLInputElement>('input[placeholder="Recipient address"]')!, RECIPIENT)
+		await click(button(sheet, "Send"))
+		await click(button(sheet.querySelector<HTMLElement>(".send-review")!, "Send 25,000.5 ETH"))
+		await flush()
+		expect(api.post).toHaveBeenCalledWith("/api/send", expect.objectContaining({ amount: "25000.5" }))
+		expect(document.querySelector(".send-success")?.textContent).toContain("25,000.5 ETH sent on Base")
+	})
+
+	it("reviews the transfer inside the send dialog, and goes back to the form as it was", async () => {
+		await render()
+		const sheet = await openSend()
+		const amount = sheet.querySelector<HTMLInputElement>('input[placeholder="0.00"]')!
+		await enter(amount, "1000")
+		await enter(sheet.querySelector<HTMLInputElement>('input[placeholder="Recipient address"]')!, RECIPIENT)
+		await click(button(sheet, "Send"))
+
+		// The review takes the form's place: no second dialog opens over the first.
+		expect(document.querySelectorAll('[role="dialog"]')).toHaveLength(1)
+		expect(sheet.textContent).toContain("Review transfer")
+		expect(sheet.querySelector(".send-review-headline strong")?.textContent).toBe("1,000 ETH (native)")
+		expect(sheet.querySelector<HTMLElement>(".send-form")?.hidden).toBe(true)
+
+		await click(button(sheet.querySelector<HTMLElement>(".send-review")!, "Back"))
+		expect(sheet.querySelector(".send-review")).toBeNull()
+		expect(sheet.querySelector<HTMLElement>(".send-form")?.hidden).toBe(false)
+		expect(amount.value).toBe("1,000")
+		expect(api.post).not.toHaveBeenCalled()
 	})
 
 	it("offers no share of a balance it has not read, and says when an address is not one", async () => {

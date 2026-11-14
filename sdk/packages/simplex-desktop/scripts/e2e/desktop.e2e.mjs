@@ -530,8 +530,9 @@ test("window close, app quit, hard crash, and second launch preserve one detache
 	await assertNoTcpListener(daemonPid)
 	await waitFor(
 		async () =>
-			(await electronApp.evaluate(({ Menu }) => Menu.getApplicationMenu()?.getMenuItemById("solver-status")?.label)) ===
-			"Solver: Setup required",
+			(await electronApp.evaluate(
+				({ Menu }) => Menu.getApplicationMenu()?.getMenuItemById("solver-status")?.label,
+			)) === "Solver: Setup required",
 		"setup status in the native menu",
 	)
 	const nativeMenu = await electronApp.evaluate(({ Menu }) => {
@@ -616,7 +617,10 @@ for (const stopAction of ["stop-solver", "stop-and-quit"]) {
 		for (let cycle = 0; cycle < 5; cycle++) {
 			await waitFor(
 				() =>
-					electronApp.evaluate(({ Menu }, id) => Menu.getApplicationMenu()?.getMenuItemById(id)?.enabled, stopAction),
+					electronApp.evaluate(
+						({ Menu }, id) => Menu.getApplicationMenu()?.getMenuItemById(id)?.enabled,
+						stopAction,
+					),
 				"the stop menu action to become available",
 			)
 			const exited = electronProcessExit(electronApp.process())
@@ -632,14 +636,20 @@ for (const stopAction of ["stop-solver", "stop-and-quit"]) {
 			;({ electronApp, page } = await launchDesktop(userDataDir, { locked: true }))
 			await electronApp.evaluate(({ app, BrowserWindow }) => {
 				globalThis.__passwordReopenFailures = []
-				app.on("render-process-gone", (_event, _contents, details) => globalThis.__passwordReopenFailures.push(details))
+				app.on("render-process-gone", (_event, _contents, details) =>
+					globalThis.__passwordReopenFailures.push(details),
+				)
 				app.on("child-process-gone", (_event, details) => globalThis.__passwordReopenFailures.push(details))
 				for (const window of BrowserWindow.getAllWindows()) {
 					window.on("unresponsive", () => globalThis.__passwordReopenFailures.push("unresponsive"))
 				}
 			})
 			await usePasswordLogin(page)
-			assert.equal(await page.locator("#desktop-confirmation").count(), 0, "relaunch must retain the existing account")
+			assert.equal(
+				await page.locator("#desktop-confirmation").count(),
+				0,
+				"relaunch must retain the existing account",
+			)
 			assert.equal(await page.evaluate(async () => (await fetch("/api/status")).status), 423)
 			await unlockDesktop(page)
 			await waitForHealth(socketPath, "init")
@@ -727,9 +737,14 @@ test(
 				globalThis.__simplexPasskeyUrl = undefined
 			})
 			await page.getByRole("button", { name: button, exact: true }).click()
-			const url = await waitFor(() => electronApp.evaluate(() => globalThis.__simplexPasskeyUrl), "passkey browser URL")
+			const url = await waitFor(
+				() => electronApp.evaluate(() => globalThis.__simplexPasskeyUrl),
+				"passkey browser URL",
+			)
 			await browserPage.goto(url)
-			await browserPage.getByRole("button", { name: cancel ? /^Cancel$/ : /^(Create|Unlock with) passkey$/ }).click()
+			await browserPage
+				.getByRole("button", { name: cancel ? /^Cancel$/ : /^(Create|Unlock with) passkey$/ })
+				.click()
 			await browserPage
 				.getByRole("status")
 				.filter({ hasText: cancel ? "Cancelled" : "Simplex is continuing" })
@@ -1054,6 +1069,52 @@ test("Stop solver and quit closes Electron after shutdown is accepted", async (t
 	}, "the detached solver to finish draining")
 })
 
+test("Reset Configuration stops the solver and relaunches on an empty profile", async (t) => {
+	const userDataDir = await temporaryUserData("reset")
+	const socketPath = socketPathFor(userDataDir)
+	let electronApp
+	t.after(async () => cleanupDesktop(electronApp, userDataDir))
+	;({ electronApp } = await launchDesktop(userDataDir))
+	await waitForHealth(socketPath, "init")
+	const [daemonPid] = await waitForDaemonPids(userDataDir)
+	await writeFile(join(userDataDir, "bids.db"), "rows that must not outlive the reset")
+	assert.ok(existsSync(join(userDataDir, "desktop-vault.json")), "the first launch must have saved a sign-in")
+
+	// The confirmation is a native dialog, so the test answers it in place of a click.
+	await electronApp.evaluate(({ dialog }) => {
+		dialog.showMessageBox = async () => ({ response: 1, checkboxChecked: false })
+	})
+	const exited = electronProcessExit(electronApp.process(), 120_000)
+	// The inspector connection drops as the app quits, which can reject this call.
+	await electronApp
+		.evaluate(({ Menu }) => Menu.getApplicationMenu()?.getMenuItemById("reset-configuration")?.click())
+		.catch(() => {})
+	await exited
+	electronApp = undefined
+
+	// The app relaunches itself, and that launch deletes the old profile before it opens it.
+	await waitFor(
+		async () => {
+			const left = await readdir(userDataDir)
+			return !["reset-pending", "desktop-vault.json", "bids.db", "logs"].some((name) => left.includes(name))
+		},
+		"the relaunched app to delete the old profile",
+		60_000,
+	)
+	assert.equal((await daemonPids(userDataDir)).includes(daemonPid), false, "the old solver must have exited")
+
+	// The relaunched app is outside Playwright's reach. Replace it to drive the new profile.
+	await stopLeftoverElectron(userDataDir)
+	await waitFor(
+		async () => !(await processRows()).some((row) => row.includes(electronExecutable) && row.includes(userDataDir)),
+		"the relaunched app to stop",
+	)
+	let page
+	;({ electronApp, page } = await launchDesktop(userDataDir, { locked: true }))
+	await usePasswordLogin(page)
+	await page.locator("#desktop-confirmation").waitFor()
+})
+
 test("graceful stop keeps the socket lock and disables restart until draining finishes", async (t) => {
 	const userDataDir = await temporaryUserData("stopping-lock")
 	const socketPath = socketPathFor(userDataDir)
@@ -1082,8 +1143,9 @@ test("graceful stop keeps the socket lock and disables restart until draining fi
 	}, "the stopping health state")
 	await waitFor(
 		async () =>
-			(await electronApp.evaluate(({ Menu }) => Menu.getApplicationMenu()?.getMenuItemById("solver-status")?.label)) ===
-			"Solver: Stopping…",
+			(await electronApp.evaluate(
+				({ Menu }) => Menu.getApplicationMenu()?.getMenuItemById("solver-status")?.label,
+			)) === "Solver: Stopping…",
 		"the stopping native state",
 	)
 	assert.equal(
@@ -1123,8 +1185,9 @@ test("the native shell reports a crashed solver, prevents sleep while active, an
 	;({ electronApp } = await launchDesktop(userDataDir))
 	await waitFor(
 		async () =>
-			(await electronApp.evaluate(({ Menu }) => Menu.getApplicationMenu()?.getMenuItemById("solver-status")?.label)) ===
-			"Solver: Running",
+			(await electronApp.evaluate(
+				({ Menu }) => Menu.getApplicationMenu()?.getMenuItemById("solver-status")?.label,
+			)) === "Solver: Running",
 		"running status in the native menu",
 	)
 	assert.equal(
@@ -1135,8 +1198,9 @@ test("the native shell reports a crashed solver, prevents sleep while active, an
 	await electronApp.evaluate(({ Menu }) => Menu.getApplicationMenu()?.getMenuItemById("toggle-pause")?.click())
 	await waitFor(
 		async () =>
-			(await electronApp.evaluate(({ Menu }) => Menu.getApplicationMenu()?.getMenuItemById("solver-status")?.label)) ===
-			"Solver: Paused",
+			(await electronApp.evaluate(
+				({ Menu }) => Menu.getApplicationMenu()?.getMenuItemById("solver-status")?.label,
+			)) === "Solver: Paused",
 		"paused status in the native menu",
 	)
 	assert.equal(
@@ -1146,16 +1210,18 @@ test("the native shell reports a crashed solver, prevents sleep while active, an
 	await electronApp.evaluate(({ Menu }) => Menu.getApplicationMenu()?.getMenuItemById("toggle-pause")?.click())
 	await waitFor(
 		async () =>
-			(await electronApp.evaluate(({ Menu }) => Menu.getApplicationMenu()?.getMenuItemById("solver-status")?.label)) ===
-			"Solver: Running",
+			(await electronApp.evaluate(
+				({ Menu }) => Menu.getApplicationMenu()?.getMenuItemById("solver-status")?.label,
+			)) === "Solver: Running",
 		"resumed status in the native menu",
 	)
 
 	await fixture.stop()
 	await waitFor(
 		async () =>
-			(await electronApp.evaluate(({ Menu }) => Menu.getApplicationMenu()?.getMenuItemById("solver-status")?.label)) ===
-			"Solver: Stopped",
+			(await electronApp.evaluate(
+				({ Menu }) => Menu.getApplicationMenu()?.getMenuItemById("solver-status")?.label,
+			)) === "Solver: Stopped",
 		"crashed solver status within one polling interval",
 		10_000,
 	)
@@ -1353,7 +1419,10 @@ test("the renderer enforces CSP and opens only approved links outside Electron",
 		async () => (await electronApp.evaluate(() => globalThis.__simplexOpenedUrls ?? [])).length === 2,
 		"second approved external link",
 	)
-	assert.deepEqual(await electronApp.evaluate(() => globalThis.__simplexOpenedUrls), [approvedLink, secondApprovedLink])
+	assert.deepEqual(await electronApp.evaluate(() => globalThis.__simplexOpenedUrls), [
+		approvedLink,
+		secondApprovedLink,
+	])
 	await page.evaluate(() => {
 		window.location.href = "https://example.com/"
 	})

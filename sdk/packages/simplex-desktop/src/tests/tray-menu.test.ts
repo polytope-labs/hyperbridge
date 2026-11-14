@@ -15,6 +15,7 @@ function actions() {
 		setUpdateChannel: vi.fn(),
 		openDataDirectory: vi.fn(),
 		openLog: vi.fn(),
+		resetConfiguration: vi.fn(),
 		quitApp: vi.fn(),
 		stopAndQuit: vi.fn(),
 	}
@@ -155,6 +156,7 @@ describe("native desktop menus", () => {
 			"restart-bundled-solver",
 			"stop-and-quit",
 			"open-current-log",
+			"reset-configuration",
 			"check-for-updates",
 			"update-channel",
 		]) {
@@ -162,6 +164,28 @@ describe("native desktop menus", () => {
 		}
 		expect(item(template, "solver-status").label).toBe("Simplex locked")
 		expect(item(template, "show-simplex").enabled).not.toBe(false)
+	})
+
+	it("offers the reset from the tray and the application menu, except while an update installs", () => {
+		const callbacks = actions()
+		const tray = item(buildTrayMenuTemplate(runningModel, callbacks), "reset-configuration")
+		expect(tray.label).toBe("Reset Configuration…")
+		expect(tray.enabled).toBe(true)
+		;(tray.click as () => void)()
+		expect(callbacks.resetConfiguration).toHaveBeenCalledOnce()
+
+		const application = buildApplicationMenuTemplate(runningModel, callbacks, "darwin")[0]
+			.submenu as MenuItemConstructorOptions[]
+		expect(item(application, "reset-configuration").enabled).toBe(true)
+		const locked = buildApplicationMenuTemplate({ ...runningModel, locked: true }, callbacks, "darwin")[0]
+			.submenu as MenuItemConstructorOptions[]
+		expect(item(locked, "reset-configuration").enabled).toBe(false)
+
+		const installing = buildTrayMenuTemplate(
+			{ ...runningModel, update: { state: "installing", channel: "stable", targetVersion: "0.19.0" } },
+			callbacks,
+		)
+		expect(item(installing, "reset-configuration").enabled).toBe(false)
 	})
 
 	it("labels every solver status", () => {

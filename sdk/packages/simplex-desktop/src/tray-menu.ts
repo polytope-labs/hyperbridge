@@ -15,6 +15,7 @@ export interface DesktopMenuActions {
 	setUpdateChannel: (channel: UpdateChannel) => void | Promise<void>
 	openDataDirectory: () => void | Promise<void>
 	openLog: () => void | Promise<void>
+	resetConfiguration: () => void | Promise<void>
 	quitApp: () => void
 	stopAndQuit: () => void | Promise<void>
 }
@@ -95,6 +96,16 @@ function operationItems(model: DesktopMenuModel, actions: DesktopMenuActions): M
 	]
 }
 
+/** Stops the solver and deletes the profile, so it needs an unlocked session like stopping does. */
+function resetItem(model: DesktopMenuModel, actions: DesktopMenuActions): MenuItemConstructorOptions {
+	return {
+		id: "reset-configuration",
+		label: "Reset Configuration…",
+		enabled: !model.locked && model.update.state !== "stopping-solver" && model.update.state !== "installing",
+		click: run(actions.resetConfiguration),
+	}
+}
+
 function updateItems(model: DesktopMenuModel, actions: DesktopMenuActions): MenuItemConstructorOptions[] {
 	return [
 		{
@@ -145,6 +156,7 @@ export function buildTrayMenuTemplate(
 			enabled: !model.locked && model.logAvailable,
 			click: run(actions.openLog),
 		},
+		resetItem(model, actions),
 		{ type: "separator" },
 		{
 			id: "quit-simplex",
@@ -224,6 +236,7 @@ export function buildApplicationMenuTemplate(
 					enabled: model.logAvailable,
 					click: run(actions.openLog),
 				},
+				resetItem(model, actions),
 				{ type: "separator" },
 				{
 					id: "quit-simplex",

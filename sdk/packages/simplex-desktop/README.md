@@ -54,7 +54,8 @@ then save and acknowledge the replacement recovery code. Changes take effect on 
 recovery preserves the config and does not restart an already protected solver. Authorization expires
 after ten minutes. Cancelling before confirmation preserves existing credentials. A password reset
 removes the current passkey; replacing a passkey preserves an existing password fallback.
-Without a working sign-in or recovery method, the app does not delete or reset the profile.
+Without a working sign-in or recovery method, the app does not delete or reset the profile: remove the
+user-data directory by hand to start again.
 Old metadata backups and their corresponding password/recovery code may still decrypt the config;
 a restored older backup also still accepts the passkey it recorded, so replacement does not revoke it.
 
@@ -158,8 +159,16 @@ Each source retains five files of up to 1 MiB. Local diagnostics work without a 
 [Sentry error reporting](../../../docs/ai/changelog/2026-10-14-simplex-sentry-error-reporting.md).
 No native memory dumps are collected.
 
-Desktop removal leaves Electron's user-data directory in place. Neither this shell nor its installer
-contract deletes operator databases, logs, or configuration.
+**Reset Configuration…**, in the tray and application menus, returns Simplex to a new installation.
+It asks for confirmation, stops the solver and waits for it to exit, turns off launch at login, and
+relaunches. The relaunched app deletes every file in the user-data directory before it opens it:
+`filler-config.toml` with the filler wallet's key, `desktop-vault.json`, the databases, paired
+devices, logs and the update channel. The reset needs an unlocked session, like **Stop solver**.
+Afterwards the funds in the filler wallet can be reached only with a backup of its key. A passkey
+created for the old profile stays in the system's password manager and can be removed there.
+
+Desktop removal leaves Electron's user-data directory in place. Apart from **Reset Configuration**,
+neither this shell nor its installer contract deletes operator databases, logs, or configuration.
 Operators may remove that directory manually only after confirming no reclaimable deposits or records
 are needed. The Windows NSIS uninstaller explicitly disables app-data deletion; macOS and Linux
 removal likewise leave the per-user data directory untouched.

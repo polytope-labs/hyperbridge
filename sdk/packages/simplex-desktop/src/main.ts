@@ -33,6 +33,7 @@ import { markSessionEnded, markSessionStarted, previousUncleanSession } from "./
 import { assertResources, resourcePaths, socketPathFor, userDataOverrideFromArgv } from "./desktop-paths"
 import { latestLogPath, loginItemExecutable, LoginItemController } from "./login-item"
 import { DesktopNotificationClient, desktopNotificationUrl } from "./notification-client"
+import { completePendingProfileReset, requestProfileReset } from "./profile-reset"
 import { handleSimplexProtocol } from "./protocol"
 import { RendererRecovery } from "./renderer-recovery"
 import { DesktopVault } from "./security/vault"
@@ -84,6 +85,8 @@ let powerSaveBlockerId: number | undefined
 let quitting = false
 let installingUpdate = false
 let intentionalStop = false
+/** Set once a reset is confirmed: nothing may start the solver again before the app relaunches. */
+let resetting = false
 let updateCoordinator: UpdateCoordinator | undefined
 let notificationClient: DesktopNotificationClient | undefined
 let vault: DesktopVault | undefined
@@ -92,6 +95,15 @@ let updateStatus: UpdateStatus = { state: "disabled", channel: "stable" }
 const userDataSwitch = app.commandLine.getSwitchValue("user-data-dir")
 const userDataOverride = userDataSwitch ? resolve(userDataSwitch) : userDataOverrideFromArgv()
 if (userDataOverride) app.setPath("userData", userDataOverride)
+// A reset confirmed in the last session is carried out here, before anything opens the profile.
+let profileResetFailure: Error | undefined
+try {
+	completePendingProfileReset(app.getPath("userData"))
+} catch (error) {
+	profileResetFailure = new Error(
+		`Simplex could not finish its reset: ${errorMessage(error)}. Close every Simplex process, delete ${app.getPath("userData")}, then open Simplex again.`,
+	)
+}
 // After the userData override: Sentry queues undelivered reports under it.
 const errorReportingActive = startDesktopErrorReporting(app.getVersion(), app.isPackaged, app.getPath("userData"))
 
@@ -150,6 +162,7 @@ const menuActions: DesktopMenuActions = {
 	setUpdateChannel: (channel: UpdateChannel) => updateCoordinator?.setChannel(channel),
 	openDataDirectory: () => openDataDirectory(),
 	openLog: () => openCurrentLog(),
+	resetConfiguration: () => resetConfiguration(),
 	quitApp: () => quitApp(),
 	stopAndQuit: () => stopAndQuit(),
 }
@@ -253,6 +266,7 @@ function trackDesktopSession(): void {
 }
 
 async function startOrAttachSolver(fatal: boolean, background = false): Promise<boolean> {
+	if (resetting) return false
 	if (vault && !vault.isUnlocked() && !background) {
 		await safeShowWindow()
 		return false
@@ -388,6 +402,59 @@ function quitApp(): void {
 
 async function stopAndQuit(): Promise<void> {
 	if (await stopSolver()) quitApp()
+}
+
+/** The profile must not be deleted under a solver that is still using it. */
+async function stopSolverBeforeReset(socketPath: string): Promise<void> {
+	if (startPromise) await startPromise.catch(() => false)
+	const health = await probeHealth(socketPath)
+	if (health.state === "spawnable") return
+	if (!("mode" in health)) throw new Error(`The solver could not be reached to stop it (${health.detail})`)
+	intentionalStop = true
+	if (health.state !== "stopping") await sendSolverAction(socketPath, "stop")
+	if (!(await waitForSolverExit({ pid: health.pid, probe: () => probeHealth(socketPath) }))) {
+		throw new Error("The solver has not finished stopping. Try again once it has drained its orders.")
+	}
+}
+
+/**
+ * Returns Simplex to a new installation: the solver stops, and the next launch deletes the
+ * config, the sign-in, the databases and every other file in the data directory.
+ */
+async function resetConfiguration(): Promise<void> {
+	if (vault && !vault.isUnlocked()) return
+	if (!daemonLaunch || resetting) return
+	const confirmation: Electron.MessageBoxOptions = {
+		type: "warning",
+		title: "Reset Configuration",
+		message: "Reset the Simplex configuration?",
+		detail: "The solver stops and Simplex restarts as a new installation. Everything it keeps on this computer is deleted: the configuration with the filler wallet's key, your sign-in, the order history, paired devices and logs.\n\nIf the wallet's key is not backed up somewhere else, the funds in the wallet are lost. This cannot be undone.",
+		buttons: ["Cancel", "Reset Configuration"],
+		defaultId: 0,
+		cancelId: 0,
+		noLink: true,
+	}
+	const { response } =
+		mainWindow && !mainWindow.isDestroyed()
+			? await dialog.showMessageBox(mainWindow, confirmation)
+			: await dialog.showMessageBox(confirmation)
+	if (response !== 1 || resetting) return
+
+	resetting = true
+	try {
+		await stopSolverBeforeReset(daemonLaunch.socketPath)
+		// Launch-at-login lives outside the data directory, so it is switched off by hand.
+		if (loginItem?.supported && loginItem.isEnabled()) loginItem.setEnabled(false)
+		requestProfileReset(app.getPath("userData"))
+	} catch (error) {
+		resetting = false
+		intentionalStop = false
+		return reportActionError("Simplex could not reset its configuration", error)
+	}
+	// An AppImage must be relaunched from the image, not from its mount, which goes away on exit.
+	const executable = loginItemExecutable(process.platform, process.execPath)
+	app.relaunch(executable === process.execPath ? undefined : { execPath: executable, args: process.argv.slice(1) })
+	quitApp()
 }
 
 async function createWindow(notificationPath?: string): Promise<void> {
@@ -574,6 +641,7 @@ async function prepareDesktop(): Promise<void> {
 			}
 		},
 		start: async (key) => {
+			if (resetting) throw new Error("Simplex is being reset")
 			if (startPromise) await startPromise
 			const launch = { ...daemonLaunch!, configKey: Buffer.from(key) }
 			intentionalStop = false
@@ -749,5 +817,10 @@ if (!app.requestSingleInstanceLock()) {
 	})
 	// A closed window leaves the tray and detached solver running on every OS.
 	app.on("window-all-closed", () => {})
-	app.whenReady().then(prepareDesktop).catch(reportStartupError)
+	app.whenReady()
+		.then(() => {
+			if (profileResetFailure) throw profileResetFailure
+			return prepareDesktop()
+		})
+		.catch(reportStartupError)
 }

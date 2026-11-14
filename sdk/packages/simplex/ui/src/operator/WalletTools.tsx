@@ -132,7 +132,7 @@ export function WalletTools(props: {
 					<span className="eyebrow">Funds</span>
 					<h2>Move and grow liquidity</h2>
 				</div>
-				<small>Each tool opens in a focused side panel.</small>
+				<small>Each tool opens on its own, over this page.</small>
 			</div>
 			<div className="operator-tool-list">
 				<OperationLink

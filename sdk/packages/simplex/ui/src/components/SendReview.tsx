@@ -1,9 +1,18 @@
+import { useEffect, useRef, useState } from "react"
 import { ChainLogo } from "./ChainLogo"
 import { TokenIcon } from "./TokenIcon"
 import { groupThousands } from "./AmountInput"
 
+/** How long the confirm button stays off after the review appears. */
+const CONFIRM_DELAY_MS = 500
+
 /** What the operator is about to send, and where the funds come from. */
 export interface SendSummary {
+	/** The chain key and token that are submitted: a contract address, or "native". */
+	chain: string
+	token: string
+	/** Set for a token sent by contract address, which has no ticker to recognise it by. */
+	contract?: string
 	/** As typed, so the review shows exactly what will be submitted. */
 	amount: string
 	symbol: string
@@ -12,7 +21,7 @@ export interface SendSummary {
 	to: string
 	/** Underlying held directly by the wallet; null when the balance could not be read. */
 	wallet: number | null
-	/** Spendable wallet plus withdrawable vault assets; null when unknown. */
+	/** The most one send can move: the wallet plus what the largest vault can return. Null when unknown. */
 	available: number | null
 	/** The split the sender will make: the wallet covers what it can, the vault the rest. */
 	fromWallet: number | null
@@ -26,7 +35,7 @@ export interface SendSummary {
 }
 
 function amountText(value: number | null): string {
-	return value === null ? "—" : value.toLocaleString(undefined, { maximumFractionDigits: 4 })
+	return value === null ? "—" : value.toLocaleString("en-US", { maximumFractionDigits: 4 })
 }
 
 /**
@@ -43,9 +52,18 @@ export function SendReview(props: {
 	const { summary, sending, onConfirm, onBack } = props
 	const fromVault = summary.fromVault ?? 0
 	const shortOfVault = fromVault > 0 && fromVault > summary.largestVault
+	const container = useRef<HTMLDivElement>(null)
+	// The review takes the form's place, and its confirm button lands where Send was. A second tap
+	// meant for Send must not confirm a transfer nobody has read.
+	const [confirmable, setConfirmable] = useState(false)
+	useEffect(() => {
+		container.current?.focus()
+		const timer = setTimeout(() => setConfirmable(true), CONFIRM_DELAY_MS)
+		return () => clearTimeout(timer)
+	}, [])
 
 	return (
-		<div className="send-review">
+		<div ref={container} className="send-review" tabIndex={-1}>
 			<div className="send-review-headline">
 				{/* The network rides on the token as a badge, the way wallets show it. */}
 				<span className="send-review-asset">
@@ -68,6 +86,12 @@ export function SendReview(props: {
 					<dt>Recipient</dt>
 					<dd className="mono send-review-address">{summary.to}</dd>
 				</div>
+				{summary.contract ? (
+					<div className="send-review-wide">
+						<dt>Token contract</dt>
+						<dd className="mono send-review-address">{summary.contract}</dd>
+					</div>
+				) : null}
 				<div>
 					<dt>From wallet</dt>
 					<dd>
@@ -122,7 +146,7 @@ export function SendReview(props: {
 				<button type="button" className="secondary" onClick={onBack} disabled={sending}>
 					Back
 				</button>
-				<button type="button" className="primary" onClick={onConfirm} disabled={sending}>
+				<button type="button" className="primary" onClick={onConfirm} disabled={sending || !confirmable}>
 					{sending ? "Sending…" : `Send ${groupThousands(summary.amount)} ${summary.symbol}`}
 				</button>
 			</div>

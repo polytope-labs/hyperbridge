@@ -57,7 +57,7 @@ curl -s $SIMPLEX/api/tunnel
 | `hostFingerprint` | The host key of the SSH server inside Simplex. Devices check it when they connect. |
 | `operatorFingerprint` | The key this solver identifies itself to the relay with. |
 | `devices` | Each paired device's key fingerprint, label, when it was paired, and whether it is `connected` right now. `addedAt` is `0` for a key added to `authorized_keys` by hand. |
-| `activeConnections` | How many device sessions are open right now. |
+| `activeConnections` | How many connections to the SSH server inside Simplex are open right now, including one that has not logged in yet. |
 | `connection` | What to enter in the device's SSH app: host, port, username, the host key to expect, and the local port forward. |
 | `readOnly` | `true` when this request came through the tunnel, where these settings cannot be changed. |
 

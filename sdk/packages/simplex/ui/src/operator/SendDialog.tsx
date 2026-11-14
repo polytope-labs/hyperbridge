@@ -28,7 +28,11 @@ interface SendBalance {
 	status: "loading" | "available" | "unavailable"
 	/** Underlying held directly by the wallet; null when unknown. */
 	wallet: number | null
-	/** Spendable wallet plus withdrawable vault assets; null when unknown. */
+	/**
+	 * The most one send can move: the wallet's balance plus what the largest vault can return.
+	 * Null when unknown. This is not the dashboard's "available", which leaves out the wallet
+	 * floor a vault asks for. A send does not have to keep that floor.
+	 */
 	available: number | null
 	/** Largest single vault that could cover a shortfall — withdrawals draw on one vault, not several. */
 	largestVault: number
@@ -58,8 +62,13 @@ const ADDRESS = /^0x[0-9a-fA-F]{40}$/
 
 function percentageAmount(available: number, percentage: number): string {
 	const scale = 10 ** PERCENTAGE_FRACTION_DIGITS
-	const amount = Math.floor(((available * percentage) / 100) * scale) / scale
-	return amount.toLocaleString("en-US", { useGrouping: false, maximumFractionDigits: PERCENTAGE_FRACTION_DIGITS })
+	let units = Math.floor(((available * percentage) / 100) * scale)
+	// A balance that is a sum of floats can sit a hair under the unit the multiplication lands on.
+	if (units / scale > available) units -= 1
+	return (units / scale).toLocaleString("en-US", {
+		useGrouping: false,
+		maximumFractionDigits: PERCENTAGE_FRACTION_DIGITS,
+	})
 }
 
 function SendHash({ hash, explorerUrl }: { hash?: string; explorerUrl?: string }) {
@@ -140,40 +149,45 @@ export function SendDialog(props: {
 	const requested = Number.parseFloat(amount.trim())
 	const amountValid = /^\d*\.?\d+$/.test(amount.trim()) && requested > 0
 	const exceeds = amountValid && balance.available !== null && requested > balance.available
-	const ready = amountValid && !exceeds && addressValid && tokenAddress !== ""
+	const tokenValid = custom ? ADDRESS.test(tokenAddress) : tokenAddress !== ""
+	const ready = amountValid && !exceeds && addressValid && tokenValid
 	const canPaste = typeof navigator !== "undefined" && typeof navigator.clipboard?.readText === "function"
 
 	const balanceText = balance.available === null ? balance.label : formatSendBalance(balance.available)
+	/** A network is listed under its first token, which every network has: its native one. */
+	const networkKey = (chainId: number | undefined) => assets.find((entry) => entry.chainId === chainId)?.key ?? ""
 	const currentAsset: SendAssetOption = {
-		key: custom ? "" : (asset?.key ?? ""),
+		key: custom ? networkKey(asset?.chainId) : (asset?.key ?? ""),
 		symbol: custom || !asset ? null : asset.symbol,
 		network,
-		balance: balanceText,
+		balance: custom ? "" : balanceText,
 		funded: isHeld(balance.available),
 	}
 	/** The tokens the wallet holds, largest balance first. */
-	const assetOptions = useMemo<SendAssetOption[]>(
-		() =>
-			assets
-				.flatMap((entry) =>
-					isHeld(entry.balance.available) ? [{ ...entry, held: entry.balance.available }] : [],
-				)
-				.sort((a, b) => b.held - a.held)
-				.map((entry) => ({
-					key: entry.key,
-					symbol: entry.symbol,
-					network: chainLabel(entry.chainId),
-					balance: formatSendBalance(entry.held),
-					funded: true,
-				})),
-		[assets, chainLabel],
-	)
+	const heldOptions: SendAssetOption[] = assets
+		.flatMap((entry) => (isHeld(entry.balance.available) ? [{ ...entry, held: entry.balance.available }] : []))
+		.sort((a, b) => b.held - a.held)
+		.map((entry) => ({
+			key: entry.key,
+			symbol: entry.symbol,
+			network: chainLabel(entry.chainId),
+			balance: formatSendBalance(entry.held),
+			funded: true,
+		}))
+	/** A token sent by contract address has no balance to list by, so its list is the networks. */
+	const networkOptions: SendAssetOption[] = chains.flatMap((chainId) => {
+		const key = networkKey(chainId)
+		return key ? [{ key, symbol: null, network: chainLabel(chainId), balance: "", funded: true }] : []
+	})
 
 	/** Shows the review in place of the form; nothing is submitted until it is confirmed. */
 	const openReview = () => {
 		const wallet = balance.wallet
 		const covered = wallet === null ? null : Math.min(requested, wallet)
 		setReview({
+			chain,
+			token: tokenAddress,
+			contract: custom ? tokenAddress : undefined,
 			amount: amount.trim(),
 			symbol,
 			native: tokenAddress === "native",
@@ -187,30 +201,35 @@ export function SendDialog(props: {
 		})
 	}
 
-	const send = () => {
-		const chainId = parseChainKey(chain)
+	/** Submits exactly what the review showed, whatever the form has become since. */
+	const send = (summary: SendSummary) => {
+		const chainId = parseChainKey(summary.chain)
 		const explorerUrl = chainId === null ? undefined : chainByChainId(chainId)?.explorerUrl
 		setResult(undefined)
 		setSending(true)
 		return act(async () => {
 			try {
 				const res = await api.post<SendResult>("/api/send", {
-					chain,
-					token: tokenAddress,
-					amount: amount.trim(),
-					to: recipient,
+					chain: summary.chain,
+					token: summary.token,
+					amount: summary.amount,
+					to: summary.to,
 				})
-				setResult({ ...res, explorerUrl, sent: { amount: amount.trim(), symbol, network } })
+				setResult({
+					...res,
+					explorerUrl,
+					sent: { amount: summary.amount, symbol: summary.symbol, network: summary.chainLabel },
+				})
 				// Clear the amount whatever the outcome: a send that came back pending (202) must
 				// not be re-submitted by the next click. `act` gets no "Sent" label here because a
 				// pending response sets `result`, and the success screen already renders from it.
 				setAmount("")
-				await props.onSent()
 			} finally {
 				// The review stays up while the send is in flight, then gives way to the outcome.
 				setReview(undefined)
 				setSending(false)
 			}
+			await props.onSent()
 		})
 	}
 
@@ -223,10 +242,15 @@ export function SendDialog(props: {
 	}
 
 	const success = result && !result.pending ? result : undefined
-	/** A finished send and an open review are cleared on the way out, so the dialog opens on the form again. */
+	/** Nothing entered for one send carries into the next: the dialog opens on an empty form. */
 	const close = () => {
-		if (success) setResult(undefined)
+		setResult(undefined)
 		setReview(undefined)
+		setAmount("")
+		setTo("")
+		setCustom(false)
+		setCustomToken("")
+		setSelectedKey(undefined)
 		props.onClose()
 	}
 
@@ -246,7 +270,7 @@ export function SendDialog(props: {
 				<SendReview
 					summary={review}
 					sending={sending}
-					onConfirm={() => void send()}
+					onConfirm={() => void send(review)}
 					onBack={() => setReview(undefined)}
 				/>
 			) : null}
@@ -276,7 +300,8 @@ export function SendDialog(props: {
 						<SendHash hash={success.txHash} />
 					)}
 					<div className="send-actions" data-single>
-						<button type="button" className="primary" onClick={close}>
+						{/* The button that was pressed is gone, so focus goes to the one that ends the flow. */}
+						<button type="button" className="primary" onClick={close} autoFocus>
 							Done
 						</button>
 					</div>
@@ -285,11 +310,8 @@ export function SendDialog(props: {
 			<div className="send-form" hidden={Boolean(success) || Boolean(review)}>
 				<SendAssetSelect
 					current={currentAsset}
-					options={assetOptions}
-					onSelect={(key) => {
-						setSelectedKey(key)
-						setCustom(false)
-					}}
+					options={custom ? networkOptions : heldOptions}
+					onSelect={setSelectedKey}
 				/>
 				{/* Everything the open asset list covers. */}
 				<div className="send-fields">
@@ -301,9 +323,18 @@ export function SendDialog(props: {
 									type="text"
 									placeholder="0x…"
 									value={customToken}
+									autoComplete="off"
+									autoCapitalize="off"
+									spellCheck={false}
 									onChange={(e) => setCustomToken(e.target.value)}
 								/>
 							</label>
+						) : null}
+						{custom && tokenAddress && !tokenValid ? (
+							<p className="send-address-note" data-state="error">
+								<CloseIcon aria-hidden="true" />
+								Enter a valid contract address
+							</p>
 						) : null}
 						<button
 							type="button"
@@ -365,7 +396,7 @@ export function SendDialog(props: {
 							</small>
 							<div className="send-percentages" role="group" aria-label="Share of the available balance">
 								{PERCENTAGES.map((percentage) => {
-									const fill = balance.available
+									const fill = isHeld(balance.available)
 										? percentageAmount(balance.available, percentage)
 										: undefined
 									return (
@@ -444,15 +475,17 @@ function selectedSendBalance(balances: BalanceSnapshot | undefined, chain: strin
 
 	if (!token) return UNKNOWN
 	const asset = chainBalance.assets.find((row) => row.address.toLowerCase() === token.toLowerCase())
-	if (asset?.available === null || asset?.available === undefined) {
+	if (!asset || asset.wallet === null) {
 		return { label: "Unavailable", status: "unavailable", ...UNKNOWN_BALANCE }
 	}
+	const largestVault = asset.vaults.reduce((most, vault) => Math.max(most, vault.available), 0)
+	const available = asset.wallet + largestVault
 	return {
-		label: `${formatSendBalance(asset.available)} ${asset.symbol}`,
+		label: `${formatSendBalance(available)} ${asset.symbol}`,
 		status: "available",
 		wallet: asset.wallet,
-		available: asset.available,
-		largestVault: asset.vaults.reduce((most, vault) => Math.max(most, vault.available), 0),
+		available,
+		largestVault,
 	}
 }
 
@@ -460,7 +493,8 @@ function selectedSendBalance(balances: BalanceSnapshot | undefined, chain: strin
 const BALANCE_FRACTION_DIGITS = 4
 
 function formatSendBalance(value: number): string {
-	return value.toLocaleString(undefined, { maximumFractionDigits: BALANCE_FRACTION_DIGITS })
+	// Grouped the way the amount field groups, whatever the browser's locale.
+	return value.toLocaleString("en-US", { maximumFractionDigits: BALANCE_FRACTION_DIGITS })
 }
 
 /**

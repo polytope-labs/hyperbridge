@@ -251,17 +251,17 @@ export class EmbeddedSshServer {
 		}
 	}
 
+	/** Whether a session that logged in with this device key is open right now. */
+	isDeviceConnected(fingerprint: string): boolean {
+		return (this.connectionsByDevice.get(fingerprint)?.size ?? 0) > 0
+	}
+
 	/**
 	 * Hangs up on every live session holding this device key. Revoking a device
 	 * blocks its next login, but a session opened a minute earlier would
 	 * otherwise keep the dashboard open for as long as it stayed connected —
 	 * and a lost phone is exactly when that matters.
 	 */
-	/** Whether a session that logged in with this device key is open right now. */
-	isDeviceConnected(fingerprint: string): boolean {
-		return (this.connectionsByDevice.get(fingerprint)?.size ?? 0) > 0
-	}
-
 	disconnectDevice(fingerprint: string): number {
 		const open = this.connectionsByDevice.get(fingerprint)
 		if (!open) return 0

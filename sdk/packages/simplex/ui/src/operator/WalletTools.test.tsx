@@ -37,15 +37,41 @@ async function openSend() {
 	return document.querySelector<HTMLElement>('[role="dialog"]')!
 }
 
+const amountInput = (sheet: ParentNode) => sheet.querySelector<HTMLInputElement>('input[placeholder="0.00"]')!
+const recipientInput = (sheet: ParentNode) =>
+	sheet.querySelector<HTMLInputElement>('input[placeholder="Recipient address"]')!
+const optionTexts = (sheet: ParentNode) =>
+	[...sheet.querySelectorAll<HTMLElement>(".send-asset-option")].map((row) => row.textContent)
+
+/** Confirms the open review, once its confirm button has come on. */
+async function confirmReview(sheet: ParentNode, label: string) {
+	await act(async () => vi.advanceTimersByTime(500))
+	await click(button(sheet.querySelector<HTMLElement>(".send-review")!, label))
+	await flush()
+}
+
 /** Opens the send dialog, fills the form and submits it through the review step. */
 async function send() {
 	const sheet = await openSend()
-	await enter(sheet.querySelector<HTMLInputElement>('input[placeholder="0.00"]')!, "25")
-	await enter(sheet.querySelector<HTMLInputElement>('input[placeholder="Recipient address"]')!, RECIPIENT)
+	await enter(amountInput(sheet), "25")
+	await enter(recipientInput(sheet), RECIPIENT)
 	await click(button(sheet, "Send"))
-	await click(button(sheet.querySelector<HTMLElement>(".send-review")!, "Send 25 ETH"))
-	await flush()
+	await confirmReview(sheet, "Send 25 ETH")
 }
+
+const NATIVE_ONLY = [{ symbol: "ETH", address: "native" }]
+/** The config the dialog reads its sendable tokens from. */
+const config = (sendTokens: Record<string, { symbol: string; address: string }[]>) => ({
+	toml: "",
+	logLevel: "info",
+	vaultConfigured: false,
+	allowlistUsers: [],
+	vaults: [],
+	sendTokens,
+	knownVaults: {},
+})
+const snapshot = (chains: unknown[]) =>
+	({ updatedAt: 1, status: "fresh", issues: [], chains }) as unknown as BalanceSnapshot
 
 beforeEach(async () => {
 	;(globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true
@@ -62,15 +88,9 @@ beforeEach(async () => {
 	})) as typeof window.matchMedia
 	sendReply = { txHash: TX_HASH, sponsored: true, redeemed: false }
 	onBalancesChanged = vi.fn()
-	vi.spyOn(api, "get").mockResolvedValue({
-		toml: "",
-		logLevel: "info",
-		vaultConfigured: false,
-		allowlistUsers: [],
-		vaults: [],
-		sendTokens: { "EVM-8453": [{ symbol: "ETH", address: "native" }] },
-		knownVaults: {},
-	})
+	// The review's confirm button comes on after a delay, which the tests step over.
+	vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] })
+	vi.spyOn(api, "get").mockResolvedValue(config({ "EVM-8453": NATIVE_ONLY }))
 	vi.spyOn(api, "post").mockImplementation(async () => sendReply)
 	element = document.createElement("div")
 	document.body.append(element)
@@ -79,15 +99,16 @@ beforeEach(async () => {
 afterEach(async () => {
 	await act(async () => root.unmount())
 	element.remove()
+	vi.useRealTimers()
 	vi.restoreAllMocks()
 })
 
-const render = async (balances?: BalanceSnapshot) => {
+const render = async (balances?: BalanceSnapshot, chains = [8453]) => {
 	await act(async () =>
 		root.render(
 			<WalletTools
-				chains={[8453]}
-				chainLabels={{ "8453": "Base" }}
+				chains={chains}
+				chainLabels={{ "8453": "Base", "56": "BNB Chain" }}
 				balances={balances}
 				onBalancesChanged={onBalancesChanged}
 				onOpenChains={vi.fn()}
@@ -165,12 +186,16 @@ describe("send funds", () => {
 		expect(sheet.querySelector(".send-asset-list")).toBeNull()
 		expect(trigger.textContent).toBe("USDCBase2,500.5")
 
-		await enter(sheet.querySelector<HTMLInputElement>('input[placeholder="0.00"]')!, "1000")
-		await enter(sheet.querySelector<HTMLInputElement>('input[placeholder="Recipient address"]')!, RECIPIENT)
+		await enter(amountInput(sheet), "1000")
+		await enter(recipientInput(sheet), RECIPIENT)
 		await click(button(sheet, "Send"))
-		await click(button(sheet.querySelector<HTMLElement>(".send-review")!, "Send 1,000 USDC"))
-		await flush()
-		expect(api.post).toHaveBeenCalledWith("/api/send", expect.objectContaining({ token: usdc, amount: "1000" }))
+		await confirmReview(sheet, "Send 1,000 USDC")
+		expect(api.post).toHaveBeenCalledWith("/api/send", {
+			chain: "EVM-8453",
+			token: usdc,
+			amount: "1000",
+			to: RECIPIENT,
+		})
 	})
 
 	it("groups thousands in the amount while sending the plain value", async () => {
@@ -185,8 +210,7 @@ describe("send funds", () => {
 
 		await enter(sheet.querySelector<HTMLInputElement>('input[placeholder="Recipient address"]')!, RECIPIENT)
 		await click(button(sheet, "Send"))
-		await click(button(sheet.querySelector<HTMLElement>(".send-review")!, "Send 25,000.5 ETH"))
-		await flush()
+		await confirmReview(sheet, "Send 25,000.5 ETH")
 		expect(api.post).toHaveBeenCalledWith("/api/send", expect.objectContaining({ amount: "25000.5" }))
 		expect(document.querySelector(".send-success")?.textContent).toContain("25,000.5 ETH sent on Base")
 	})
@@ -278,5 +302,197 @@ describe("send funds", () => {
 		const warning = document.querySelector<HTMLElement>("p.warning")
 		const link = warning?.querySelector<HTMLAnchorElement>(".operator-send-tx-link")
 		expect(link?.getAttribute("href")).toContain(`/tx/${TX_HASH}`)
+	})
+
+	it("does not confirm on a tap that lands as the review appears", async () => {
+		await render()
+		const sheet = await openSend()
+		await enter(amountInput(sheet), "25")
+		await enter(recipientInput(sheet), RECIPIENT)
+		await click(button(sheet, "Send"))
+
+		const confirm = button(sheet.querySelector<HTMLElement>(".send-review")!, "Send 25 ETH")
+		expect(confirm.disabled).toBe(true)
+		await click(confirm)
+		await flush()
+		expect(api.post).not.toHaveBeenCalled()
+
+		await act(async () => vi.advanceTimersByTime(500))
+		expect(confirm.disabled).toBe(false)
+	})
+
+	describe("with two networks", () => {
+		const twoNetworks = snapshot([
+			{ chainId: 8453, native: { symbol: "ETH", amount: 1 }, assets: [] },
+			{ chainId: 56, native: { symbol: "BNB", amount: 3 }, assets: [] },
+		])
+		beforeEach(() => {
+			vi.mocked(api.get).mockResolvedValue(
+				config({ "EVM-8453": NATIVE_ONLY, "EVM-56": [{ symbol: "BNB", address: "native" }] }),
+			)
+		})
+
+		it("sends the picked token on its own network", async () => {
+			await render(twoNetworks, [8453, 56])
+			const sheet = await openSend()
+			await click(sheet.querySelector<HTMLElement>(".send-asset-trigger")!)
+			expect(optionTexts(sheet)).toEqual(["BNBBNB Chain3", "ETHBase1"])
+			await click(sheet.querySelector<HTMLElement>(".send-asset-option")!)
+
+			await enter(amountInput(sheet), "2")
+			await enter(recipientInput(sheet), RECIPIENT)
+			await click(button(sheet, "Send"))
+			await confirmReview(sheet, "Send 2 BNB")
+			expect(api.post).toHaveBeenCalledWith("/api/send", {
+				chain: "EVM-56",
+				token: "native",
+				amount: "2",
+				to: RECIPIENT,
+			})
+		})
+
+		it("submits what the review showed when the networks change under it", async () => {
+			await render(twoNetworks, [8453, 56])
+			const sheet = await openSend()
+			await enter(amountInput(sheet), "1")
+			await enter(recipientInput(sheet), RECIPIENT)
+			await click(button(sheet, "Send"))
+			expect(sheet.querySelector(".send-review-headline")?.textContent).toContain("on Base")
+
+			// The first network is the default asset's, so a new order would move an unpicked token.
+			await render(twoNetworks, [56, 8453])
+			await confirmReview(sheet, "Send 1 ETH")
+			expect(api.post).toHaveBeenCalledWith("/api/send", expect.objectContaining({ chain: "EVM-8453" }))
+		})
+
+		it("sends an unlisted token by contract address, on the network chosen for it", async () => {
+			const contract = "0x55d398326f99059fF775485246999027B3197955"
+			await render(twoNetworks, [8453, 56])
+			const sheet = await openSend()
+			await click(button(sheet, "Token not listed?"))
+			const trigger = sheet.querySelector<HTMLElement>(".send-asset-trigger")!
+			expect(trigger.textContent).toBe("Custom tokenBase")
+
+			// With no balance to list tokens by, the list is the networks.
+			await click(trigger)
+			expect(optionTexts(sheet)).toEqual(["Custom tokenBase", "Custom tokenBNB Chain"])
+			await click(sheet.querySelectorAll<HTMLElement>(".send-asset-option")[1])
+			expect(trigger.textContent).toBe("Custom tokenBNB Chain")
+
+			const token = sheet.querySelector<HTMLInputElement>('input[placeholder="0x…"]')!
+			await enter(token, "not-an-address")
+			await enter(amountInput(sheet), "1000")
+			await enter(recipientInput(sheet), RECIPIENT)
+			expect(sheet.textContent).toContain("Enter a valid contract address")
+			expect(button(sheet, "Send").disabled).toBe(true)
+
+			await enter(token, contract)
+			await click(button(sheet, "Send"))
+			expect(sheet.querySelector(".send-review")?.textContent).toContain(`Token contract${contract}`)
+			await confirmReview(sheet, "Send 1,000 tokens")
+			expect(api.post).toHaveBeenCalledWith("/api/send", {
+				chain: "EVM-56",
+				token: contract,
+				amount: "1000",
+				to: RECIPIENT,
+			})
+		})
+	})
+
+	it("lets the whole wallet be sent when a vault's floor is above it", async () => {
+		const usdc = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
+		vi.mocked(api.get).mockResolvedValue(
+			config({ "EVM-8453": [...NATIVE_ONLY, { symbol: "USDC", address: usdc }] }),
+		)
+		// The dashboard's `available` is zero here: the wallet is under the 3,000 the vault asks it to keep.
+		await render(
+			snapshot([
+				{
+					chainId: 8453,
+					native: { symbol: "ETH", amount: 1 },
+					assets: [
+						{ address: usdc, symbol: "USDC", wallet: 2500, walletReserve: 3000, available: 0, vaults: [] },
+					],
+				},
+			]),
+		)
+		const sheet = await openSend()
+		await click(sheet.querySelector<HTMLElement>(".send-asset-trigger")!)
+		expect(optionTexts(sheet)).toEqual(["USDCBase2,500", "ETHBase1"])
+		await click(sheet.querySelector<HTMLElement>(".send-asset-option")!)
+
+		await click(button(sheet, "Max"))
+		expect(amountInput(sheet).value).toBe("2,500")
+		await enter(recipientInput(sheet), RECIPIENT)
+		expect(button(sheet, "Send").disabled).toBe(false)
+	})
+
+	it("counts what the largest vault can return, and never fills more than that", async () => {
+		const usdc = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
+		vi.mocked(api.get).mockResolvedValue(config({ "EVM-8453": [{ symbol: "USDC", address: usdc }] }))
+		// The two parts add up to a float a hair under 12463.331201.
+		await render(
+			snapshot([
+				{
+					chainId: 8453,
+					assets: [
+						{
+							address: usdc,
+							symbol: "USDC",
+							wallet: 1990.91807,
+							available: 0,
+							vaults: [{ available: 10472.413131 }, { available: 500 }],
+						},
+					],
+				},
+			]),
+		)
+		const sheet = await openSend()
+		await click(button(sheet, "Max"))
+		expect(amountInput(sheet).value).toBe("12,463.3312")
+		expect(sheet.querySelector(".send-amount-error")).toBeNull()
+
+		await enter(amountInput(sheet), "12463.34")
+		expect(sheet.querySelector(".send-amount-error")?.textContent).toBe("More than the 12,463.3312 USDC available")
+		await enter(recipientInput(sheet), RECIPIENT)
+		expect(button(sheet, "Send").disabled).toBe(true)
+	})
+
+	it("reads a comma decimal as one, where dropping it would send ten times as much", async () => {
+		await render()
+		const sheet = await openSend()
+		await enter(amountInput(sheet), "1,5")
+		expect(amountInput(sheet).value).toBe("1.5")
+		await enter(recipientInput(sheet), RECIPIENT)
+		await click(button(sheet, "Send"))
+		await confirmReview(sheet, "Send 1.5 ETH")
+		expect(api.post).toHaveBeenCalledWith("/api/send", expect.objectContaining({ amount: "1.5" }))
+	})
+
+	it("opens on an empty form after the dialog is closed", async () => {
+		await render()
+		const sheet = await openSend()
+		await enter(amountInput(sheet), "1234")
+		await enter(recipientInput(sheet), RECIPIENT)
+		await click(button(sheet, "Cancel"))
+
+		const reopened = await openSend()
+		expect(amountInput(reopened).value).toBe("")
+		expect(recipientInput(reopened).value).toBe("")
+	})
+
+	it("closes the token list on Escape, and leaves the dialog open", async () => {
+		await render(snapshot([{ chainId: 8453, native: { symbol: "ETH", amount: 1 }, assets: [] }]))
+		const sheet = await openSend()
+		const trigger = sheet.querySelector<HTMLElement>(".send-asset-trigger")!
+		expect(trigger.getAttribute("aria-label")).toBe("Token to send: ETH on Base, balance 1")
+		await click(trigger)
+		expect(sheet.querySelector(".send-asset-list")).not.toBeNull()
+
+		await act(async () => {
+			trigger.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }))
+		})
+		expect(sheet.querySelector(".send-asset-list")).toBeNull()
+		expect(document.querySelector('[role="dialog"]')).not.toBeNull()
 	})
 })

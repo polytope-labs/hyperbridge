@@ -42,7 +42,9 @@ values explicit and use the warning accent instead of inheriting the token colou
 "Some balances are unavailable" notice covers the whole snapshot, including networks that are not
 currently selected.
 
-`Operator` passes the same snapshot to the Wallet page (`WalletTools`). `SendCard` matches the selected chain
-and token address, displays the asset's canonical `available` value beside Amount, and uses the native
-wallet row for native gas. After `/api/send` succeeds, it invokes the parent load path so the shared
+`Operator` passes the same snapshot to the Wallet page (`WalletTools`). `SendDialog` matches each
+sendable token to its chain row and token address. It does not show the asset's `available` value,
+which leaves out the wallet floor a vault asks for. A send can use the whole wallet and withdraw the
+rest from one vault, so the dialog shows `wallet` plus the largest vault's `available`. The native
+row is the native balance. After `/api/send` accepts a send, it invokes the parent load path so the shared
 balance snapshot, strategies, and configuration refresh immediately.

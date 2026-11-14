@@ -2733,12 +2733,17 @@ button.operator-runtime-stop:hover:not(:disabled) {
 	margin-right: 0.4rem;
 }
 
-/* Send review dialog */
+/* Send review */
 .send-review {
 	display: grid;
 	gap: 1.25rem;
 	/* The dialog body has horizontal padding only, so the review supplies its own. */
 	padding: 0.5rem 0 1.5rem;
+}
+
+/* Focus is moved here so the review is read out; it is not a control to ring. */
+.send-review:focus-visible {
+	outline: none;
 }
 
 .send-review-asset {

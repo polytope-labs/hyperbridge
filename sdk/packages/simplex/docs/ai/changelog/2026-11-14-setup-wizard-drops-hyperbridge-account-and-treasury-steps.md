@@ -19,3 +19,7 @@ The wizard no longer calls them. `GET /api/setup/defaults` still returns `hyperb
 `knownVaults`.
 
 `RecoveryPhraseDialog` was only used by the Hyperbridge account step and is removed with it.
+
+The dashboard's overview shows its "BRIDGE available" tile, and the top-up button on it, only when
+`status.addresses.substrate` is set. A solver without a Hyperbridge account has no BRIDGE balance to
+show, and the tile used to read "—" for it.

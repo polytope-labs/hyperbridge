@@ -100,6 +100,15 @@ function formatUptime(seconds: number): string {
  * test than the layout's breakpoint, because a phone in landscape is wider than
  * it — and `/logs` sends one back to the overview rather than rendering.
  */
+/**
+ * How often the dashboard re-reads balances. The solver starts before its first
+ * balance read lands, so until then the snapshot says `loading` and is re-read
+ * every second, to show the balances as soon as they exist.
+ */
+export function balancePollMs(balances: BalanceSnapshot | undefined): number {
+	return balances?.status === "loading" ? 1_000 : 30_000
+}
+
 export function Operator(props: { status: StatusOperator; refresh: () => void }) {
 	const { status, refresh } = props
 	const [tab, setTab] = useTabRoute()
@@ -128,7 +137,7 @@ export function Operator(props: { status: StatusOperator; refresh: () => void })
 			setLoadError(err instanceof Error ? err.message : String(err))
 		}
 	}, [refresh])
-	usePolling(load, 30_000)
+	usePolling(load, balancePollMs(balances))
 
 	const togglePause = () =>
 		run(async () => {

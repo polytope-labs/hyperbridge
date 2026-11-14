@@ -73,3 +73,7 @@ chain and takes as long as the slowest one. Until it lands, `getSnapshot()` retu
 snapshot. The dashboard shows that state, and `inventoryOf` and `availableStablecoinLiquidity`
 return `null` for anything that is not `fresh`, so no inventory snapshot or liquidity alert is made
 from it.
+
+The dashboard re-reads `/api/balances` every second while the snapshot is `loading`
+(`balancePollMs` in `ui/src/operator/Operator.tsx`), then every 30 seconds as before. Without that,
+a dashboard opened right after startup showed no balances until its next 30-second poll.

@@ -199,7 +199,7 @@ button.operator-nav-item[data-active="true"] {
 
 .operator-metrics {
 	display: grid;
-	grid-template-columns: repeat(4, minmax(0, 1fr));
+	grid-template-columns: repeat(var(--metric-columns, 4), minmax(0, 1fr));
 	margin: 0;
 	padding: 1.65rem 0;
 	border-bottom: 1px solid var(--border);

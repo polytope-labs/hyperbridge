@@ -106,6 +106,25 @@ export async function sendSolverAction(socketPath: string, action: SolverAction)
 	}
 }
 
+/**
+ * How many bids still hold a deposit on Hyperbridge, or undefined when the solver cannot say.
+ *
+ * A deposit is reclaimed by retracting its bid, and the bid's record in the data directory is
+ * what the solver retracts from.
+ */
+export async function bidsHoldingDeposits(socketPath: string): Promise<number | undefined> {
+	try {
+		const response = await socketRequest(socketPath, "/api/activity/bids?limit=1", "GET")
+		if (response.status !== 200) return undefined
+		const { stats } = JSON.parse(response.body) as { stats?: { pendingRetraction?: unknown } | null }
+		// A solver with no Hyperbridge account keeps no bid records.
+		if (stats === null) return 0
+		return typeof stats?.pendingRetraction === "number" ? stats.pendingRetraction : undefined
+	} catch {
+		return undefined
+	}
+}
+
 export function holdsMachineAwake(status: SolverStatus): boolean {
 	return status.state === "running"
 }

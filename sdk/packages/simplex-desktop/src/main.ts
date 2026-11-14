@@ -42,6 +42,7 @@ import { BrowserPasskeys } from "./security/passkeys"
 import { loadMacNativePasskeys } from "./security/mac-native-passkeys"
 import { SIMPLEX_UPDATE_FEED } from "./release-provider"
 import {
+	bidsHoldingDeposits,
 	holdsMachineAwake,
 	sendSolverAction,
 	shouldNotifySolverFailure,
@@ -53,6 +54,7 @@ import {
 import {
 	buildApplicationMenuTemplate,
 	buildTrayMenuTemplate,
+	resetAvailable,
 	solverStatusLabel,
 	type DesktopMenuActions,
 } from "./tray-menu"
@@ -180,6 +182,7 @@ function refreshNativeUi(): void {
 		updatesEnabled: app.isPackaged && Boolean(updateCoordinator),
 		update: updateStatus,
 		versionSkew: solverHasVersionSkew(status, app.getVersion()),
+		resetting,
 	}
 
 	if (tray && !tray.isDestroyed()) {
@@ -410,6 +413,8 @@ async function stopSolverBeforeReset(socketPath: string): Promise<void> {
 	const health = await probeHealth(socketPath)
 	if (health.state === "spawnable") return
 	if (!("mode" in health)) throw new Error(`The solver could not be reached to stop it (${health.detail})`)
+	// Without it, a closed socket is all that says the solver is gone, and the socket closes first.
+	if (!health.pid) throw new Error("The solver did not report its process id, so Simplex cannot tell when it has stopped")
 	intentionalStop = true
 	if (health.state !== "stopping") await sendSolverAction(socketPath, "stop")
 	if (!(await waitForSolverExit({ pid: health.pid, probe: () => probeHealth(socketPath) }))) {
@@ -417,18 +422,40 @@ async function stopSolverBeforeReset(socketPath: string): Promise<void> {
 	}
 }
 
+/** What the confirmation says about bid deposits, which are reclaimed from records the reset deletes. */
+function depositWarning(bids: number | undefined): string {
+	if (bids === 0) return ""
+	const held =
+		bids === undefined
+			? "Simplex could not check whether any bids still hold deposits on Hyperbridge."
+			: `${bids} ${bids === 1 ? "bid still holds a deposit" : "bids still hold deposits"} on Hyperbridge.`
+	return `${held} Simplex reclaims a deposit by retracting its bid, which it cannot do once the bid's record is deleted.\n\n`
+}
+
+function resetState(): Parameters<typeof resetAvailable>[0] {
+	return { locked: Boolean(vault && !vault.isUnlocked()), update: updateStatus, resetting }
+}
+
+/** A reset that could not be carried out leaves the app as it was, apart from a solver it stopped. */
+function abandonReset(error: unknown): void {
+	resetting = false
+	intentionalStop = false
+	refreshNativeUi()
+	reportActionError("Simplex could not reset its configuration", error)
+}
+
 /**
- * Returns Simplex to a new installation: the solver stops, and the next launch deletes the
- * config, the sign-in, the databases and every other file in the data directory.
+ * Returns Simplex to its first launch: the solver stops, and the next launch deletes the config,
+ * the sign-in, the databases and every other file in the data directory.
  */
 async function resetConfiguration(): Promise<void> {
-	if (vault && !vault.isUnlocked()) return
-	if (!daemonLaunch || resetting) return
+	if (!daemonLaunch || !resetAvailable(resetState())) return
+	const userData = app.getPath("userData")
 	const confirmation: Electron.MessageBoxOptions = {
 		type: "warning",
 		title: "Reset Configuration",
 		message: "Reset the Simplex configuration?",
-		detail: "The solver stops and Simplex restarts as a new installation. Everything it keeps on this computer is deleted: the configuration with the filler wallet's key, your sign-in, the order history, paired devices and logs.\n\nIf the wallet's key is not backed up somewhere else, the funds in the wallet are lost. This cannot be undone.",
+		detail: `The solver stops and Simplex restarts as it was when first opened. Everything in ${userData} is deleted: the configuration with the filler wallet's key, your sign-in, the order and bid history, paired devices and logs.\n\nIf the wallet's key is not backed up somewhere else, the funds in the wallet are lost.\n\n${depositWarning(await bidsHoldingDeposits(daemonLaunch.socketPath))}This cannot be undone.`,
 		buttons: ["Cancel", "Reset Configuration"],
 		defaultId: 0,
 		cancelId: 0,
@@ -438,22 +465,35 @@ async function resetConfiguration(): Promise<void> {
 		mainWindow && !mainWindow.isDestroyed()
 			? await dialog.showMessageBox(mainWindow, confirmation)
 			: await dialog.showMessageBox(confirmation)
-	if (response !== 1 || resetting) return
+	// The dialog can stay open for a long time: an update may have started installing meanwhile.
+	if (response !== 1 || !resetAvailable(resetState())) return
 
 	resetting = true
+	refreshNativeUi()
 	try {
 		await stopSolverBeforeReset(daemonLaunch.socketPath)
+	} catch (error) {
+		return abandonReset(error)
+	}
+	try {
+		requestProfileReset(userData)
+	} catch (error) {
+		return abandonReset(new Error(`${errorMessage(error)}. The solver has been stopped; restart it from the menu.`))
+	}
+
+	// The reset is now certain: the next launch deletes the profile, whatever fails from here on.
+	try {
 		// Launch-at-login lives outside the data directory, so it is switched off by hand.
 		if (loginItem?.supported && loginItem.isEnabled()) loginItem.setEnabled(false)
-		requestProfileReset(app.getPath("userData"))
+		// An AppImage must be relaunched from the image, not from its mount, which goes away on exit.
+		const executable = loginItemExecutable(process.platform, process.execPath)
+		app.relaunch(executable === process.execPath ? undefined : { execPath: executable, args: process.argv.slice(1) })
 	} catch (error) {
-		resetting = false
-		intentionalStop = false
-		return reportActionError("Simplex could not reset its configuration", error)
+		reportActionError(
+			"Simplex could not restart itself",
+			new Error(`${errorMessage(error)}. Open Simplex again to finish the reset.`),
+		)
 	}
-	// An AppImage must be relaunched from the image, not from its mount, which goes away on exit.
-	const executable = loginItemExecutable(process.platform, process.execPath)
-	app.relaunch(executable === process.execPath ? undefined : { execPath: executable, args: process.argv.slice(1) })
 	quitApp()
 }
 
@@ -718,7 +758,8 @@ async function prepareDesktop(): Promise<void> {
 			appVersion: app.getVersion(),
 			store: new FileUpdateStore(dataDirectory),
 			probeSolver: () => supervisor!.pollNow(),
-			canRestartSolver: () => Boolean(daemonLaunch?.configKey),
+			// An update stops the solver to install. A reset is already doing that, to delete the profile.
+			canRestartSolver: () => Boolean(daemonLaunch?.configKey) && !resetting,
 			requestSolverStop: async () => {
 				intentionalStop = true
 				await sendSolverAction(socketPath, "stop")

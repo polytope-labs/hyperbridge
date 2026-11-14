@@ -159,13 +159,24 @@ Each source retains five files of up to 1 MiB. Local diagnostics work without a 
 [Sentry error reporting](../../../docs/ai/changelog/2026-10-14-simplex-sentry-error-reporting.md).
 No native memory dumps are collected.
 
-**Reset Configuration…**, in the tray and application menus, returns Simplex to a new installation.
+**Reset Configuration…**, in the tray and application menus, returns Simplex to its first launch.
 It asks for confirmation, stops the solver and waits for it to exit, turns off launch at login, and
 relaunches. The relaunched app deletes every file in the user-data directory before it opens it:
 `filler-config.toml` with the filler wallet's key, `desktop-vault.json`, the databases, paired
-devices, logs and the update channel. The reset needs an unlocked session, like **Stop solver**.
-Afterwards the funds in the filler wallet can be reached only with a backup of its key. A passkey
-created for the old profile stays in the system's password manager and can be removed there.
+devices, logs and the update channel. The reset needs an unlocked session, like **Stop solver**, and
+is unavailable while an update is stopping the solver or installing. Afterwards the funds in the
+filler wallet can be reached only with a backup of its key.
+
+The databases hold the bid records. A bid's deposit on Hyperbridge is reclaimed by retracting the
+bid, and the solver retracts from those records. The confirmation says how many bids still hold a
+deposit, or that it could not check because the solver is not running. Reset once that count is
+zero and no BRIDGE top-up is in progress, unless those deposits are to be given up.
+
+The reset removes only the user-data directory, and the confirmation names it. It refuses to run
+when `--user-data-dir` points at the home directory or a directory above it. Three things outside
+that directory stay: a passkey created for the old profile, which can be removed in the system's
+password manager; the update download cache; and the key the operating system's keychain holds for
+Simplex's encrypted storage.
 
 Desktop removal leaves Electron's user-data directory in place. Apart from **Reset Configuration**,
 neither this shell nor its installer contract deletes operator databases, logs, or configuration.

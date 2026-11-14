@@ -1,5 +1,6 @@
 import { describe, it, expect, afterEach, vi } from "vitest"
-import { resolveChainConfigs } from "@/services/FillerConfigService"
+import { resolveChainConfigs, STRAGGLER_GRACE_MS } from "@/services/FillerConfigService"
+import { LoggerContext } from "@/services/Logger"
 
 /**
  * Startup chain-id resolution.
@@ -22,8 +23,18 @@ function stubFetch(answers: Record<string, number | { status: number }>) {
 	})
 }
 
+/** Answers per URL after a delay in milliseconds. Needs fake timers. */
+function stubSlowFetch(answers: Record<string, { chainId: number; afterMs: number }>) {
+	vi.stubGlobal("fetch", async (url: string | URL) => {
+		const { chainId, afterMs } = answers[String(url)]
+		await new Promise((resolve) => setTimeout(resolve, afterMs))
+		return OK(chainId)
+	})
+}
+
 afterEach(() => {
 	vi.unstubAllGlobals()
+	vi.useRealTimers()
 })
 
 describe("resolveChainConfigs", () => {
@@ -73,6 +84,58 @@ describe("resolveChainConfigs", () => {
 		await expect(
 			resolveChainConfigs([{ rpcUrls: ["https://a.example", "https://b.example"], bundlerUrl: "" }]),
 		).rejects.toThrow(/disagree on chainId/)
+	})
+
+	it("stops waiting for a slow endpoint a second after the first one answers", async () => {
+		vi.useFakeTimers()
+		stubSlowFetch({
+			"https://slow.example": { chainId: 56, afterMs: 9_000 },
+			"https://b.example": { chainId: 56, afterMs: 100 },
+		})
+		let resolved: Awaited<ReturnType<typeof resolveChainConfigs>> | undefined
+		void resolveChainConfigs([{ rpcUrls: ["https://slow.example", "https://b.example"], bundlerUrl: "" }], {
+			tolerateUnreachable: true,
+		}).then((chains) => {
+			resolved = chains
+		})
+
+		await vi.advanceTimersByTimeAsync(100 + STRAGGLER_GRACE_MS - 1)
+		expect(resolved).toBeUndefined()
+		await vi.advanceTimersByTimeAsync(1)
+		expect(resolved?.[0].chainId).toBe(56)
+		// Kept, like any endpoint that could not answer in time.
+		expect(resolved?.[0].rpcUrls).toEqual(["https://slow.example", "https://b.example"])
+	})
+
+	it("reports a slow endpoint that turns out to serve another chain", async () => {
+		vi.useFakeTimers()
+		stubSlowFetch({
+			"https://slow.example": { chainId: 1, afterMs: 5_000 },
+			"https://b.example": { chainId: 56, afterMs: 100 },
+		})
+		const lines: string[] = []
+		const loggers = new LoggerContext({ sink: { write: (line) => lines.push(line) } })
+		void resolveChainConfigs([{ rpcUrls: ["https://slow.example", "https://b.example"], bundlerUrl: "" }], {
+			loggers,
+			tolerateUnreachable: true,
+		})
+
+		await vi.advanceTimersByTimeAsync(5_000)
+		expect(lines.some((line) => line.includes("answered for a different chain"))).toBe(true)
+	})
+
+	it("waits for every endpoint when silence is not tolerated", async () => {
+		vi.useFakeTimers()
+		stubSlowFetch({
+			"https://slow.example": { chainId: 1, afterMs: 5_000 },
+			"https://b.example": { chainId: 56, afterMs: 100 },
+		})
+		const resolving = resolveChainConfigs([
+			{ rpcUrls: ["https://slow.example", "https://b.example"], bundlerUrl: "" },
+		])
+		const outcome = expect(resolving).rejects.toThrow(/disagree on chainId/)
+		await vi.advanceTimersByTimeAsync(5_000)
+		await outcome
 	})
 
 	it("ignores a silent endpoint when judging agreement", async () => {

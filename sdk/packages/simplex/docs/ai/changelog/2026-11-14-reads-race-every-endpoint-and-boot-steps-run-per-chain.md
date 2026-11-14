@@ -1,7 +1,7 @@
-# Reads race every endpoint, and boot runs its per-chain steps side by side
+# Reads race every endpoint, and startup stops waiting where it does not have to
 
-A solver with five chains on the default public endpoints took over three minutes to start. Three
-changes address that.
+A solver with five chains on the default public endpoints took over three minutes to start. The
+changes below address that.
 
 ## Reads race
 
@@ -29,24 +29,47 @@ Consequences to keep in mind:
 
 A chain with a single endpoint keeps plain `http` with its retries.
 
-## Per-chain boot steps run side by side
-
-`IntentFiller.solverSelectionChains`, `DelegationService.setupDelegationOnChains` and the EntryPoint
-deposit top-ups were loops that awaited one chain at a time. Each now runs its chains concurrently,
-so boot waits for the slowest chain instead of the sum of all of them. Delegation state is keyed by
-wallet and chain, so the chains do not share any.
-
 ## Chain ids are probed once, for all chains together
 
 Every endpoint is asked for its chain id at startup, and `fetchChainId` gives each one ten seconds.
-The probe waits for every endpoint of a chain, because the ones that answer must agree.
 
-- `Simplex.start` now runs that probe once and hands the result to the scanner it builds and to
+- `Simplex.start` runs that probe once and hands the result to the scanner it builds and to
   `bootFiller`, through `BootOptions.resolvedChains`. Before, the scanner probed and boot probed
   again. `bootFiller` still probes on its own when it is not handed the chains.
 - `OrderScanner.create` probes all its entries that omit a `chainId` together. Before, it probed one
   chain at a time. The adds stay in order, so two entries that resolve to the same chain are still
   refused.
 
-An endpoint that accepts a connection and never answers therefore costs ten seconds of startup once.
-It used to cost ten seconds per chain in the scanner and ten more in boot.
+## Startup stops waiting for a chain's slow endpoints
+
+With `tolerateUnreachable`, which startup sets, `resolveChainConfigs` stops waiting for a chain's
+other endpoints `STRAGGLER_GRACE_MS` (one second) after the first one reports its chain id. An
+endpoint still pending then is treated like one that could not answer: it is logged and kept.
+
+The endpoints that answered in time must still agree, and a disagreement still refuses the config.
+A slower endpoint is checked when its answer arrives. If it reports another chain, an error is
+logged that names it, but the solver is already running by then. That is the cost: a wrong-chain
+endpoint is only refused at startup if it answers within a second of the fastest one.
+
+Without `tolerateUnreachable`, which runtime endpoint edits use, every endpoint is still waited for.
+
+## Startup steps that do not depend on each other run together
+
+- `IntentFiller.solverSelectionChains`, `DelegationService.setupDelegationOnChains` and the
+  EntryPoint deposit top-ups run their chains concurrently. Each was a loop that awaited one chain at
+  a time. Delegation state is keyed by wallet and chain, so the chains do not share any.
+- `IntentFiller.initialize` connects to Hyperbridge while it sets the chains up.
+- `bootFiller` starts the limit-order lifecycle while the filler initializes.
+
+Where two steps run together, both are waited for before a failure is acted on, so a failed startup
+never leaves the other step running.
+
+The bundler EntryPoint check still comes first. It is a gate, and delegation uses the bundler.
+
+## Startup does not wait for the first balance read
+
+`bootFiller` starts the `BalanceProvider` without waiting for its first read, which covers every
+chain and takes as long as the slowest one. Until it lands, `getSnapshot()` returns the `loading`
+snapshot. The dashboard shows that state, and `inventoryOf` and `availableStablecoinLiquidity`
+return `null` for anything that is not `fresh`, so no inventory snapshot or liquidity alert is made
+from it.

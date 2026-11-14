@@ -460,14 +460,15 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 		options.loggers,
 	)
 	started.push(() => lifecycle.stop())
-	await lifecycle.start()
-
-	// Initialize (sets up EIP-7702 delegation if solver selection is configured)
-	try {
-		await intentFiller.initialize()
-	} catch (error) {
+	// The orderbook's lifecycle and the filler's initialization (EIP-7702 delegation
+	// where solver selection is configured) do not depend on each other, so they run
+	// together. Both are waited for before a failure unwinds, so the lifecycle never
+	// installs its timers after it was stopped.
+	const settled = await Promise.allSettled([intentFiller.initialize(), lifecycle.start()])
+	const failure = settled.find((result): result is PromiseRejectedResult => result.status === "rejected")
+	if (failure) {
 		await unwind()
-		throw error
+		throw failure.reason
 	}
 
 	// Order-activity feed for the operator UI. Legs are described with the
@@ -592,7 +593,9 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 	vaultVenue?.startSweeping()
 
 	started.push(() => balanceProvider.stop())
-	await balanceProvider.start()
+	// Not awaited: the first read covers every chain and takes as long as the slowest
+	// one. Until it lands the snapshot says "loading", which its readers handle.
+	void balanceProvider.start().catch((err) => logger.warn({ err }, "Could not start reading balances"))
 
 	// What the solver holds, about once a day: the inventory profit is measured against. A
 	// signerless observer runs on a throwaway key that holds nothing worth recording.

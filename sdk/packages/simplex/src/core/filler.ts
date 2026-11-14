@@ -427,14 +427,23 @@ export class IntentFiller {
 	}
 
 	public async initialize(): Promise<void> {
-		await this.connectHyperbridge()
-		if (this.hyperbridge) {
-			this.bridgeBalance = new BridgeBalanceGate(await this.hyperbridge, this.logger)
-		}
-		const chains = await this.solverSelectionChains(this.configService.getConfiguredChainIds())
-		// Boot tolerates partial failure: as long as one chain delegated, the
-		// filler is useful. Only a total failure is fatal.
-		await this.setupSolverSelection(chains, { requireAll: false })
+		// The Hyperbridge connection and the chains' own setup do not depend on each
+		// other, so they run together. Both are waited for, so a failure in one never
+		// leaves the other running with nobody to stop it.
+		const [hyperbridge, chains] = await Promise.allSettled([
+			this.connectHyperbridge().then(async () => {
+				if (this.hyperbridge) {
+					this.bridgeBalance = new BridgeBalanceGate(await this.hyperbridge, this.logger)
+				}
+			}),
+			this.solverSelectionChains(this.configService.getConfiguredChainIds()).then((active) =>
+				// Boot tolerates partial failure: as long as one chain delegated, the
+				// filler is useful. Only a total failure is fatal.
+				this.setupSolverSelection(active, { requireAll: false }),
+			),
+		])
+		if (hyperbridge.status === "rejected") throw hyperbridge.reason
+		if (chains.status === "rejected") throw chains.reason
 	}
 
 	/** Chains that both fill and have solver selection active, as state machine ids. */

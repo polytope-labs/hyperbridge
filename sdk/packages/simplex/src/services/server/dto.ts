@@ -315,6 +315,8 @@ export interface TunnelDeviceDto {
 	label: string
 	/** Unix milliseconds; 0 for a line added to `authorized_keys` by hand. */
 	addedAt: number
+	/** Whether a session that logged in with this key is open right now. */
+	connected: boolean
 }
 
 /** GET /api/tunnel */

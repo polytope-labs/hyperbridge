@@ -2266,6 +2266,10 @@ button.operator-runtime-stop:hover:not(:disabled) {
 }
 
 .tunnel-device strong {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 0.5rem;
 	font-size: 0.875rem;
 	font-weight: 500;
 }

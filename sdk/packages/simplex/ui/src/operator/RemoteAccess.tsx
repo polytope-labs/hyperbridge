@@ -120,6 +120,7 @@ export function RemoteAccess() {
 	// cannot pair another key, revoke one, or point the tunnel at another relay.
 	// Otherwise revoking a lost device would not actually take anything away.
 	const readOnly = status.readOnly === true
+	const connectedDevices = status.devices.filter((device) => device.connected).length
 	// The optimistic switch position, and a badge that agrees with it.
 	const enabled = pendingEnabled ?? status.enabled
 	const state = pendingEnabled === undefined ? status.state : pendingEnabled ? "connecting" : "disabled"
@@ -212,7 +213,7 @@ export function RemoteAccess() {
 					</div>
 					<small className="tunnel-count">
 						{status.devices.length} paired
-						{status.activeConnections ? ` · ${status.activeConnections} connected` : ""}
+						{connectedDevices ? ` · ${connectedDevices} connected` : ""}
 					</small>
 				</div>
 				{status.devices.length === 0 ? (
@@ -222,7 +223,10 @@ export function RemoteAccess() {
 						{status.devices.map((device) => (
 							<li key={device.fingerprint} className="tunnel-device">
 								<div>
-									<strong>{device.label}</strong>
+									<strong>
+										{device.label}
+										{device.connected ? <span className="badge ok">Connected</span> : null}
+									</strong>
 									<small className="mono">{device.fingerprint}</small>
 									{device.addedAt ? (
 										<small>Paired {new Date(device.addedAt).toLocaleDateString()}</small>

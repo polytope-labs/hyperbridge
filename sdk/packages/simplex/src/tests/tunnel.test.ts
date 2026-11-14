@@ -553,6 +553,12 @@ describe("TunnelService", { timeout: 30_000 }, () => {
 		phones.push(phone)
 		expect(await httpThrough(phone, "127.0.0.1", ui.port)).toContain("ui ok")
 		await waitFor(() => service.status().activeConnections === 1)
+		// The status says which device holds the session, not only how many are open.
+		const spare = service.addDevice("spare")
+		const connectedOf = (fingerprint: string) =>
+			service.status().devices.find((device) => device.fingerprint === fingerprint)?.connected
+		expect(connectedOf(paired.device.fingerprint)).toBe(true)
+		expect(connectedOf(spare.device.fingerprint)).toBe(false)
 
 		const closed = new Promise<void>((resolve) => phone.on("close", () => resolve()))
 		expect(service.removeDevice(paired.device.fingerprint)).toBe(true)

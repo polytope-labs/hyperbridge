@@ -33,7 +33,7 @@ curl -s $SIMPLEX/api/tunnel
   "connectedAt": 1790243521334,
   "hostFingerprint": "SHA256:…",
   "operatorFingerprint": "SHA256:…",
-  "devices": [ { "fingerprint": "SHA256:…", "label": "iPhone", "addedAt": 1790200000000 } ],
+  "devices": [ { "fingerprint": "SHA256:…", "label": "iPhone", "addedAt": 1790200000000, "connected": true } ],
   "activeConnections": 1,
   "connection": {
     "host": "simplex.tunnel.polytope.technology",
@@ -56,7 +56,7 @@ curl -s $SIMPLEX/api/tunnel
 | `connectedAt`, `lastError` | When the tunnel last connected, and the last error, when there is one. |
 | `hostFingerprint` | The host key of the SSH server inside Simplex. Devices check it when they connect. |
 | `operatorFingerprint` | The key this solver identifies itself to the relay with. |
-| `devices` | Each paired device's key fingerprint, label, and when it was paired. `addedAt` is `0` for a key added to `authorized_keys` by hand. |
+| `devices` | Each paired device's key fingerprint, label, when it was paired, and whether it is `connected` right now. `addedAt` is `0` for a key added to `authorized_keys` by hand. |
 | `activeConnections` | How many device sessions are open right now. |
 | `connection` | What to enter in the device's SSH app: host, port, username, the host key to expect, and the local port forward. |
 | `readOnly` | `true` when this request came through the tunnel, where these settings cannot be changed. |
@@ -90,7 +90,7 @@ curl -s -X POST $SIMPLEX/api/tunnel/devices \
 
 ```json lineNumbers
 {
-  "device": { "fingerprint": "SHA256:…", "label": "iPhone", "addedAt": 1790243521334 },
+  "device": { "fingerprint": "SHA256:…", "label": "iPhone", "addedAt": 1790243521334, "connected": false },
   "publicKey": "ssh-ed25519 AAAAC3Nz…",
   "connection": { "host": "…", "port": 41022, "username": "simplex", "hostFingerprint": "SHA256:…", "localForward": "…" }
 }

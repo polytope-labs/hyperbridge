@@ -21,14 +21,21 @@ export function useLaunch(state: WizardState, defaults: SetupDefaults) {
 
 	useEffect(() => {
 		if (phase !== "starting") return
+		// One outcome is acted on. A slow check can still be in flight when the next one answers.
+		let stopped = false
+		const stop = () => {
+			stopped = true
+			clearInterval(timer)
+		}
 		const timer = setInterval(async () => {
 			try {
 				const status = await api.get<{ state: string; error?: string }>("/api/setup/start-status")
+				if (stopped) return
 				if (status.state === "running") {
-					// Stopped first: a navigation assigned again on every tick can restart itself.
-					clearInterval(timer)
+					stop()
 					window.location.href = "/"
 				} else if (status.state === "failed") {
+					stop()
 					setPhase("failed")
 					setError(status.error)
 				}
@@ -36,7 +43,7 @@ export function useLaunch(state: WizardState, defaults: SetupDefaults) {
 				// server may briefly be busy while booting; keep polling
 			}
 		}, START_POLL_MS)
-		return () => clearInterval(timer)
+		return stop
 	}, [phase])
 
 	const start = () => {

@@ -1,14 +1,16 @@
 import { createServer, type Server } from "node:http"
 import { createPublicClient } from "viem"
 import { afterEach, describe, expect, it } from "vitest"
-import { EMPTY_ANSWER_GRACE_MS, raceTransport } from "@/services/ChainClientManager"
+import { ChainClientManager, EMPTY_ANSWER_GRACE_MS, raceTransport } from "@/services/ChainClientManager"
+import { FillerConfigService } from "@/services/FillerConfigService"
 
 type Behaviour =
 	| { answer: unknown; afterMs?: number }
 	| { revert: true; afterMs?: number }
 	| { refuse: number }
-	| { status: number }
+	| { status: number; afterMs?: number }
 	| { hang: true }
+	| { script: (method: string) => unknown }
 
 const servers: Server[] = []
 afterEach(() => {
@@ -30,14 +32,20 @@ async function endpoint(behaviour: Behaviour): Promise<{ url: string; calls: () 
 			calls += 1
 			if ("hang" in behaviour) return
 			if ("status" in behaviour) {
-				res.writeHead(behaviour.status)
-				res.end()
+				setTimeout(() => {
+					res.writeHead(behaviour.status)
+					res.end()
+				}, behaviour.afterMs ?? 0)
 				return
 			}
-			const { id } = JSON.parse(body) as { id: number }
+			const { id, method } = JSON.parse(body) as { id: number; method: string }
 			const reply =
-				"answer" in behaviour
-					? { jsonrpc: "2.0", id, result: behaviour.answer }
+				"answer" in behaviour || "script" in behaviour
+					? {
+							jsonrpc: "2.0",
+							id,
+							result: "script" in behaviour ? behaviour.script(method) : behaviour.answer,
+						}
 					: "refuse" in behaviour
 						? {
 								jsonrpc: "2.0",
@@ -115,8 +123,15 @@ describe("raceTransport", () => {
 	it("retries the race when one endpoint refused the call and another could not serve it", async () => {
 		// The refusal arrives first. Reported alone, it would end the read with no retry.
 		const refusing = await endpoint({ refuse: -32601 })
-		const overloaded = await endpoint({ status: 503 })
+		const overloaded = await endpoint({ status: 503, afterMs: 100 })
 		await expect(blockNumber([refusing.url, overloaded.url])).rejects.toThrow()
+		expect(overloaded.calls()).toBeGreaterThan(1)
+	})
+
+	it("retries the same way past an endpoint that rejects the API key", async () => {
+		const unauthorized = await endpoint({ status: 401 })
+		const overloaded = await endpoint({ status: 503, afterMs: 100 })
+		await expect(blockNumber([unauthorized.url, overloaded.url])).rejects.toThrow()
 		expect(overloaded.calls()).toBeGreaterThan(1)
 	})
 })
@@ -139,6 +154,23 @@ describe("raceTransport and an endpoint that is behind", () => {
 		await expect(
 			ask([await url({ answer: "0x" }), await url({ answer: "0xef0100", afterMs: 200 })], "eth_getCode"),
 		).resolves.toBe("0xef0100")
+	})
+
+	it("finds the receipt among several endpoints, one behind and one silent", async () => {
+		const urls = [
+			await url({ answer: null }),
+			await url({ hang: true }),
+			await url({ answer: RECEIPT, afterMs: 200 }),
+		]
+		await expect(ask(urls, "eth_getTransactionReceipt")).resolves.toEqual(RECEIPT)
+	})
+
+	it("says there is nothing at once when the other endpoints failed", async () => {
+		// A failed endpoint has nothing to add, so there is nothing to wait for.
+		const urls = [await url({ answer: null }), await url({ status: 429 })]
+		const started = Date.now()
+		await expect(ask(urls, "eth_getTransactionReceipt")).resolves.toBeNull()
+		expect(Date.now() - started).toBeLessThan(EMPTY_ANSWER_GRACE_MS)
 	})
 
 	it("says there is nothing as soon as every endpoint has said so", async () => {
@@ -173,5 +205,75 @@ describe("raceTransport nonce reads", () => {
 	it("moves to the next endpoint when the first cannot answer", async () => {
 		const urls = [await refusedUrl(), await url({ answer: "0x9" })]
 		await expect(ask(urls, "eth_getTransactionCount")).resolves.toBe("0x9")
+	})
+})
+
+describe("ChainClientManager receipt waits", () => {
+	const HASH = `0x${"cd".repeat(32)}` as const
+	const FROM = "0x00000000000000000000000000000000000000aa"
+	const BLOCK_HASH = `0x${"ee".repeat(32)}`
+	const transaction = {
+		hash: HASH,
+		from: FROM,
+		to: FROM,
+		nonce: "0x7",
+		value: "0x0",
+		input: "0x",
+		gas: "0x5208",
+		gasPrice: "0x1",
+		type: "0x0",
+		v: "0x1b",
+		r: "0x1",
+		s: "0x1",
+		blockNumber: "0x64",
+		blockHash: BLOCK_HASH,
+		transactionIndex: "0x0",
+	}
+	const receipt = {
+		transactionHash: HASH,
+		transactionIndex: "0x0",
+		blockNumber: "0x64",
+		blockHash: BLOCK_HASH,
+		from: FROM,
+		to: FROM,
+		status: "0x1",
+		gasUsed: "0x5208",
+		cumulativeGasUsed: "0x5208",
+		effectiveGasPrice: "0x1",
+		contractAddress: null,
+		logs: [],
+		logsBloom: `0x${"0".repeat(512)}`,
+		type: "0x0",
+	}
+
+	/**
+	 * The transaction and its block are visible before its receipt is, which is
+	 * what a wait sees when those reads land on endpoints at different heights.
+	 * viem's replacement check takes the missing receipt for a failure.
+	 */
+	it("keeps waiting for a mined transaction whose receipt is not served yet", async () => {
+		let blockNumberReads = 0
+		let receiptReads = 0
+		const node = await endpoint({
+			script: (method) => {
+				if (method === "eth_blockNumber") return `0x${(100 + blockNumberReads++).toString(16)}`
+				if (method === "eth_getTransactionByHash") return transaction
+				if (method === "eth_getTransactionReceipt") return receiptReads++ < 3 ? null : receipt
+				if (method === "eth_getBlockByNumber") {
+					return { number: "0x64", hash: BLOCK_HASH, timestamp: "0x1", transactions: [transaction] }
+				}
+				return null
+			},
+		})
+		const manager = new ChainClientManager(
+			new FillerConfigService([{ chainId: 1, rpcUrls: [node.url], bundlerUrl: "https://bundler.example" }]),
+		)
+
+		const waited = await manager
+			.getPublicClient("EVM-1")
+			.waitForTransactionReceipt({ hash: HASH, pollingInterval: 20 })
+
+		expect(waited.status).toBe("success")
+		expect(receiptReads).toBe(4)
 	})
 })

@@ -91,8 +91,8 @@ const STILL_PENDING = new Error("had not answered when most of the chain's endpo
 /**
  * `Promise.allSettled`, except that it stops waiting once more than half of the
  * probes have reported the same chain id. A probe still pending then is reported
- * as rejected with `STILL_PENDING`. One endpoint alone never decides a chain that
- * lists several, however fast it answers.
+ * as rejected with `STILL_PENDING`. One fast endpoint does not end the wait for
+ * a chain that lists several: the others are waited for until they agree or fail.
  */
 function settleOnMajority(probes: readonly Promise<number>[]): Promise<PromiseSettledResult<number>[]> {
 	return new Promise((resolve) => {
@@ -215,7 +215,7 @@ export async function resolveChainConfigs(
 				}
 				logger?.warn(
 					{ url, chainId: first.chainId, answered: answered.length, of: rpcUrls.length, err: error },
-					"RPC endpoint did not report its chainId at startup; it stays in use without that check",
+					"RPC endpoint had not reported its chainId when startup moved on; it stays in use",
 				)
 			}
 			return { chainId: first.chainId, rpcUrls, bundlerUrl: hyperbridgeBundlerUrl(first.chainId) }

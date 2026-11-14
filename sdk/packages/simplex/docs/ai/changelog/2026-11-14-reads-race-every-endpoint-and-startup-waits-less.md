@@ -8,7 +8,9 @@ Startup then paid that one chain at a time.
 ## Reads race
 
 `ChainClientManager.raceTransport` is the public client's transport for a chain with more than one
-endpoint. Every read is sent to all of the chain's endpoints at once, and the first answer is used.
+endpoint. A read is sent to all of the chain's endpoints at once, and the first answer is used. Two
+kinds of read are treated differently, and both are described below: an answer that says "nothing",
+and the account nonce.
 
 - A result is an answer. So is a revert, by the same `shouldThrow` rule viem's `fallback` uses to
   stop failing over.
@@ -16,34 +18,61 @@ endpoint. Every read is sent to all of the chain's endpoints at once, and the fi
   fails only when every endpoint has failed.
 - No endpoint retries on its own. The other endpoints are the retry. When all of them fail, the
   race reports a failure viem retries, such as a timeout or a 503, ahead of one it does not, such
-  as "method not found". The whole race is then retried with viem's defaults.
+  as "method not found" or a 401. The whole race is then retried with viem's defaults, up to three
+  more times. `isRetried` mirrors viem's `shouldRetry`, which viem does not export.
+
+That preference has a cost. When one endpoint refuses a method and the others are down, the read is
+retried although it cannot succeed, and the error reported is the outage, not the refusal.
 
 ### An answer that says "nothing"
 
 A node that is a block behind answers `null` for a receipt, transaction or block another node
-already has, and `[]` for its logs. `waitForTransactionReceipt` treats a `null` receipt for a
-transaction it has seen mined as a failure, so a fast "nothing" must not beat a slower result.
+already has, and `[]` for its logs. A fast "nothing" should not beat a slower result.
 
 `firstResponse` therefore holds an empty answer back. Empty means `null`, an empty array, or `0x`
 from `eth_getCode`. It is returned once every endpoint has answered or failed, or
 `EMPTY_ANSWER_GRACE_MS` (one second) after the first empty answer, whichever comes first. A
 non-empty answer from any endpoint in that time is returned instead.
 
+This is a preference, not a guarantee:
+
+- An endpoint that failed has nothing to add. If the only endpoint that has the result is
+  rate-limited on that call, the empty answer is returned at once.
+- A read whose true answer is empty takes up to a second when any endpoint is slow to answer.
+- The preference also works on a value that has just become empty. After a delegation is revoked,
+  a node that is behind still reports the old code, and that answer is the one returned.
+
 `0x` from `eth_call` is data and is not held back. Neither is a number: a balance, a nonce read
 from a contract or a block number from a node that is behind is returned as it is.
 
+### Receipt waits do not check for a replacement
+
+`waitForTransactionReceipt` on the public client runs with `checkReplacement: false` unless the
+caller passes it. viem's replacement check reads the transaction's block and then its receipt. When
+those two reads land on endpoints at different heights, the receipt is missing for a transaction
+that has mined, and viem rejects the wait. With the check off, a missing receipt only means the wait
+polls again.
+
+The cost: a transaction that is replaced, for example re-sent with a higher fee from another tool
+using the same key, is not followed. The wait for the original hash times out. Simplex never
+re-sends a wallet transaction at the same nonce.
+
 ### Account nonces are read in order
 
-`eth_getTransactionCount` does not race. It goes through an ordered `fallback` over the same
-endpoints, so it reaches the endpoint the wallet client sends to. A nonce raced to a node that has
+`eth_getTransactionCount` does not race. It goes to the endpoints in list order, the order the
+wallet client sends in, and moves to the next only when one fails. A nonce raced to a node that has
 not seen the last transaction would be one too low.
+
+One difference from the wallet client remains: an endpoint is not retried before the read moves on,
+where a send retries it three times first. Like a send, the read waits out the 30-second timeout of
+an endpoint that does not answer at all.
 
 ### What this means for an operator
 
 This applies to every read through `ChainClientManager.getPublicClient`, during normal operation as
 well as at startup.
 
-- Every listed endpoint receives every read outside the quorum.
+- Every listed endpoint receives every read outside the quorum, apart from the account nonce.
 - The first-listed endpoint is not the one that answers. Two consecutive reads can come from nodes at
   different heights.
 - The wallet client keeps the ordered `fallback`, so a transaction goes to the first endpoint, and
@@ -70,8 +99,9 @@ With `tolerateUnreachable`, which startup sets, `resolveChainConfigs` stops wait
 endpoints once more than half of them have reported the same chain id (`settleOnMajority`). An
 endpoint still pending then is treated like one that could not answer: it is logged and kept.
 
-One fast endpoint cannot decide a chain that lists several. A chain with two endpoints waits for
-both.
+One fast endpoint does not end the wait for a chain that lists several, and a chain with two
+endpoints waits for both. An endpoint that fails outright is not waited for, as before: if only one
+endpoint answers and the rest fail, that one decides the chain.
 
 The endpoints that answered must still agree, and a disagreement still refuses the config. A slower
 endpoint is checked when its answer arrives. If it reports another chain, an error is logged that

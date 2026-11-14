@@ -1,6 +1,8 @@
 import {
+	HttpRequestError,
 	type PublicClient,
 	type WalletClient,
+	type WaitForTransactionReceiptParameters,
 	createPublicClient,
 	createTransport,
 	createWalletClient,
@@ -12,6 +14,7 @@ import {
 	type Transport,
 } from "viem"
 import { generatePrivateKey } from "viem/accounts"
+import { waitForTransactionReceipt } from "viem/actions"
 import { type Order, type ChainConfig, getViemChain } from "@hyperbridge/sdk"
 import type { Account, LocalAccount } from "viem/accounts"
 import type { FillerConfigService } from "./FillerConfigService"
@@ -57,13 +60,17 @@ function isEmptyAnswer(method: string, result: unknown): boolean {
 	return method === "eth_getCode" && result === "0x"
 }
 
-/** RPC error codes viem retries: unknown, limit exceeded and internal. Every other code is a refusal. */
+/** RPC error codes viem retries: unknown, limit exceeded and internal. */
 const RETRIED_RPC_CODES = [-1, -32005, -32603]
+/** HTTP statuses viem retries. */
+const RETRIED_HTTP_STATUSES = [403, 408, 413, 429, 500, 502, 503, 504]
 
-/** Whether an endpoint refused the call, as opposed to failing to serve it. */
-function isRefusal(error: unknown): boolean {
+/** Whether viem retries a request that failed with `error`. Mirrors its `shouldRetry`, which is not exported. */
+function isRetried(error: unknown): boolean {
 	const code = (error as { code?: unknown } | null)?.code
-	return typeof code === "number" && !RETRIED_RPC_CODES.includes(code)
+	if (typeof code === "number") return RETRIED_RPC_CODES.includes(code)
+	if (error instanceof HttpRequestError && error.status) return RETRIED_HTTP_STATUSES.includes(error.status)
+	return true
 }
 
 /**
@@ -73,6 +80,7 @@ function isRefusal(error: unknown): boolean {
  * endpoint that is unreachable, times out or refuses the call is not, and the
  * race rejects only when all of them fail. It then rejects with a failure viem
  * retries, when there is one, so one endpoint's refusal does not end the read.
+ * The read is then retried even though the refusing endpoint will refuse again.
  *
  * An answer `isEmpty` calls empty is taken only when no endpoint has more: once
  * all of them have settled, or `EMPTY_ANSWER_GRACE_MS` after the first empty one.
@@ -107,7 +115,7 @@ export function firstResponse<T>(
 				(error) => {
 					if (settled) return
 					if (error instanceof Error && shouldThrow(error)) return settle(() => reject(error))
-					if (failure === undefined || (isRefusal(failure) && !isRefusal(error))) failure = error
+					if (failure === undefined || (!isRetried(failure) && isRetried(error))) failure = error
 					if (--pending === 0) giveUp()
 				},
 			)
@@ -117,13 +125,13 @@ export function firstResponse<T>(
 
 /**
  * Builds the public client's transport: a read goes to all of the chain's
- * endpoints at once and the first answer is used, so a slow or dead endpoint
- * costs nothing. `fallback` tries them in order instead, and each one that is
- * down holds every read up for its retries.
+ * endpoints at once and the first answer is used, so an endpoint that is slow
+ * or down does not hold up a read another endpoint can answer. `fallback` tries
+ * them in order instead, and each one that is down holds every read up for its
+ * retries.
  *
- * Nonce reads are the exception. They go to the endpoints in order, like the
- * wallet client's sends, because a transaction is built on the nonce its own
- * node reports.
+ * Nonce reads are the exception. They go to the endpoints in list order, the
+ * order the wallet client sends in, and move on only when one fails.
  *
  * Like `fallback`, this only needs availability. `QuorumPublicClient` is the
  * one that cross-checks answers.
@@ -192,7 +200,16 @@ class ViemClientFactoryImpl {
 			const publicClient = createPublicClient({
 				chain,
 				transport: raceTransport(urls),
-			})
+			}).extend((client) => ({
+				/**
+				 * Without viem's replacement check. It pairs a block from one endpoint
+				 * with a receipt from another, and rejects the wait for a mined
+				 * transaction when the second is behind. Nothing here replaces a
+				 * transaction or acts on a replacement.
+				 */
+				waitForTransactionReceipt: (args: WaitForTransactionReceiptParameters<Chain>) =>
+					waitForTransactionReceipt(client, { checkReplacement: false, ...args }),
+			}))
 
 			this.publicClients.set(chainConfig.chainId, publicClient)
 		}

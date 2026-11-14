@@ -93,7 +93,7 @@ The limit orders themselves are not in this file. They are inventory you open an
 
 ## `[[chains]]`
 
-One entry per chain. `rpcUrls` lists the chain's RPC endpoints, each on a different hostname. With more than one, Simplex reads scans through a [quorum](/developers/evm/simplex/confirmations#rpc-quorum). Reads outside the quorum go to every endpoint at once and use the first answer, so list only endpoints you trust. Transactions are sent to the first endpoint, and to the next only when it fails. The account nonce and the reads behind a fill's gas estimate use the first endpoint too.
+One entry per chain. `rpcUrls` lists the chain's RPC endpoints, each on a different hostname. With more than one, Simplex reads scans through a [quorum](/developers/evm/simplex/confirmations#rpc-quorum). Reads outside the quorum go to every endpoint at once and use the first answer, so list only endpoints you trust. An answer that says there is nothing, such as no receipt yet or no logs, waits up to a second for an endpoint that has more. Transactions are sent to the first endpoint, and to the next only when it fails. The account nonce is read the same way. The reads behind a fill's gas estimate use the first endpoint only.
 
 ### Free RPC endpoints
 

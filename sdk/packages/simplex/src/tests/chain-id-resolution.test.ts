@@ -86,6 +86,41 @@ describe("resolveChainConfigs", () => {
 		).rejects.toThrow(/disagree on chainId/)
 	})
 
+	it("starts on the one endpoint that answered when the others failed", async () => {
+		stubFetch({
+			"https://a.example": 56,
+			"https://b.example": { status: 429 },
+			"https://c.example": { status: 503 },
+		})
+
+		const [resolved] = await resolveChainConfigs(
+			[{ rpcUrls: ["https://a.example", "https://b.example", "https://c.example"], bundlerUrl: "" }],
+			{ tolerateUnreachable: true },
+		)
+
+		expect(resolved.chainId).toBe(56)
+	})
+
+	it("waits for both endpoints of a chain that lists two", async () => {
+		// One of two is not a majority, so the fast one cannot end the wait.
+		vi.useFakeTimers()
+		stubSlowFetch({
+			"https://slow.example": { chainId: 56, afterMs: 5_000 },
+			"https://fast.example": { chainId: 56, afterMs: 100 },
+		})
+		let resolved: Awaited<ReturnType<typeof resolveChainConfigs>> | undefined
+		void resolveChainConfigs([{ rpcUrls: ["https://slow.example", "https://fast.example"], bundlerUrl: "" }], {
+			tolerateUnreachable: true,
+		}).then((chains) => {
+			resolved = chains
+		})
+
+		await vi.advanceTimersByTimeAsync(4_999)
+		expect(resolved).toBeUndefined()
+		await vi.advanceTimersByTimeAsync(1)
+		expect(resolved?.[0].chainId).toBe(56)
+	})
+
 	it("stops waiting for a slow endpoint once most of the chain's endpoints agree", async () => {
 		vi.useFakeTimers()
 		stubSlowFetch({

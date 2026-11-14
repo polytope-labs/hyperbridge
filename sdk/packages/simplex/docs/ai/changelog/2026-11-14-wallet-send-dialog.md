@@ -4,9 +4,10 @@ Sending from the filler wallet opens `SendDialog` (`ui/src/operator/SendDialog.t
 dialog on desktop and a full-width drawer on a phone. It replaces the "Send funds" side sheet with
 its Network and Asset selects.
 
-- The asset row shows the token on its network with the balance. It opens a list of every token the
-  wallet can send, on every network, largest balance first (`SendAssetSelect`). The list is laid
-  over the fields inside the dialog, so the dialog keeps its height while a token is chosen.
+- The asset row shows the token on its network with the balance. It opens a list of the tokens the
+  wallet holds, on every network, largest balance first (`SendAssetSelect`). A token is left out
+  when its balance is zero, is dust that shows as zero, or has not been read. The list is laid over
+  the fields inside the dialog, so the dialog keeps its height while a token is chosen.
 - "To address" shows the network's logo once the address is valid, and says whether it is. The
   paste button appears only where the browser exposes the clipboard, which needs HTTPS, localhost or
   the desktop app.

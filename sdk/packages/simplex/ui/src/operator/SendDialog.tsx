@@ -149,22 +149,22 @@ export function SendDialog(props: {
 		symbol: custom || !asset ? null : asset.symbol,
 		network,
 		balance: balanceText,
-		funded: (balance.available ?? 0) > 0,
+		funded: isHeld(balance.available),
 	}
-	/** Every sendable token, largest balance first. A balance that is not known yet sorts last. */
+	/** The tokens the wallet holds, largest balance first. */
 	const assetOptions = useMemo<SendAssetOption[]>(
 		() =>
-			[...assets]
-				.sort((a, b) => (b.balance.available ?? -1) - (a.balance.available ?? -1))
+			assets
+				.flatMap((entry) =>
+					isHeld(entry.balance.available) ? [{ ...entry, held: entry.balance.available }] : [],
+				)
+				.sort((a, b) => b.held - a.held)
 				.map((entry) => ({
 					key: entry.key,
 					symbol: entry.symbol,
 					network: chainLabel(entry.chainId),
-					balance:
-						entry.balance.available === null
-							? entry.balance.label
-							: formatSendBalance(entry.balance.available),
-					funded: (entry.balance.available ?? 0) > 0,
+					balance: formatSendBalance(entry.held),
+					funded: true,
 				})),
 		[assets, chainLabel],
 	)
@@ -456,6 +456,19 @@ function selectedSendBalance(balances: BalanceSnapshot | undefined, chain: strin
 	}
 }
 
+/** Fraction digits a balance is shown with. */
+const BALANCE_FRACTION_DIGITS = 4
+
 function formatSendBalance(value: number): string {
-	return value.toLocaleString(undefined, { maximumFractionDigits: 4 })
+	return value.toLocaleString(undefined, { maximumFractionDigits: BALANCE_FRACTION_DIGITS })
+}
+
+/**
+ * Whether a balance is known and shows above zero.
+ *
+ * Dust that rounds to zero at the digits shown does not count: it would read as a token the
+ * wallet does not hold.
+ */
+function isHeld(available: number | null): available is number {
+	return available !== null && Number(available.toFixed(BALANCE_FRACTION_DIGITS)) > 0
 }

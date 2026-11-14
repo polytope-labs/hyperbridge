@@ -40,8 +40,8 @@ function AssetRow({ asset }: { asset: SendAssetOption }) {
 }
 
 /**
- * The asset a send goes out in: a row showing the current one, which opens the list of every
- * token the wallet can send.
+ * The asset a send goes out in: a row showing the current one, which opens the list of tokens
+ * the wallet holds.
  *
  * The list is not a popover of its own. It is laid over the fields under the row, inside the
  * dialog, so the dialog keeps its height and a phone scrolls the list, not the drawer.

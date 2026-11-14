@@ -116,8 +116,10 @@ describe("send funds", () => {
 		expect(amount.value).toBe("0.5")
 	})
 
-	it("lists every sendable token with the largest balance first, and sends the one picked", async () => {
+	it("lists the tokens the wallet holds with the largest balance first, and sends the one picked", async () => {
 		const usdc = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
+		const usdt = "0xfde4C96c8593536E31F229EA8f37b2ADa2699bb2"
+		const dai = "0x50c5725949A6F0c72E6C4a641F24049A917DB0Cb"
 		vi.mocked(api.get).mockResolvedValue({
 			toml: "",
 			logLevel: "info",
@@ -127,11 +129,14 @@ describe("send funds", () => {
 			sendTokens: {
 				"EVM-8453": [
 					{ symbol: "ETH", address: "native" },
+					{ symbol: "USDT", address: usdt },
+					{ symbol: "DAI", address: dai },
 					{ symbol: "USDC", address: usdc },
 				],
 			},
 			knownVaults: {},
 		})
+		// USDT is dust that shows as zero, and DAI's balance was not read: neither is listed.
 		await render({
 			updatedAt: 1,
 			status: "fresh",
@@ -140,7 +145,10 @@ describe("send funds", () => {
 				{
 					chainId: 8453,
 					native: { symbol: "ETH", amount: 1 },
-					assets: [{ address: usdc, symbol: "USDC", wallet: 2500.5, available: 2500.5, vaults: [] }],
+					assets: [
+						{ address: usdt, symbol: "USDT", wallet: 0.00001, available: 0.00001, vaults: [] },
+						{ address: usdc, symbol: "USDC", wallet: 2500.5, available: 2500.5, vaults: [] },
+					],
 				},
 			],
 		} as unknown as BalanceSnapshot)

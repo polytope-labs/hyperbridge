@@ -5,7 +5,7 @@ description: The routes behind the browser setup wizard, which validate endpoint
 
 # Setup wizard
 
-When `simplex run` finds no config, it opens the browser setup wizard instead of starting the filler. These are the routes the wizard calls. They let you script a first setup too: validate the pieces, preview the config, then save it and start the filler.
+When `simplex run` finds no config, it opens the browser setup wizard instead of starting the filler. These are the setup routes, most of which the wizard calls. They let you script a first setup too: validate the pieces, preview the config, then save it and start the filler.
 
 The wizard only configures mainnet chains. Its requests carry private keys, so outside a container it only listens on loopback, and Simplex never logs the request bodies. See [Installation](/developers/evm/simplex/installation#building-a-config-file) for the wizard itself.
 
@@ -13,7 +13,7 @@ These routes work only while the wizard is open. Once the filler runs, they answ
 
 ## GET /api/setup/defaults
 
-Returns what the wizard offers: the chains, the Hyperbridge endpoint, and the tokens and vaults known on each chain.
+Returns the setup defaults: the chains, the Hyperbridge endpoint, and the tokens and vaults known on each chain.
 
 ```bash lineNumbers
 curl -s $SIMPLEX/api/setup/defaults
@@ -27,7 +27,7 @@ curl -s $SIMPLEX/api/setup/defaults
 | `maxConcurrentOrders` | The default for `[simplex] maxConcurrentOrders`. |
 | `configPath` | Where the wizard writes the config unless told otherwise. |
 | `knownTokens` | For each chain, the token symbols and addresses in the asset registry. |
-| `knownVaults` | For each chain, the curated vaults in the registry. The setup wizard no longer offers them. |
+| `knownVaults` | For each chain, the curated vaults in the registry. |
 
 ## GET /api/setup/orderbook
 
@@ -116,7 +116,7 @@ The key must be 64 hex characters, with or without `0x`. Anything else answers `
 
 ## POST /api/setup/generate-substrate-key
 
-Creates the optional Hyperbridge account that also places bids on Hyperbridge. With an empty body, it generates a new account and returns its mnemonic and address. With `key`, a seed or mnemonic you already have, it returns only that account's address. The setup wizard no longer calls this route.
+Creates the optional Hyperbridge account that also places bids on Hyperbridge. With an empty body, it generates a new account and returns its mnemonic and address. With `key`, a seed or mnemonic you already have, it returns only that account's address. The setup wizard does not call this route.
 
 ```bash lineNumbers
 curl -s -X POST -H 'X-Simplex-UI: 1' $SIMPLEX/api/setup/generate-substrate-key
@@ -125,7 +125,7 @@ curl -s -X POST -H 'X-Simplex-UI: 1' $SIMPLEX/api/setup/generate-substrate-key
 
 ## POST /api/setup/check-substrate-balance
 
-Reads a Hyperbridge account's BRIDGE balance. Bids on Hyperbridge need BRIDGE for fees and deposits. The setup wizard no longer calls this route.
+Reads a Hyperbridge account's BRIDGE balance. Bids on Hyperbridge need BRIDGE for fees and deposits. The setup wizard does not call this route.
 
 ```bash lineNumbers
 curl -s -X POST $SIMPLEX/api/setup/check-substrate-balance \
@@ -138,7 +138,7 @@ curl -s -X POST $SIMPLEX/api/setup/check-substrate-balance \
 
 ## POST /api/setup/preview
 
-Validates a config and returns it as TOML, with every secret masked. The setup wizard no longer calls this route.
+Validates a config and returns it as TOML, with every secret masked. The setup wizard does not call this route.
 
 The body holds the config as JSON under `config`, in the same structure as `filler-config.toml`. `chainIds` lists the chain IDs the config enables, so the checks that depend on them can run. `chainLabels` optionally names each `[[chains]]` block in the rendered TOML.
 

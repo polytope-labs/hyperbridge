@@ -1,7 +1,9 @@
-# Reads race every endpoint, and startup stops waiting where it does not have to
+# Reads race every endpoint, and startup waits less
 
 A solver with five chains on the default public endpoints took over three minutes to start. The
-changes below address that.
+ordered `fallback` transport retried each endpoint three times with 1s, 2s and 4s of backoff before
+moving on, so every endpoint that was down ahead of a live one added seven seconds to every read.
+Startup then paid that one chain at a time.
 
 ## Reads race
 
@@ -15,17 +17,15 @@ endpoint. Every read is sent to all of the chain's endpoints at once, and the fi
   viem's defaults.
 - No endpoint retries on its own. The other endpoints are the retry.
 
-Before this, the public client used `fallback` over endpoints that each retried three times with
-1s, 2s and 4s of backoff. Every read started from the first endpoint, so each endpoint that was down
-ahead of a live one added seven seconds to every read on that chain.
+This applies to every read through `ChainClientManager.getPublicClient`, during normal operation as
+well as at startup. Consequences to keep in mind:
 
-Consequences to keep in mind:
-
-- Every listed endpoint now receives every read outside the quorum, where only the first one did.
-- The first-listed endpoint is no longer the one that answers. Two consecutive reads can come from
-  nodes at different heights.
-- The wallet client is unchanged. It keeps the ordered `fallback`, so a transaction goes to one
-  endpoint and the nonce read behind it reaches the same node.
+- Every listed endpoint receives every read outside the quorum.
+- The first-listed endpoint is not the one that answers. Two consecutive reads can come from nodes at
+  different heights.
+- The wallet client keeps the ordered `fallback`, so a transaction goes to one endpoint and the nonce
+  read behind it reaches the same node.
+- `QuorumPublicClient` is unchanged. It is still the client that cross-checks answers.
 
 A chain with a single endpoint keeps plain `http` with its retries.
 
@@ -34,11 +34,10 @@ A chain with a single endpoint keeps plain `http` with its retries.
 Every endpoint is asked for its chain id at startup, and `fetchChainId` gives each one ten seconds.
 
 - `Simplex.start` runs that probe once and hands the result to the scanner it builds and to
-  `bootFiller`, through `BootOptions.resolvedChains`. Before, the scanner probed and boot probed
-  again. `bootFiller` still probes on its own when it is not handed the chains.
-- `OrderScanner.create` probes all its entries that omit a `chainId` together. Before, it probed one
-  chain at a time. The adds stay in order, so two entries that resolve to the same chain are still
-  refused.
+  `bootFiller`, through `BootOptions.resolvedChains`. `bootFiller` probes on its own when it is not
+  handed the chains.
+- `OrderScanner.create` probes all its entries that omit a `chainId` together. The adds stay in
+  order, so two entries that resolve to the same chain are still refused.
 
 ## Startup stops waiting for a chain's slow endpoints
 
@@ -51,13 +50,13 @@ A slower endpoint is checked when its answer arrives. If it reports another chai
 logged that names it, but the solver is already running by then. That is the cost: a wrong-chain
 endpoint is only refused at startup if it answers within a second of the fastest one.
 
-Without `tolerateUnreachable`, which runtime endpoint edits use, every endpoint is still waited for.
+Without `tolerateUnreachable`, which runtime endpoint edits use, every endpoint is waited for.
 
 ## Startup steps that do not depend on each other run together
 
 - `IntentFiller.solverSelectionChains`, `DelegationService.setupDelegationOnChains` and the
-  EntryPoint deposit top-ups run their chains concurrently. Each was a loop that awaited one chain at
-  a time. Delegation state is keyed by wallet and chain, so the chains do not share any.
+  EntryPoint deposit top-ups run their chains concurrently. Delegation state is keyed by wallet and
+  chain, so the chains do not share any.
 - `IntentFiller.initialize` connects to Hyperbridge while it sets the chains up.
 - `bootFiller` starts the limit-order lifecycle while the filler initializes.
 
@@ -75,5 +74,4 @@ return `null` for anything that is not `fresh`, so no inventory snapshot or liqu
 from it.
 
 The dashboard re-reads `/api/balances` every second while the snapshot is `loading`
-(`balancePollMs` in `ui/src/operator/Operator.tsx`), then every 30 seconds as before. Without that,
-a dashboard opened right after startup showed no balances until its next 30-second poll.
+(`balancePollMs` in `ui/src/operator/Operator.tsx`), then every 30 seconds.

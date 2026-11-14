@@ -1,6 +1,6 @@
 # Reads race every endpoint, and boot runs its per-chain steps side by side
 
-A solver with five chains on the default public endpoints took over three minutes to start. Two
+A solver with five chains on the default public endpoints took over three minutes to start. Three
 changes address that.
 
 ## Reads race
@@ -35,3 +35,18 @@ A chain with a single endpoint keeps plain `http` with its retries.
 deposit top-ups were loops that awaited one chain at a time. Each now runs its chains concurrently,
 so boot waits for the slowest chain instead of the sum of all of them. Delegation state is keyed by
 wallet and chain, so the chains do not share any.
+
+## Chain ids are probed once, for all chains together
+
+Every endpoint is asked for its chain id at startup, and `fetchChainId` gives each one ten seconds.
+The probe waits for every endpoint of a chain, because the ones that answer must agree.
+
+- `Simplex.start` now runs that probe once and hands the result to the scanner it builds and to
+  `bootFiller`, through `BootOptions.resolvedChains`. Before, the scanner probed and boot probed
+  again. `bootFiller` still probes on its own when it is not handed the chains.
+- `OrderScanner.create` probes all its entries that omit a `chainId` together. Before, it probed one
+  chain at a time. The adds stay in order, so two entries that resolve to the same chain are still
+  refused.
+
+An endpoint that accepts a connection and never answers therefore costs ten seconds of startup once.
+It used to cost ten seconds per chain in the scanner and ten more in boot.

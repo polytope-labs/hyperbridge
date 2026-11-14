@@ -70,6 +70,11 @@ export interface BootOptions {
 	 * caller passed, or builds a private one from this config.
 	 */
 	scanners: { orders: OrderScanner }
+	/**
+	 * The config's chains with their ids already probed. `Simplex.start` passes
+	 * them so the endpoints are probed once; without them boot probes itself.
+	 */
+	resolvedChains?: ResolvedChainConfig[]
 	/** --watch-only CLI flag: forces watch-only on every chain. */
 	watchOnlyOverride?: boolean
 	/**
@@ -194,12 +199,15 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 		)
 	}
 
-	logger.info("Resolving chain IDs from RPC endpoints...")
-	// Boot tolerates an endpoint that cannot answer; runtime endpoint edits do not.
-	const resolvedChains: ResolvedChainConfig[] = await resolveChainConfigs(config.chains, {
-		loggers: options.loggers,
-		tolerateUnreachable: true,
-	})
+	let resolvedChains = options.resolvedChains
+	if (!resolvedChains) {
+		logger.info("Resolving chain IDs from RPC endpoints...")
+		// Boot tolerates an endpoint that cannot answer; runtime endpoint edits do not.
+		resolvedChains = await resolveChainConfigs(config.chains, {
+			loggers: options.loggers,
+			tolerateUnreachable: true,
+		})
+	}
 	logger.info({ chains: resolvedChains.map((c) => c.chainId) }, "Chain IDs resolved")
 
 	const fillerConfigForService: FillerServiceConfig = {

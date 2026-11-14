@@ -939,10 +939,16 @@ export class Simplex extends EventEmitter {
 
 		let orderScanner: OrderScanner | undefined
 		try {
+			// Probed once and handed to the scanner and to boot, which would each probe
+			// every endpoint otherwise. Boot tolerates an endpoint that cannot answer.
+			const resolvedChains = await resolveChainConfigs(options.config.chains ?? [], {
+				loggers,
+				tolerateUnreachable: true,
+			})
 			orderScanner =
 				options.orderScanner ??
 				(await OrderScannerImpl.create({
-					chains: options.config.chains,
+					chains: resolvedChains.map(({ chainId, rpcUrls }) => ({ chainId, rpcUrls })),
 					loggers,
 					// Honour `blockScanIntervalSeconds` on a scanner we build. One the
 					// caller supplied carries whatever interval they chose for it.
@@ -953,6 +959,7 @@ export class Simplex extends EventEmitter {
 				loggers,
 				signer: options.signer,
 				scanners: { orders: orderScanner },
+				resolvedChains,
 				configPath: options.configPath,
 				data: options.data ?? new MemoryDataStore(),
 				// A store we defaulted is ours to close; one the caller passed is theirs,

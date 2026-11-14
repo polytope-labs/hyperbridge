@@ -14,7 +14,7 @@ import {
 } from "./state"
 import { StepSigner } from "./steps/Signer"
 import { StepChains } from "./steps/Chains"
-import { StepReview } from "./steps/Review"
+import { LaunchProgress, useLaunch } from "./launch"
 import hyperfxLogo from "../assets/hyperfx-logo.webp"
 import { InstallAppButton } from "../components/InstallAppButton"
 
@@ -83,13 +83,18 @@ function chainRequirements(state: WizardState, defaults: SetupDefaults): string[
 	return []
 }
 
-/** The last word before launch: the whole config, through the same check the server gate runs. */
-function reviewRequirements(state: WizardState, defaults: SetupDefaults): string[] {
+/**
+ * What the last step needs before it can start the solver: its chains, then the
+ * whole config through the same check the server gate runs.
+ */
+function launchRequirements(state: WizardState, defaults: SetupDefaults): string[] {
+	const chains = chainRequirements(state, defaults)
+	if (chains.length > 0) return chains
 	try {
 		validateConfig(assembleConfig(state, defaults))
 		return []
 	} catch (error) {
-		return [error instanceof Error ? error.message : "Review the configuration."]
+		return [error instanceof Error ? error.message : "Check the configuration."]
 	}
 }
 
@@ -112,14 +117,7 @@ const STEPS: Array<{
 		title: "Chains",
 		description: "Simplex watches every chain. Fund the wallet and enable fills where you will fill.",
 		component: StepChains,
-		requirements: chainRequirements,
-	},
-	{
-		id: "review",
-		title: "Review & launch",
-		description: "Confirm the accounts and generated configuration before starting the solver.",
-		component: StepReview,
-		requirements: reviewRequirements,
+		requirements: launchRequirements,
 	},
 ]
 
@@ -131,8 +129,11 @@ export function Wizard(props: { defaults: SetupDefaults }) {
 		void loadOrderbook(setState)
 	}, [])
 
+	const launch = useLaunch(state, props.defaults)
+
 	const step = STEPS[stepIndex]
 	const StepComponent = step.component
+	const lastStep = stepIndex === STEPS.length - 1
 	const requirements = step.requirements(state, props.defaults)
 	const canNext = requirements.length === 0
 	const requirementsId = `wizard-${step.id}-requirements`
@@ -219,44 +220,78 @@ export function Wizard(props: { defaults: SetupDefaults }) {
 					</header>
 
 					<div className="wizard-step-content">
-						<StepComponent state={state} setState={setState} defaults={props.defaults} />
+						{launch.phase === "starting" ? (
+							<LaunchProgress />
+						) : (
+							<StepComponent state={state} setState={setState} defaults={props.defaults} />
+						)}
+						{launch.phase === "failed" && (
+							<div className="card" role="alert">
+								<p className="error">{launch.error}</p>
+								<p className="hint">
+									Your configuration is already saved. Correct it above, then retry.
+								</p>
+							</div>
+						)}
 					</div>
 
-					<footer className="footer-nav">
-						{stepIndex > 0 ? (
-							<button type="button" className="secondary" onClick={() => setStepIndex((i) => i - 1)}>
-								<span aria-hidden="true">←</span> Back
-							</button>
-						) : (
-							<span aria-hidden="true" />
-						)}
-						{stepIndex < STEPS.length - 1 && requirements.length > 0 ? (
-							<div className="wizard-requirements" id={requirementsId} role="status" aria-live="polite">
-								<span className="wizard-requirements-icon" aria-hidden="true">
-									!
-								</span>
-								<div>
-									<strong>Required to continue</strong>
-									<ul>
-										{requirements.map((requirement) => (
-											<li key={requirement}>{requirement}</li>
-										))}
-									</ul>
+					{launch.phase !== "starting" && (
+						<footer className="footer-nav">
+							{stepIndex > 0 ? (
+								<button type="button" className="secondary" onClick={() => setStepIndex((i) => i - 1)}>
+									<span aria-hidden="true">←</span> Back
+								</button>
+							) : (
+								<span aria-hidden="true" />
+							)}
+							{requirements.length > 0 ? (
+								<div
+									className="wizard-requirements"
+									id={requirementsId}
+									role="status"
+									aria-live="polite"
+								>
+									<span className="wizard-requirements-icon" aria-hidden="true">
+										!
+									</span>
+									<div>
+										<strong>{lastStep ? "Required to start" : "Required to continue"}</strong>
+										<ul>
+											{requirements.map((requirement) => (
+												<li key={requirement}>{requirement}</li>
+											))}
+										</ul>
+									</div>
 								</div>
-							</div>
-						) : null}
-						{stepIndex < STEPS.length - 1 && (
-							<button
-								type="button"
-								className="primary"
-								disabled={!canNext}
-								aria-describedby={!canNext ? requirementsId : undefined}
-								onClick={() => setStepIndex((i) => i + 1)}
-							>
-								Continue <span aria-hidden="true">→</span>
-							</button>
-						)}
-					</footer>
+							) : null}
+							{lastStep ? (
+								<button
+									type="button"
+									className="primary"
+									disabled={!canNext || launch.phase === "saving"}
+									aria-describedby={!canNext ? requirementsId : undefined}
+									onClick={launch.start}
+								>
+									{launch.phase === "saving"
+										? "Saving configuration…"
+										: launch.phase === "failed"
+											? "Retry startup"
+											: "Save config & start Simplex"}
+									{launch.phase !== "saving" && <span aria-hidden="true"> →</span>}
+								</button>
+							) : (
+								<button
+									type="button"
+									className="primary"
+									disabled={!canNext}
+									aria-describedby={!canNext ? requirementsId : undefined}
+									onClick={() => setStepIndex((i) => i + 1)}
+								>
+									Continue <span aria-hidden="true">→</span>
+								</button>
+							)}
+						</footer>
+					)}
 				</section>
 			</div>
 		</div>

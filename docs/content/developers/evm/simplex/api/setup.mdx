@@ -138,7 +138,7 @@ curl -s -X POST $SIMPLEX/api/setup/check-substrate-balance \
 
 ## POST /api/setup/preview
 
-Validates a config and returns it as TOML, with every secret masked.
+Validates a config and returns it as TOML, with every secret masked. The setup wizard no longer calls this route.
 
 The body holds the config as JSON under `config`, in the same structure as `filler-config.toml`. `chainIds` lists the chain IDs the config enables, so the checks that depend on them can run. `chainLabels` optionally names each `[[chains]]` block in the rendered TOML.
 

@@ -211,20 +211,6 @@
 		margin-top: 0.15rem;
 	}
 
-	.review-launch-row {
-		align-items: stretch;
-		flex-direction: column;
-	}
-
-	.review-start-button {
-		width: 100%;
-	}
-
-	.review-launch-row > p {
-		max-width: none;
-		text-align: left;
-	}
-
 	.market-method-options {
 		grid-template-columns: 1fr;
 	}

@@ -13,6 +13,8 @@ and Asset selects.
   down to six decimals so it never asks for more than is held. An amount above the available balance
   turns the card red and disables Send.
 - A token that is not listed is still sent by contract address, through the link under the asset row.
+- A confirmed send replaces the form with a success screen: a large tick, the amount and network,
+  a link to the transaction and Done. A send that is still pending stays on the form with its warning.
 
 Send still opens the `SendConfirmDialog` review, and nothing is submitted until that is confirmed.
 `POST /api/send` and its request are unchanged.

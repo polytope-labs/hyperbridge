@@ -1720,6 +1720,60 @@ button.send-paste svg {
 	padding-top: 0.25rem;
 }
 
+.send-actions[data-single] {
+	grid-template-columns: minmax(0, 1fr);
+	width: 100%;
+}
+
+.send-form[hidden] {
+	display: none;
+}
+
+/* A finished send replaces the form: a large tick, what went out, and a way to the transaction. */
+.send-success {
+	display: grid;
+	justify-items: center;
+	gap: 1rem;
+	padding: 1.5rem 0;
+	text-align: center;
+}
+
+.send-success-mark {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	width: 6rem;
+	height: 6rem;
+	border-radius: 999px;
+	background: rgba(116, 233, 152, 0.15);
+	box-shadow: 0 0 0 1px rgba(116, 233, 152, 0.3);
+	color: var(--ok);
+}
+
+.send-success-mark svg {
+	width: 3rem;
+	height: 3rem;
+}
+
+.send-success h3 {
+	margin: 0 0 0.25rem;
+	font-size: 1.25rem;
+	font-weight: 500;
+}
+
+.send-success p {
+	margin: 0;
+	color: var(--muted);
+	font-size: 0.875rem;
+}
+
+.send-success-link {
+	color: var(--text);
+	font-size: 0.875rem;
+	text-decoration: underline;
+	text-underline-offset: 0.2em;
+}
+
 .operator-send-tx-link {
 	display: inline-flex;
 	align-items: center;

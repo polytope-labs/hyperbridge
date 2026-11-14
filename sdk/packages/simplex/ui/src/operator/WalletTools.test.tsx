@@ -134,10 +134,18 @@ describe("send funds", () => {
 		await render()
 		await send()
 
-		const text = document.querySelector<HTMLElement>('[role="dialog"]')?.textContent ?? ""
-		expect(text).toContain("✓ Sent")
-		const link = document.querySelector<HTMLAnchorElement>(".operator-send-tx-link")
-		expect(link?.getAttribute("href")).toContain(`/tx/${TX_HASH}`)
+		// A confirmed send replaces the form with the success screen.
+		const sent = document.querySelector<HTMLElement>(".send-success")
+		expect(sent?.textContent).toContain("Funds sent")
+		expect(sent?.textContent).toContain("25 ETH sent on Base")
+		expect(sent?.querySelector(".send-success-mark svg")).not.toBeNull()
+		expect(sent?.querySelector("a")?.getAttribute("href")).toContain(`/tx/${TX_HASH}`)
+		expect(document.querySelector<HTMLElement>(".send-form")?.hidden).toBe(true)
+
+		// Done closes the dialog, and it opens on the form again.
+		await click(button(sent!, "Done"))
+		const reopened = await openSend()
+		expect(reopened.querySelector(".send-success")).toBeNull()
 	})
 
 	it("shows a pending warning and clears the amount when the send is unconfirmed", async () => {
@@ -154,7 +162,7 @@ describe("send funds", () => {
 		expect(warning?.textContent).toContain("not confirmed yet")
 		expect(warning?.textContent).toContain(`${USER_OP_HASH.slice(0, 18)}…`)
 		// A UserOp has no tx hash: no success line, no explorer link.
-		expect(document.querySelector<HTMLElement>('[role="dialog"]')?.textContent ?? "").not.toContain("✓ Sent")
+		expect(document.querySelector(".send-success")).toBeNull()
 		expect(warning?.querySelector("a")).toBeNull()
 		// The amount is cleared so the next click cannot resend it.
 		expect(document.querySelector<HTMLInputElement>('input[placeholder="0.00"]')?.value).toBe("")

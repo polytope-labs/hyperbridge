@@ -40,6 +40,13 @@ interface SendBalance {
 	largestVault: number
 }
 
+/** What a finished send shows: the amount as it was typed, its token and its network. */
+interface SentSummary {
+	amount: string
+	symbol: string
+	network: string
+}
+
 /** One token on one network that the wallet can send. */
 interface SendAsset {
 	key: string
@@ -59,6 +66,13 @@ function percentageAmount(available: number, percentage: number): string {
 	const scale = 10 ** PERCENTAGE_FRACTION_DIGITS
 	const amount = Math.floor(((available * percentage) / 100) * scale) / scale
 	return amount.toLocaleString("en-US", { useGrouping: false, maximumFractionDigits: PERCENTAGE_FRACTION_DIGITS })
+}
+
+/** Groups the integer part only, so a long decimal keeps every digit. */
+function groupThousands(amount: string): string {
+	const [integer, fraction] = amount.split(".")
+	const grouped = integer.replace(/\B(?=(\d{3})+(?!\d))/g, ",")
+	return fraction ? `${grouped}.${fraction}` : grouped
 }
 
 function SendHash({ hash, explorerUrl }: { hash?: string; explorerUrl?: string }) {
@@ -105,7 +119,7 @@ export function SendDialog(props: {
 	const [customToken, setCustomToken] = useState("")
 	const [amount, setAmount] = useState("")
 	const [to, setTo] = useState("")
-	const [result, setResult] = useState<SendResult & { explorerUrl?: string }>()
+	const [result, setResult] = useState<SendResult & { explorerUrl?: string; sent: SentSummary }>()
 	const [sending, setSending] = useState(false)
 	const [review, setReview] = useState<SendSummary>()
 	const { run: act, error } = useAction()
@@ -182,10 +196,10 @@ export function SendDialog(props: {
 					amount: amount.trim(),
 					to: recipient,
 				})
-				setResult({ ...res, explorerUrl })
+				setResult({ ...res, explorerUrl, sent: { amount: amount.trim(), symbol, network } })
 				// Clear the amount whatever the outcome: a send that came back pending (202) must
 				// not be re-submitted by the next click. `act` gets no "Sent" label here because a
-				// pending response sets `result`, and the success line already renders from it.
+				// pending response sets `result`, and the success screen already renders from it.
 				setAmount("")
 				await props.onSent()
 			} finally {
@@ -202,15 +216,54 @@ export function SendDialog(props: {
 		}
 	}
 
+	const success = result && !result.pending ? result : undefined
+	/** A finished send is cleared on the way out, so the dialog opens on the form again. */
+	const close = () => {
+		if (success) setResult(undefined)
+		props.onClose()
+	}
+
 	return (
 		<WizardDialog
 			className="send-dialog"
 			open={props.open}
-			onClose={props.onClose}
+			onClose={close}
 			title="Send from filler wallet"
 			description="Check the address and the network. A transfer cannot be undone."
 		>
-			<div className="send-form">
+			{success ? (
+				<div className="send-success" role="status">
+					<span className="send-success-mark" aria-hidden="true">
+						<CheckIcon />
+					</span>
+					<div>
+						<h3>Funds sent</h3>
+						<p>
+							{groupThousands(success.sent.amount)} {success.sent.symbol} sent on {success.sent.network}
+							{success.redeemed ? ", topped up from the vault" : ""}.
+						</p>
+					</div>
+					{success.explorerUrl ? (
+						<a
+							className="send-success-link"
+							href={`${success.explorerUrl}/tx/${success.txHash}`}
+							target="_blank"
+							rel="noreferrer"
+							title={success.txHash}
+						>
+							View transaction
+						</a>
+					) : (
+						<SendHash hash={success.txHash} />
+					)}
+					<div className="send-actions" data-single>
+						<button type="button" className="primary" onClick={close}>
+							Done
+						</button>
+					</div>
+				</div>
+			) : null}
+			<div className="send-form" hidden={Boolean(success)}>
 				<div className="send-asset">
 					<button
 						type="button"
@@ -331,12 +384,6 @@ export function SendDialog(props: {
 				{tokenAddress === "native" ? (
 					<p className="hint">Keep some {symbol} for gas on networks without a paymaster.</p>
 				) : null}
-				{result && !result.pending && (
-					<p className="hint">
-						✓ Sent{result.redeemed && " (topped up from the vault)"} — tx{" "}
-						<SendHash hash={result.txHash} explorerUrl={result.explorerUrl} />
-					</p>
-				)}
 				{result?.pending && (
 					// A pending send is not a success, and its message is worded by the server for the
 					// sponsored (no tx hash) or native case. The hash is shown only when there is one.
@@ -356,7 +403,7 @@ export function SendDialog(props: {
 				{error && <p className="error">{error}</p>}
 
 				<div className="send-actions">
-					<button type="button" className="secondary" onClick={props.onClose} disabled={sending}>
+					<button type="button" className="secondary" onClick={close} disabled={sending}>
 						Cancel
 					</button>
 					<button type="button" className="primary" disabled={!ready || sending} onClick={openReview}>

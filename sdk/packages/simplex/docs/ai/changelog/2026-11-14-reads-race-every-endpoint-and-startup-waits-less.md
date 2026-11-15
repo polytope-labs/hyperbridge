@@ -10,7 +10,7 @@ Startup then paid that one chain at a time.
 `ChainClientManager.raceTransport` is the public client's transport for a chain with more than one
 endpoint. A read is sent to all of the chain's endpoints at once, and the first answer is used. Two
 kinds of read are treated differently, and both are described below: an answer that says "nothing",
-and the account nonce.
+and nonces and logs.
 
 - A result is an answer. So is a revert, by the same `shouldThrow` rule viem's `fallback` uses to
   stop failing over.
@@ -60,27 +60,37 @@ re-sends a wallet transaction at the same nonce.
 
 ### Nonces and logs are read in order
 
-Three reads do not race (`readsInOrder`). They go to the endpoints in list order, the order the
+Some reads do not race (`readsInOrder`). They go to the endpoints in list order, the order the
 wallet client sends in, and move to the next only when one fails. A node that is behind answers each
 of them wrongly without saying so.
 
 - `eth_getTransactionCount`. A nonce from a node that has not seen the last transaction is one too
   low.
-- An `eth_call` to `EntryPoint.getNonce`, matched by its selector. It is the nonce a UserOp is built
-  on, and the bundler refuses one that was just used.
+- An `eth_call` to `EntryPoint.getNonce` or to an ERC-2612 token's `nonces`, matched by selector.
+  They are the nonces a UserOp and a permit are built on. The bundler refuses a UserOp nonce that
+  was just used, and a permit signed over a used nonce is invalid.
 - `eth_getLogs`. A node that is behind, or that keeps few logs, answers `[]` at once for a range
   that holds some.
-
-### One node's view of a head and its logs
-
-`ChainClientManager.getOrderedPublicClient` sends every read in list order. `BridgeTopUp` scans the
-gateway's logs through it. That scan reads the head and then the logs up to it, and takes an empty
-range as evidence that nothing was placed. With the head from one node and the logs from another
-that is behind, the range would look complete for blocks the second node has not seen.
 
 One difference from the wallet client remains: an endpoint is not retried before the read moves on,
 where a send retries it three times first. Like a send, the read waits out the 30-second timeout of
 an endpoint that does not answer at all.
+
+### One node's view of a head and its logs
+
+`BridgeTopUp` scans the gateway's logs for its own placement and cancel. The scan reads the head and
+then the logs up to it, and takes an empty range as evidence that nothing was placed. With the head
+from one node and the logs from another that is behind, the range would look complete for blocks the
+second node has not seen. Reading in list order is not enough for that: a client that fails over per
+request takes the head from the first endpoint and, when that one refuses the log range, the logs
+from the next.
+
+So the scan runs whole on one endpoint. `ChainClientManager.getEndpointClients` returns one client
+per endpoint, in list order, each with the usual three retries. The scan uses the first, and moves
+to the next only when the first fails any of its reads, starting again from that endpoint's own
+head. An endpoint that refuses a log range gets a smaller one before it is given up on. What the
+top-up decides afterwards is still read at a height an evidence margin below the one the scan
+reached.
 
 ### What this means for an operator
 

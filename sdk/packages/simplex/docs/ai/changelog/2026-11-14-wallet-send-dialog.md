@@ -24,6 +24,9 @@ its Network and Asset selects.
   as in `1,000.50`, or in groups of three after a group that does not start with 0, as in `1,000`.
   A pasted `0,500` is 0.5. A comma typed after digits is always the decimal mark, so `1,000` typed
   one key at a time is 1.
+- A paste is read from the clipboard text and the selection it replaces (`applyAmountPaste`). Read
+  as a plain edit, a paste of `1,5` over a selected `1,000` would lose its comma, because the two
+  share the text `1,`.
 - The amount is reviewed and sent without trailing zeros (`trimAmount`). An amount typed as `1,000`
   is reviewed as `1`, which cannot pass for a thousand the way `1.000` can.
 - The card has 25%, 50%, 75% and Max. Each fills a share of the balance, rounded down to six
@@ -39,7 +42,8 @@ its Network and Asset selects.
   a link to the transaction and Done. A send that is still pending returns to the form with its
   warning.
 - Closing the dialog clears the form and the error of a failed send. A send in flight keeps the
-  dialog open, so its outcome is not carried into the next open.
+  dialog open, so its outcome is not carried into the next open. The balance refresh that follows
+  a send is not waited for, so it cannot hold the dialog or the next send.
 
 `POST /api/send` and its request are unchanged.
 

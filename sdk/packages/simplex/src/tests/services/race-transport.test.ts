@@ -207,6 +207,11 @@ describe("raceTransport reads that go in list order", () => {
 		await expect(ask(urls, "eth_call", call("0x35567e1a"))).resolves.toBe(word(6))
 	})
 
+	it("asks in order for the permit nonce a signature is built on", async () => {
+		const urls = [await url({ answer: word(6), afterMs: 200 }), await url({ answer: word(5) })]
+		await expect(ask(urls, "eth_call", call("0x7ecebe00"))).resolves.toBe(word(6))
+	})
+
 	it("still races any other call", async () => {
 		const urls = [await url({ answer: word(6), afterMs: 200 }), await url({ answer: word(5) })]
 		await expect(ask(urls, "eth_call", call("0x70a08231"))).resolves.toBe(word(5))

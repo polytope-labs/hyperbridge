@@ -13,6 +13,10 @@ A private key or secret phrase reports its result under the field. A refused one
 and an accepted one shows the derived wallet address. The footer shows no "Required to continue" list
 while the step does this. MPCVault and Turnkey still list their empty fields there.
 
+The step says where the key or phrase is kept. `GET /api/setup/defaults` returns
+`configEncrypted: true` when the config file is saved encrypted, as the desktop app saves it, and
+the step then says so. Otherwise it says the file keeps the key in plain text.
+
 ## The Chains step
 
 The step opens with three points on funding. Send at least 5 USDC to the wallet on each chain that

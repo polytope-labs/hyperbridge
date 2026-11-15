@@ -37,13 +37,18 @@ function holdsOnlySimplex(userDataDir: string): boolean {
 	}
 }
 
+/** Throws when a reset would refuse this directory, so a caller can find out before it stops anything. */
+export function assertProfileCanBeReset(userDataDir: string): void {
+	if (!holdsOnlySimplex(userDataDir)) {
+		throw new Error(`${resolve(userDataDir)} holds more than Simplex's files, so Simplex will not delete it`)
+	}
+}
+
 /** Records that the next launch must delete the profile. */
 export function requestProfileReset(userDataDir: string): void {
 	// Created first: the check reads the directory's true path, which a missing one does not have.
 	mkdirSync(userDataDir, { recursive: true })
-	if (!holdsOnlySimplex(userDataDir)) {
-		throw new Error(`${resolve(userDataDir)} holds more than Simplex's files, so Simplex will not delete it`)
-	}
+	assertProfileCanBeReset(userDataDir)
 	writeFileSync(join(userDataDir, RESET_MARKER), "", { mode: 0o600 })
 }
 

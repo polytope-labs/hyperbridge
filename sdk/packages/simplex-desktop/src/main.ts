@@ -33,7 +33,7 @@ import { markSessionEnded, markSessionStarted, previousUncleanSession } from "./
 import { assertResources, resourcePaths, socketPathFor, userDataOverrideFromArgv } from "./desktop-paths"
 import { latestLogPath, loginItemExecutable, LoginItemController } from "./login-item"
 import { DesktopNotificationClient, desktopNotificationUrl } from "./notification-client"
-import { completePendingProfileReset, requestProfileReset } from "./profile-reset"
+import { assertProfileCanBeReset, completePendingProfileReset, requestProfileReset } from "./profile-reset"
 import { handleSimplexProtocol } from "./protocol"
 import { RendererRecovery } from "./renderer-recovery"
 import { DesktopVault } from "./security/vault"
@@ -438,12 +438,25 @@ function resetState(): Parameters<typeof resetAvailable>[0] {
 	return { locked: Boolean(vault && !vault.isUnlocked()), update: updateStatus, resetting }
 }
 
-/** A reset that could not be carried out leaves the app as it was, apart from a solver it stopped. */
-function abandonReset(error: unknown): void {
+/**
+ * A reset that could not be carried out leaves the app as it was, apart from a solver it stopped.
+ * A solver the reset paused for its count, and that is still up, is resumed.
+ */
+async function abandonReset(error: unknown, resume?: { socketPath: string }): Promise<void> {
 	resetting = false
 	intentionalStop = false
 	refreshNativeUi()
-	reportActionError("Simplex could not reset its configuration", error)
+	let reported = error
+	if (resume) {
+		try {
+			await sendSolverAction(resume.socketPath, "resume")
+		} catch {
+			reported = new Error(
+				`${errorMessage(error)}. The solver was paused for the reset and could not be resumed; resume it from the menu`,
+			)
+		}
+	}
+	reportActionError("Simplex could not reset its configuration", reported)
 }
 
 /**
@@ -454,6 +467,12 @@ async function resetConfiguration(): Promise<void> {
 	if (!daemonLaunch || !resetAvailable(resetState())) return
 	const { socketPath } = daemonLaunch
 	const userData = app.getPath("userData")
+	// Before anything is paused or stopped: a directory the reset refuses is refused here.
+	try {
+		assertProfileCanBeReset(userData)
+	} catch (error) {
+		return reportActionError("Simplex could not reset its configuration", error)
+	}
 	const choices = { buttons: ["Cancel", "Reset Configuration"], defaultId: 0, cancelId: 0, noLink: true }
 	const confirm = (options: Electron.MessageBoxOptions) =>
 		mainWindow && !mainWindow.isDestroyed()
@@ -480,7 +499,10 @@ async function resetConfiguration(): Promise<void> {
 			...choices,
 			type: "warning",
 			title: "Reset Configuration",
-			message: "Bids still hold deposits. Reset anyway?",
+			message:
+				settled.count === undefined
+					? "Simplex could not count the bids again. Reset anyway?"
+					: "More bids hold deposits now. Reset anyway?",
 			detail: `${depositWarning(settled.count)}This cannot be undone.`,
 		})
 		if (again.response !== 1) {
@@ -497,12 +519,14 @@ async function resetConfiguration(): Promise<void> {
 	try {
 		await stopSolverBeforeReset(socketPath)
 	} catch (error) {
-		return abandonReset(error)
+		return abandonReset(error, settled.paused ? { socketPath } : undefined)
 	}
 	try {
 		requestProfileReset(userData)
 	} catch (error) {
-		return abandonReset(new Error(`${errorMessage(error)}. The solver has been stopped; restart it from the menu.`))
+		// The solver is down, so it cannot be resumed here. A pause is kept across a restart.
+		const next = settled.paused ? "restart it from the menu, then resume it" : "restart it from the menu"
+		return abandonReset(new Error(`${errorMessage(error)}. The solver has been stopped; ${next}.`))
 	}
 
 	// The reset is now certain: the next launch deletes the profile, whatever fails from here on.

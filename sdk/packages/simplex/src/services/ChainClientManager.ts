@@ -61,21 +61,22 @@ function isEmptyAnswer(method: string, result: unknown): boolean {
 	return method === "eth_getCode" && result === "0x"
 }
 
-/** `EntryPoint.getNonce`, the nonce a UserOp is built on. */
-const ENTRYPOINT_GET_NONCE = toFunctionSelector("getNonce(address,uint192)")
+/** The nonces a signature is built on: `EntryPoint.getNonce` for a UserOp, ERC-2612 `nonces` for a permit. */
+const NONCE_SELECTORS = [toFunctionSelector("getNonce(address,uint192)"), toFunctionSelector("nonces(address)")]
 
 /**
  * Whether a read goes to the endpoints in list order instead of to whichever answers first.
  *
  * These are the reads a node that is behind answers wrongly without saying so. Its nonce is the one
- * just used, and that is never an empty answer the race would wait on. Its logs are an empty list for
- * a range that holds some, and a node that keeps few logs answers the same way at once.
+ * just used, whether the account's, the EntryPoint's or a permit's, and that is never an empty
+ * answer the race would wait on. Its logs are an empty list for a range that holds some, and a node
+ * that keeps few logs answers the same way at once.
  */
 function readsInOrder(method: string, params: unknown): boolean {
 	if (method === "eth_getTransactionCount" || method === "eth_getLogs") return true
 	if (method !== "eth_call") return false
 	const data = (params as [{ data?: unknown }?] | undefined)?.[0]?.data
-	return typeof data === "string" && data.startsWith(ENTRYPOINT_GET_NONCE)
+	return typeof data === "string" && NONCE_SELECTORS.some((selector) => data.startsWith(selector))
 }
 
 /** RPC error codes viem retries: unknown, limit exceeded and internal. */
@@ -196,7 +197,7 @@ function walletClientCacheKey(chainId: number, accountAddress: string): string {
  */
 class ViemClientFactoryImpl {
 	private publicClients: Map<number, PublicClient> = new Map()
-	private orderedClients: Map<number, PublicClient> = new Map()
+	private endpointClients: Map<number, PublicClient[]> = new Map()
 	private walletClients: Map<string, WalletClient<Transport, Chain, Account>> = new Map()
 
 	/**
@@ -207,7 +208,7 @@ class ViemClientFactoryImpl {
 	 */
 	public invalidate(chainId: number): void {
 		this.publicClients.delete(chainId)
-		this.orderedClients.delete(chainId)
+		this.endpointClients.delete(chainId)
 		for (const key of [...this.walletClients.keys()]) {
 			if (key.startsWith(`${chainId}:`)) this.walletClients.delete(key)
 		}
@@ -238,17 +239,17 @@ class ViemClientFactoryImpl {
 		return this.publicClients.get(chainConfig.chainId)!
 	}
 
-	public getOrderedPublicClient(chainConfig: ChainConfig, rpcUrls?: readonly string[]): PublicClient {
-		let client = this.orderedClients.get(chainConfig.chainId)
-		if (!client) {
+	public getEndpointClients(chainConfig: ChainConfig, rpcUrls?: readonly string[]): PublicClient[] {
+		let clients = this.endpointClients.get(chainConfig.chainId)
+		if (!clients) {
+			const chain = getViemChain(chainConfig.chainId) as Chain
 			const urls = rpcUrls && rpcUrls.length > 0 ? rpcUrls : [chainConfig.rpcUrl]
-			client = createPublicClient({
-				chain: getViemChain(chainConfig.chainId) as Chain,
-				transport: buildTransport(urls),
-			}) as PublicClient
-			this.orderedClients.set(chainConfig.chainId, client)
+			clients = urls.map(
+				(url) => createPublicClient({ chain, transport: http(url, HTTP_TRANSPORT_OPTS) }) as PublicClient,
+			)
+			this.endpointClients.set(chainConfig.chainId, clients)
 		}
-		return client
+		return clients
 	}
 
 	public getWalletClient(
@@ -324,14 +325,18 @@ export class ChainClientManager {
 	}
 
 	/**
-	 * A client whose every read goes to the chain's endpoints in list order, moving on only when
-	 * one fails. It is for reads that must describe one node's view of the chain, such as a head
-	 * and the logs up to it. {@link getPublicClient} can take those two from different nodes.
+	 * One client per endpoint, in list order. They are for a sequence of reads that must describe
+	 * one node's view of the chain, such as a head and the logs up to it. The caller runs the whole
+	 * sequence on one client and moves to the next only when it fails.
+	 *
+	 * {@link getPublicClient} can take each read from a different node. So can a client that fails
+	 * over per request: the head from one endpoint and, when that one refuses the log range, the
+	 * logs from the next.
 	 */
-	getOrderedPublicClient(chain: string): PublicClient {
+	getEndpointClients(chain: string): PublicClient[] {
 		const config = this.configService.getChainConfig(chain)
 		const rpcUrls = this.configService.getRpcUrls(chain)
-		return this.clientFactory.getOrderedPublicClient(config, rpcUrls)
+		return this.clientFactory.getEndpointClients(config, rpcUrls)
 	}
 
 	/**

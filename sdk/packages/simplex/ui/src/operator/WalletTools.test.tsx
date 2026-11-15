@@ -502,6 +502,25 @@ describe("send funds", () => {
 		expect(document.querySelector(".send-success")?.textContent).toContain("Funds sent")
 	})
 
+	it("can be closed after a send whose balance refresh never returns", async () => {
+		// The refresh after a send is not part of the send. Waiting on it once left the next send
+		// skipped and the dialog marked as sending for good.
+		onBalancesChanged.mockImplementation(() => new Promise(() => {}))
+		await render()
+		await send()
+		expect(document.querySelector(".send-success")?.textContent).toContain("Funds sent")
+		await click(button(document.querySelector<HTMLElement>(".send-success")!, "Done"))
+
+		const sheet = await openSend()
+		await enter(amountInput(sheet), "25")
+		await enter(recipientInput(sheet), RECIPIENT)
+		await click(button(sheet, "Send"))
+		await confirmReview(sheet, "Send 25 ETH")
+		expect(api.post).toHaveBeenCalledTimes(2)
+		await click(button(document.querySelector<HTMLElement>(".send-success")!, "Done"))
+		expect(document.querySelector('[role="dialog"]')).toBeNull()
+	})
+
 	it("opens on an empty form after the dialog is closed", async () => {
 		await render()
 		const sheet = await openSend()

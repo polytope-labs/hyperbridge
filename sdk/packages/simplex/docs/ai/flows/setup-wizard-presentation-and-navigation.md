@@ -15,7 +15,8 @@ moves above the form and scrolls horizontally. The primary button stays disabled
 step has unresolved requirements, and the footer lists every blocker so the operator can see what
 must be fixed without guessing. A step that reports the blocker beside its own field sets `statusId`,
 and the footer then leaves the list out. The Wallet step does this for a private key or secret
-phrase, whose result shows under the field.
+phrase, whose result shows under the field. An empty key or phrase shows no message there. The
+status line then holds the reason for screen readers only, and Continue is described by it.
 
 The shared desktop and browser wizard is mainnet-only. `GET /api/setup/defaults` returns the mainnet
 catalog and Nexus WebSocket default, and setup preview/save rejects a selected testnet chain. The

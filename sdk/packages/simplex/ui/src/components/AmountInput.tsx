@@ -1,4 +1,4 @@
-import { useLayoutEffect, useReducer, useRef, type ChangeEvent } from "react"
+import { useLayoutEffect, useReducer, useRef, type ChangeEvent, type ClipboardEvent } from "react"
 
 /** Characters that survive grouping, and so anchor the caret across a reformat. */
 const SIGNIFICANT = /[0-9.]/
@@ -87,6 +87,33 @@ export function applyAmountEdit(
 	return { value: trimmed, caret: Math.max(0, position - (value.length - trimmed.length)) }
 }
 
+/**
+ * The plain amount after `pasted` replaces the characters from `start` to `end` of the grouped
+ * text, and the caret as a count of the plain characters before it.
+ *
+ * A paste is not read through {@link applyAmountEdit}. That sees only the text before and after,
+ * and takes a comma the two share for the field's own grouping. With 1,000 selected and 1,5
+ * pasted over it, it would drop the pasted comma and leave 15.
+ */
+export function applyAmountPaste(
+	shown: string,
+	start: number,
+	end: number,
+	pasted: string,
+): { value: string; caret: number } {
+	const head = shown.slice(0, start).replaceAll(",", "")
+	const rest = shown.slice(end).replaceAll(",", "")
+	const refused = { value: shown.replaceAll(",", ""), caret: head.length }
+	const inserted = readInserted(pasted)
+	if (inserted === null) return refused
+	const value = head + inserted + rest
+	if (!/^\d*\.?\d*$/.test(value)) return refused
+
+	const trimmed = value.replace(/^0+(?=\d)/, "")
+	const position = head.length + inserted.length
+	return { value: trimmed, caret: Math.max(0, position - (value.length - trimmed.length)) }
+}
+
 function caretAfterSignificant(value: string, target: number): number {
 	if (target <= 0) return 0
 	let seen = 0
@@ -128,13 +155,24 @@ export function AmountInput(props: {
 		input.setSelectionRange(caret, caret)
 	}, [display, edits])
 
-	const handleChange = (event: ChangeEvent<HTMLInputElement>) => {
-		const { selectionStart, value: typed } = event.target
-		const inputType = (event.nativeEvent as Partial<InputEvent>).inputType
-		const edit = applyAmountEdit(display, typed, selectionStart ?? typed.length, inputType)
+	const commit = (edit: { value: string; caret: number }) => {
 		pendingCaret.current = edit.caret
 		countEdit()
 		if (edit.value !== props.value) props.onValueChange(edit.value)
+	}
+
+	const handleChange = (event: ChangeEvent<HTMLInputElement>) => {
+		const { selectionStart, value: typed } = event.target
+		const inputType = (event.nativeEvent as Partial<InputEvent>).inputType
+		commit(applyAmountEdit(display, typed, selectionStart ?? typed.length, inputType))
+	}
+
+	/** A paste names its own text and the range it replaces, so neither has to be worked out. */
+	const handlePaste = (event: ClipboardEvent<HTMLInputElement>) => {
+		const input = event.currentTarget
+		event.preventDefault()
+		const start = input.selectionStart ?? display.length
+		commit(applyAmountPaste(display, start, input.selectionEnd ?? start, event.clipboardData.getData("text")))
 	}
 
 	return (
@@ -148,6 +186,7 @@ export function AmountInput(props: {
 			value={display}
 			aria-invalid={props.invalid || undefined}
 			onChange={handleChange}
+			onPaste={handlePaste}
 		/>
 	)
 }

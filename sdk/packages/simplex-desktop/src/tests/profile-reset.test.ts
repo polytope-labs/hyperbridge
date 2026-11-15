@@ -11,7 +11,7 @@ import {
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { completePendingProfileReset, requestProfileReset } from "../profile-reset"
+import { assertProfileCanBeReset, completePendingProfileReset, requestProfileReset } from "../profile-reset"
 
 /** Stands in for the home directory, so no test touches the real one. */
 const home = vi.hoisted(() => ({ path: "" }))
@@ -133,6 +133,13 @@ describe("profile reset", () => {
 		writeFileSync(join(home.path, "documents.txt"), "not Simplex's")
 		expect(completePendingProfileReset(home.path)).toBe(false)
 		expect(readdirSync(home.path).sort()).toEqual(["documents.txt", "reset-pending"])
+	})
+
+	it("says whether a reset would be refused without writing anything", () => {
+		expect(() => assertProfileCanBeReset(profile)).not.toThrow()
+		expect(() => assertProfileCanBeReset(home.path)).toThrow(/holds more than Simplex's files/)
+		expect(existsSync(join(profile, "reset-pending"))).toBe(false)
+		expect(existsSync(join(home.path, "reset-pending"))).toBe(false)
 	})
 
 	it("refuses a profile that is a link, and one that reaches the home directory through a link", () => {

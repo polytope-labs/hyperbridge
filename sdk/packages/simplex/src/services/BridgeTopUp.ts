@@ -852,8 +852,25 @@ export class BridgeTopUp {
 		},
 	): Promise<{ txHash?: HexString; scannedTo: bigint }> {
 		// The head and the logs up to it must come from one node. Read from two, a head from the
-		// one that is ahead makes the other's logs look complete for blocks it has not seen.
-		const client = this.deps.clientManager.getOrderedPublicClient(chain)
+		// one that is ahead makes the other's logs look complete for blocks it has not seen. So
+		// the whole scan runs on one endpoint, and on the next only when that one cannot do it.
+		let failure: unknown = new Error(`No RPC endpoint is configured for ${chain}`)
+		for (const client of this.deps.clientManager.getEndpointClients(chain)) {
+			try {
+				return await this.scanGatewayEventOn(client, chain, scan)
+			} catch (err) {
+				failure = err
+			}
+		}
+		throw failure
+	}
+
+	/** {@link scanGatewayEvent} on one endpoint: its head, and its logs up to that head. */
+	private async scanGatewayEventOn(
+		client: PublicClient,
+		chain: string,
+		scan: Parameters<BridgeTopUp["scanGatewayEvent"]>[1],
+	): Promise<{ txHash?: HexString; scannedTo: bigint }> {
 		const margin = await this.evidenceMargin(chain, client)
 		const first = belowTip(scan.submittedFrom, margin)
 		const cursor = scan.savedCursor ?? first

@@ -148,7 +148,7 @@ export function Operator(props: { status: StatusOperator; refresh: () => void })
 	const stopFiller = () => {
 		if (
 			!window.confirm(
-				"Stop the filler? In-flight fills drain, vault positions may unwind, and the process exits.",
+				"Stop the solver? In-flight fills drain, vault positions may unwind, and the process exits.",
 			)
 		) {
 			return

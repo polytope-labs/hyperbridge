@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { applyAmountEdit, groupThousands, trimAmount } from "./AmountInput"
+import { applyAmountEdit, applyAmountPaste, groupThousands, trimAmount } from "./AmountInput"
 
 /** Types or pastes `text` at the end of a field showing `shown`. */
 const append = (shown: string, text: string) => applyAmountEdit(shown, shown + text, shown.length + text.length).value
@@ -34,6 +34,19 @@ describe("amount edits", () => {
 		const typed = ["1", ",", "0", "0", "0"].reduce((shown, key) => groupThousands(append(shown, key)), "")
 		expect(typed).toBe("1.000")
 		expect(trimAmount(typed)).toBe("1")
+	})
+
+	it("reads a paste over a selection by the pasted text, not by what it shares with the old amount", () => {
+		// Everything selected. Read as an edit, the shared "1," would hide the pasted comma and leave 15.
+		expect(applyAmountPaste("1,000", 0, 5, "1,5")).toEqual({ value: "1.5", caret: 3 })
+		expect(applyAmountPaste("12,000", 0, 6, "12,5")).toEqual({ value: "12.5", caret: 4 })
+		expect(applyAmountPaste("1,234", 0, 5, "1,2")).toEqual({ value: "1.2", caret: 3 })
+		// Into an empty field, and into the middle of an amount.
+		expect(applyAmountPaste("", 0, 0, "1,000.50")).toEqual({ value: "1000.50", caret: 7 })
+		expect(applyAmountPaste("1,234", 1, 5, "9")).toEqual({ value: "19", caret: 2 })
+		// Text that is not a number, or that leaves two points, changes nothing.
+		expect(applyAmountPaste("1.5", 0, 0, "abc")).toEqual({ value: "1.5", caret: 0 })
+		expect(applyAmountPaste("1.5", 3, 3, "0,5")).toEqual({ value: "1.5", caret: 3 })
 	})
 
 	it("drops the zeros and the point that change nothing", () => {

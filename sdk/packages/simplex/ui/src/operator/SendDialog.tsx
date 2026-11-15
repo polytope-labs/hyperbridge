@@ -206,9 +206,11 @@ export function SendDialog(props: {
 	const send = (summary: SendSummary) => {
 		const chainId = parseChainKey(summary.chain)
 		const explorerUrl = chainId === null ? undefined : chainByChainId(chainId)?.explorerUrl
-		setResult(undefined)
-		setSending(true)
 		return act(async () => {
+			// Set in here, not before: an action that is skipped must not leave the dialog "sending",
+			// since a dialog that is sending cannot be closed.
+			setResult(undefined)
+			setSending(true)
 			try {
 				const res = await api.post<SendResult>("/api/send", {
 					chain: summary.chain,
@@ -230,7 +232,8 @@ export function SendDialog(props: {
 				setReview(undefined)
 				setSending(false)
 			}
-			await props.onSent()
+			// Not awaited: the send is over, and a slow balance refresh must not hold the next one back.
+			void Promise.resolve(props.onSent()).catch(() => {})
 		})
 	}
 

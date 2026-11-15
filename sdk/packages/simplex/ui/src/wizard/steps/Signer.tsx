@@ -41,7 +41,11 @@ const SIGNER_NOTES: Record<SignerType, string> = {
 	turnkey: "Turnkey signs for you, so no wallet key is kept here.",
 }
 
-const STORED_IN_CONFIG = "Your config file keeps it in plain text, and only your user account can read that file."
+/** Where what the operator enters is kept. The desktop app encrypts its config file; the CLI and Docker do not. */
+const storedInConfig = (encrypted: boolean) =>
+	encrypted
+		? "Your config file keeps it encrypted, under your Simplex sign-in."
+		: "Your config file keeps it in plain text, and only your user account can read that file."
 
 interface CredentialField<Key> {
 	key: Key
@@ -68,7 +72,7 @@ const TURNKEY_FIELDS: ReadonlyArray<CredentialField<keyof WizardState["turnkey"]
 
 const SECRET_PHRASE_UNCHECKED_ERROR = "Could not check the secret phrase. Try again."
 
-export function StepSigner({ state, setState }: StepProps) {
+export function StepSigner({ state, setState, defaults }: StepProps) {
 	const validationRequest = useRef(0)
 	const [accountIndexOpen] = useState(() => state.signerAccountIndex.trim() !== "")
 	const [copyError, setCopyError] = useState<string>()
@@ -191,6 +195,11 @@ export function StepSigner({ state, setState }: StepProps) {
 
 	const validation = state.signerKeyValidation ?? "empty"
 	const rejected = validation === "invalid" || validation === "error"
+	const storedNote = storedInConfig(defaults.configEncrypted === true)
+	const emptyReason =
+		state.signerType === "secretPhrase"
+			? secretPhraseFormatError(state.signerPhrase)
+			: privateKeyFormatError(state.signerKey)
 
 	const fillerAddress = state.signerAddress && (
 		<aside className="filler-address-callout" aria-labelledby="filler-address-title">
@@ -216,6 +225,8 @@ export function StepSigner({ state, setState }: StepProps) {
 	// One live region for every outcome, so each is announced: checking, the reason, or the address.
 	const status = (
 		<div id={SIGNER_STATUS_ID} className="signer-status" role="status" aria-live="polite">
+			{/* An empty field shows no prompt. Continue is still described by this line, so it has a reason. */}
+			{validation === "empty" && <span className="sr-only">{emptyReason}</span>}
 			{validation === "checking" && (
 				<p className="signer-key-validation signer-key-validation-checking">
 					<span className="signer-key-validation-icon" aria-hidden="true">
@@ -262,7 +273,7 @@ export function StepSigner({ state, setState }: StepProps) {
 							ariaInvalid={rejected}
 							onChange={updateSignerKey}
 						/>
-						{!rejected && <p className="credential-note">{STORED_IN_CONFIG}</p>}
+						{!rejected && <p className="credential-note">{storedNote}</p>}
 						{status}
 					</div>
 				)}
@@ -284,7 +295,7 @@ export function StepSigner({ state, setState }: StepProps) {
 							/>
 						</label>
 						{!rejected && (
-							<p className="credential-note">12 to 24 words, separated by spaces. {STORED_IN_CONFIG}</p>
+							<p className="credential-note">12 to 24 words, separated by spaces. {storedNote}</p>
 						)}
 						<details className="credential-note" open={accountIndexOpen}>
 							<summary style={{ cursor: "pointer" }}>Advanced: account index</summary>

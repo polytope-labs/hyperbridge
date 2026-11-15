@@ -170,7 +170,7 @@ solver wallet can be reached only with a backup of its key.
 The databases hold the bid records. A bid's deposit on Hyperbridge is reclaimed by retracting the
 bid, and the solver retracts from those records. The confirmation says how many bids still hold a
 deposit, or that it could not check because the solver is not running. After you confirm, Simplex
-pauses the solver and counts again, and asks once more if the count rose. Reset once that count is
+pauses the solver and counts again, and asks once more if the count rose or can no longer be read. Reset once that count is
 zero and no BRIDGE top-up is in progress, unless those deposits are to be given up.
 
 The reset removes only the user-data directory, and the confirmation names it. It refuses to run

@@ -76,6 +76,7 @@ export function StepChains({ state, setState }: StepProps) {
 					<Collapsible.Root
 						className="card chain-configuration"
 						data-enabled={chain.enabled}
+						data-locked={canToggle ? undefined : true}
 						key={chain.meta.chainId}
 						open={panels.isOpen(chain.meta.chainId)}
 						onOpenChange={(open) => panels.setOpen(chain.meta.chainId, open)}

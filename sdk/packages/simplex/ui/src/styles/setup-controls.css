@@ -501,6 +501,22 @@ button.chain-check-again:hover:not(:disabled) {
 	padding-bottom: 1.5rem;
 }
 
+/* A chain whose fills cannot be turned on yet reads as off. Its status line says what it needs and
+   its chevron still opens the endpoints, so both stay as they are. */
+.chains-step .chain-configuration[data-locked] .chain-logo {
+	filter: grayscale(1);
+	opacity: 0.4;
+}
+
+.chains-step .chain-configuration[data-locked] .chain-identity h2 {
+	color: var(--muted);
+}
+
+.chains-step .chain-configuration[data-locked] .chain-enable-toggle {
+	opacity: 0.45;
+	cursor: not-allowed;
+}
+
 /* A long status line must wrap instead of squeezing the switch and the chevron. */
 .chains-step .chain-header-controls {
 	flex-shrink: 0;

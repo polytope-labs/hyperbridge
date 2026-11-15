@@ -389,7 +389,7 @@ export function Logs() {
 					options={LEVEL_OPTIONS}
 					value={applying ?? level}
 					onChange={chooseLevel}
-					ariaLabel="Filler log level"
+					ariaLabel="Solver log level"
 				/>
 				<div className="log-search">
 					<input
@@ -424,7 +424,7 @@ export function Logs() {
 				onScroll={onScroll}
 				tabIndex={0}
 				role="log"
-				aria-label="Filler logs"
+				aria-label="Solver logs"
 			>
 				{records.length === 0 ? (
 					<p className="operator-empty">
@@ -432,7 +432,7 @@ export function Logs() {
 							? error
 							: term
 								? `Nothing matching “${term}” in the ${level} and above records kept since launch.`
-								: "No log lines yet. New ones appear as the filler works."}
+								: "No log lines yet. New ones appear as the solver works."}
 					</p>
 				) : (
 					<ul>
@@ -448,7 +448,7 @@ export function Logs() {
 					{records.length} line{records.length === 1 ? "" : "s"} shown
 					{coverage ? ` · ${captured.toLocaleString()} captured since launch` : ""}
 					{" · "}
-					<span className="log-capture" title="Saved to the filler's config, so it survives a restart">
+					<span className="log-capture" title="Saved to the solver's config, so it survives a restart">
 						recording <strong>{level}</strong> and above
 					</span>
 				</span>

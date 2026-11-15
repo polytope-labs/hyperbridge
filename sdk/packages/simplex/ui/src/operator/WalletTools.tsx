@@ -107,10 +107,10 @@ export function WalletTools(props: {
 						// process sweeps into or sources from them until it restarts.
 						setVaultNotice({
 							tone: "warn",
-							text: "Saved to config — restart the filler to activate the vault treasury",
+							text: "Saved to config — restart the solver to activate the vault treasury",
 						})
 						toast.warning("Vault settings saved", {
-							description: "Restart the filler to activate the vault treasury.",
+							description: "Restart the solver to activate the vault treasury.",
 						})
 					} else {
 						toast.success("Vault settings saved")
@@ -137,7 +137,7 @@ export function WalletTools(props: {
 			<div className="operator-tool-list">
 				<OperationLink
 					title="Send funds"
-					description="Transfer native gas tokens or ERC-20 assets from the filler wallet."
+					description="Transfer native gas tokens or ERC-20 assets from the solver wallet."
 					meta={`${props.chains.length} ${props.chains.length === 1 ? "network" : "networks"}`}
 					onClick={() => setPanel("send")}
 				/>
@@ -169,7 +169,7 @@ export function WalletTools(props: {
 				<div className="operator-panel-form vault-panel">
 					{config && !config.vaultConfigured && (
 						<p className="hint">
-							The filler started without a vault treasury. Vaults saved here are written to the config and
+							The solver started without a vault treasury. Vaults saved here are written to the config and
 							activate after a restart.
 						</p>
 					)}

@@ -55,13 +55,13 @@ export function StepChains({ state, setState }: StepProps) {
 				</div>
 			) : null}
 
-			<section className="card chain-funding-intro" aria-label="Fund the filler wallet">
+			<section className="card chain-funding-intro" aria-label="Fund the solver wallet">
 				<StepPoints label="How funding a chain works" points={FUNDING_POINTS} />
 				{wallet ? (
 					<>
-						<h2>Your filler wallet</h2>
+						<h2>Your solver wallet</h2>
 						<div className="review-account-value">
-							<CopyHash value={wallet} chars={42} copyLabel="Copy filler wallet address" />
+							<CopyHash value={wallet} chars={42} copyLabel="Copy solver wallet address" />
 						</div>
 					</>
 				) : null}
@@ -120,7 +120,7 @@ export function StepChains({ state, setState }: StepProps) {
 										{index === 1 && (
 											<small>
 												Reads are agreed across every endpoint listed, so a wrong or unavailable
-												answer from any one of them cannot mislead the filler.
+												answer from any one of them cannot mislead the solver.
 											</small>
 										)}
 										<div className="row">

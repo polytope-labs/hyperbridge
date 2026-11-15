@@ -112,7 +112,7 @@ export function RemoteAccess() {
 	)
 
 	if (unavailable) {
-		return <p className="operator-empty">Remote access is not available for this filler.</p>
+		return <p className="operator-empty">Remote access is not available for this solver.</p>
 	}
 	if (!status) return <p className="operator-empty">Loading…</p>
 

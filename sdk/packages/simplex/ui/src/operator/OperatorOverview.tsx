@@ -75,7 +75,7 @@ export function OperatorOverview(props: {
 							</p>
 						</div>
 						{status.addresses ? (
-							<CopyHash value={status.addresses.evm} copyLabel="Copy filler wallet address" />
+							<CopyHash value={status.addresses.evm} copyLabel="Copy solver wallet address" />
 						) : null}
 					</div>
 				)
@@ -142,7 +142,7 @@ export function OperatorOverview(props: {
 						disabled={runtime.pending}
 						title="Drain in-flight fills, unwind eligible vault positions, and exit the process"
 					>
-						Stop filler
+						Stop solver
 					</button>
 				</div>
 			</section>

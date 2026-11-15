@@ -186,7 +186,7 @@ export function StepSigner({ state, setState }: StepProps) {
 				setAddressCopied(true)
 				window.setTimeout(() => setAddressCopied(false), 1600)
 			})
-			.catch(() => setCopyError("Could not copy the filler wallet address. Select it and copy it manually."))
+			.catch(() => setCopyError("Could not copy the solver wallet address. Select it and copy it manually."))
 	}
 
 	const validation = state.signerKeyValidation ?? "empty"
@@ -199,7 +199,7 @@ export function StepSigner({ state, setState }: StepProps) {
 					<CheckIcon />
 				</span>
 				<div>
-					<strong id="filler-address-title">This is your filler wallet</strong>
+					<strong id="filler-address-title">This is your solver wallet</strong>
 					<p>Check it is the address you expect. You fund it in the next step.</p>
 				</div>
 			</div>
@@ -247,7 +247,7 @@ export function StepSigner({ state, setState }: StepProps) {
 					value={state.signerType}
 					onChange={changeSignerType}
 					className="signer-tabs"
-					ariaLabel="Filler wallet signing method"
+					ariaLabel="Solver wallet signing method"
 				/>
 				<p className="signer-method-note">{SIGNER_NOTES[state.signerType]}</p>
 
@@ -300,7 +300,7 @@ export function StepSigner({ state, setState }: StepProps) {
 									onChange={(e) => updateSecretPhrase(state.signerPhrase, e.target.value)}
 								/>
 							</label>
-							<p>The filler wallet is the account at m/44'/60'/0'/0/index under the phrase.</p>
+							<p>The solver wallet is the account at m/44'/60'/0'/0/index under the phrase.</p>
 						</details>
 						{status}
 					</div>

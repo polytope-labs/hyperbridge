@@ -99,10 +99,10 @@ export function LaunchProgress() {
 		<div className="card review-launching">
 			<div className="review-launching-heading">
 				<span className="review-launching-spinner" aria-hidden="true" />
-				<h2>Starting the filler…</h2>
+				<h2>Starting the solver…</h2>
 				<span className="review-launching-clock">{clock}</span>
 			</div>
-			<div className="review-launching-bar" role="progressbar" aria-label="Starting the filler">
+			<div className="review-launching-bar" role="progressbar" aria-label="Starting the solver">
 				<span />
 			</div>
 			<p className="hint">

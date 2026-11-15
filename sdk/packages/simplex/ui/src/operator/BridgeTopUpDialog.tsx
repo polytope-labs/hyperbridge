@@ -196,7 +196,7 @@ export function BridgeTopUpDialog(props: {
 			open={open}
 			onClose={close}
 			title="Top up BRIDGE"
-			description="Buy BRIDGE with USDC or USDT from the filler wallet. It is delivered to your Hyperbridge account for bid fees."
+			description="Buy BRIDGE with USDC or USDT from the solver wallet. It is delivered to your Hyperbridge account for bid fees."
 		>
 			<div className="send-review bridge-top-up">
 				<>
@@ -333,7 +333,7 @@ export function BridgeTopUpDialog(props: {
 						{sourcesError && <p className="error">{sourcesError}</p>}
 						{sources?.length === 0 && (
 							<p className="hint">
-								Top-ups pay from the networks the filler fills on. Enable filling on a network to pay from it.
+								Top-ups pay from the networks the solver fills on. Enable filling on a network to pay from it.
 							</p>
 						)}
 						{quote && !quote.fillable && (

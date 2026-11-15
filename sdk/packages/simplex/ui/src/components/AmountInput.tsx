@@ -104,7 +104,8 @@ export function applyAmountPaste(
 	const head = shown.slice(0, start).replaceAll(",", "")
 	const rest = shown.slice(end).replaceAll(",", "")
 	const refused = { value: shown.replaceAll(",", ""), caret: head.length }
-	const inserted = readInserted(pasted)
+	// A clipboard with no text on it, such as an image, pastes nothing. It must not clear the selection.
+	const inserted = pasted === "" ? null : readInserted(pasted)
 	if (inserted === null) return refused
 	const value = head + inserted + rest
 	if (!/^\d*\.?\d*$/.test(value)) return refused

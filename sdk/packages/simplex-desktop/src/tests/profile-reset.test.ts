@@ -138,6 +138,7 @@ describe("profile reset", () => {
 	it("says whether a reset would be refused without writing anything", () => {
 		expect(() => assertProfileCanBeReset(profile)).not.toThrow()
 		expect(() => assertProfileCanBeReset(home.path)).toThrow(/holds more than Simplex's files/)
+		expect(() => assertProfileCanBeReset(join(profile, "never-created"))).not.toThrow()
 		expect(existsSync(join(profile, "reset-pending"))).toBe(false)
 		expect(existsSync(join(home.path, "reset-pending"))).toBe(false)
 	})

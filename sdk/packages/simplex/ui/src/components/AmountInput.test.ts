@@ -46,6 +46,8 @@ describe("amount edits", () => {
 		expect(applyAmountPaste("1,234", 1, 5, "9")).toEqual({ value: "19", caret: 2 })
 		// Text that is not a number, or that leaves two points, changes nothing.
 		expect(applyAmountPaste("1.5", 0, 0, "abc")).toEqual({ value: "1.5", caret: 0 })
+		// A clipboard with no text on it leaves a selected amount as it is.
+		expect(applyAmountPaste("1,000", 0, 5, "")).toEqual({ value: "1000", caret: 0 })
 		expect(applyAmountPaste("1.5", 3, 3, "0,5")).toEqual({ value: "1.5", caret: 3 })
 	})
 

@@ -233,7 +233,9 @@ export function SendDialog(props: {
 				setSending(false)
 			}
 			// Not awaited: the send is over, and a slow balance refresh must not hold the next one back.
-			void Promise.resolve(props.onSent()).catch(() => {})
+			void Promise.resolve()
+				.then(() => props.onSent())
+				.catch(() => {})
 		})
 	}
 

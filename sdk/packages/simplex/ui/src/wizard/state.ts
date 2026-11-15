@@ -17,12 +17,13 @@ export type SignerType = "privateKey" | "secretPhrase" | "mpcVault" | "turnkey"
 
 export type SignerKeyValidation = "empty" | "invalid" | "checking" | "valid" | "error"
 
-export const EVM_PRIVATE_KEY_FORMAT_ERROR = "Enter a valid 64-character hexadecimal EVM private key."
-export const EVM_PRIVATE_KEY_INVALID_ERROR = "Invalid EVM private key."
+export const EVM_PRIVATE_KEY_FORMAT_ERROR =
+	"That is not a private key. It should be 64 hex characters, with or without 0x."
+export const EVM_PRIVATE_KEY_INVALID_ERROR = "This private key is not valid."
 
 export function privateKeyFormatError(value: string): string | undefined {
 	const trimmed = value.trim()
-	if (!trimmed) return "Enter the EVM private key."
+	if (!trimmed) return "Enter a private key."
 	return /^(0x)?[0-9a-fA-F]{64}$/.test(trimmed) ? undefined : EVM_PRIVATE_KEY_FORMAT_ERROR
 }
 

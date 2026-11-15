@@ -12,7 +12,7 @@ import {
 	tradeableBooks,
 	type WizardState,
 } from "./state"
-import { StepSigner } from "./steps/Signer"
+import { SIGNER_STATUS_ID, StepSigner } from "./steps/Signer"
 import { StepChains } from "./steps/Chains"
 import { LaunchProgress, useLaunch } from "./launch"
 import hyperfxLogo from "../assets/hyperfx-logo.webp"
@@ -29,8 +29,8 @@ export function signerRequirements(state: WizardState): string[] {
 		const formatError = privateKeyFormatError(state.signerKey)
 		if (formatError) return [formatError]
 		if (state.signerKeyValidation === "valid" && state.signerAddress) return []
-		if (state.signerKeyValidation === "checking") return ["Checking the EVM private key…"]
-		return [state.signerKeyValidationMessage ?? "Verify the EVM private key before continuing."]
+		if (state.signerKeyValidation === "checking") return ["Checking the private key…"]
+		return [state.signerKeyValidationMessage ?? "Check the private key before continuing."]
 	}
 	if (state.signerType === "secretPhrase") {
 		const formatError =
@@ -38,26 +38,24 @@ export function signerRequirements(state: WizardState): string[] {
 		if (formatError) return [formatError]
 		if (state.signerKeyValidation === "valid" && state.signerAddress) return []
 		if (state.signerKeyValidation === "checking") return ["Checking the secret phrase…"]
-		return [state.signerKeyValidationMessage ?? "Verify the secret phrase before continuing."]
+		return [state.signerKeyValidationMessage ?? "Check the secret phrase before continuing."]
 	}
 	if (state.signerType === "mpcVault") {
 		const fields = [
 			["API token", state.mpcVault.apiToken],
-			["Vault UUID", state.mpcVault.vaultUuid],
-			["Wallet address", state.mpcVault.accountAddress],
-			["Callback client-signer public key", state.mpcVault.callbackClientSignerPublicKey],
+			["vault UUID", state.mpcVault.vaultUuid],
+			["wallet address", state.mpcVault.accountAddress],
+			["callback client-signer public key", state.mpcVault.callbackClientSignerPublicKey],
 		] as const
-		return fields
-			.filter(([, value]) => !value.trim())
-			.map(([label]) => `Enter the MPCVault ${label.toLowerCase()}.`)
+		return fields.filter(([, value]) => !value.trim()).map(([label]) => `Enter the MPCVault ${label}.`)
 	}
 	const fields = [
-		["Organization ID", state.turnkey.organizationId],
+		["organization ID", state.turnkey.organizationId],
 		["API public key", state.turnkey.apiPublicKey],
 		["API private key", state.turnkey.apiPrivateKey],
-		["Wallet address", state.turnkey.signWith],
+		["wallet address", state.turnkey.signWith],
 	] as const
-	return fields.filter(([, value]) => !value.trim()).map(([label]) => `Enter the Turnkey ${label.toLowerCase()}.`)
+	return fields.filter(([, value]) => !value.trim()).map(([label]) => `Enter the Turnkey ${label}.`)
 }
 
 function chainRequirements(state: WizardState, defaults: SetupDefaults): string[] {
@@ -104,18 +102,22 @@ const STEPS: Array<{
 	description: string
 	component: React.ComponentType<StepProps>
 	requirements: (s: WizardState, defaults: SetupDefaults) => string[]
+	/** The step's own status line, while it says beside the field what is still needed. The footer then stays quiet. */
+	statusId?: (s: WizardState) => string | undefined
 }> = [
 	{
 		id: "signer",
-		title: "Signer",
-		description: "Choose the wallet infrastructure that will identify Simplex and authorize every fill.",
+		title: "Wallet",
+		description: "Simplex fills orders with your funds, so it needs a wallet to work from.",
 		component: StepSigner,
 		requirements: signerRequirements,
+		statusId: (s) =>
+			s.signerType === "privateKey" || s.signerType === "secretPhrase" ? SIGNER_STATUS_ID : undefined,
 	},
 	{
 		id: "chains",
 		title: "Chains",
-		description: "Simplex watches every chain. Fund the wallet and enable fills where you will fill.",
+		description: "Simplex watches every chain for orders. It fills on the ones you fund.",
 		component: StepChains,
 		requirements: launchRequirements,
 	},
@@ -136,7 +138,10 @@ export function Wizard(props: { defaults: SetupDefaults }) {
 	const lastStep = stepIndex === STEPS.length - 1
 	const requirements = step.requirements(state, props.defaults)
 	const canNext = requirements.length === 0
+	const statusId = step.statusId?.(state)
+	const listed = statusId ? [] : requirements
 	const requirementsId = `wizard-${step.id}-requirements`
+	const blockedById = statusId ?? requirementsId
 	const progress = ((stepIndex + 1) / STEPS.length) * 100
 
 	return (
@@ -249,7 +254,7 @@ export function Wizard(props: { defaults: SetupDefaults }) {
 							) : (
 								<span aria-hidden="true" />
 							)}
-							{requirements.length > 0 ? (
+							{listed.length > 0 ? (
 								<div
 									className="wizard-requirements"
 									id={requirementsId}
@@ -262,7 +267,7 @@ export function Wizard(props: { defaults: SetupDefaults }) {
 									<div>
 										<strong>{lastStep ? "Required to start" : "Required to continue"}</strong>
 										<ul>
-											{requirements.map((requirement) => (
+											{listed.map((requirement) => (
 												<li key={requirement}>{requirement}</li>
 											))}
 										</ul>
@@ -274,7 +279,7 @@ export function Wizard(props: { defaults: SetupDefaults }) {
 									type="button"
 									className="primary"
 									disabled={!canNext || launch.phase === "saving"}
-									aria-describedby={!canNext ? requirementsId : undefined}
+									aria-describedby={!canNext ? blockedById : undefined}
 									onClick={launch.start}
 								>
 									{launch.phase === "saving"
@@ -289,7 +294,7 @@ export function Wizard(props: { defaults: SetupDefaults }) {
 									type="button"
 									className="primary"
 									disabled={!canNext}
-									aria-describedby={!canNext ? requirementsId : undefined}
+									aria-describedby={!canNext ? blockedById : undefined}
 									onClick={() => setStepIndex((i) => i + 1)}
 								>
 									Continue <span aria-hidden="true">→</span>

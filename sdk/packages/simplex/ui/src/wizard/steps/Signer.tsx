@@ -1,7 +1,7 @@
 import { useRef, useState } from "react"
 import { ApiError, api } from "../../api"
 import { Field } from "../../components/Field"
-import { CheckIcon, CloseIcon, CopyIcon } from "../../components/InterfaceIcons"
+import { CheckIcon, CloseIcon, CopyIcon, LockIcon, PenIcon, WalletIcon } from "../../components/InterfaceIcons"
 import { PillTabs } from "../../components/PillTabs"
 import {
 	accountIndexFormatError,
@@ -14,6 +14,7 @@ import {
 	switchSignerType,
 	type WizardState,
 } from "../state"
+import { StepPoints, type StepPoint } from "../StepPoints"
 import type { StepProps } from "../Wizard"
 
 const SIGNER_TABS = [
@@ -23,54 +24,47 @@ const SIGNER_TABS = [
 	{ value: "turnkey", label: "Turnkey" },
 ] as const
 
-const SIGNER_DESCRIPTIONS: Record<SignerType, { title: string; description: string }> = {
-	privateKey: {
-		title: "Direct wallet control",
-		description:
-			"Use a dedicated EVM wallet. The key is stored in the local config file in plain text, readable only by your user account.",
-	},
-	secretPhrase: {
-		title: "Wallet derived from a secret phrase",
-		description:
-			"Use a dedicated BIP-39 secret phrase. The phrase is stored in the local config file in plain text, readable only by your user account.",
-	},
-	mpcVault: {
-		title: "Institutional MPC custody",
-		description:
-			"Connect your MPCVault account and registered client signer to authorize fills without exposing a private key.",
-	},
-	turnkey: {
-		title: "Hosted key management",
-		description: "Connect an API keypair created in your Turnkey dashboard and select the wallet that signs fills.",
-	},
-}
+/** The step's own status line. The footer leaves the reason to it while a key or phrase is asked for. */
+export const SIGNER_STATUS_ID = "signer-status"
 
-const MPC_FIELDS: ReadonlyArray<{ key: keyof WizardState["mpcVault"]; label: string; type?: "password" }> = [
-	{ key: "apiToken", label: "API token", type: "password" },
-	{ key: "vaultUuid", label: "Vault UUID" },
-	{ key: "accountAddress", label: "Wallet address in the vault (0x…)" },
-	{ key: "callbackClientSignerPublicKey", label: "Callback client-signer public key (ssh-ed25519 …)" },
-	{ key: "grpcTarget", label: "gRPC target (optional, defaults to api.mpcvault.com:443)" },
+/** Why the wizard asks for a wallet, said once above the form. */
+const WALLET_USES: ReadonlyArray<StepPoint> = [
+	{ icon: WalletIcon, title: "Holds your funds", detail: "Simplex fills orders from this wallet's balance." },
+	{ icon: PenIcon, title: "Signs each fill", detail: "Every bid and fill is signed with it." },
+	{ icon: LockIcon, title: "Stays on this machine", detail: "What you enter is saved here and nowhere else." },
 ]
 
-const TURNKEY_FIELDS: ReadonlyArray<{ key: keyof WizardState["turnkey"]; label: string; type?: "password" }> = [
+const SIGNER_NOTES: Record<SignerType, string> = {
+	privateKey: "Use a wallet made for this solver, not your main one.",
+	secretPhrase: "Use a phrase made for this solver, not your main one.",
+	mpcVault: "MPCVault signs for you, so no wallet key is kept here.",
+	turnkey: "Turnkey signs for you, so no wallet key is kept here.",
+}
+
+const STORED_IN_CONFIG = "Your config file keeps it in plain text, and only your user account can read that file."
+
+interface CredentialField<Key> {
+	key: Key
+	label: string
+	type?: "password"
+	placeholder?: string
+	optional?: boolean
+}
+
+const MPC_FIELDS: ReadonlyArray<CredentialField<keyof WizardState["mpcVault"]>> = [
+	{ key: "apiToken", label: "API token", type: "password" },
+	{ key: "vaultUuid", label: "Vault UUID" },
+	{ key: "accountAddress", label: "Wallet address in the vault", placeholder: "0x…" },
+	{ key: "callbackClientSignerPublicKey", label: "Callback client-signer public key", placeholder: "ssh-ed25519 …" },
+	{ key: "grpcTarget", label: "gRPC target (optional)", placeholder: "api.mpcvault.com:443", optional: true },
+]
+
+const TURNKEY_FIELDS: ReadonlyArray<CredentialField<keyof WizardState["turnkey"]>> = [
 	{ key: "organizationId", label: "Organization ID" },
 	{ key: "apiPublicKey", label: "API public key" },
 	{ key: "apiPrivateKey", label: "API private key", type: "password" },
-	{ key: "signWith", label: "Wallet address to sign with (0x…)" },
+	{ key: "signWith", label: "Wallet address to sign with", placeholder: "0x…" },
 ]
-
-const PRIVATE_KEY_VALIDATION = {
-	checking: "Checking the EVM private key…",
-	valid: "EVM private key is valid.",
-	empty: "Enter the EVM private key.",
-}
-
-const SECRET_PHRASE_VALIDATION = {
-	checking: "Checking the secret phrase…",
-	valid: "Secret phrase is valid.",
-	empty: "Enter the secret phrase.",
-}
 
 const SECRET_PHRASE_UNCHECKED_ERROR = "Could not check the secret phrase. Try again."
 
@@ -79,7 +73,6 @@ export function StepSigner({ state, setState }: StepProps) {
 	const [accountIndexOpen] = useState(() => state.signerAccountIndex.trim() !== "")
 	const [copyError, setCopyError] = useState<string>()
 	const [addressCopied, setAddressCopied] = useState(false)
-	const signerDescription = SIGNER_DESCRIPTIONS[state.signerType]
 
 	const updateSignerKey = (signerKey: string) => {
 		const requestId = ++validationRequest.current
@@ -197,31 +190,7 @@ export function StepSigner({ state, setState }: StepProps) {
 	}
 
 	const validation = state.signerKeyValidation ?? "empty"
-	const validationCopy = state.signerType === "secretPhrase" ? SECRET_PHRASE_VALIDATION : PRIVATE_KEY_VALIDATION
-	const validationMessage =
-		state.signerKeyValidationMessage ??
-		(validation === "checking"
-			? validationCopy.checking
-			: validation === "valid"
-				? validationCopy.valid
-				: validationCopy.empty)
-
-	const validationStatus = (
-		<div className={`signer-key-validation signer-key-validation-${validation}`} role="status" aria-live="polite">
-			<span className="signer-key-validation-icon" aria-hidden="true">
-				{validation === "valid" ? (
-					<CheckIcon />
-				) : validation === "checking" ? (
-					<span className="signer-key-validation-spinner" />
-				) : validation === "empty" ? (
-					<span className="signer-key-validation-dot" />
-				) : (
-					<CloseIcon />
-				)}
-			</span>
-			<span>{validationMessage}</span>
-		</div>
-	)
+	const rejected = validation === "invalid" || validation === "error"
 
 	const fillerAddress = state.signerAddress && (
 		<aside className="filler-address-callout" aria-labelledby="filler-address-title">
@@ -230,8 +199,8 @@ export function StepSigner({ state, setState }: StepProps) {
 					<CheckIcon />
 				</span>
 				<div>
-					<strong id="filler-address-title">Filler wallet address</strong>
-					<p>Confirm this is the wallet you intend to fund.</p>
+					<strong id="filler-address-title">This is your filler wallet</strong>
+					<p>Check it is the address you expect. You fund it in the next step.</p>
 				</div>
 			</div>
 			<div className="filler-address-value">
@@ -244,16 +213,35 @@ export function StepSigner({ state, setState }: StepProps) {
 		</aside>
 	)
 
+	// One live region for every outcome, so each is announced: checking, the reason, or the address.
+	const status = (
+		<div id={SIGNER_STATUS_ID} className="signer-status" role="status" aria-live="polite">
+			{validation === "checking" && (
+				<p className="signer-key-validation signer-key-validation-checking">
+					<span className="signer-key-validation-icon" aria-hidden="true">
+						<span className="signer-key-validation-spinner" />
+					</span>
+					Checking…
+				</p>
+			)}
+			{rejected && (
+				<p className="signer-key-validation signer-key-validation-invalid">
+					<span className="signer-key-validation-icon" aria-hidden="true">
+						<CloseIcon />
+					</span>
+					{state.signerKeyValidationMessage}
+				</p>
+			)}
+			{fillerAddress}
+		</div>
+	)
+
 	return (
 		<div className="wizard-sections signer-step">
 			<section className="card signer-card" aria-labelledby="signer-title">
-				<div className="card-heading">
-					<h2 id="signer-title">Filler wallet</h2>
-				</div>
-				<p className="hint">
-					This wallet signs fills and holds the funds used for orders. Its credentials stay private on this
-					machine.
-				</p>
+				<StepPoints label="What Simplex uses this wallet for" points={WALLET_USES} />
+
+				<h2 id="signer-title">How should Simplex sign?</h2>
 				<PillTabs
 					options={SIGNER_TABS}
 					value={state.signerType}
@@ -261,40 +249,28 @@ export function StepSigner({ state, setState }: StepProps) {
 					className="signer-tabs"
 					ariaLabel="Filler wallet signing method"
 				/>
-				<div className="signer-method-summary">
-					<div>
-						<strong>{signerDescription.title}</strong>
-						<p>{signerDescription.description}</p>
-					</div>
-				</div>
+				<p className="signer-method-note">{SIGNER_NOTES[state.signerType]}</p>
 
 				{state.signerType === "privateKey" && (
 					<div className="signer-credentials">
 						<Field
-							label="EVM private key (64 hex characters; 0x optional)"
+							label="Private key"
 							type="password"
 							required
 							value={state.signerKey}
 							placeholder="0x…"
-							ariaInvalid={validation === "invalid" || validation === "error"}
+							ariaInvalid={rejected}
 							onChange={updateSignerKey}
 						/>
-						{validationStatus}
-						<p className="credential-note">
-							Use a dedicated wallet and keep the generated config file protected. The key is checked by the local
-							Simplex server and never persisted by validation.
-						</p>
-						{fillerAddress}
+						{!rejected && <p className="credential-note">{STORED_IN_CONFIG}</p>}
+						{status}
 					</div>
 				)}
 
 				{state.signerType === "secretPhrase" && (
 					<div className="signer-credentials">
 						<label className="field">
-							<span className="field-label">
-								Secret phrase (12 to 24 words, separated by spaces)
-								<span className="field-required">Required</span>
-							</span>
+							<span className="field-label">Secret phrase</span>
 							<input
 								type="password"
 								value={state.signerPhrase}
@@ -303,15 +279,13 @@ export function StepSigner({ state, setState }: StepProps) {
 								autoCorrect="off"
 								autoCapitalize="off"
 								spellCheck={false}
-								aria-invalid={validation === "invalid" || validation === "error"}
+								aria-invalid={rejected}
 								onChange={(e) => updateSecretPhrase(e.target.value, state.signerAccountIndex)}
 							/>
 						</label>
-						{validationStatus}
-						<p className="credential-note">
-							Use a dedicated phrase and keep the generated config file protected. The phrase is checked by the
-							local Simplex server and never persisted by validation.
-						</p>
+						{!rejected && (
+							<p className="credential-note">12 to 24 words, separated by spaces. {STORED_IN_CONFIG}</p>
+						)}
 						<details className="credential-note" open={accountIndexOpen}>
 							<summary style={{ cursor: "pointer" }}>Advanced: account index</summary>
 							<label className="field">
@@ -328,7 +302,7 @@ export function StepSigner({ state, setState }: StepProps) {
 							</label>
 							<p>The filler wallet is the account at m/44'/60'/0'/0/index under the phrase.</p>
 						</details>
-						{fillerAddress}
+						{status}
 					</div>
 				)}
 
@@ -339,7 +313,8 @@ export function StepSigner({ state, setState }: StepProps) {
 								key={field.key}
 								label={field.label}
 								type={field.type}
-								required={field.key !== "grpcTarget"}
+								placeholder={field.placeholder}
+								required={!field.optional}
 								value={state.mpcVault[field.key]}
 								onChange={(value) =>
 									setState((s) => ({ ...s, mpcVault: { ...s.mpcVault, [field.key]: value } }))
@@ -356,6 +331,7 @@ export function StepSigner({ state, setState }: StepProps) {
 								key={field.key}
 								label={field.label}
 								type={field.type}
+								placeholder={field.placeholder}
 								required
 								value={state.turnkey[field.key]}
 								onChange={(value) =>

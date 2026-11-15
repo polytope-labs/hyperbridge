@@ -26,13 +26,13 @@ afterEach(() => {
 	vi.restoreAllMocks()
 })
 
-it("asks for a signer and chains, and nothing after them", async () => {
+it("asks for a wallet and chains, and nothing after them", async () => {
 	;(globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 	const element = document.createElement("div")
 	const root = createRoot(element)
 	await act(async () => root.render(<Wizard defaults={defaults} />))
 	const steps = [...element.querySelectorAll(".stepper .step strong")].map((step) => step.textContent)
-	expect(steps).toEqual(["Signer", "Chains"])
+	expect(steps).toEqual(["Wallet", "Chains"])
 	await act(async () => root.unmount())
 })
 

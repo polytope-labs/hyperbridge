@@ -6,15 +6,36 @@ import { api } from "../../api"
 import { ChainCollapseTrigger, useChainPanels } from "../../components/ChainPanel"
 import { ChainLogo } from "../../components/ChainLogo"
 import { CopyHash } from "../../components/CopyHash"
+import { DownloadIcon, LockIcon, ToggleIcon } from "../../components/InterfaceIcons"
 import { formatAmount } from "../../lib/format"
 import { usePolling } from "../../lib/hooks"
 import type { ChainFunding } from "../../types"
 import { loadOrderbook } from "../orderbook"
 import { patchChain, walletAddress, type ChainDraft, type WizardState } from "../state"
+import { StepPoints, type StepPoint } from "../StepPoints"
 import type { StepProps } from "../Wizard"
 
 /** How often balances are re-read, so a deposit unlocks its chain without a reload. */
 const FUNDING_POLL_MS = 15_000
+
+/** What funding a chain takes. A chain that also needs native for a one-time setup says so on its own row. */
+const FUNDING_POINTS: ReadonlyArray<StepPoint> = [
+	{
+		icon: DownloadIcon,
+		title: "Send USDC to your wallet",
+		detail: `At least ${MIN_FEE_TOKEN_BALANCE} on each chain you want to fill on. BNB Chain takes USDT.`,
+	},
+	{
+		icon: LockIcon,
+		title: `${MIN_FEE_TOKEN_BALANCE} is kept for gas`,
+		detail: "Simplex fills with what you hold above it.",
+	},
+	{
+		icon: ToggleIcon,
+		title: "Then turn fills on",
+		detail: "A chain's switch unlocks once its funds arrive.",
+	},
+]
 
 export function StepChains({ state, setState }: StepProps) {
 	const panels = useChainPanels()
@@ -34,24 +55,23 @@ export function StepChains({ state, setState }: StepProps) {
 				</div>
 			) : null}
 
-			<section className="card chain-funding-intro">
-				<h2>Fund the filler wallet</h2>
-				<p className="hint">
-					Enable fills on the chains you will fill on. Each needs at least {MIN_FEE_TOKEN_BALANCE} of the
-					gateway fee token there: USDC, or USDT on BNB Chain. Those {MIN_FEE_TOKEN_BALANCE} are kept for the
-					paymaster's gas, so fills, sends and top-ups spend only what you hold above them. BNB Chain also
-					needs a little BNB once, for a one-time approval.
-				</p>
+			<section className="card chain-funding-intro" aria-label="Fund the filler wallet">
+				<StepPoints label="How funding a chain works" points={FUNDING_POINTS} />
 				{wallet ? (
-					<div className="review-account-value">
-						<CopyHash value={wallet} chars={42} copyLabel="Copy filler wallet address" />
-					</div>
+					<>
+						<h2>Your filler wallet</h2>
+						<div className="review-account-value">
+							<CopyHash value={wallet} chars={42} copyLabel="Copy filler wallet address" />
+						</div>
+					</>
 				) : null}
 			</section>
 
 			{state.chains.map((chain) => {
 				// Turning fills off is always allowed; turning them on waits for the funds.
 				const canToggle = chain.enabled || chain.funding?.funded === true
+				// A chain that fills and has run short is a problem. One that was never funded is just not in use.
+				const runShort = chain.enabled && chain.funding?.funded === false
 				return (
 					<Collapsible.Root
 						className="card chain-configuration"
@@ -65,7 +85,7 @@ export function StepChains({ state, setState }: StepProps) {
 								<ChainLogo label={chain.meta.label} />
 								<div>
 									<h2>{chain.meta.label}</h2>
-									<span className="chain-source" data-funded={chain.funding?.funded}>
+									<span className="chain-source" data-funded={runShort ? false : undefined}>
 										{fundingStatus(chain)}
 									</span>
 								</div>
@@ -167,8 +187,9 @@ export function StepChains({ state, setState }: StepProps) {
 function fundingStatus(chain: ChainDraft): string {
 	if (!chain.funding) return chain.fundingError ? "Could not read the balance" : "Checking the balance…"
 	const shortfall = fundingShortfall(chain.funding, nativeTokenSymbol(chain.meta.chainId))
-	if (shortfall) return `Needs ${shortfall}`
-	return `${formatAmount(chain.funding.feeToken.balance)} ${chain.funding.feeToken.symbol}`
+	if (shortfall) return chain.enabled ? `Needs ${shortfall}` : `Send ${shortfall}`
+	const held = `${formatAmount(chain.funding.feeToken.balance)} ${chain.funding.feeToken.symbol}`
+	return chain.enabled ? held : `${held}, ready`
 }
 
 /**

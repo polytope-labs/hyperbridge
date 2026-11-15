@@ -287,6 +287,11 @@
 		flex: 1;
 	}
 
+	/* The first step has no Back button, and its placeholder would push Continue off-centre. */
+	.footer-nav > span:empty {
+		display: none;
+	}
+
 	.footer-nav {
 		flex-wrap: wrap;
 	}

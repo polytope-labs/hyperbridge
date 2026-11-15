@@ -1,7 +1,29 @@
-# Setup wizard is two steps: Signer and Chains
+# Setup wizard is two steps: Wallet and Chains
 
-The browser and desktop setup wizard has two steps, Signer and Chains. This removes its Hyperbridge
+The browser and desktop setup wizard has two steps, Wallet and Chains. This removes its Hyperbridge
 account, Treasury and Review & launch steps.
+
+## The Wallet step
+
+The step says in three points what the wallet is for: it holds the funds, it signs each fill, and
+what is entered stays on the machine. It then asks how Simplex should sign: private key, secret
+phrase, MPCVault or Turnkey.
+
+A private key or secret phrase reports its result under the field. A refused one shows the reason,
+and an accepted one shows the derived wallet address. The footer shows no "Required to continue" list
+while the step does this. MPCVault and Turnkey still list their empty fields there.
+
+## The Chains step
+
+The step opens with three points on funding. Send at least 5 USDC to the wallet on each chain that
+will fill, or USDT on BNB Chain. 5 is kept for gas. A chain's switch unlocks once its funds arrive.
+The wallet address is under them.
+
+Each chain's row says where it stands. An unfunded chain reads "Send at least 5 USDC". A funded chain
+that is off reads its balance and "ready". A chain that fills but has run short reads "Needs at least
+5 USDC" as a warning. A chain that also needs native for a one-time setup names the amount there.
+
+Both steps draw their opening points with `StepPoints` in `ui/src/wizard/StepPoints.tsx`.
 
 ## What the wizard writes
 

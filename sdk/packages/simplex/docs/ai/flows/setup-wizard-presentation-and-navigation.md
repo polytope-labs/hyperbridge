@@ -7,13 +7,15 @@ shell carries `app-shell-operator`, which removes the page padding and width cap
 fills the viewport edge to edge; the wizard keeps the padded, card-style presentation.
 
 `ui/src/wizard/Wizard.tsx` owns the setup draft, active step, per-step requirements, and forward/back
-navigation. The steps are Signer and Chains, and the Chains step's primary button saves the config
+navigation. The steps are Wallet and Chains, and the Chains step's primary button saves the config
 and starts the solver (`useLaunch` in `ui/src/wizard/launch.tsx`). It maps the active step to its
 editor and derives completed/active/upcoming rail states, display numbering, and percentage
 progress. At desktop widths the rail and active step form a two-column grid; below 900px the rail
 moves above the form and scrolls horizontally. The primary button stays disabled while the current
 step has unresolved requirements, and the footer lists every blocker so the operator can see what
-must be fixed without guessing.
+must be fixed without guessing. A step that reports the blocker beside its own field sets `statusId`,
+and the footer then leaves the list out. The Wallet step does this for a private key or secret
+phrase, whose result shows under the field.
 
 The shared desktop and browser wizard is mainnet-only. `GET /api/setup/defaults` returns the mainnet
 catalog and Nexus WebSocket default, and setup preview/save rejects a selected testnet chain. The

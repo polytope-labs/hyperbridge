@@ -93,7 +93,7 @@ runs from all branches never overlap and a running job is never cancelled. GitHu
 pending job per group, so a newer pending `live` run replaces an older pending one, which shows as
 cancelled. It skips draft PRs and PRs from forks.
 
-Before the tests, the `live` job starts a local indexer. It installs `docker-compose`, builds the
+Before the tests, the `live` job starts a local indexer. It builds the
 SDK with `build:node`, since the indexer imports `@hyperbridge/sdk/intents-helpers`, logs in to
 Docker Hub and runs `pnpm start:local` in `packages/indexer`. That command's `ENV=local` codegen
 starts Hyperbridge Gargantua, BSC Chapel, Polygon Amoy and Base Sepolia at their current heads,

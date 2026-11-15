@@ -43,8 +43,10 @@ import { loadMacNativePasskeys } from "./security/mac-native-passkeys"
 import { SIMPLEX_UPDATE_FEED } from "./release-provider"
 import {
 	bidsHoldingDeposits,
+	depositsNeedConfirming,
 	holdsMachineAwake,
 	sendSolverAction,
+	settleBidsHoldingDeposits,
 	shouldNotifySolverFailure,
 	SolverSupervisor,
 	solverHasVersionSkew,
@@ -450,28 +452,50 @@ function abandonReset(error: unknown): void {
  */
 async function resetConfiguration(): Promise<void> {
 	if (!daemonLaunch || !resetAvailable(resetState())) return
+	const { socketPath } = daemonLaunch
 	const userData = app.getPath("userData")
-	const confirmation: Electron.MessageBoxOptions = {
+	const choices = { buttons: ["Cancel", "Reset Configuration"], defaultId: 0, cancelId: 0, noLink: true }
+	const confirm = (options: Electron.MessageBoxOptions) =>
+		mainWindow && !mainWindow.isDestroyed()
+			? dialog.showMessageBox(mainWindow, options)
+			: dialog.showMessageBox(options)
+	const shown = await bidsHoldingDeposits(socketPath)
+	const { response } = await confirm({
+		...choices,
 		type: "warning",
 		title: "Reset Configuration",
 		message: "Reset the Simplex configuration?",
-		detail: `The solver stops and Simplex restarts as it was when first opened. Everything in ${userData} is deleted: the configuration with the filler wallet's key, your sign-in, the order and bid history, paired devices and logs.\n\nIf the wallet's key is not backed up somewhere else, the funds in the wallet are lost.\n\n${depositWarning(await bidsHoldingDeposits(daemonLaunch.socketPath))}This cannot be undone.`,
-		buttons: ["Cancel", "Reset Configuration"],
-		defaultId: 0,
-		cancelId: 0,
-		noLink: true,
-	}
-	const { response } =
-		mainWindow && !mainWindow.isDestroyed()
-			? await dialog.showMessageBox(mainWindow, confirmation)
-			: await dialog.showMessageBox(confirmation)
+		detail: `The solver stops and Simplex restarts as it was when first opened. Everything in ${userData} is deleted: the configuration with the solver wallet's key, your sign-in, the order and bid history, paired devices and logs.\n\nIf the wallet's key is not backed up somewhere else, the funds in the wallet are lost.\n\n${depositWarning(shown)}This cannot be undone.`,
+	})
 	// The dialog can stay open for a long time: an update may have started installing meanwhile.
 	if (response !== 1 || !resetAvailable(resetState())) return
 
 	resetting = true
 	refreshNativeUi()
+	// The solver kept bidding while the dialog was open, so what it said about deposits may be out
+	// of date. Bidding is paused before the count is read again, so it cannot rise once more.
+	const settled = await settleBidsHoldingDeposits(socketPath)
+	if (depositsNeedConfirming(shown, settled.count)) {
+		const again = await confirm({
+			...choices,
+			type: "warning",
+			title: "Reset Configuration",
+			message: "Bids still hold deposits. Reset anyway?",
+			detail: `${depositWarning(settled.count)}This cannot be undone.`,
+		})
+		if (again.response !== 1) {
+			resetting = false
+			refreshNativeUi()
+			if (settled.paused) {
+				await sendSolverAction(socketPath, "resume").catch((error) =>
+					reportActionError("Simplex could not resume the solver", error),
+				)
+			}
+			return
+		}
+	}
 	try {
-		await stopSolverBeforeReset(daemonLaunch.socketPath)
+		await stopSolverBeforeReset(socketPath)
 	} catch (error) {
 		return abandonReset(error)
 	}

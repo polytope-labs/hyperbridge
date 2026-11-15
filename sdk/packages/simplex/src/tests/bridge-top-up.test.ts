@@ -265,6 +265,10 @@ function topUpWith(record: StoredBridgeTopUp, chain: { receipt?: { logs: unknown
 				getTransaction: async () => ({ hash: FILL_TX }),
 				getBlockNumber: async () => 100n,
 			}),
+			// The scans read through the ordered client. Here it is whatever `getPublicClient` returns.
+			getOrderedPublicClient(this: { getPublicClient: (chain: string) => unknown }, chain: string) {
+				return this.getPublicClient(chain)
+			},
 		},
 		configService: {
 			getConfiguredChainIds: () => [8453, 56],

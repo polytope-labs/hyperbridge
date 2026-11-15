@@ -27,7 +27,7 @@ retried although it cannot succeed, and the error reported is the outage, not th
 ### An answer that says "nothing"
 
 A node that is a block behind answers `null` for a receipt, transaction or block another node
-already has, and `[]` for its logs. A fast "nothing" should not beat a slower result.
+already has. A fast "nothing" should not beat a slower result.
 
 `firstResponse` therefore holds an empty answer back. Empty means `null`, an empty array, or `0x`
 from `eth_getCode`. It is returned once every endpoint has answered or failed, or
@@ -42,8 +42,8 @@ This is a preference, not a guarantee:
 - The preference also works on a value that has just become empty. After a delegation is revoked,
   a node that is behind still reports the old code, and that answer is the one returned.
 
-`0x` from `eth_call` is data and is not held back. Neither is a number: a balance, a nonce read
-from a contract or a block number from a node that is behind is returned as it is.
+`0x` from `eth_call` is data and is not held back. Neither is a number: a balance or a block number
+from a node that is behind is returned as it is.
 
 ### Receipt waits do not check for a replacement
 
@@ -58,11 +58,25 @@ The cost: a transaction that is replaced, for example re-sent with a higher fee 
 using the same key, is not followed. The wait for the original hash times out. Simplex never
 re-sends a wallet transaction at the same nonce.
 
-### Account nonces are read in order
+### Nonces and logs are read in order
 
-`eth_getTransactionCount` does not race. It goes to the endpoints in list order, the order the
-wallet client sends in, and moves to the next only when one fails. A nonce raced to a node that has
-not seen the last transaction would be one too low.
+Three reads do not race (`readsInOrder`). They go to the endpoints in list order, the order the
+wallet client sends in, and move to the next only when one fails. A node that is behind answers each
+of them wrongly without saying so.
+
+- `eth_getTransactionCount`. A nonce from a node that has not seen the last transaction is one too
+  low.
+- An `eth_call` to `EntryPoint.getNonce`, matched by its selector. It is the nonce a UserOp is built
+  on, and the bundler refuses one that was just used.
+- `eth_getLogs`. A node that is behind, or that keeps few logs, answers `[]` at once for a range
+  that holds some.
+
+### One node's view of a head and its logs
+
+`ChainClientManager.getOrderedPublicClient` sends every read in list order. `BridgeTopUp` scans the
+gateway's logs through it. That scan reads the head and then the logs up to it, and takes an empty
+range as evidence that nothing was placed. With the head from one node and the logs from another
+that is behind, the range would look complete for blocks the second node has not seen.
 
 One difference from the wallet client remains: an endpoint is not retried before the read moves on,
 where a send retries it three times first. Like a send, the read waits out the 30-second timeout of
@@ -73,7 +87,7 @@ an endpoint that does not answer at all.
 This applies to every read through `ChainClientManager.getPublicClient`, during normal operation as
 well as at startup.
 
-- Every listed endpoint receives every read outside the quorum, apart from the account nonce.
+- Every listed endpoint receives every read outside the quorum, apart from nonces and logs.
 - The first-listed endpoint is not the one that answers. Two consecutive reads can come from nodes at
   different heights.
 - The wallet client keeps the ordered `fallback`, so a transaction goes to the first endpoint, and
@@ -94,22 +108,11 @@ Every endpoint is asked for its chain id at startup, and `fetchChainId` gives ea
 - `OrderScanner.create` probes all its entries that omit a `chainId` together. The adds stay in
   order, so two entries that resolve to the same chain are still refused.
 
-## Startup stops waiting once most of a chain's endpoints agree
+## Every endpoint that answers must agree on the chain
 
-With `tolerateUnreachable`, which startup sets, `resolveChainConfigs` stops waiting for a chain's
-endpoints once more than half of them have reported the same chain id (`settleOnMajority`). An
-endpoint still pending then is treated like one that could not answer: it is logged and kept.
-
-One fast endpoint does not end the wait for a chain that lists several, and a chain with two
-endpoints waits for both. An endpoint that fails outright is not waited for, as before: if only one
-endpoint answers and the rest fail, that one decides the chain.
-
-The endpoints that answered must still agree, and a disagreement still refuses the config. A slower
-endpoint is checked when its answer arrives. If it reports another chain, an error is logged that
-names it, but the solver is already running by then and the endpoint stays in use. That is the
-cost: a wrong-chain endpoint in the slower minority is reported, not refused.
-
-Without `tolerateUnreachable`, which runtime endpoint edits use, every endpoint is waited for.
+Startup waits for each endpoint's chain id, for up to the ten seconds `fetchChainId` allows. One that
+cannot answer is logged and kept, as before. One that answers for another chain refuses the config.
+Reads go to every endpoint, so a wrong-chain endpoint that was not waited for could answer them.
 
 ## Startup steps that do not depend on each other run together
 

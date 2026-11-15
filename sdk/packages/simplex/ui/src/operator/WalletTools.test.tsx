@@ -469,6 +469,39 @@ describe("send funds", () => {
 		expect(api.post).toHaveBeenCalledWith("/api/send", expect.objectContaining({ amount: "1.5" }))
 	})
 
+	it("reviews and sends 1 when a comma is typed as the decimal mark before zeros", async () => {
+		await render()
+		const sheet = await openSend()
+		// One key at a time, the way an operator types 1,000 out of habit.
+		for (const typed of ["1", "1,", "1.0", "1.00", "1.000"]) await enter(amountInput(sheet), typed)
+		expect(amountInput(sheet).value).toBe("1.000")
+		await enter(recipientInput(sheet), RECIPIENT)
+		await click(button(sheet, "Send"))
+		// The review says 1, which cannot pass for a thousand the way 1.000 can.
+		await confirmReview(sheet, "Send 1 ETH")
+		expect(api.post).toHaveBeenCalledWith("/api/send", expect.objectContaining({ amount: "1" }))
+	})
+
+	it("stays open while a send is in flight, and then shows its outcome", async () => {
+		let finish!: (reply: unknown) => void
+		vi.mocked(api.post).mockImplementationOnce(
+			() =>
+				new Promise((resolve) => {
+					finish = resolve
+				}),
+		)
+		await render()
+		await send()
+
+		// The close button, Escape and the overlay all end in the same handler.
+		await click(document.querySelector<HTMLElement>('[role="dialog"] button[aria-label="Close"]')!)
+		expect(document.querySelector('[role="dialog"]')).not.toBeNull()
+
+		await act(async () => finish({ txHash: TX_HASH, sponsored: true, redeemed: false }))
+		await flush()
+		expect(document.querySelector(".send-success")?.textContent).toContain("Funds sent")
+	})
+
 	it("opens on an empty form after the dialog is closed", async () => {
 		await render()
 		const sheet = await openSend()

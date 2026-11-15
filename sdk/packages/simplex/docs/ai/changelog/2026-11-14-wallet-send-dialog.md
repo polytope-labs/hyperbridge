@@ -1,6 +1,6 @@
 # Wallet send is a dialog laid out like the HyperFX app's
 
-Sending from the filler wallet opens `SendDialog` (`ui/src/operator/SendDialog.tsx`), a centred
+Sending from the solver wallet opens `SendDialog` (`ui/src/operator/SendDialog.tsx`), a centred
 dialog on desktop and a full-width drawer on a phone. It replaces the "Send funds" side sheet with
 its Network and Asset selects.
 
@@ -17,9 +17,15 @@ its Network and Asset selects.
   paste button appears only where the browser exposes the clipboard, which needs HTTPS, localhost or
   the desktop app.
 - The amount groups thousands as it is typed (`AmountInput`), and the plain number is what is sent.
-  A comma is read as the decimal mark unless it can only be a separator, as in `1,000` or
-  `1,000.50`, so `1,5` is 1.5. Text that is not a number is refused. Balances in the dialog use the
-  same notation whatever the browser's locale.
+  Text that is not a number is refused. Balances in the dialog use the same notation whatever the
+  browser's locale.
+- A comma is the decimal mark, so `1,5` is 1.5. Reading it as a separator would send ten times as
+  much. It is read as a separator only in pasted text where it can be nothing else: beside a point,
+  as in `1,000.50`, or in groups of three after a group that does not start with 0, as in `1,000`.
+  A pasted `0,500` is 0.5. A comma typed after digits is always the decimal mark, so `1,000` typed
+  one key at a time is 1.
+- The amount is reviewed and sent without trailing zeros (`trimAmount`). An amount typed as `1,000`
+  is reviewed as `1`, which cannot pass for a thousand the way `1.000` can.
 - The card has 25%, 50%, 75% and Max. Each fills a share of the balance, rounded down to six
   decimals and never above the balance. An amount above the balance turns the card red and disables
   Send.
@@ -32,7 +38,8 @@ its Network and Asset selects.
 - A confirmed send replaces the form with a success screen: a large tick, the amount and network,
   a link to the transaction and Done. A send that is still pending returns to the form with its
   warning.
-- Closing the dialog clears the form.
+- Closing the dialog clears the form and the error of a failed send. A send in flight keeps the
+  dialog open, so its outcome is not carried into the next open.
 
 `POST /api/send` and its request are unchanged.
 

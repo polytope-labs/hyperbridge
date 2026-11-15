@@ -14,8 +14,9 @@ export function groupThousands(amount: string): string {
  * Reads text the operator typed or pasted as a plain decimal, or null when it is not a number.
  *
  * A comma may be a decimal mark or a thousands separator, and dropping it would turn "1,5" into
- * 15. It is read as a separator only where it cannot be a decimal mark: beside a point, or before
- * exactly three digits, as in 1,000.
+ * 15. It is read as a separator only where it cannot be a decimal mark: beside a point, or in
+ * groups of exactly three digits after a group that does not start with 0, as in 1,000. Grouping
+ * never starts with a 0 group, so 0,500 is half a unit.
  */
 function readInserted(text: string): string | null {
 	const compact = text.replace(/\s/g, "")
@@ -27,8 +28,19 @@ function readInserted(text: string): string | null {
 		// With both marks, the later one is the decimal mark and the other one groups thousands.
 		return lastComma > lastPoint ? compact.replaceAll(".", "").replace(",", ".") : compact.replaceAll(",", "")
 	}
-	if (/^\d{1,3}(,\d{3})+$/.test(compact)) return compact.replaceAll(",", "")
+	if (/^[1-9]\d{0,2}(,\d{3})+$/.test(compact)) return compact.replaceAll(",", "")
 	return compact.indexOf(",") === lastComma ? compact.replace(",", ".") : null
+}
+
+/**
+ * The amount without the zeros and the point that change nothing: 1.000 is 1 and 0.500 is 0.5.
+ * Shown and sent this way, an amount with a comma typed as its decimal mark cannot pass for a
+ * thousand.
+ */
+export function trimAmount(amount: string): string {
+	if (!amount.includes(".")) return amount
+	const trimmed = amount.replace(/0+$/, "").replace(/\.$/, "")
+	return trimmed.startsWith(".") ? `0${trimmed}` : trimmed || "0"
 }
 
 /**

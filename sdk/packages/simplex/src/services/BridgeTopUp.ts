@@ -851,7 +851,9 @@ export class BridgeTopUp {
 			saveCursor: (next: bigint) => Promise<void>
 		},
 	): Promise<{ txHash?: HexString; scannedTo: bigint }> {
-		const client = this.deps.clientManager.getPublicClient(chain)
+		// The head and the logs up to it must come from one node. Read from two, a head from the
+		// one that is ahead makes the other's logs look complete for blocks it has not seen.
+		const client = this.deps.clientManager.getOrderedPublicClient(chain)
 		const margin = await this.evidenceMargin(chain, client)
 		const first = belowTip(scan.submittedFrom, margin)
 		const cursor = scan.savedCursor ?? first

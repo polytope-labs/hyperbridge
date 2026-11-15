@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs"
+import { existsSync, lstatSync, mkdirSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs"
 import { homedir } from "node:os"
 import { isAbsolute, join, relative, resolve } from "node:path"
 
@@ -20,19 +20,30 @@ const RETRY_PAUSE_MS = 100
  *
  * `--user-data-dir` can point anywhere. The home directory, or a directory above it, holds
  * other things, and the reset deletes everything it finds.
+ *
+ * The two are compared by their true paths. A path as it was given follows no links and keeps its
+ * spelling, and macOS and Windows open `/users/bob` as `/Users/bob`. A profile that is itself a
+ * link is refused, since the reset would empty whatever it points at.
  */
 function holdsOnlySimplex(userDataDir: string): boolean {
-	const toHome = relative(resolve(userDataDir), resolve(homedir()))
-	const homeIsInside = toHome === "" || (!toHome.startsWith("..") && !isAbsolute(toHome))
-	return !homeIsInside
+	try {
+		if (lstatSync(userDataDir).isSymbolicLink()) return false
+		const toHome = relative(realpathSync.native(userDataDir), realpathSync.native(homedir()))
+		const homeIsInside = toHome === "" || (!toHome.startsWith("..") && !isAbsolute(toHome))
+		return !homeIsInside
+	} catch {
+		// A directory that cannot be read cannot be shown to hold only Simplex's files.
+		return false
+	}
 }
 
 /** Records that the next launch must delete the profile. */
 export function requestProfileReset(userDataDir: string): void {
+	// Created first: the check reads the directory's true path, which a missing one does not have.
+	mkdirSync(userDataDir, { recursive: true })
 	if (!holdsOnlySimplex(userDataDir)) {
 		throw new Error(`${resolve(userDataDir)} holds more than Simplex's files, so Simplex will not delete it`)
 	}
-	mkdirSync(userDataDir, { recursive: true })
 	writeFileSync(join(userDataDir, RESET_MARKER), "", { mode: 0o600 })
 }
 

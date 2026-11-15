@@ -9,6 +9,7 @@ import {
 	fallback,
 	http,
 	shouldThrow,
+	toFunctionSelector,
 	type Chain,
 	type EIP1193RequestFn,
 	type Transport,
@@ -58,6 +59,23 @@ function isEmptyAnswer(method: string, result: unknown): boolean {
 	if (result === null) return true
 	if (Array.isArray(result)) return result.length === 0
 	return method === "eth_getCode" && result === "0x"
+}
+
+/** `EntryPoint.getNonce`, the nonce a UserOp is built on. */
+const ENTRYPOINT_GET_NONCE = toFunctionSelector("getNonce(address,uint192)")
+
+/**
+ * Whether a read goes to the endpoints in list order instead of to whichever answers first.
+ *
+ * These are the reads a node that is behind answers wrongly without saying so. Its nonce is the one
+ * just used, and that is never an empty answer the race would wait on. Its logs are an empty list for
+ * a range that holds some, and a node that keeps few logs answers the same way at once.
+ */
+function readsInOrder(method: string, params: unknown): boolean {
+	if (method === "eth_getTransactionCount" || method === "eth_getLogs") return true
+	if (method !== "eth_call") return false
+	const data = (params as [{ data?: unknown }?] | undefined)?.[0]?.data
+	return typeof data === "string" && data.startsWith(ENTRYPOINT_GET_NONCE)
 }
 
 /** RPC error codes viem retries: unknown, limit exceeded and internal. */
@@ -130,8 +148,9 @@ export function firstResponse<T>(
  * them in order instead, and each one that is down holds every read up for its
  * retries.
  *
- * Nonce reads are the exception. They go to the endpoints in list order, the
- * order the wallet client sends in, and move on only when one fails.
+ * Nonce and log reads are the exception ({@link readsInOrder}). They go to the
+ * endpoints in list order, the order the wallet client sends in, and move on
+ * only when one fails.
  *
  * Like `fallback`, this only needs availability. `QuorumPublicClient` is the
  * one that cross-checks answers.
@@ -151,7 +170,7 @@ export function raceTransport(rpcUrls: readonly string[]): Transport {
 			name: "Race",
 			type: "race",
 			request: (({ method, params }) =>
-				method === "eth_getTransactionCount"
+				readsInOrder(method, params)
 					? inOrder.request({ method, params })
 					: firstResponse(
 							endpoints.map((endpoint) => endpoint.request({ method, params })),
@@ -177,6 +196,7 @@ function walletClientCacheKey(chainId: number, accountAddress: string): string {
  */
 class ViemClientFactoryImpl {
 	private publicClients: Map<number, PublicClient> = new Map()
+	private orderedClients: Map<number, PublicClient> = new Map()
 	private walletClients: Map<string, WalletClient<Transport, Chain, Account>> = new Map()
 
 	/**
@@ -187,6 +207,7 @@ class ViemClientFactoryImpl {
 	 */
 	public invalidate(chainId: number): void {
 		this.publicClients.delete(chainId)
+		this.orderedClients.delete(chainId)
 		for (const key of [...this.walletClients.keys()]) {
 			if (key.startsWith(`${chainId}:`)) this.walletClients.delete(key)
 		}
@@ -215,6 +236,19 @@ class ViemClientFactoryImpl {
 		}
 
 		return this.publicClients.get(chainConfig.chainId)!
+	}
+
+	public getOrderedPublicClient(chainConfig: ChainConfig, rpcUrls?: readonly string[]): PublicClient {
+		let client = this.orderedClients.get(chainConfig.chainId)
+		if (!client) {
+			const urls = rpcUrls && rpcUrls.length > 0 ? rpcUrls : [chainConfig.rpcUrl]
+			client = createPublicClient({
+				chain: getViemChain(chainConfig.chainId) as Chain,
+				transport: buildTransport(urls),
+			}) as PublicClient
+			this.orderedClients.set(chainConfig.chainId, client)
+		}
+		return client
 	}
 
 	public getWalletClient(
@@ -287,6 +321,17 @@ export class ChainClientManager {
 		const config = this.configService.getChainConfig(chain)
 		const rpcUrls = this.configService.getRpcUrls(chain)
 		return this.clientFactory.getPublicClient(config, rpcUrls)
+	}
+
+	/**
+	 * A client whose every read goes to the chain's endpoints in list order, moving on only when
+	 * one fails. It is for reads that must describe one node's view of the chain, such as a head
+	 * and the logs up to it. {@link getPublicClient} can take those two from different nodes.
+	 */
+	getOrderedPublicClient(chain: string): PublicClient {
+		const config = this.configService.getChainConfig(chain)
+		const rpcUrls = this.configService.getRpcUrls(chain)
+		return this.clientFactory.getOrderedPublicClient(config, rpcUrls)
 	}
 
 	/**

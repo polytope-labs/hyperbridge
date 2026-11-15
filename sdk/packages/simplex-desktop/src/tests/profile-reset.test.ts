@@ -134,4 +134,37 @@ describe("profile reset", () => {
 		expect(completePendingProfileReset(home.path)).toBe(false)
 		expect(readdirSync(home.path).sort()).toEqual(["documents.txt", "reset-pending"])
 	})
+
+	it("refuses a profile that is a link, and one that reaches the home directory through a link", () => {
+		writeFileSync(join(home.path, "documents.txt"), "not Simplex's")
+
+		// The profile is a link to the home directory.
+		const linked = join(root, "linked-profile")
+		symlinkSync(home.path, linked)
+		expect(() => requestProfileReset(linked)).toThrow(/holds more than Simplex's files/)
+
+		// A directory above the profile is a link to the directory above home, so the profile is home.
+		const above = join(root, "above")
+		symlinkSync(root, above)
+		expect(() => requestProfileReset(join(above, "home"))).toThrow(/holds more than Simplex's files/)
+
+		// A link to a real profile is refused too: the reset would empty what it points at.
+		const alias = join(root, "alias")
+		symlinkSync(profile, alias)
+		expect(() => requestProfileReset(alias)).toThrow(/holds more than Simplex's files/)
+
+		// A marker that got in anyway does not make the next launch delete through the link.
+		writeFileSync(join(home.path, "reset-pending"), "")
+		expect(completePendingProfileReset(linked)).toBe(false)
+		expect(readdirSync(home.path).sort()).toEqual(["documents.txt", "reset-pending"])
+		expect(existsSync(join(profile, "bids.db"))).toBe(true)
+	})
+
+	/** macOS and Windows open a path whatever its case, so `/users/bob` is `/Users/bob`. */
+	it.runIf(process.platform === "darwin" || process.platform === "win32")(
+		"refuses the home directory spelled in another case",
+		() => {
+			expect(() => requestProfileReset(home.path.toUpperCase())).toThrow(/holds more than Simplex's files/)
+		},
+	)
 })

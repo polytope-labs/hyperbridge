@@ -125,6 +125,55 @@ export async function bidsHoldingDeposits(socketPath: string): Promise<number | 
 	}
 }
 
+/** How long a paused solver is given to finish what it had in flight before its bids are counted. */
+const SETTLE_TIMEOUT_MS = 20_000
+
+/**
+ * Pauses bidding, waits for what is in flight, and then counts the bids that hold a deposit.
+ *
+ * The plain count can rise for as long as the solver bids. This one cannot rise again before the
+ * solver stops. `count` is undefined when the solver cannot say or has not gone quiet in time, and
+ * `paused` says whether this call paused a running solver.
+ */
+export async function settleBidsHoldingDeposits(
+	socketPath: string,
+	options: { timeoutMs?: number; delay?: (milliseconds: number) => Promise<void> } = {},
+): Promise<{ count: number | undefined; paused: boolean }> {
+	const delay = options.delay ?? ((milliseconds: number) => new Promise((resolve) => setTimeout(resolve, milliseconds)))
+	const before = await probeSolverStatus(socketPath)
+	// A solver in setup, or one that is not up, places no bids.
+	if (before.state !== "running" && before.state !== "paused") {
+		return { count: await bidsHoldingDeposits(socketPath), paused: false }
+	}
+	let paused = false
+	try {
+		if (before.state === "running") {
+			await sendSolverAction(socketPath, "pause")
+			paused = true
+		}
+		const deadline = Date.now() + (options.timeoutMs ?? SETTLE_TIMEOUT_MS)
+		for (;;) {
+			const status = await probeSolverStatus(socketPath)
+			if (status.state === "paused" && solverIsIdle(status)) break
+			// Resumed or gone, or still working at the deadline: there is no settled count to give.
+			if (status.state !== "paused" || Date.now() >= deadline) return { count: undefined, paused }
+			await delay(250)
+		}
+		return { count: await bidsHoldingDeposits(socketPath), paused }
+	} catch {
+		return { count: undefined, paused }
+	}
+}
+
+/**
+ * Whether the settled count says more than the confirmation the operator already gave: more bids
+ * hold deposits than it named, or it named a count and there is no longer one to check it against.
+ */
+export function depositsNeedConfirming(shown: number | undefined, settled: number | undefined): boolean {
+	if (settled === undefined) return shown !== undefined
+	return settled > (shown ?? 0)
+}
+
 export function holdsMachineAwake(status: SolverStatus): boolean {
 	return status.state === "running"
 }

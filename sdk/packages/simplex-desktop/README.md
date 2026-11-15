@@ -162,14 +162,15 @@ No native memory dumps are collected.
 **Reset Configuration…**, in the tray and application menus, returns Simplex to its first launch.
 It asks for confirmation, stops the solver and waits for it to exit, turns off launch at login, and
 relaunches. The relaunched app deletes every file in the user-data directory before it opens it:
-`filler-config.toml` with the filler wallet's key, `desktop-vault.json`, the databases, paired
+`filler-config.toml` with the solver wallet's key, `desktop-vault.json`, the databases, paired
 devices, logs and the update channel. The reset needs an unlocked session, like **Stop solver**, and
 is unavailable while an update is stopping the solver or installing. Afterwards the funds in the
-filler wallet can be reached only with a backup of its key.
+solver wallet can be reached only with a backup of its key.
 
 The databases hold the bid records. A bid's deposit on Hyperbridge is reclaimed by retracting the
 bid, and the solver retracts from those records. The confirmation says how many bids still hold a
-deposit, or that it could not check because the solver is not running. Reset once that count is
+deposit, or that it could not check because the solver is not running. After you confirm, Simplex
+pauses the solver and counts again, and asks once more if the count rose. Reset once that count is
 zero and no BRIDGE top-up is in progress, unless those deposits are to be given up.
 
 The reset removes only the user-data directory, and the confirmation names it. It refuses to run

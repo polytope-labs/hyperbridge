@@ -85,8 +85,8 @@ async function refusedUrl(): Promise<string> {
 const blockNumber = (urls: string[]) => createPublicClient({ transport: raceTransport(urls) }).getBlockNumber()
 
 /** The raw JSON-RPC result, so the tests see exactly what the race settled on. */
-const ask = (urls: string[], method: string) =>
-	createPublicClient({ transport: raceTransport(urls) }).request({ method, params: [] } as never) as Promise<unknown>
+const ask = (urls: string[], method: string, params: unknown[] = []) =>
+	createPublicClient({ transport: raceTransport(urls) }).request({ method, params } as never) as Promise<unknown>
 
 const RECEIPT = { status: "0x1", transactionHash: `0x${"ab".repeat(32)}` }
 
@@ -146,11 +146,7 @@ describe("raceTransport and an endpoint that is behind", () => {
 		await expect(ask(urls, "eth_getTransactionReceipt")).resolves.toEqual(RECEIPT)
 	})
 
-	it("returns logs and code the same way", async () => {
-		const logs = [{ logIndex: "0x0" }]
-		await expect(
-			ask([await url({ answer: [] }), await url({ answer: logs, afterMs: 200 })], "eth_getLogs"),
-		).resolves.toEqual(logs)
+	it("returns code the same way", async () => {
 		await expect(
 			ask([await url({ answer: "0x" }), await url({ answer: "0xef0100", afterMs: 200 })], "eth_getCode"),
 		).resolves.toBe("0xef0100")
@@ -196,10 +192,31 @@ describe("raceTransport and an endpoint that is behind", () => {
 	})
 })
 
-describe("raceTransport nonce reads", () => {
-	it("asks the endpoints in order, like the wallet client's sends", async () => {
+describe("raceTransport reads that go in list order", () => {
+	const word = (value: number) => `0x${value.toString(16).padStart(64, "0")}`
+	const call = (selector: string) => [{ to: `0x${"11".repeat(20)}`, data: `${selector}${"00".repeat(64)}` }, "latest"]
+
+	it("asks the endpoints in order for a nonce, like the wallet client's sends", async () => {
 		const urls = [await url({ answer: "0x5", afterMs: 200 }), await url({ answer: "0x9" })]
 		await expect(ask(urls, "eth_getTransactionCount")).resolves.toBe("0x5")
+	})
+
+	/** A node one block behind still reports the nonce the last UserOp used, and the bundler refuses it. */
+	it("asks in order for the EntryPoint nonce a UserOp is built on", async () => {
+		const urls = [await url({ answer: word(6), afterMs: 200 }), await url({ answer: word(5) })]
+		await expect(ask(urls, "eth_call", call("0x35567e1a"))).resolves.toBe(word(6))
+	})
+
+	it("still races any other call", async () => {
+		const urls = [await url({ answer: word(6), afterMs: 200 }), await url({ answer: word(5) })]
+		await expect(ask(urls, "eth_call", call("0x70a08231"))).resolves.toBe(word(5))
+	})
+
+	/** A node that is behind, or keeps few logs, answers `[]` at once for a range that holds some. */
+	it("asks in order for logs, so an endpoint with none does not answer for the first", async () => {
+		const logs = [{ logIndex: "0x0" }]
+		const urls = [await url({ answer: logs, afterMs: 1_300 }), await url({ answer: [] })]
+		await expect(ask(urls, "eth_getLogs")).resolves.toEqual(logs)
 	})
 
 	it("moves to the next endpoint when the first cannot answer", async () => {

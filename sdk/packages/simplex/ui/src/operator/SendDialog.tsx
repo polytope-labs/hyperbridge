@@ -3,7 +3,7 @@ import { toast } from "sonner"
 import { chainByChainId } from "@/cli/init/chains"
 import { formatChainKey, parseChainKey } from "@/config/interpolated-curve"
 import { api } from "../api"
-import { AmountInput, groupThousands } from "../components/AmountInput"
+import { AmountInput, groupThousands, trimAmount } from "../components/AmountInput"
 import { ChainLogo } from "../components/ChainLogo"
 import { CheckIcon, CloseIcon, DashedCircleIcon, ExternalLinkIcon, PasteIcon } from "../components/InterfaceIcons"
 import { SendReview, type SendSummary } from "../components/SendReview"
@@ -118,7 +118,7 @@ export function SendDialog(props: {
 	const [result, setResult] = useState<SendResult & { explorerUrl?: string; sent: SentSummary }>()
 	const [sending, setSending] = useState(false)
 	const [review, setReview] = useState<SendSummary>()
-	const { run: act, error } = useAction()
+	const { run: act, error, clear } = useAction()
 	const addressId = useId()
 	const amountId = useId()
 
@@ -188,7 +188,8 @@ export function SendDialog(props: {
 			chain,
 			token: tokenAddress,
 			contract: custom ? tokenAddress : undefined,
-			amount: amount.trim(),
+			// Without trailing zeros, so 1.000 is reviewed and sent as 1 and cannot pass for a thousand.
+			amount: trimAmount(amount.trim()),
 			symbol,
 			native: tokenAddress === "native",
 			chainLabel: network,
@@ -242,8 +243,15 @@ export function SendDialog(props: {
 	}
 
 	const success = result && !result.pending ? result : undefined
-	/** Nothing entered for one send carries into the next: the dialog opens on an empty form. */
+	/**
+	 * Nothing entered for one send carries into the next: the dialog opens on an empty form.
+	 *
+	 * A send in flight keeps the dialog open. Its outcome would otherwise land after the reset and
+	 * show on the next open.
+	 */
 	const close = () => {
+		if (sending) return
+		clear()
 		setResult(undefined)
 		setReview(undefined)
 		setAmount("")
@@ -259,7 +267,7 @@ export function SendDialog(props: {
 			className="send-dialog"
 			open={props.open}
 			onClose={close}
-			title={review ? "Review transfer" : "Send from filler wallet"}
+			title={review ? "Review transfer" : "Send from solver wallet"}
 			description={
 				review
 					? "Check the destination and the amount. Transfers cannot be undone."

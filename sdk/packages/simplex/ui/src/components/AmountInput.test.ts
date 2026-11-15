@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { applyAmountEdit, groupThousands } from "./AmountInput"
+import { applyAmountEdit, groupThousands, trimAmount } from "./AmountInput"
 
 /** Types or pastes `text` at the end of a field showing `shown`. */
 const append = (shown: string, text: string) => applyAmountEdit(shown, shown + text, shown.length + text.length).value
@@ -21,6 +21,28 @@ describe("amount edits", () => {
 		expect(append("", "1,000.50")).toBe("1000.50")
 		expect(append("", "1.000,50")).toBe("1000.50")
 		expect(append("", "1 000,50")).toBe("1000.50")
+	})
+
+	it("reads a group that starts with 0 as decimals, since grouping never starts that way", () => {
+		expect(trimAmount(append("", "0,500"))).toBe("0.5")
+		expect(append("", "0,125")).toBe("0.125")
+		expect(append("", "100,000")).toBe("100000")
+	})
+
+	it("reads a comma typed after digits as the decimal mark", () => {
+		// Typed one key at a time, 1,000 is 1: reading it as a thousand would also read 1,5 as 15.
+		const typed = ["1", ",", "0", "0", "0"].reduce((shown, key) => groupThousands(append(shown, key)), "")
+		expect(typed).toBe("1.000")
+		expect(trimAmount(typed)).toBe("1")
+	})
+
+	it("drops the zeros and the point that change nothing", () => {
+		expect(trimAmount("1.000")).toBe("1")
+		expect(trimAmount("1.50")).toBe("1.5")
+		expect(trimAmount("1000")).toBe("1000")
+		expect(trimAmount(".5")).toBe("0.5")
+		expect(trimAmount("0.")).toBe("0")
+		expect(trimAmount("10.050")).toBe("10.05")
 	})
 
 	it("refuses text that is not a number, and leaves the amount as it was", () => {

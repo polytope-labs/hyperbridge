@@ -93,7 +93,7 @@ runs from all branches never overlap and a running job is never cancelled. GitHu
 pending job per group, so a newer pending `live` run replaces an older pending one, which shows as
 cancelled. It skips draft PRs and PRs from forks.
 
-Before the tests, the `live` job starts a local indexer. It builds the
+Before the tests, the `live` job starts a local indexer. It installs `docker-compose`, builds the
 SDK with `build:node`, since the indexer imports `@hyperbridge/sdk/intents-helpers`, logs in to
 Docker Hub and runs `pnpm start:local` in `packages/indexer`. That command's `ENV=local` codegen
 starts Hyperbridge Gargantua, BSC Chapel, Polygon Amoy and Base Sepolia at their current heads,
@@ -101,8 +101,8 @@ read through the RPCs in `sdk/.env.local`. In `docker/docker-compose.local.yml`,
 waits for postgres and the Gargantua indexer node to be healthy. A readiness step then waits for
 GraphQL on port 3100, for a `stateMachineUpdateEvents` query to succeed (restarting
 `graphql-engine` once if it does not, since the query service reads entity tables only at startup),
-and for all four chains to be within 300 blocks of their target heights. The job always prints the
-indexer logs and runs `docker compose down -v` at the end.
+and for all four chains to be within 300 blocks of their heads. The job always prints the indexer
+logs and runs `docker compose down -v` at the end.
 
 The job timeout is 300 minutes, covering up to 45 minutes of indexer setup and readiness plus each
 test step's own timeout. Its test steps run in order, only once the readiness step succeeds, and

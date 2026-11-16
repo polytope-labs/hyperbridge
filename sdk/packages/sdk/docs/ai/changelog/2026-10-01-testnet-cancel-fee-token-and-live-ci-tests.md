@@ -101,8 +101,8 @@ read through the RPCs in `sdk/.env.local`. In `docker/docker-compose.local.yml`,
 waits for postgres and the Gargantua indexer node to be healthy. A readiness step then waits for
 GraphQL on port 3100, for a `stateMachineUpdateEvents` query to succeed (restarting
 `graphql-engine` once if it does not, since the query service reads entity tables only at startup),
-and for all four chains to be within 300 blocks of their heads. The job always prints the indexer
-logs and runs `docker compose down -v` at the end.
+and for all four chains to be within 300 blocks of their target heights. The job always prints the
+indexer logs and runs `docker compose down -v` at the end.
 
 The job timeout is 300 minutes, covering up to 45 minutes of indexer setup and readiness plus each
 test step's own timeout. Its test steps run in order, only once the readiness step succeeds, and

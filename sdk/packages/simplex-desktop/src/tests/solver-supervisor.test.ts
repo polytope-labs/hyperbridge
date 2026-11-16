@@ -6,9 +6,11 @@ import { createServer as createNetServer } from "node:net"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { socketPathFor } from "../desktop-paths"
 import {
+	depositsNeedConfirming,
 	holdsMachineAwake,
 	probeSolverStatus,
 	sendSolverAction,
+	settleBidsHoldingDeposits,
 	shouldNotifySolverFailure,
 	solverHasVersionSkew,
 	solverIsIdle,
@@ -27,12 +29,18 @@ async function fixture(): Promise<{
 	socketPath: string
 	setPaused: (paused: boolean) => void
 	setHealthStatus: (status: "ok" | "stopping") => void
+	/** Fills the solver still has in flight. */
+	setActiveFills: (count: number) => void
+	/** Bids that hold a deposit, as `/api/activity/bids` reports them. */
+	setDeposits: (count: number) => void
 	actions: string[]
 }> {
 	const directory = mkdtempSync(join(tmpdir(), "simplex-supervisor-"))
 	const socketPath = socketPathFor(directory)
 	let paused = false
 	let healthStatus: "ok" | "stopping" = "ok"
+	let activeFills = 0
+	let deposits = 0
 	const actions: string[] = []
 	const server = createServer((request, response) => {
 		if (request.url === "/health") {
@@ -50,12 +58,17 @@ async function fixture(): Promise<{
 						queuedEvaluations: 0,
 						evaluating: 0,
 						queuedFills: 0,
-						activeFills: 0,
+						activeFills,
 						retractions: 0,
 						rebalancing: 0,
 					},
 				}),
 			)
+			return
+		}
+		if (request.url === "/api/activity/bids?limit=1") {
+			response.writeHead(200, { "content-type": "application/json" })
+			response.end(JSON.stringify({ stats: { pendingRetraction: deposits } }))
 			return
 		}
 		if (request.method === "POST" && /^\/api\/(pause|resume|stop)$/.test(request.url ?? "")) {
@@ -64,6 +77,8 @@ async function fixture(): Promise<{
 				return
 			}
 			actions.push(request.url ?? "")
+			if (request.url === "/api/pause") paused = true
+			if (request.url === "/api/resume") paused = false
 			response.writeHead(202).end()
 			return
 		}
@@ -78,6 +93,8 @@ async function fixture(): Promise<{
 		socketPath,
 		setPaused: (value) => (paused = value),
 		setHealthStatus: (value) => (healthStatus = value),
+		setActiveFills: (value) => (activeFills = value),
+		setDeposits: (value) => (deposits = value),
 		actions,
 	}
 }
@@ -182,6 +199,61 @@ describe("solver supervision", () => {
 			await sendSolverAction(server.socketPath, action)
 		}
 		expect(server.actions).toEqual(["/api/pause", "/api/resume", "/api/stop"])
+	})
+
+	it("counts the bids holding deposits only once the solver is paused and has nothing in flight", async () => {
+		const server = await fixture()
+		server.setDeposits(1)
+		server.setActiveFills(1)
+		// The fill in flight lands a second bid before the solver goes quiet.
+		let waits = 0
+		const delay = async () => {
+			waits += 1
+			server.setDeposits(2)
+			server.setActiveFills(0)
+		}
+		await expect(settleBidsHoldingDeposits(server.socketPath, { delay })).resolves.toEqual({
+			count: 2,
+			paused: true,
+		})
+		expect(server.actions).toEqual(["/api/pause"])
+		expect(waits).toBe(1)
+	})
+
+	it("gives no settled count for a solver that does not go quiet in time", async () => {
+		const server = await fixture()
+		server.setDeposits(1)
+		server.setActiveFills(1)
+		await expect(
+			settleBidsHoldingDeposits(server.socketPath, { timeoutMs: 0, delay: async () => {} }),
+		).resolves.toEqual({ count: undefined, paused: true })
+	})
+
+	it("does not pause a solver that is already paused, and counts without one that is not up", async () => {
+		const server = await fixture()
+		server.setPaused(true)
+		server.setDeposits(3)
+		await expect(settleBidsHoldingDeposits(server.socketPath)).resolves.toEqual({ count: 3, paused: false })
+		expect(server.actions).toEqual([])
+
+		const empty = mkdtempSync(join(tmpdir(), "simplex-supervisor-none-"))
+		cleanups.push(() => rmSync(empty, { recursive: true, force: true }))
+		const missing = socketPathFor(empty)
+		await expect(settleBidsHoldingDeposits(missing)).resolves.toEqual({ count: undefined, paused: false })
+	})
+
+	it("asks again only when the settled count says more than the operator was told", () => {
+		// More bids hold deposits than the confirmation named.
+		expect(depositsNeedConfirming(0, 1)).toBe(true)
+		expect(depositsNeedConfirming(2, 3)).toBe(true)
+		expect(depositsNeedConfirming(undefined, 1)).toBe(true)
+		// The same or fewer, or nothing where it had already said it could not check.
+		expect(depositsNeedConfirming(2, 2)).toBe(false)
+		expect(depositsNeedConfirming(2, 0)).toBe(false)
+		expect(depositsNeedConfirming(undefined, 0)).toBe(false)
+		expect(depositsNeedConfirming(undefined, undefined)).toBe(false)
+		// It named a count, and now there is none to check it against.
+		expect(depositsNeedConfirming(0, undefined)).toBe(true)
 	})
 
 	it("reports a missing socket as stopped", async () => {

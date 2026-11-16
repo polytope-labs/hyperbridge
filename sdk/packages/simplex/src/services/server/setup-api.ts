@@ -95,6 +95,7 @@ export async function handleSetupRequest(
 			usdStables: [...USD_STABLE_SYMBOLS],
 			maxConcurrentOrders: DEFAULT_MAX_CONCURRENT_ORDERS,
 			configPath: setup.configPath,
+			...(server.configEncrypted ? { configEncrypted: true as const } : {}),
 			knownTokens,
 			knownVaults,
 		}

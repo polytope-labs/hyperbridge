@@ -44,11 +44,8 @@ jobs:
         env:
           ENV: nexus-ci
 
-      - name: Install Docker Compose
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y docker-compose
-          docker compose version
+      - name: Check Docker Compose
+        run: docker compose version
 
       - name: Start Nexus CI indexer (in background)
         env:

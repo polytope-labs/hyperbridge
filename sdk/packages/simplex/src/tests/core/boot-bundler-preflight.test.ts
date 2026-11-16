@@ -58,6 +58,25 @@ describe("boot bundler EntryPoint check", () => {
 		)
 	})
 
+	it("does not probe the endpoints again when handed the resolved chains", async () => {
+		bundler.url = ""
+		// Nothing listens on this endpoint. Had boot probed it, the chain id would fail first.
+		const rpcUrls = ["http://127.0.0.1:1"]
+		await expect(
+			bootFiller(
+				{ ...config(), chains: [{ rpcUrls }] },
+				{
+					loggers: new LoggerContext({}),
+					scanners: { orders: stubOrderScanner([CHAIN_ID]) },
+					resolvedChains: [{ chainId: CHAIN_ID, rpcUrls }],
+					data: new MemoryDataStore(),
+					ownsData: true,
+					signer: privateKeySigner(`0x${"22".repeat(32)}`),
+				},
+			),
+		).rejects.toThrow(/Hyperbridge runs no bundler/)
+	})
+
 	it("warns about a leftover [simplex.overfillProtection] instead of refusing the config", async () => {
 		// The section is ignored, not rejected: an older `simplex init` wrote it
 		// uncommented, and refusing it would crash-loop those deployments. The boot

@@ -396,7 +396,8 @@ export class UiServer {
 	private configuredChainIds?: number[]
 	private readonly version: string
 	private readonly notificationAckTimeoutMs: number
-	private readonly configEncrypted: boolean
+	/** Whether the config file is saved encrypted. The setup wizard tells the operator which it is. */
+	readonly configEncrypted: boolean
 
 	constructor(opts: {
 		mode: UiMode

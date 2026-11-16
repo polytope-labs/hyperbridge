@@ -147,7 +147,7 @@ export function Operations(props: {
 				onClose={() => setPanel(undefined)}
 				wide
 				title="Chains & endpoints"
-				description="Manage the networks and providers used by this running filler."
+				description="Manage the networks and providers used by this running solver."
 			>
 				<Chains balances={props.balances} onBalancesChanged={props.onBalancesChanged} />
 			</OperatorSheet>

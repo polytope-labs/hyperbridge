@@ -12,11 +12,9 @@ import {
 	tradeableBooks,
 	type WizardState,
 } from "./state"
-import { StepSigner } from "./steps/Signer"
-import { StepSubstrate } from "./steps/Substrate"
+import { SIGNER_STATUS_ID, StepSigner } from "./steps/Signer"
 import { StepChains } from "./steps/Chains"
-import { StepTreasury } from "./steps/Treasury"
-import { StepReview } from "./steps/Review"
+import { LaunchProgress, useLaunch } from "./launch"
 import hyperfxLogo from "../assets/hyperfx-logo.webp"
 import { InstallAppButton } from "../components/InstallAppButton"
 
@@ -24,8 +22,6 @@ export interface StepProps {
 	state: WizardState
 	setState: React.Dispatch<React.SetStateAction<WizardState>>
 	defaults: SetupDefaults
-	/** Jumps to another step by id (e.g. "chains"); unknown ids are ignored. */
-	goToStep: (id: string) => void
 }
 
 export function signerRequirements(state: WizardState): string[] {
@@ -33,8 +29,8 @@ export function signerRequirements(state: WizardState): string[] {
 		const formatError = privateKeyFormatError(state.signerKey)
 		if (formatError) return [formatError]
 		if (state.signerKeyValidation === "valid" && state.signerAddress) return []
-		if (state.signerKeyValidation === "checking") return ["Checking the EVM private key…"]
-		return [state.signerKeyValidationMessage ?? "Verify the EVM private key before continuing."]
+		if (state.signerKeyValidation === "checking") return ["Checking the private key…"]
+		return [state.signerKeyValidationMessage ?? "Check the private key before continuing."]
 	}
 	if (state.signerType === "secretPhrase") {
 		const formatError =
@@ -42,35 +38,24 @@ export function signerRequirements(state: WizardState): string[] {
 		if (formatError) return [formatError]
 		if (state.signerKeyValidation === "valid" && state.signerAddress) return []
 		if (state.signerKeyValidation === "checking") return ["Checking the secret phrase…"]
-		return [state.signerKeyValidationMessage ?? "Verify the secret phrase before continuing."]
+		return [state.signerKeyValidationMessage ?? "Check the secret phrase before continuing."]
 	}
 	if (state.signerType === "mpcVault") {
 		const fields = [
 			["API token", state.mpcVault.apiToken],
-			["Vault UUID", state.mpcVault.vaultUuid],
-			["Wallet address", state.mpcVault.accountAddress],
-			["Callback client-signer public key", state.mpcVault.callbackClientSignerPublicKey],
+			["vault UUID", state.mpcVault.vaultUuid],
+			["wallet address", state.mpcVault.accountAddress],
+			["callback client-signer public key", state.mpcVault.callbackClientSignerPublicKey],
 		] as const
-		return fields
-			.filter(([, value]) => !value.trim())
-			.map(([label]) => `Enter the MPCVault ${label.toLowerCase()}.`)
+		return fields.filter(([, value]) => !value.trim()).map(([label]) => `Enter the MPCVault ${label}.`)
 	}
 	const fields = [
-		["Organization ID", state.turnkey.organizationId],
+		["organization ID", state.turnkey.organizationId],
 		["API public key", state.turnkey.apiPublicKey],
 		["API private key", state.turnkey.apiPrivateKey],
-		["Wallet address", state.turnkey.signWith],
+		["wallet address", state.turnkey.signWith],
 	] as const
-	return fields.filter(([, value]) => !value.trim()).map(([label]) => `Enter the Turnkey ${label.toLowerCase()}.`)
-}
-
-/** The Hyperbridge account is optional: without one the solver bids on the orderbook alone. With one, bids need an endpoint. */
-function substrateRequirements(state: WizardState): string[] {
-	const issues: string[] = []
-	if (state.substrateKey.trim() && !state.hyperbridgeWsUrl.trim().startsWith("ws")) {
-		issues.push("Enter a Hyperbridge WebSocket URL beginning with ws:// or wss://.")
-	}
-	return issues
+	return fields.filter(([, value]) => !value.trim()).map(([label]) => `Enter the Turnkey ${label}.`)
 }
 
 function chainRequirements(state: WizardState, defaults: SetupDefaults): string[] {
@@ -96,13 +81,18 @@ function chainRequirements(state: WizardState, defaults: SetupDefaults): string[
 	return []
 }
 
-/** The last word before launch: the whole config, through the same check the server gate runs. */
-function reviewRequirements(state: WizardState, defaults: SetupDefaults): string[] {
+/**
+ * What the last step needs before it can start the solver: its chains, then the
+ * whole config through the same check the server gate runs.
+ */
+function launchRequirements(state: WizardState, defaults: SetupDefaults): string[] {
+	const chains = chainRequirements(state, defaults)
+	if (chains.length > 0) return chains
 	try {
 		validateConfig(assembleConfig(state, defaults))
 		return []
 	} catch (error) {
-		return [error instanceof Error ? error.message : "Review the configuration."]
+		return [error instanceof Error ? error.message : "Check the configuration."]
 	}
 }
 
@@ -112,41 +102,24 @@ const STEPS: Array<{
 	description: string
 	component: React.ComponentType<StepProps>
 	requirements: (s: WizardState, defaults: SetupDefaults) => string[]
+	/** The step's own status line, while it says beside the field what is still needed. The footer then stays quiet. */
+	statusId?: (s: WizardState) => string | undefined
 }> = [
 	{
 		id: "signer",
-		title: "Signer",
-		description: "Choose the wallet infrastructure that will identify Simplex and authorize every fill.",
+		title: "Wallet",
+		description: "Simplex fills orders with your funds, so it needs a wallet to work from.",
 		component: StepSigner,
 		requirements: signerRequirements,
-	},
-	{
-		id: "substrate",
-		title: "Hyperbridge account",
-		description: "Connect the account Simplex uses to submit bids and settle execution fees on Hyperbridge.",
-		component: StepSubstrate,
-		requirements: substrateRequirements,
+		statusId: (s) =>
+			s.signerType === "privateKey" || s.signerType === "secretPhrase" ? SIGNER_STATUS_ID : undefined,
 	},
 	{
 		id: "chains",
 		title: "Chains",
-		description: "Simplex watches every chain. Fund the wallet and enable fills where you will fill.",
+		description: "Simplex watches every chain for orders. It fills on the ones you fund.",
 		component: StepChains,
-		requirements: chainRequirements,
-	},
-	{
-		id: "treasury",
-		title: "Treasury",
-		description: "Optionally connect vaults that keep idle liquidity productive and available for fills.",
-		component: StepTreasury,
-		requirements: () => [],
-	},
-	{
-		id: "review",
-		title: "Review & launch",
-		description: "Confirm the accounts and generated configuration before starting the solver.",
-		component: StepReview,
-		requirements: reviewRequirements,
+		requirements: launchRequirements,
 	},
 ]
 
@@ -158,15 +131,17 @@ export function Wizard(props: { defaults: SetupDefaults }) {
 		void loadOrderbook(setState)
 	}, [])
 
+	const launch = useLaunch(state, props.defaults)
+
 	const step = STEPS[stepIndex]
 	const StepComponent = step.component
-	const goToStep = (id: string) => {
-		const index = STEPS.findIndex((candidate) => candidate.id === id)
-		if (index >= 0) setStepIndex(index)
-	}
+	const lastStep = stepIndex === STEPS.length - 1
 	const requirements = step.requirements(state, props.defaults)
 	const canNext = requirements.length === 0
+	const statusId = step.statusId?.(state)
+	const listed = statusId ? [] : requirements
 	const requirementsId = `wizard-${step.id}-requirements`
+	const blockedById = statusId ?? requirementsId
 	const progress = ((stepIndex + 1) / STEPS.length) * 100
 
 	return (
@@ -250,44 +225,83 @@ export function Wizard(props: { defaults: SetupDefaults }) {
 					</header>
 
 					<div className="wizard-step-content">
-						<StepComponent state={state} setState={setState} defaults={props.defaults} goToStep={goToStep} />
+						{launch.phase === "starting" ? (
+							<LaunchProgress />
+						) : (
+							<StepComponent state={state} setState={setState} defaults={props.defaults} />
+						)}
+						{launch.phase === "failed" && (
+							<div className="card" role="alert">
+								<p className="error">{launch.error}</p>
+								{launch.saved && (
+									<p className="hint">Your configuration is saved. Correct it above, then retry.</p>
+								)}
+							</div>
+						)}
 					</div>
 
-					<footer className="footer-nav">
-						{stepIndex > 0 ? (
-							<button type="button" className="secondary" onClick={() => setStepIndex((i) => i - 1)}>
-								<span aria-hidden="true">←</span> Back
-							</button>
-						) : (
-							<span aria-hidden="true" />
-						)}
-						{stepIndex < STEPS.length - 1 && requirements.length > 0 ? (
-							<div className="wizard-requirements" id={requirementsId} role="status" aria-live="polite">
-								<span className="wizard-requirements-icon" aria-hidden="true">
-									!
-								</span>
-								<div>
-									<strong>Required to continue</strong>
-									<ul>
-										{requirements.map((requirement) => (
-											<li key={requirement}>{requirement}</li>
-										))}
-									</ul>
+					{launch.phase !== "starting" && (
+						<footer className="footer-nav">
+							{stepIndex > 0 ? (
+								<button
+									type="button"
+									className="secondary"
+									disabled={launch.phase === "saving"}
+									onClick={() => setStepIndex((i) => i - 1)}
+								>
+									<span aria-hidden="true">←</span> Back
+								</button>
+							) : (
+								<span aria-hidden="true" />
+							)}
+							{listed.length > 0 ? (
+								<div
+									className="wizard-requirements"
+									id={requirementsId}
+									role="status"
+									aria-live="polite"
+								>
+									<span className="wizard-requirements-icon" aria-hidden="true">
+										!
+									</span>
+									<div>
+										<strong>{lastStep ? "Required to start" : "Required to continue"}</strong>
+										<ul>
+											{listed.map((requirement) => (
+												<li key={requirement}>{requirement}</li>
+											))}
+										</ul>
+									</div>
 								</div>
-							</div>
-						) : null}
-						{stepIndex < STEPS.length - 1 && (
-							<button
-								type="button"
-								className="primary"
-								disabled={!canNext}
-								aria-describedby={!canNext ? requirementsId : undefined}
-								onClick={() => setStepIndex((i) => i + 1)}
-							>
-								Continue <span aria-hidden="true">→</span>
-							</button>
-						)}
-					</footer>
+							) : null}
+							{lastStep ? (
+								<button
+									type="button"
+									className="primary"
+									disabled={!canNext || launch.phase === "saving"}
+									aria-describedby={!canNext ? blockedById : undefined}
+									onClick={launch.start}
+								>
+									{launch.phase === "saving"
+										? "Saving configuration…"
+										: launch.phase === "failed"
+											? "Retry startup"
+											: "Save config & start Simplex"}
+									{launch.phase !== "saving" && <span aria-hidden="true"> →</span>}
+								</button>
+							) : (
+								<button
+									type="button"
+									className="primary"
+									disabled={!canNext}
+									aria-describedby={!canNext ? blockedById : undefined}
+									onClick={() => setStepIndex((i) => i + 1)}
+								>
+									Continue <span aria-hidden="true">→</span>
+								</button>
+							)}
+						</footer>
+					)}
 				</section>
 			</div>
 		</div>

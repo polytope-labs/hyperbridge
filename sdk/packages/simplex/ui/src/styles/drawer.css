@@ -87,10 +87,6 @@
 	user-select: text;
 }
 
-.drawer-popup.recovery-dialog > .drawer-content {
-	overflow-y: auto;
-}
-
 .drawer-popup[data-swiping] .drawer-content {
 	user-select: none;
 }

@@ -22,8 +22,18 @@ function stubFetch(answers: Record<string, number | { status: number }>) {
 	})
 }
 
+/** Answers per URL after a delay in milliseconds. Needs fake timers. */
+function stubSlowFetch(answers: Record<string, { chainId: number; afterMs: number }>) {
+	vi.stubGlobal("fetch", async (url: string | URL) => {
+		const { chainId, afterMs } = answers[String(url)]
+		await new Promise((resolve) => setTimeout(resolve, afterMs))
+		return OK(chainId)
+	})
+}
+
 afterEach(() => {
 	vi.unstubAllGlobals()
+	vi.useRealTimers()
 })
 
 describe("resolveChainConfigs", () => {
@@ -73,6 +83,60 @@ describe("resolveChainConfigs", () => {
 		await expect(
 			resolveChainConfigs([{ rpcUrls: ["https://a.example", "https://b.example"], bundlerUrl: "" }]),
 		).rejects.toThrow(/disagree on chainId/)
+	})
+
+	it("starts on the one endpoint that answered when the others failed", async () => {
+		stubFetch({
+			"https://a.example": 56,
+			"https://b.example": { status: 429 },
+			"https://c.example": { status: 503 },
+		})
+
+		const [resolved] = await resolveChainConfigs(
+			[{ rpcUrls: ["https://a.example", "https://b.example", "https://c.example"], bundlerUrl: "" }],
+			{ tolerateUnreachable: true },
+		)
+
+		expect(resolved.chainId).toBe(56)
+	})
+
+	it("waits for a slow endpoint at startup, and refuses the chain when it serves another one", async () => {
+		// Two fast endpoints agree, and the third answers last for another chain. Reads go to
+		// every endpoint, so starting without its answer would let it serve this chain.
+		vi.useFakeTimers()
+		stubSlowFetch({
+			"https://slow.example": { chainId: 84532, afterMs: 5_000 },
+			"https://b.example": { chainId: 8453, afterMs: 100 },
+			"https://c.example": { chainId: 8453, afterMs: 150 },
+		})
+		let settled = false
+		const resolving = resolveChainConfigs(
+			[{ rpcUrls: ["https://slow.example", "https://b.example", "https://c.example"], bundlerUrl: "" }],
+			{ tolerateUnreachable: true },
+		)
+		const outcome = expect(resolving).rejects.toThrow(/disagree on chainId/)
+		void resolving.catch(() => {}).finally(() => {
+			settled = true
+		})
+
+		await vi.advanceTimersByTimeAsync(4_999)
+		expect(settled).toBe(false)
+		await vi.advanceTimersByTimeAsync(1)
+		await outcome
+	})
+
+	it("waits for every endpoint when silence is not tolerated", async () => {
+		vi.useFakeTimers()
+		stubSlowFetch({
+			"https://slow.example": { chainId: 1, afterMs: 5_000 },
+			"https://b.example": { chainId: 56, afterMs: 100 },
+		})
+		const resolving = resolveChainConfigs([
+			{ rpcUrls: ["https://slow.example", "https://b.example"], bundlerUrl: "" },
+		])
+		const outcome = expect(resolving).rejects.toThrow(/disagree on chainId/)
+		await vi.advanceTimersByTimeAsync(5_000)
+		await outcome
 	})
 
 	it("ignores a silent endpoint when judging agreement", async () => {

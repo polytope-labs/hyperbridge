@@ -1,4 +1,4 @@
-import { type ReactNode, useCallback, useRef, useState } from "react"
+import { type CSSProperties, type ReactNode, useCallback, useRef, useState } from "react"
 import { api } from "../api"
 import { CopyHash } from "../components/CopyHash"
 import { usePolling } from "../lib/hooks"
@@ -51,6 +51,7 @@ export function OperatorOverview(props: {
 	// Tracked closely while the dialog shows it, otherwise only to spot one left pending.
 	usePolling(loadTopUp, progressOpen ? 5_000 : topUp?.pending ? 15_000 : 30_000)
 	const stablecoinLiquidity = availableStablecoinLiquidity(balances)
+	const hasHyperbridgeAccount = Boolean(status.addresses?.substrate)
 	const nativeSetups = (balances?.chains ?? []).flatMap((row) =>
 		row.nativeSetup
 			? [{ ...row.nativeSetup, chainId: row.chainId, symbol: row.native?.symbol ?? "native gas" }]
@@ -74,38 +75,47 @@ export function OperatorOverview(props: {
 							</p>
 						</div>
 						{status.addresses ? (
-							<CopyHash value={status.addresses.evm} copyLabel="Copy filler wallet address" />
+							<CopyHash value={status.addresses.evm} copyLabel="Copy solver wallet address" />
 						) : null}
 					</div>
 				)
 			})}
 
-			<section className="operator-metrics" aria-label="Runtime summary">
+			<section
+				className="operator-metrics"
+				aria-label="Runtime summary"
+				style={{ "--metric-columns": hasHyperbridgeAccount ? 4 : 3 } as CSSProperties}
+			>
 				<Metric label="Enabled networks" value={String(status.chains.length)} />
 				<Metric
 					label="Available liquidity"
 					value={stablecoinLiquidity === null ? "—" : `$${formatAmount(stablecoinLiquidity)}`}
 				/>
-				<Metric
-					label="BRIDGE available"
-					value={balances?.hyperbridge ? formatCompactAmount(balances.hyperbridge.free) : "—"}
-					title={balances?.hyperbridge ? `${balances.hyperbridge.free.toLocaleString()} BRIDGE` : undefined}
-					action={
-						balances?.hyperbridge ? (
-							<button
-								type="button"
-								className="secondary operator-metric-action"
-								data-pending={topUp?.pending ? "" : undefined}
-								// The tile is narrow; the pending pill says the short form and names the long one.
-								aria-label={topUp?.pending ? "Top up pending" : undefined}
-								title={topUp?.pending ? "Top up pending" : undefined}
-								onClick={() => (topUp?.pending ? setProgressOpen(true) : setTopUpOpen(true))}
-							>
-								{topUp?.pending ? "Pending" : "Top up"}
-							</button>
-						) : undefined
-					}
-				/>
+				{/* BRIDGE pays for bids on Hyperbridge, so a solver without an account there has none to show. */}
+				{hasHyperbridgeAccount ? (
+					<Metric
+						label="BRIDGE available"
+						value={balances?.hyperbridge ? formatCompactAmount(balances.hyperbridge.free) : "—"}
+						title={
+							balances?.hyperbridge ? `${balances.hyperbridge.free.toLocaleString()} BRIDGE` : undefined
+						}
+						action={
+							balances?.hyperbridge ? (
+								<button
+									type="button"
+									className="secondary operator-metric-action"
+									data-pending={topUp?.pending ? "" : undefined}
+									// The tile is narrow; the pending pill says the short form and names the long one.
+									aria-label={topUp?.pending ? "Top up pending" : undefined}
+									title={topUp?.pending ? "Top up pending" : undefined}
+									onClick={() => (topUp?.pending ? setProgressOpen(true) : setTopUpOpen(true))}
+								>
+									{topUp?.pending ? "Pending" : "Top up"}
+								</button>
+							) : undefined
+						}
+					/>
+				) : null}
 				<ReturnMetric onOpen={onOpenAnalytics} />
 			</section>
 
@@ -132,7 +142,7 @@ export function OperatorOverview(props: {
 						disabled={runtime.pending}
 						title="Drain in-flight fills, unwind eligible vault positions, and exit the process"
 					>
-						Stop filler
+						Stop solver
 					</button>
 				</div>
 			</section>

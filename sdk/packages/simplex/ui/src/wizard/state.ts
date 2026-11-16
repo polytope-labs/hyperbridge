@@ -1,6 +1,5 @@
 import { DEFAULT_ORDERBOOK_URLS } from "@/config/defaults"
 import { normalizeSymbol } from "@/config/asset-registry"
-import { vaultRowsToToml, type VaultRowDraft } from "../lib/vault-rows"
 import type { ChainDefault, ChainFunding, FillerConfig, SetupDefaults, SetupOrderbook } from "../types"
 
 export interface ChainDraft {
@@ -14,18 +13,17 @@ export interface ChainDraft {
 	fundingError?: string
 }
 
-export type VaultDraft = VaultRowDraft
-
 export type SignerType = "privateKey" | "secretPhrase" | "mpcVault" | "turnkey"
 
 export type SignerKeyValidation = "empty" | "invalid" | "checking" | "valid" | "error"
 
-export const EVM_PRIVATE_KEY_FORMAT_ERROR = "Enter a valid 64-character hexadecimal EVM private key."
-export const EVM_PRIVATE_KEY_INVALID_ERROR = "Invalid EVM private key."
+export const EVM_PRIVATE_KEY_FORMAT_ERROR =
+	"That is not a private key. It should be 64 hex characters, with or without 0x."
+export const EVM_PRIVATE_KEY_INVALID_ERROR = "This private key is not valid."
 
 export function privateKeyFormatError(value: string): string | undefined {
 	const trimmed = value.trim()
-	if (!trimmed) return "Enter the EVM private key."
+	if (!trimmed) return "Enter a private key."
 	return /^(0x)?[0-9a-fA-F]{64}$/.test(trimmed) ? undefined : EVM_PRIVATE_KEY_FORMAT_ERROR
 }
 
@@ -75,16 +73,10 @@ export interface WizardState {
 		grpcTarget: string
 	}
 	turnkey: { organizationId: string; apiPublicKey: string; apiPrivateKey: string; signWith: string }
-	substrateKey: string
-	substrateAddress?: string
-	generatedMnemonic?: string
-	hyperbridgeWsUrl: string
-	balanceCheck?: { funded: boolean; free: string; decimals: number }
 	chains: ChainDraft[]
 	/** The orderbook's books, read when the wizard opens. */
 	orderbook?: SetupOrderbook
 	orderbookError?: string
-	vaults: VaultDraft[]
 }
 
 export function initialState(defaults: SetupDefaults): WizardState {
@@ -103,8 +95,6 @@ export function initialState(defaults: SetupDefaults): WizardState {
 			grpcTarget: "",
 		},
 		turnkey: { organizationId: "", apiPublicKey: "", apiPrivateKey: "", signWith: "" },
-		substrateKey: "",
-		hyperbridgeWsUrl: defaults.hyperbridgeWs.mainnet,
 		chains: defaults.chains.map((meta) => ({
 				meta,
 				enabled: false,
@@ -112,7 +102,6 @@ export function initialState(defaults: SetupDefaults): WizardState {
 				// nothing to supply. One empty field otherwise, to type into.
 				rpcUrls: meta.defaultRpcUrls?.length ? [...meta.defaultRpcUrls] : [""],
 			})),
-		vaults: [],
 	}
 }
 
@@ -179,11 +168,6 @@ export function patchChain(state: WizardState, chainId: number, patch: Partial<C
 
 /** Client-side mirror of the CLI wizard's assembleConfig; the server gate is authoritative. */
 export function assembleConfig(state: WizardState, defaults: SetupDefaults): FillerConfig {
-	const chains = state.chains
-
-	const vaultRows = vaultRowsToToml(state.vaults)
-	const vaults = vaultRows.length > 0 ? vaultRows : undefined
-
 	const signer =
 		state.signerType === "privateKey"
 			? { type: "privateKey" as const, key: normalizeHexKey(state.signerKey) }
@@ -214,14 +198,9 @@ export function assembleConfig(state: WizardState, defaults: SetupDefaults): Fil
 			// The form collects plain strings; the config type wants the signer union / hex addresses.
 			signer: signer as FillerConfig["simplex"]["signer"],
 			maxConcurrentOrders: defaults.maxConcurrentOrders,
-			// Omitted without a key: the solver then bids on the orderbook alone.
-			...(state.substrateKey.trim()
-				? { substratePrivateKey: state.substrateKey.trim(), hyperbridgeWsUrl: state.hyperbridgeWsUrl.trim() }
-				: {}),
 		},
 		orderbook: { url: state.orderbook?.url ?? DEFAULT_ORDERBOOK_URLS.mainnet },
-		chains: chains.map((c) => ({ rpcUrls: c.rpcUrls.map((u) => u.trim()).filter(Boolean) })),
-		...(vaults ? { vault: { vaults } } : {}),
+		chains: state.chains.map((c) => ({ rpcUrls: c.rpcUrls.map((u) => u.trim()).filter(Boolean) })),
 	}
 }
 

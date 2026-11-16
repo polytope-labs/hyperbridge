@@ -53,7 +53,7 @@ export class InventoryRecorder {
 
 	start(): void {
 		this.balances.on("snapshot", this.onSnapshot)
-		// The provider has usually finished its first read by now, and would not announce it again.
+		// A read the provider already finished is not announced again. One still loading is skipped here.
 		void this.consider(this.balances.getSnapshot())
 	}
 

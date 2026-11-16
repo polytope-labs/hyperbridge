@@ -15,6 +15,7 @@ function actions() {
 		setUpdateChannel: vi.fn(),
 		openDataDirectory: vi.fn(),
 		openLog: vi.fn(),
+		resetConfiguration: vi.fn(),
 		quitApp: vi.fn(),
 		stopAndQuit: vi.fn(),
 	}
@@ -155,6 +156,7 @@ describe("native desktop menus", () => {
 			"restart-bundled-solver",
 			"stop-and-quit",
 			"open-current-log",
+			"reset-configuration",
 			"check-for-updates",
 			"update-channel",
 		]) {
@@ -162,6 +164,50 @@ describe("native desktop menus", () => {
 		}
 		expect(item(template, "solver-status").label).toBe("Simplex locked")
 		expect(item(template, "show-simplex").enabled).not.toBe(false)
+	})
+
+	it("offers the reset from the tray and the application menu", () => {
+		const callbacks = actions()
+		const tray = item(buildTrayMenuTemplate(runningModel, callbacks), "reset-configuration")
+		expect(tray.label).toBe("Reset Configuration…")
+		expect(tray.enabled).toBe(true)
+		;(tray.click as () => void)()
+		expect(callbacks.resetConfiguration).toHaveBeenCalledOnce()
+
+		const application = buildApplicationMenuTemplate(runningModel, callbacks, "darwin")[0]
+			.submenu as MenuItemConstructorOptions[]
+		expect(item(application, "reset-configuration").enabled).toBe(true)
+	})
+
+	it("withholds the reset while locked, and while an update stops the solver or installs", () => {
+		const callbacks = actions()
+		const blocked = [
+			{ ...runningModel, locked: true },
+			{ ...runningModel, update: { state: "stopping-solver", channel: "stable", targetVersion: "0.19.0" } as const },
+			{ ...runningModel, update: { state: "installing", channel: "stable", targetVersion: "0.19.0" } as const },
+		]
+		for (const model of blocked) {
+			const application = buildApplicationMenuTemplate(model, callbacks, "darwin")[0]
+				.submenu as MenuItemConstructorOptions[]
+			expect(item(buildTrayMenuTemplate(model, callbacks), "reset-configuration").enabled).toBe(false)
+			expect(item(application, "reset-configuration").enabled).toBe(false)
+		}
+		// An update that is only waiting for the solver to go idle has not started stopping it.
+		const waiting = {
+			...runningModel,
+			update: { state: "waiting-for-idle", channel: "stable", targetVersion: "0.19.0" } as const,
+		}
+		expect(item(buildTrayMenuTemplate(waiting, callbacks), "reset-configuration").enabled).toBe(true)
+	})
+
+	it("shows a reset in progress, and keeps the solver from being restarted under it", () => {
+		const callbacks = actions()
+		const model = { ...runningModel, status: { state: "stopped" } as const, resetting: true }
+		const tray = buildTrayMenuTemplate(model, callbacks)
+		expect(item(tray, "reset-configuration").label).toBe("Resetting Configuration…")
+		expect(item(tray, "reset-configuration").enabled).toBe(false)
+		expect(item(tray, "restart-solver").enabled).toBe(false)
+		expect(item(buildTrayMenuTemplate({ ...model, resetting: false }, callbacks), "restart-solver").enabled).toBe(true)
 	})
 
 	it("labels every solver status", () => {

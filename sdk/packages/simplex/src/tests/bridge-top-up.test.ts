@@ -265,6 +265,10 @@ function topUpWith(record: StoredBridgeTopUp, chain: { receipt?: { logs: unknown
 				getTransaction: async () => ({ hash: FILL_TX }),
 				getBlockNumber: async () => 100n,
 			}),
+			// The scans run on one endpoint at a time. Here the one endpoint is whatever `getPublicClient` returns.
+			getEndpointClients(this: { getPublicClient: (chain: string) => unknown }, chain: string) {
+				return [this.getPublicClient(chain)]
+			},
 		},
 		configService: {
 			getConfiguredChainIds: () => [8453, 56],
@@ -1476,6 +1480,46 @@ describe("BRIDGE top-up placement recovery", () => {
 			expect(saved.stage).toBe("placing")
 			expect(saved.error).toContain("Placement is unconfirmed")
 			expect(saved.error).toContain("range too wide")
+		} finally {
+			vi.clearAllTimers()
+			vi.useRealTimers()
+		}
+	})
+
+	it("takes the head and the logs from the same endpoint, and never the logs alone from a second one", async () => {
+		vi.useFakeTimers()
+		try {
+			const { topUp, data } = topUpWith(userOpPlacement())
+			const internals = topUp as unknown as TopUpInternals
+			internals.deps.tokenSender = { userOpReceipt: async () => null } as never
+			// The first endpoint is at the head but refuses the log range. The second is far behind,
+			// and would answer "no logs" for a range it has not reached.
+			const second: { fromBlock: bigint; toBlock: bigint }[] = []
+			const clients = [
+				payingClient({ latestBlock: 1_000_000n, getLogsError: new Error("range too wide") }),
+				payingClient({ latestBlock: 10n, onGetLogs: (range) => second.push(range) }),
+			]
+			// What is decided afterwards is read at the height the scan reached, on a chain whose
+			// clock there is long before the permit's expiry.
+			const evidence: bigint[] = []
+			installPayingClient(internals, {
+				latestBlock: 1_000_000n,
+				blockTimestamp: (blockNumber) => {
+					evidence.push(blockNumber)
+					return 0
+				},
+			})
+			;(internals.deps.clientManager as unknown as Record<string, unknown>).getEndpointClients = () => clients
+
+			await topUp.current()
+			await vi.advanceTimersByTimeAsync(0)
+
+			// The second endpoint scanned to its own head, never to the first one's.
+			expect(second.length).toBeGreaterThan(0)
+			expect(second.every((range) => range.toBlock <= 10n)).toBe(true)
+			// So nothing was decided about blocks only the first endpoint has seen.
+			expect(evidence.every((blockNumber) => blockNumber <= 10n)).toBe(true)
+			expect((await data.state.get()).bridgeTopUp!.stage).toBe("placing")
 		} finally {
 			vi.clearAllTimers()
 			vi.useRealTimers()

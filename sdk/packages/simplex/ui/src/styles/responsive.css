@@ -171,32 +171,15 @@
 	.markets-pricing,
 	.market-flow-heading,
 	.market-pricing-heading,
-	.treasury-heading,
 	.vault-editor-heading {
 		align-items: flex-start;
 		flex-direction: column;
 	}
 
-	.treasury-flow,
 	.vault-settings-grid,
 	.vault-custom-primary-fields,
 	.vault-custom-balance-fields {
 		grid-template-columns: 1fr;
-	}
-
-	.treasury-flow > div {
-		padding: 0.75rem 0;
-		border-top: 1px solid var(--border);
-		border-left: 0;
-	}
-
-	.treasury-flow > div:first-child {
-		padding-top: 0;
-		border-top: 0;
-	}
-
-	.treasury-flow > div:last-child {
-		padding-bottom: 0;
 	}
 
 	.vault-editor-actions {
@@ -226,20 +209,6 @@
 
 	.vault-row-actions {
 		margin-top: 0.15rem;
-	}
-
-	.review-launch-row {
-		align-items: stretch;
-		flex-direction: column;
-	}
-
-	.review-start-button {
-		width: 100%;
-	}
-
-	.review-launch-row > p {
-		max-width: none;
-		text-align: left;
 	}
 
 	.market-method-options {
@@ -309,53 +278,6 @@
 		margin-bottom: 0;
 	}
 
-	.substrate-account-options {
-		grid-template-columns: 1fr;
-		gap: 1.5rem;
-	}
-
-	.substrate-import-option {
-		padding-top: 1.5rem;
-		padding-left: 0;
-		border-top: 1px solid var(--border);
-		border-left: 0;
-	}
-
-	.substrate-balance {
-		grid-template-columns: 1fr;
-		align-items: start;
-	}
-
-	.substrate-balance-button {
-		justify-self: start;
-	}
-
-	.recovery-dialog {
-		width: calc(100% - 1rem);
-		max-height: calc(100dvh - 1rem);
-		border-radius: 1rem;
-	}
-
-	.recovery-dialog-header {
-		padding: 1.25rem 1rem 1rem;
-	}
-
-	.recovery-warning,
-	.recovery-words,
-	.recovery-copy-row,
-	.recovery-acknowledgement {
-		margin-right: 1rem;
-		margin-left: 1rem;
-	}
-
-	.recovery-dialog-footer {
-		padding: 0.9rem 1rem 1rem;
-	}
-
-	.recovery-dialog-footer button {
-		width: 100%;
-	}
-
 	.spread {
 		align-items: flex-start;
 		flex-direction: column;
@@ -363,6 +285,11 @@
 
 	.footer-nav button {
 		flex: 1;
+	}
+
+	/* The first step has no Back button, and its placeholder would push Continue off-centre. */
+	.footer-nav > span:empty {
+		display: none;
 	}
 
 	.footer-nav {
@@ -706,8 +633,7 @@
 		padding-bottom: max(1.5rem, env(safe-area-inset-bottom));
 	}
 
-	.market-dialog,
-	.recovery-dialog {
+	.market-dialog {
 		top: auto;
 		right: 0;
 		bottom: 0;
@@ -720,8 +646,7 @@
 		box-shadow: 0 -2rem 6rem rgba(0, 0, 0, 0.46);
 	}
 
-	.market-dialog-footer,
-	.recovery-dialog-footer {
+	.market-dialog-footer {
 		padding-bottom: max(1rem, env(safe-area-inset-bottom));
 	}
 
@@ -776,19 +701,6 @@
 		margin-left: -1rem;
 		padding-right: 1rem;
 		padding-left: 1rem;
-	}
-
-	.operator-send-grid {
-		grid-template-columns: 1fr;
-	}
-
-	.operator-send-wide,
-	.operator-send-actions {
-		grid-column: auto;
-	}
-
-	.operator-send-actions button {
-		width: 100%;
 	}
 }
 

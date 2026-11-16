@@ -458,6 +458,7 @@ await simplex.rebalancing.trigger()
 ```ts lineNumbers
 simplex.wallet.address
 // Native, USDC, USDT and every token in the orderbook's books, per chain.
+// `status` is "loading" until the first read lands, shortly after `Simplex.start` returns.
 simplex.wallet.balances()
 await simplex.wallet.send({
     chain: "EVM-8453",

@@ -40,7 +40,7 @@ const PAGE_TABS: Array<{
 	{ value: "history", label: "History", description: "Orders and bids", icon: ActivityIcon },
 	{ value: "analytics", label: "Analytics", description: "Profit and return", icon: AnalyticsIcon },
 	{ value: "wallet", label: "Wallet", description: "Funds and history", icon: WalletIcon },
-	{ value: "logs", label: "Logs", description: "Live filler output", icon: LogsIcon, desktopOnly: true },
+	{ value: "logs", label: "Logs", description: "Live solver output", icon: LogsIcon, desktopOnly: true },
 	{ value: "operations", label: "Operations", description: "Live configuration", icon: OperationsIcon },
 ]
 
@@ -48,7 +48,7 @@ const PAGE_COPY: Record<Tab, { eyebrow: string; title: string; description: stri
 	overview: {
 		eyebrow: "Live workspace",
 		title: "Overview",
-		description: "Post what simplex will pay, and watch your liquidity and the health of your running filler.",
+		description: "Post what simplex will pay, and watch your liquidity and the health of your running solver.",
 	},
 	orderbook: {
 		eyebrow: "Live market",
@@ -68,12 +68,12 @@ const PAGE_COPY: Record<Tab, { eyebrow: string; title: string; description: stri
 	wallet: {
 		eyebrow: "Treasury",
 		title: "Wallet",
-		description: "Move funds, put idle liquidity to work, and review what the filler wallet has submitted.",
+		description: "Move funds, put idle liquidity to work, and review what the solver wallet has submitted.",
 	},
 	logs: {
 		eyebrow: "Diagnostics",
 		title: "Logs",
-		description: "Everything the filler has logged since launch. The level sets what it records.",
+		description: "Everything the solver has logged since launch. The level sets what it records.",
 	},
 	operations: {
 		eyebrow: "Operator tools",
@@ -100,6 +100,15 @@ function formatUptime(seconds: number): string {
  * test than the layout's breakpoint, because a phone in landscape is wider than
  * it — and `/logs` sends one back to the overview rather than rendering.
  */
+/**
+ * How often the dashboard re-reads balances. The solver starts before its first
+ * balance read lands, so until then the snapshot says `loading` and is re-read
+ * every second, to show the balances as soon as they exist.
+ */
+export function balancePollMs(balances: BalanceSnapshot | undefined): number {
+	return balances?.status === "loading" ? 1_000 : 30_000
+}
+
 export function Operator(props: { status: StatusOperator; refresh: () => void }) {
 	const { status, refresh } = props
 	const [tab, setTab] = useTabRoute()
@@ -128,7 +137,7 @@ export function Operator(props: { status: StatusOperator; refresh: () => void })
 			setLoadError(err instanceof Error ? err.message : String(err))
 		}
 	}, [refresh])
-	usePolling(load, 30_000)
+	usePolling(load, balancePollMs(balances))
 
 	const togglePause = () =>
 		run(async () => {
@@ -139,7 +148,7 @@ export function Operator(props: { status: StatusOperator; refresh: () => void })
 	const stopFiller = () => {
 		if (
 			!window.confirm(
-				"Stop the filler? In-flight fills drain, vault positions may unwind, and the process exits.",
+				"Stop the solver? In-flight fills drain, vault positions may unwind, and the process exits.",
 			)
 		) {
 			return
@@ -152,7 +161,7 @@ export function Operator(props: { status: StatusOperator; refresh: () => void })
 	if (stopped) {
 		return (
 			<div className="card">
-				<h2>Filler stopping</h2>
+				<h2>Solver stopping</h2>
 				<p className="hint">
 					In-flight fills are draining and the process will exit. Restart it with `simplex run` — a persisted
 					pause state is honored on the next boot.
@@ -170,7 +179,7 @@ export function Operator(props: { status: StatusOperator; refresh: () => void })
 				</div>
 				<button type="button" className="operator-environment-trigger" onClick={() => setShowEnvironment(true)}>
 					<span className={`operator-status-dot ${status.paused ? "warn" : ""}`} />
-					<span>{status.paused ? "Filling paused" : "Filler running"}</span>
+					<span>{status.paused ? "Filling paused" : "Solver running"}</span>
 					<SettingsIcon aria-hidden="true" />
 				</button>
 			</header>
@@ -257,7 +266,7 @@ export function Operator(props: { status: StatusOperator; refresh: () => void })
 				open={showEnvironment}
 				onClose={() => setShowEnvironment(false)}
 				title="Environment"
-				description="Runtime identity and the local configuration used by this filler."
+				description="Runtime identity and the local configuration used by this solver."
 			>
 				<div className="operator-detail-list">
 					<div>
@@ -273,7 +282,7 @@ export function Operator(props: { status: StatusOperator; refresh: () => void })
 				</div>
 				{status.addresses ? (
 					<div className="operator-identity-list">
-						<IdentityRow label="Filler wallet" value={status.addresses.evm} />
+						<IdentityRow label="Solver wallet" value={status.addresses.evm} />
 						{status.addresses.substrate ? (
 							<IdentityRow label="Hyperbridge account" value={status.addresses.substrate} />
 						) : null}

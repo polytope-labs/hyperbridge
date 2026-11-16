@@ -92,6 +92,8 @@ function build(opts: {
 	latestNonce?: number
 	/** Nonce reported at `pending`; defaults to `latest`. */
 	pendingNonce?: number
+	/** What the public client reports at `pending` when its node is behind the one that sends. */
+	publicPendingNonce?: number
 	/** Make `getCode` throw on a read pinned to a block, to exercise a failed confirmation. */
 	codeReadError?: boolean
 	/** Make the bundler path's fresh-EOA `getCode` read (the second unblocked read) throw. */
@@ -139,7 +141,7 @@ function build(opts: {
 		getBalance: async () => opts.native,
 		getGasPrice: async () => GAS_PRICE,
 		getTransactionCount: async (args: { blockTag?: string } = {}) =>
-			(args.blockTag ?? "latest") === "pending" ? state.pendingNonce : state.nonce,
+			(args.blockTag ?? "latest") === "pending" ? (opts.publicPendingNonce ?? state.pendingNonce) : state.nonce,
 		waitForTransactionReceipt: async () => {
 			if (opts.receiptError) throw new Error("receipt wait timed out")
 			return { status: opts.receiptStatus ?? "success", blockNumber: 1n }
@@ -151,6 +153,7 @@ function build(opts: {
 		loggers: opts.logger ? { get: () => opts.logger } : undefined,
 		getPublicClient: () => publicClient,
 		getWalletClient: () => ({ chain: undefined, sendTransaction }),
+		getPendingNonce: async () => state.pendingNonce,
 	} as unknown as ChainClientManager
 	return {
 		service: new DelegationService(clientManager, configService, signer),
@@ -422,6 +425,22 @@ describe("delegation nonce", () => {
 		]
 		expect(tx.nonce).toBe(5)
 		expect(tx.authorizationList[0].nonce).toBe(6)
+	})
+
+	it("takes the direct tx's nonce from the client that sends it, not from a public read that is behind", async () => {
+		vi.mocked(resolvePendingPermit2Approval).mockResolvedValue(null)
+		trySendSponsored.mockResolvedValue(null)
+		const { service, sendTransaction } = build({
+			native: DIRECT_TX_COST,
+			latestNonce: 4,
+			pendingNonce: 5,
+			publicPendingNonce: 4,
+		})
+
+		expect(await service.setupDelegation(CHAIN)).toBe(true)
+
+		const [tx] = sendTransaction.mock.calls[0] as unknown as [{ nonce: number }]
+		expect(tx.nonce).toBe(5)
 	})
 
 	it("sends the batched delegate+approve tx at the pending nonce and signs the tuple one later", async () => {

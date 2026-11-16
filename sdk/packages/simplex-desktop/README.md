@@ -54,7 +54,8 @@ then save and acknowledge the replacement recovery code. Changes take effect on 
 recovery preserves the config and does not restart an already protected solver. Authorization expires
 after ten minutes. Cancelling before confirmation preserves existing credentials. A password reset
 removes the current passkey; replacing a passkey preserves an existing password fallback.
-Without a working sign-in or recovery method, the app does not delete or reset the profile.
+Without a working sign-in or recovery method, the app does not delete or reset the profile: remove the
+user-data directory by hand to start again.
 Old metadata backups and their corresponding password/recovery code may still decrypt the config;
 a restored older backup also still accepts the passkey it recorded, so replacement does not revoke it.
 
@@ -158,8 +159,31 @@ Each source retains five files of up to 1 MiB. Local diagnostics work without a 
 [Sentry error reporting](../../../docs/ai/changelog/2026-10-14-simplex-sentry-error-reporting.md).
 No native memory dumps are collected.
 
-Desktop removal leaves Electron's user-data directory in place. Neither this shell nor its installer
-contract deletes operator databases, logs, or configuration.
+**Reset Configuration…**, in the tray and application menus, returns Simplex to its first launch.
+It asks for confirmation, stops the solver and waits for it to exit, turns off launch at login, and
+relaunches. The relaunched app deletes every file in the user-data directory but its
+`simplex-profile` file before it opens it:
+`filler-config.toml` with the solver wallet's key, `desktop-vault.json`, the databases, paired
+devices, logs and the update channel. The reset needs an unlocked session, like **Stop solver**, and
+is unavailable while an update is stopping the solver or installing. Afterwards the funds in the
+solver wallet can be reached only with a backup of its key.
+
+The databases hold the bid records. A bid's deposit on Hyperbridge is reclaimed by retracting the
+bid, and the solver retracts from those records. The confirmation says how many bids still hold a
+deposit, or that it could not check because the solver is not running. After you confirm, Simplex
+pauses the solver and counts again, and asks once more if the count rose or can no longer be read. Reset once that count is
+zero and no BRIDGE top-up is in progress, unless those deposits are to be given up.
+
+The reset removes only the user-data directory, and the confirmation names it. It runs only in a
+directory Simplex set up for itself: the app's default one, or one that was empty when
+`--user-data-dir` first pointed at it. Simplex marks such a directory with an empty
+`simplex-profile` file. It refuses the home directory and any directory above it. Three things
+outside that directory stay: a passkey created for the old profile, which can be removed in the system's
+password manager; the update download cache; and the key the operating system's keychain holds for
+Simplex's encrypted storage.
+
+Desktop removal leaves Electron's user-data directory in place. Apart from **Reset Configuration**,
+neither this shell nor its installer contract deletes operator databases, logs, or configuration.
 Operators may remove that directory manually only after confirming no reclaimable deposits or records
 are needed. The Windows NSIS uninstaller explicitly disables app-data deletion; macOS and Linux
 removal likewise leave the per-user data directory untouched.

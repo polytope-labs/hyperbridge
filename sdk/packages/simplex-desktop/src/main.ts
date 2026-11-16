@@ -840,7 +840,7 @@ async function prepareDesktop(): Promise<void> {
 				try {
 					await sendSolverAction(socketPath, "stop")
 				} catch (error) {
-					// The update is called off. If the solver stops after all, that is reported as a failure.
+					// The stop was not asked for after all, so a solver that dies later is reported again.
 					intentionalStop = false
 					throw error
 				}

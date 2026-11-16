@@ -97,7 +97,7 @@ function operationItems(model: DesktopMenuModel, actions: DesktopMenuActions): M
 			id: "restart-bundled-solver",
 			label: "Restart with bundled solver",
 			visible: model.versionSkew,
-			enabled: model.versionSkew && canStop,
+			enabled: model.versionSkew && canStop && !updateInstalling(model.update),
 			click: run(actions.restartBundledSolver),
 		},
 		{ id: "stop-solver", label: "Stop solver", enabled: canStop, click: run(actions.stopSolver) },

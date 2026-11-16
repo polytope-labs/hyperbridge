@@ -98,9 +98,14 @@ it("follows an install started from the menu, and says why when it fails", async
 	const post = vi.spyOn(api, "post")
 	const error = vi.spyOn(toast, "error").mockReturnValue("")
 	await render()
-	get.mockResolvedValue({ state: "installing", channel: "stable", targetVersion: "0.21.0" })
+	get.mockResolvedValue({ state: "stopping-solver", channel: "stable", targetVersion: "0.21.0" })
 	await act(async () => {
 		await vi.advanceTimersByTimeAsync(15_000)
+	})
+	expect(element.textContent).toContain("Updating to 0.21.0")
+	get.mockResolvedValue({ state: "installing", channel: "stable", targetVersion: "0.21.0" })
+	await act(async () => {
+		await vi.advanceTimersByTimeAsync(2_000)
 	})
 	expect(element.textContent).toContain("Updating to 0.21.0")
 
@@ -112,6 +117,23 @@ it("follows an install started from the menu, and says why when it fails", async
 	expect(element.textContent).not.toContain("Updating")
 	expect(error).toHaveBeenCalledExactlyOnceWith("The update was not installed", { description: detail })
 	expect(post).not.toHaveBeenCalled()
+})
+
+it("says why when the installer fails after its own request was answered", async () => {
+	const get = vi.spyOn(api, "get").mockResolvedValue(ready)
+	vi.spyOn(api, "post").mockResolvedValue({ ok: true })
+	const error = vi.spyOn(toast, "error").mockReturnValue("")
+	await render()
+	// The failure lands before the first read that follows the answer.
+	const detail = "Update 0.21.0 could not be installed: code signature did not validate"
+	get.mockResolvedValue({ state: "error", channel: "stable", targetVersion: "0.21.0", detail })
+	await act(async () => element.querySelector("button")?.click())
+	expect(error).toHaveBeenCalledExactlyOnceWith("The update was not installed", { description: detail })
+	expect(element.textContent).not.toContain("Updating")
+	await act(async () => {
+		await vi.advanceTimersByTimeAsync(30_000)
+	})
+	expect(error).toHaveBeenCalledOnce()
 })
 
 it("reports a failed install once when its own request carries the failure", async () => {

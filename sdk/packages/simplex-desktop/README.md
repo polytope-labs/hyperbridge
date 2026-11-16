@@ -443,12 +443,13 @@ The install asks the solver to stop gracefully, so it finishes its in-flight fil
 **Stop solver**. The app then waits for both the private socket and the operating-system process to
 disappear before it invokes the installer. That wait has no deadline, because a stop cannot be taken
 back, and the solver is never killed. The dashboard shows an updating screen in place of its pages
-while the install runs. Until the app quits, nothing can start a solver: the restart menu items are
-disabled, and so are the reset and the channel selector.
+while the install runs, and it says to quit and reopen Simplex if the install never finishes. While
+the install runs, nothing can start a solver: both restart menu items are disabled, and so are the
+reset and the channel selector.
 
 The install does not start, and the update stays downloaded, when the solver is stopped, starting,
 stopping or unreachable, when it does not report its PID, when a reset is in progress, or when the
-stop request fails. The dashboard or a dialog says why. A stopped solver must be restarted first,
+stop request fails and the solver is not stopping. The dashboard or a dialog says why. A stopped solver must be restarted first,
 and the menu item is disabled until then. A previous-version solver that does not yet report its PID
 can still be attached and restarted gracefully with **Restart with bundled solver**, using release
 of the private socket as the exit proof.

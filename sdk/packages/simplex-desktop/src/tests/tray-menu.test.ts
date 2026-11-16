@@ -173,6 +173,9 @@ describe("native desktop menus", () => {
 			}
 			const template = buildTrayMenuTemplate(model, actions())
 			expect(item(template, "restart-solver").enabled).toBe(false)
+			// The menu can still read "running" for a moment after the stop was asked for.
+			const draining = buildTrayMenuTemplate({ ...runningModel, versionSkew: true, update: model.update }, actions())
+			expect(item(draining, "restart-bundled-solver").enabled).toBe(false)
 			expect(item(template, "update-channel").enabled).toBe(false)
 			expect(item(template, "check-for-updates").enabled).toBe(false)
 		}

@@ -215,6 +215,23 @@ describe("desktop update coordinator", () => {
 		test.instance.dispose()
 	})
 
+	it("goes on with the install when the stop request fails but the solver took it", async () => {
+		const test = coordinator({
+			requestSolverStop: vi.fn(async () => {
+				throw new Error("Simplex could not stop: timed out")
+			}),
+		})
+		vi.mocked(test.options.probeSolver)
+			.mockResolvedValueOnce(idleSolver())
+			.mockResolvedValue({ state: "stopping", pid: 42 })
+		test.instance.start()
+		finishDownload(test.updater, "0.17.0")
+		await test.instance.install()
+		expect(test.options.waitForExit).toHaveBeenCalledWith(42)
+		expect(test.updater.quitAndInstall).toHaveBeenCalledWith(false, true)
+		test.instance.dispose()
+	})
+
 	it("does not offer the download again when the updater failed before the stop was refused", async () => {
 		const test = coordinator()
 		vi.mocked(test.options.requestSolverStop).mockImplementation(async () => {
@@ -413,7 +430,12 @@ describe("desktop update coordinator", () => {
 	})
 
 	it("restarts the solver and rejects when the installer throws", async () => {
-		const test = coordinator()
+		let stateAtRestart: string | undefined
+		const test = coordinator({
+			restartSolver: vi.fn(async () => {
+				stateAtRestart = test.instance.status.state
+			}),
+		})
 		test.updater.quitAndInstall.mockImplementation(() => {
 			throw new Error("signature rejected")
 		})
@@ -421,6 +443,8 @@ describe("desktop update coordinator", () => {
 		finishDownload(test.updater, "0.17.0")
 		await expect(test.instance.install()).rejects.toThrow("signature rejected")
 		expect(test.options.restartSolver).toHaveBeenCalledOnce()
+		// A solver start is refused while an install is in progress, so the state has to leave it first.
+		expect(stateAtRestart).toBe("error")
 		expect(test.store.value.receipt).toBeUndefined()
 		expect(test.options.notify).not.toHaveBeenCalled()
 		test.instance.dispose()
@@ -448,6 +472,24 @@ describe("desktop update coordinator", () => {
 			targetVersion: "0.17.0",
 			detail: expect.stringContaining("code signature did not validate"),
 		})
+		test.instance.dispose()
+	})
+
+	it("notifies about an installer failure that arrives just after the install was handed over", async () => {
+		const test = coordinator()
+		test.updater.quitAndInstall.mockImplementation(() => {
+			queueMicrotask(() => test.updater.emit("error", new Error("installer exited")))
+		})
+		test.instance.start()
+		finishDownload(test.updater, "0.17.0")
+		await test.instance.install()
+		await vi.waitFor(() => expect(test.options.restartSolver).toHaveBeenCalledOnce())
+		await vi.waitFor(() =>
+			expect(test.options.notify).toHaveBeenCalledExactlyOnceWith(
+				"Simplex update was not installed",
+				expect.stringContaining("installer exited"),
+			),
+		)
 		test.instance.dispose()
 	})
 
@@ -549,6 +591,34 @@ describe("desktop update coordinator", () => {
 		await vi.waitFor(() => expect(test.updater.checkForUpdates).toHaveBeenCalled())
 		expect(probeSolver).toHaveBeenCalledOnce()
 		expect(test.options.notify).toHaveBeenCalledOnce()
+		test.instance.dispose()
+	})
+
+	it("drops the old channel's check when the channel changes while the last install is checked", async () => {
+		const store = new MemoryUpdateStore({
+			channel: "stable",
+			receipt: { fromVersion: "0.16.2", targetVersion: "0.17.0", installAttemptedAt: 2 },
+		})
+		let probed!: (status: ReturnType<typeof idleSolver>) => void
+		const probeSolver = vi.fn(
+			() =>
+				new Promise<ReturnType<typeof idleSolver>>((resolve) => {
+					probed = resolve
+				}),
+		)
+		const test = coordinator({ appVersion: "0.17.0", store, probeSolver })
+		const channels: Array<string | null> = []
+		test.updater.checkForUpdates.mockImplementation(async () => {
+			channels.push(test.updater.channel)
+			return undefined
+		})
+		test.instance.start()
+		test.instance.setChannel("beta")
+		probed({ ...idleSolver(), version: "0.17.0" })
+		await vi.waitFor(() => expect(test.updater.checkForUpdates).toHaveBeenCalled())
+		await new Promise((resolve) => setTimeout(resolve, 0))
+		expect(channels).toEqual(["beta"])
+		expect(test.instance.status.channel).toBe("beta")
 		test.instance.dispose()
 	})
 

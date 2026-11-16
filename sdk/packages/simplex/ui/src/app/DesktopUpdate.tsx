@@ -70,12 +70,18 @@ export function DesktopUpdateProvider(props: { children: ReactNode }) {
 		setRequested(true)
 		void api
 			.post("/api/desktop/update")
-			.catch((cause) =>
-				toast.error("The update was not installed", {
-					description: cause instanceof Error ? cause.message : String(cause),
-				}),
+			.then(
+				() => {
+					// The installer has the update. A failure from here on has no request to come back on.
+					requestOpen.current = false
+					sawInstall.current = true
+				},
+				(cause) =>
+					toast.error("The update was not installed", {
+						description: cause instanceof Error ? cause.message : String(cause),
+					}),
 			)
-			// The state is read again before the request is closed, so the dashboard does not flash back.
+			// The state is read again before the dashboard is let back, so it does not flash.
 			.then(load)
 			.finally(() => {
 				requestOpen.current = false
@@ -120,6 +126,10 @@ export function UpdatingScreen() {
 			<span className="eyebrow">Simplex update</span>
 			<h1>Updating{version ? ` to ${version}` : ""}</h1>
 			<p>The solver finishes its in-flight fills and stops. Simplex then installs the update and reopens.</p>
+			<p>
+				This can take a while when fills or a rebalance are in flight. If it never finishes, quit Simplex and
+				open it again.
+			</p>
 		</div>
 	)
 }

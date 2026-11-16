@@ -86,6 +86,8 @@ export class UpdateCoordinator {
 	private activeCheckChannel?: UpdateChannel
 	private started = false
 	private solverStoppedForInstall = false
+	/** Set while `install` will still reject with an installer failure. After that, `notify` reports it. */
+	private installRejects = false
 	private recovery?: Promise<string>
 	private readonly downloadChannels = new Map<string, UpdateChannel>()
 
@@ -145,8 +147,7 @@ export class UpdateCoordinator {
 			error: (error: unknown) => {
 				if (this.activeCheckChannel && this.activeCheckChannel !== this.preferences.channel) return
 				if (this.current.state === "installing") {
-					// Nobody waits on this path: the recovery reports through the state and `notify`.
-					void this.recoverInstallerFailure(error).catch(() => {})
+					void this.recoverInstallerFailure(error)
 					return
 				}
 				this.fail(error)
@@ -327,7 +328,7 @@ export class UpdateCoordinator {
 
 		this.setStatus({ state: "stopping-solver", targetVersion: version })
 		try {
-			await this.options.requestSolverStop()
+			await this.stopSolver()
 			// A stop cannot be taken back, so there is no deadline: the update goes in once the solver has drained.
 			await this.options.waitForExit(solver.pid)
 		} catch (error) {
@@ -336,28 +337,44 @@ export class UpdateCoordinator {
 			throw error
 		}
 		this.solverStoppedForInstall = true
-		if (this.status.state !== "stopping-solver") {
-			// The updater failed while the solver was stopping, so there is nothing sound to install.
-			const cause = new Error(this.current.detail ?? "The update is no longer available")
-			throw new Error(await this.recoverInstallerFailure(cause))
-		}
+		let failure: Promise<string> | undefined
+		this.installRejects = true
 		try {
-			this.preferences = {
-				...this.preferences,
-				receipt: {
-					fromVersion: this.options.appVersion,
-					targetVersion: version,
-					installAttemptedAt: this.options.now?.() ?? Date.now(),
-				},
+			try {
+				// The updater failed while the solver was stopping, so there is nothing sound to install.
+				if (this.status.state !== "stopping-solver") {
+					throw new Error(this.current.detail ?? "The update is no longer available")
+				}
+				this.preferences = {
+					...this.preferences,
+					receipt: {
+						fromVersion: this.options.appVersion,
+						targetVersion: version,
+						installAttemptedAt: this.options.now?.() ?? Date.now(),
+					},
+				}
+				this.options.store.write(this.preferences)
+				this.setStatus({ state: "installing", targetVersion: version })
+				this.options.updater.quitAndInstall(false, true)
+			} catch (error) {
+				failure = this.recoverInstallerFailure(error)
 			}
-			this.options.store.write(this.preferences)
-			this.setStatus({ state: "installing", targetVersion: version })
-			this.options.updater.quitAndInstall(false, true)
-		} catch (error) {
-			throw new Error(await this.recoverInstallerFailure(error))
+			// electron-updater reports most installer failures through its error event instead of throwing.
+			failure ??= this.recovery
+			if (failure) throw new Error(await failure)
+		} finally {
+			this.installRejects = false
 		}
-		// electron-updater reports most installer failures through its error event instead of throwing.
-		if (this.recovery) throw new Error(await this.recovery)
+	}
+
+	/** Asks the solver to stop. A request that fails after the solver took it still counts as a stop. */
+	private async stopSolver(): Promise<void> {
+		try {
+			await this.options.requestSolverStop()
+		} catch (error) {
+			const solver = await this.options.probeSolver().catch(() => undefined)
+			if (solver?.state !== "stopping" && solver?.state !== "stopped") throw error
+		}
 	}
 
 	/**
@@ -374,8 +391,7 @@ export class UpdateCoordinator {
 
 	private async runRecovery(error: unknown): Promise<string> {
 		const version = this.current.targetVersion
-		// A failure that arrives while `install` is still pending reaches the operator as its rejection.
-		const installPending = Boolean(this.installAttempt)
+		const rejected = this.installRejects
 		const problems: string[] = []
 		const detail = () => [`Update ${version} could not be installed: ${errorMessage(error)}`, ...problems].join("; ")
 		this.preferences = { ...this.preferences, receipt: undefined }
@@ -395,7 +411,7 @@ export class UpdateCoordinator {
 				this.fail(new Error(detail()))
 			}
 		}
-		if (!installPending) this.options.notify("Simplex update was not installed", `${detail()}.`)
+		if (!rejected) this.options.notify("Simplex update was not installed", `${detail()}.`)
 		return detail()
 	}
 

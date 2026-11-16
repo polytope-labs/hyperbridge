@@ -67,7 +67,7 @@ import {
 } from "./tray-menu"
 import { TRAY_ICON_STATES, trayIconPath, trayIconRetinaPath } from "./tray-icon"
 import { macTeamIdFromAppPackage, updateAuthenticityForInstallation } from "./update-authenticity"
-import { UpdateCoordinator, waitForSolverExit, type UpdateStatus } from "./update-coordinator"
+import { UpdateCoordinator, updateInstalling, waitForSolverExit, type UpdateStatus } from "./update-coordinator"
 import { FileUpdateStore, type UpdateChannel } from "./update-store"
 
 const { autoUpdater } = electronUpdater
@@ -175,6 +175,10 @@ const menuActions: DesktopMenuActions = {
 	toggleLoginItem: () => toggleLoginItem(),
 	showAbout: () => app.showAboutPanel(),
 	checkForUpdates: () => updateCoordinator?.checkNow(),
+	installUpdate: () =>
+		installUpdate().catch((error) =>
+			dialog.showErrorBox("Simplex could not install the update", errorMessage(error)),
+		),
 	setUpdateChannel: (channel: UpdateChannel) => updateCoordinator?.setChannel(channel),
 	openDataDirectory: () => openDataDirectory(),
 	openLog: () => openCurrentLog(),
@@ -283,7 +287,8 @@ function trackDesktopSession(): void {
 }
 
 async function startOrAttachSolver(fatal: boolean, background = false): Promise<boolean> {
-	if (resetting) return false
+	// A reset is deleting the profile, and an update is replacing the solver it has just stopped.
+	if (resetting || updateInstalling(updateStatus)) return false
 	if (vault && !vault.isUnlocked() && !background) {
 		await safeShowWindow()
 		return false
@@ -380,6 +385,12 @@ async function restartBundledSolver(): Promise<void> {
 		}
 	}
 	await startOrAttachSolver(false)
+}
+
+/** Stops the solver and installs the downloaded update. Only the operator's click starts it. */
+async function installUpdate(): Promise<void> {
+	if (!updateCoordinator) throw new Error("Updates are not available in this build")
+	await updateCoordinator.install()
 }
 
 function toggleLoginItem(): void {
@@ -572,8 +583,10 @@ async function createWindow(notificationPath?: string): Promise<void> {
 		return
 	}
 	if (!supervisor) return
+	// An installing update has stopped the solver itself, and the window shows its progress.
 	if (
 		(!vault || vault.isUnlocked()) &&
+		!updateInstalling(updateStatus) &&
 		(supervisor.status.state === "stopped" || supervisor.status.state === "unreachable")
 	) {
 		await dialog.showMessageBox({
@@ -742,6 +755,7 @@ async function prepareDesktop(): Promise<void> {
 		},
 		start: async (key) => {
 			if (resetting) throw new Error("Simplex is being reset")
+			if (updateInstalling(updateStatus)) throw new Error("Simplex is installing an update")
 			if (startPromise) await startPromise
 			const launch = { ...daemonLaunch!, configKey: Buffer.from(key) }
 			intentionalStop = false
@@ -774,6 +788,7 @@ async function prepareDesktop(): Promise<void> {
 			uiDistDir: dirname(resources.ui),
 			desktopVersion: app.getVersion(),
 			access: vault,
+			update: { status: () => updateStatus, install: installUpdate },
 			onSolverStop: () => {
 				intentionalStop = true
 			},
@@ -822,7 +837,13 @@ async function prepareDesktop(): Promise<void> {
 			canRestartSolver: () => Boolean(daemonLaunch?.configKey) && !resetting,
 			requestSolverStop: async () => {
 				intentionalStop = true
-				await sendSolverAction(socketPath, "stop")
+				try {
+					await sendSolverAction(socketPath, "stop")
+				} catch (error) {
+					// The update is called off. If the solver stops after all, that is reported as a failure.
+					intentionalStop = false
+					throw error
+				}
 			},
 			restartSolver: async () => {
 				intentionalStop = false
@@ -830,7 +851,13 @@ async function prepareDesktop(): Promise<void> {
 				if (!(await startOrAttachSolver(false, true))) throw new Error("Simplex could not restart the solver")
 				await safeShowWindow()
 			},
-			waitForExit: (pid) => waitForSolverExit({ pid, probe: () => probeHealth(socketPath) }),
+			waitForExit: async (pid) => {
+				await waitForSolverExit({
+					pid,
+					timeoutMs: Number.POSITIVE_INFINITY,
+					probe: () => probeHealth(socketPath),
+				})
+			},
 			onChange: (next) => {
 				updateStatus = next
 				installingUpdate = next.state === "installing"

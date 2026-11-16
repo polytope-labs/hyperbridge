@@ -157,6 +157,38 @@ button.operator-nav-item[data-active="true"] {
 	letter-spacing: 0.03em;
 }
 
+/* The update button sits at the bottom of the sidebar, above the version line. */
+button.operator-update-nav {
+	flex: none;
+	min-height: 0;
+	margin-top: auto;
+	padding-block: 0.5rem;
+	border-color: rgba(74, 222, 255, 0.22);
+	background:
+		linear-gradient(135deg, rgba(74, 222, 255, 0.08), rgba(255, 53, 235, 0.05)),
+		rgba(255, 255, 255, 0.012);
+	color: var(--text);
+}
+
+button.operator-update-nav:hover:not(:disabled) {
+	border-color: rgba(74, 222, 255, 0.4);
+	background:
+		linear-gradient(135deg, rgba(74, 222, 255, 0.12), rgba(255, 53, 235, 0.08)),
+		var(--card-raised);
+	color: var(--text);
+}
+
+.operator-update-nav + .operator-sidebar-footer {
+	margin-top: 0.7rem;
+}
+
+/* At the window's minimum height the nav and the button fill the sidebar, so the button drops its second line. */
+@media (max-height: 700px) {
+	.operator-update-nav small {
+		display: none;
+	}
+}
+
 .operator-main {
 	min-width: 0;
 	min-height: 0;

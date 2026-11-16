@@ -30,7 +30,7 @@ the user-data directory open while the app runs and Windows will not delete an o
 `resetAvailable` in `src/tray-menu.ts` decides when a reset may start: the session is unlocked, no
 reset is under way, and no update is stopping the solver or installing. The menu item uses it, and
 so does the action, before the dialog and again after it. While a reset is under way the item reads
-"Resetting Configuration…", nothing can start the solver, and a staged update does not install.
+"Resetting Configuration…", nothing can start the solver, and a downloaded update cannot be installed.
 
 The reset deletes the only local copy of the solver wallet's key, and the bid records the solver
 retracts from to reclaim deposits. The dialog says both.

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState, type ComponentType, type SVGProps } from "react"
 import { api } from "../api"
+import { UpdateButton } from "../app/DesktopUpdate"
 import { type OperatorTab, useTabRoute } from "../lib/route"
 import hyperfxLogo from "../assets/hyperfx-logo.webp"
 import { CopyHash } from "../components/CopyHash"
@@ -208,6 +209,7 @@ export function Operator(props: { status: StatusOperator; refresh: () => void })
 						})}
 						<InstallAppButton variant="nav" />
 					</nav>
+					<UpdateButton />
 					<div className="operator-sidebar-footer">
 						<span>Version {status.version}</span>
 						<span>Up {formatUptime(status.uptimeSec)}</span>

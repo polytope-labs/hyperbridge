@@ -42,4 +42,4 @@ through `updateHostParams`, so it is fully trusted with the host; a `hostManager
 could withdraw. The inherited `onAccept` (Withdraw, SetHostParam, SetAdmin) and `init` work as
 before.
 
-Neither contract is wired into any deploy script.
+`evm/script/DeployOwnableHandlerAndHostManager.s.sol` deploys both contracts.

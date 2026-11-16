@@ -28,6 +28,10 @@ services:
             - --allow-schema-migration
             - --unsafe
             - --log-level=${LOG_LEVEL:-info}
+            # Finalized blocks only, as on testnet and mainnet. The node indexes unfinalized blocks
+            # unless this is false, and a fork then rewinds every chain in the database. An EVM
+            # node that has not stored a block yet cannot rewind and exits on every start.
+            - --unfinalized-blocks=false
             - --store-cache-async=false
             - --store-cache-threshold=1
 

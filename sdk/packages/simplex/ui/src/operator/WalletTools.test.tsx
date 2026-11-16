@@ -2,7 +2,7 @@
 import { act } from "react"
 import { createRoot, type Root } from "react-dom/client"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
-import { api } from "../api"
+import { ApiError, api } from "../api"
 import type { BalanceSnapshot } from "../types"
 import { WalletTools } from "./WalletTools"
 
@@ -28,6 +28,15 @@ async function enter(input: HTMLInputElement, value: string) {
 	await act(async () => {
 		Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set?.call(input, value)
 		input.dispatchEvent(new Event("input", { bubbles: true }))
+	})
+}
+
+/** Pastes `text` into `input` the way a browser does: one event that carries the clipboard. */
+async function paste(input: HTMLInputElement, text: string) {
+	await act(async () => {
+		const event = new Event("paste", { bubbles: true, cancelable: true })
+		Object.defineProperty(event, "clipboardData", { value: { getData: () => text } })
+		input.dispatchEvent(event)
 	})
 }
 
@@ -480,6 +489,92 @@ describe("send funds", () => {
 		// The review says 1, which cannot pass for a thousand the way 1.000 can.
 		await confirmReview(sheet, "Send 1 ETH")
 		expect(api.post).toHaveBeenCalledWith("/api/send", expect.objectContaining({ amount: "1" }))
+	})
+
+	it("does not enter a pasted 1,500, and says it can be read two ways", async () => {
+		await render()
+		const sheet = await openSend()
+		await paste(amountInput(sheet), "1,500")
+		expect(amountInput(sheet).value).toBe("")
+		expect(sheet.querySelector(".send-amount-error")?.textContent).toBe(
+			"1,500 can mean 1500 or 1.5, so it was not entered. Type the amount.",
+		)
+		expect(button(sheet, "Send").disabled).toBe(true)
+
+		// The next amount that is entered takes the notice away.
+		await enter(amountInput(sheet), "1500")
+		expect(amountInput(sheet).value).toBe("1,500")
+		expect(sheet.querySelector(".send-amount-error")).toBeNull()
+	})
+
+	it("takes 1,500 from a composing keyboard as typing, one key at a time", async () => {
+		await render()
+		const sheet = await openSend()
+		// A composing keyboard puts its whole composition in the field on every key, and names it.
+		for (const composed of ["1", "1,", "1,5", "1,50", "1,500"]) {
+			await act(async () => {
+				const input = amountInput(sheet)
+				Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set?.call(input, composed)
+				const event = new Event("input", { bubbles: true })
+				Object.assign(event, { inputType: "insertCompositionText", data: composed })
+				input.dispatchEvent(event)
+			})
+		}
+		expect(amountInput(sheet).value).toBe("1.500")
+		expect(sheet.querySelector(".send-amount-error")).toBeNull()
+	})
+
+	it("does not enter 1,500 dropped over a selected amount, where the old amount shares its comma", async () => {
+		await render()
+		const sheet = await openSend()
+		await enter(amountInput(sheet), "1000")
+		await act(async () => {
+			const input = amountInput(sheet)
+			// The browser has already replaced the selected text when the event arrives.
+			Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set?.call(input, "1,500")
+			input.setSelectionRange(5, 5)
+			const event = new Event("input", { bubbles: true })
+			Object.assign(event, { inputType: "insertFromDrop", dataTransfer: { getData: () => "1,500\n" } })
+			input.dispatchEvent(event)
+		})
+		expect(amountInput(sheet).value).toBe("1,000")
+		expect(sheet.querySelector(".send-amount-error")?.textContent).toContain("1,500 can mean 1500 or 1.5")
+	})
+
+	it("enters a pasted amount that reads one way only", async () => {
+		await render()
+		const sheet = await openSend()
+		await paste(amountInput(sheet), "1,500.25")
+		expect(amountInput(sheet).value).toBe("1,500.25")
+		await paste(amountInput(sheet), "")
+		expect(amountInput(sheet).value).toBe("1,500.25")
+		expect(sheet.querySelector(".send-amount-error")).toBeNull()
+	})
+
+	it("clears the amount after a send that got no answer, and says it may have gone through", async () => {
+		vi.mocked(api.post).mockRejectedValueOnce(new TypeError("Failed to fetch"))
+		await render()
+		await send()
+
+		expect(document.querySelector("p.error")?.textContent).toContain("may have gone through")
+		expect(document.querySelector<HTMLInputElement>('input[placeholder="0.00"]')?.value).toBe("")
+		expect(document.querySelector(".send-success")).toBeNull()
+	})
+
+	it("treats a proxy's error as no answer, and shows the solver's own refusal as it is", async () => {
+		vi.mocked(api.post).mockRejectedValueOnce(new ApiError(504, "HTTP 504"))
+		await render()
+		await send()
+		expect(document.querySelector("p.error")?.textContent).toContain("may have gone through")
+
+		vi.mocked(api.post).mockRejectedValueOnce(new ApiError(500, "The transfer reverted"))
+		const sheet = document.querySelector<HTMLElement>('[role="dialog"]')!
+		await enter(amountInput(sheet), "25")
+		await click(button(sheet, "Send"))
+		await confirmReview(sheet, "Send 25 ETH")
+		expect(document.querySelector("p.error")?.textContent).toBe("The transfer reverted")
+		// A failed send does not leave its amount in the form either.
+		expect(amountInput(sheet).value).toBe("")
 	})
 
 	it("stays open while a send is in flight, and then shows its outcome", async () => {

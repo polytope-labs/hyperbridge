@@ -161,7 +161,8 @@ No native memory dumps are collected.
 
 **Reset Configuration…**, in the tray and application menus, returns Simplex to its first launch.
 It asks for confirmation, stops the solver and waits for it to exit, turns off launch at login, and
-relaunches. The relaunched app deletes every file in the user-data directory before it opens it:
+relaunches. The relaunched app deletes every file in the user-data directory but its
+`simplex-profile` file before it opens it:
 `filler-config.toml` with the solver wallet's key, `desktop-vault.json`, the databases, paired
 devices, logs and the update channel. The reset needs an unlocked session, like **Stop solver**, and
 is unavailable while an update is stopping the solver or installing. Afterwards the funds in the
@@ -173,9 +174,11 @@ deposit, or that it could not check because the solver is not running. After you
 pauses the solver and counts again, and asks once more if the count rose or can no longer be read. Reset once that count is
 zero and no BRIDGE top-up is in progress, unless those deposits are to be given up.
 
-The reset removes only the user-data directory, and the confirmation names it. It refuses to run
-when `--user-data-dir` points at the home directory or a directory above it. Three things outside
-that directory stay: a passkey created for the old profile, which can be removed in the system's
+The reset removes only the user-data directory, and the confirmation names it. It runs only in a
+directory Simplex set up for itself: the app's default one, or one that was empty when
+`--user-data-dir` first pointed at it. Simplex marks such a directory with an empty
+`simplex-profile` file. It refuses the home directory and any directory above it. Three things
+outside that directory stay: a passkey created for the old profile, which can be removed in the system's
 password manager; the update download cache; and the key the operating system's keychain holds for
 Simplex's encrypted storage.
 

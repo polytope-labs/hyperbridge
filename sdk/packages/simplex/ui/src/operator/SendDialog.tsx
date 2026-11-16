@@ -2,7 +2,7 @@ import { useId, useMemo, useState } from "react"
 import { toast } from "sonner"
 import { chainByChainId } from "@/cli/init/chains"
 import { formatChainKey, parseChainKey } from "@/config/interpolated-curve"
-import { api } from "../api"
+import { ApiError, api } from "../api"
 import { AmountInput, groupThousands, trimAmount } from "../components/AmountInput"
 import { ChainLogo } from "../components/ChainLogo"
 import { CheckIcon, CloseIcon, DashedCircleIcon, ExternalLinkIcon, PasteIcon } from "../components/InterfaceIcons"
@@ -56,6 +56,11 @@ interface SendAsset {
 }
 
 const PERCENTAGES = [25, 50, 75, 100] as const
+/** Statuses a proxy in front of the solver answers with. The solver's own send handler never does. */
+const PROXY_STATUSES = [502, 503, 504]
+// The wallet history is no check here: a send is written to it only once the solver has its outcome.
+const NO_ANSWER =
+	"The solver did not answer, so this send may have gone through. Wait a few minutes and check the balance before you send again."
 /** Fraction digits a percentage fill keeps. It rounds down, so it never asks for more than is held. */
 const PERCENTAGE_FRACTION_DIGITS = 6
 const ADDRESS = /^0x[0-9a-fA-F]{40}$/
@@ -114,6 +119,12 @@ export function SendDialog(props: {
 	const [custom, setCustom] = useState(false)
 	const [customToken, setCustomToken] = useState("")
 	const [amount, setAmount] = useState("")
+	/** Text that was not entered because it reads two ways, such as 1,500. Any new amount clears it. */
+	const [unread, setUnread] = useState<string>()
+	const changeAmount = (raw: string) => {
+		setUnread(undefined)
+		setAmount(raw)
+	}
 	const [to, setTo] = useState("")
 	const [result, setResult] = useState<SendResult & { explorerUrl?: string; sent: SentSummary }>()
 	const [sending, setSending] = useState(false)
@@ -218,16 +229,21 @@ export function SendDialog(props: {
 					amount: summary.amount,
 					to: summary.to,
 				})
+				// `act` gets no "Sent" label here because a pending response sets `result`, and the
+				// success screen already renders from it.
 				setResult({
 					...res,
 					explorerUrl,
 					sent: { amount: summary.amount, symbol: summary.symbol, network: summary.chainLabel },
 				})
-				// Clear the amount whatever the outcome: a send that came back pending (202) must
-				// not be re-submitted by the next click. `act` gets no "Sent" label here because a
-				// pending response sets `result`, and the success screen already renders from it.
-				setAmount("")
+			} catch (error) {
+				// No answer is not a refusal: the solver may have submitted before the connection dropped.
+				const answered = error instanceof ApiError && !PROXY_STATUSES.includes(error.status)
+				throw answered ? error : new Error(NO_ANSWER)
 			} finally {
+				// The amount is cleared whatever the outcome. A send that came back pending, or that
+				// failed after it was submitted, must not be sent again by the next click.
+				changeAmount("")
 				// The review stays up while the send is in flight, then gives way to the outcome.
 				setReview(undefined)
 				setSending(false)
@@ -259,7 +275,7 @@ export function SendDialog(props: {
 		clear()
 		setResult(undefined)
 		setReview(undefined)
-		setAmount("")
+		changeAmount("")
 		setTo("")
 		setCustom(false)
 		setCustomToken("")
@@ -401,8 +417,20 @@ export function SendDialog(props: {
 								{custom ? "Custom token" : symbol}
 							</span>
 						</div>
-						<AmountInput id={amountId} value={amount} invalid={exceeds} onValueChange={setAmount} />
+						<AmountInput
+							id={amountId}
+							value={amount}
+							invalid={exceeds}
+							onValueChange={changeAmount}
+							onAmbiguous={setUnread}
+						/>
 						{exceeds ? <p className="send-amount-error">More than the {balance.label} available</p> : null}
+						{unread ? (
+							<p className="send-amount-error" role="status">
+								{unread} can mean {unread.replace(/[\s,]/g, "")} or{" "}
+								{trimAmount(unread.replace(/\s/g, "").replace(",", "."))}, so it was not entered. Type the amount.
+							</p>
+						) : null}
 						<div className="send-amount-foot">
 							<small className="operator-send-balance" data-status={balance.status} aria-live="polite">
 								Available <strong>{balance.label}</strong>
@@ -418,7 +446,7 @@ export function SendDialog(props: {
 											type="button"
 											disabled={!fill}
 											aria-pressed={fill !== undefined && fill === amount.trim()}
-											onClick={() => fill && setAmount(fill)}
+											onClick={() => fill && changeAmount(fill)}
 										>
 											{percentage === 100 ? "Max" : `${percentage}%`}
 										</button>

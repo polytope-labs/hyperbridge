@@ -9,6 +9,7 @@ type Behaviour =
 	| { revert: true; afterMs?: number }
 	| { refuse: number }
 	| { status: number; afterMs?: number }
+	| { failsOnce: number; answer: unknown }
 	| { hang: true }
 	| { script: (method: string) => unknown }
 
@@ -31,6 +32,11 @@ async function endpoint(behaviour: Behaviour): Promise<{ url: string; calls: () 
 		req.on("end", () => {
 			calls += 1
 			if ("hang" in behaviour) return
+			if ("failsOnce" in behaviour && calls === 1) {
+				res.writeHead(behaviour.failsOnce)
+				res.end()
+				return
+			}
 			if ("status" in behaviour) {
 				setTimeout(() => {
 					res.writeHead(behaviour.status)
@@ -212,6 +218,13 @@ describe("raceTransport reads that go in list order", () => {
 		await expect(ask(urls, "eth_call", call("0x7ecebe00"))).resolves.toBe(word(6))
 	})
 
+	it("asks in order for a nonce read that is batched into a multicall", async () => {
+		// aggregate3 with the EntryPoint nonce read somewhere inside it.
+		const batched = [{ to: `0x${"22".repeat(20)}`, data: `0x82ad56cb${"00".repeat(96)}35567e1a${"00".repeat(64)}` }]
+		const urls = [await url({ answer: word(6), afterMs: 200 }), await url({ answer: word(5) })]
+		await expect(ask(urls, "eth_call", batched)).resolves.toBe(word(6))
+	})
+
 	it("still races any other call", async () => {
 		const urls = [await url({ answer: word(6), afterMs: 200 }), await url({ answer: word(5) })]
 		await expect(ask(urls, "eth_call", call("0x70a08231"))).resolves.toBe(word(5))
@@ -227,6 +240,31 @@ describe("raceTransport reads that go in list order", () => {
 	it("moves to the next endpoint when the first cannot answer", async () => {
 		const urls = [await refusedUrl(), await url({ answer: "0x9" })]
 		await expect(ask(urls, "eth_getTransactionCount")).resolves.toBe("0x9")
+	})
+})
+
+describe("ChainClientManager nonce for a send", () => {
+	// A stub config: the real one refuses two endpoints on one host, which local servers always are.
+	const managerFor = (rpcUrls: string[]) =>
+		new ChainClientManager({
+			getChainConfig: () => ({ chainId: 1, rpcUrl: rpcUrls[0] }),
+			getRpcUrls: () => rpcUrls,
+		} as unknown as FillerConfigService)
+
+	/**
+	 * The first endpoint fails once and the second is a nonce behind. A send retries the first, so
+	 * its nonce has to come from there too.
+	 */
+	it("retries the first endpoint as a send does, where a plain read moves on", async () => {
+		const first = await endpoint({ failsOnce: 503, answer: "0x7" })
+		const manager = managerFor([first.url, await url({ answer: "0x6" })])
+		await expect(manager.getPendingNonce("EVM-1")).resolves.toBe(7)
+		expect(first.calls()).toBe(2)
+
+		const again = await endpoint({ failsOnce: 503, answer: "0x7" })
+		const reader = managerFor([again.url, await url({ answer: "0x6" })])
+		const address = reader.getAccount().address
+		await expect(reader.getPublicClient("EVM-1").getTransactionCount({ address })).resolves.toBe(6)
 	})
 })
 

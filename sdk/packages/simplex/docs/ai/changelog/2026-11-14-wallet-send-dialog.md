@@ -19,11 +19,21 @@ its Network and Asset selects.
 - The amount groups thousands as it is typed (`AmountInput`), and the plain number is what is sent.
   Text that is not a number is refused. Balances in the dialog use the same notation whatever the
   browser's locale.
-- A comma is the decimal mark, so `1,5` is 1.5. Reading it as a separator would send ten times as
-  much. It is read as a separator only in pasted text where it can be nothing else: beside a point,
-  as in `1,000.50`, or in groups of three after a group that does not start with 0, as in `1,000`.
-  A pasted `0,500` is 0.5. A comma typed after digits is always the decimal mark, so `1,000` typed
-  one key at a time is 1.
+- A comma typed after digits is the decimal mark, so `1,5` is 1.5 and `1,000` typed one key at a
+  time is 1. In text that arrives whole, by paste, drop or a keyboard's clipboard, a lone comma is
+  the decimal mark too, with one exception.
+- Text that arrives whole as one to three digits, a comma and exactly three digits, such as
+  `1,500`, is not entered (`isAmbiguousAmount`). It means fifteen hundred to one reader and one and
+  a half to another, and either guess is wrong by a factor of a thousand. The dialog itself writes
+  fifteen hundred as `1,500`. A line under the field gives both readings and asks for the amount
+  to be typed.
+- Commas are separators only where they can be nothing else: beside a point, as in `1,000.50`, or
+  several of them in groups of three in text that arrives whole, as in `1,000,000`. A pasted
+  `0,500` is 0.5, since grouping never starts with a 0 group.
+- Text an input event names (`data`, or a drop's transfer) is read from where the event put it.
+  Matched against the old amount, text put over a selected `1,000` would lose the comma the two
+  share. A composing keyboard names its whole composition on every key, so it is read as typing.
+  A fill that names no text is still matched against the old amount.
 - A paste is read from the clipboard text and the selection it replaces (`applyAmountPaste`). Read
   as a plain edit, a paste of `1,5` over a selected `1,000` would lose its comma, because the two
   share the text `1,`.
@@ -41,6 +51,11 @@ its Network and Asset selects.
 - A confirmed send replaces the form with a success screen: a large tick, the amount and network,
   a link to the transaction and Done. A send that is still pending returns to the form with its
   warning.
+- The amount is cleared after every send, whatever its outcome, so the next click cannot send it
+  again. When the solver gives no answer, or a proxy answers for it with 502, 503 or 504, the send
+  may have gone through. The form then says so, in place of the error, and asks the operator to
+  wait a few minutes and check the balance. The wallet history is no check: a send is written to
+  it only once the solver has its outcome.
 - Closing the dialog clears the form and the error of a failed send. A send in flight keeps the
   dialog open, so its outcome is not carried into the next open. The balance refresh that follows
   a send is not waited for, so it cannot hold the dialog or the next send.

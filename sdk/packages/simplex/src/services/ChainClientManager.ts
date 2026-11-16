@@ -15,7 +15,7 @@ import {
 	type Transport,
 } from "viem"
 import { generatePrivateKey } from "viem/accounts"
-import { waitForTransactionReceipt } from "viem/actions"
+import { getTransactionCount, waitForTransactionReceipt } from "viem/actions"
 import { type Order, type ChainConfig, getViemChain } from "@hyperbridge/sdk"
 import type { Account, LocalAccount } from "viem/accounts"
 import type { FillerConfigService } from "./FillerConfigService"
@@ -71,12 +71,16 @@ const NONCE_SELECTORS = [toFunctionSelector("getNonce(address,uint192)"), toFunc
  * just used, whether the account's, the EntryPoint's or a permit's, and that is never an empty
  * answer the race would wait on. Its logs are an empty list for a range that holds some, and a node
  * that keeps few logs answers the same way at once.
+ *
+ * A nonce read is looked for anywhere in the calldata, not only at its start, so one batched into
+ * a multicall still goes in order. Another call that happens to hold the same four bytes goes in
+ * order too, which costs it nothing but the race.
  */
 function readsInOrder(method: string, params: unknown): boolean {
 	if (method === "eth_getTransactionCount" || method === "eth_getLogs") return true
 	if (method !== "eth_call") return false
 	const data = (params as [{ data?: unknown }?] | undefined)?.[0]?.data
-	return typeof data === "string" && NONCE_SELECTORS.some((selector) => data.startsWith(selector))
+	return typeof data === "string" && NONCE_SELECTORS.some((selector) => data.includes(selector.slice(2)))
 }
 
 /** RPC error codes viem retries: unknown, limit exceeded and internal. */
@@ -367,6 +371,17 @@ export class ChainClientManager {
 		const config = this.configService.getChainConfig(chain)
 		const rpcUrls = this.configService.getRpcUrls(chain)
 		return this.clientFactory.getWalletClient(config, this.account, rpcUrls)
+	}
+
+	/**
+	 * The nonce the wallet's next transaction takes, read through the transport that sends it.
+	 *
+	 * That transport retries an endpoint before it moves to the next. {@link getPublicClient} moves
+	 * on at an endpoint's first failure, so after a brief one it would take the nonce from the
+	 * second node while the transaction still goes to the first.
+	 */
+	getPendingNonce(chain: string): Promise<number> {
+		return getTransactionCount(this.getWalletClient(chain), { address: this.account.address, blockTag: "pending" })
 	}
 
 	getAccount(): Account {

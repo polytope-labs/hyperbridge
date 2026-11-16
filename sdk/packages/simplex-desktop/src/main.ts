@@ -33,7 +33,12 @@ import { markSessionEnded, markSessionStarted, previousUncleanSession } from "./
 import { assertResources, resourcePaths, socketPathFor, userDataOverrideFromArgv } from "./desktop-paths"
 import { latestLogPath, loginItemExecutable, LoginItemController } from "./login-item"
 import { DesktopNotificationClient, desktopNotificationUrl } from "./notification-client"
-import { assertProfileCanBeReset, completePendingProfileReset, requestProfileReset } from "./profile-reset"
+import {
+	assertProfileCanBeReset,
+	claimProfile,
+	completePendingProfileReset,
+	requestProfileReset,
+} from "./profile-reset"
 import { handleSimplexProtocol } from "./protocol"
 import { RendererRecovery } from "./renderer-recovery"
 import { DesktopVault } from "./security/vault"
@@ -107,6 +112,13 @@ try {
 	profileResetFailure = new Error(
 		`Simplex could not finish its reset: ${errorMessage(error)}. Close every Simplex process, delete ${app.getPath("userData")}, then open Simplex again.`,
 	)
+}
+// Before anything is written to the profile: a directory is Simplex's own when it is the app's
+// default one or starts out empty, and only such a directory is ever reset.
+try {
+	claimProfile(app.getPath("userData"), !userDataOverride)
+} catch {
+	// A profile that cannot be written fails where it is first used. Unstamped, it is never reset.
 }
 // After the userData override: Sentry queues undelivered reports under it.
 const errorReportingActive = startDesktopErrorReporting(app.getVersion(), app.isPackaged, app.getPath("userData"))

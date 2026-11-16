@@ -167,7 +167,8 @@ export class DelegationService {
 			}
 			txNonce = latest
 		} else {
-			txNonce = await publicClient.getTransactionCount({ address: authorityAddress, blockTag: "pending" })
+			// This wallet sends the transaction itself, so the nonce comes through the client that sends.
+			txNonce = await this.clientManager.getPendingNonce(chain)
 		}
 		const authorizationNonce = viaBundler ? txNonce : txNonce + 1
 

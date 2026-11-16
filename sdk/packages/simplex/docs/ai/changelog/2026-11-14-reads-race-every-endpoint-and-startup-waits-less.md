@@ -66,15 +66,24 @@ of them wrongly without saying so.
 
 - `eth_getTransactionCount`. A nonce from a node that has not seen the last transaction is one too
   low.
-- An `eth_call` to `EntryPoint.getNonce` or to an ERC-2612 token's `nonces`, matched by selector.
-  They are the nonces a UserOp and a permit are built on. The bundler refuses a UserOp nonce that
-  was just used, and a permit signed over a used nonce is invalid.
+- An `eth_call` to `EntryPoint.getNonce` or to an ERC-2612 token's `nonces`, matched by selector
+  anywhere in the calldata, so one batched into a multicall is covered too. They are the nonces a
+  UserOp and a permit are built on. The bundler refuses a UserOp nonce that was just used, and a
+  permit signed over a used nonce is invalid.
 - `eth_getLogs`. A node that is behind, or that keeps few logs, answers `[]` at once for a range
   that holds some.
 
 One difference from the wallet client remains: an endpoint is not retried before the read moves on,
 where a send retries it three times first. Like a send, the read waits out the 30-second timeout of
 an endpoint that does not answer at all.
+
+So the nonce of a transaction the wallet sends itself is not read this way. `TokenSender` and the
+delegation transaction read it with `ChainClientManager.getPendingNonce`, which goes through the
+wallet client. The nonce read and the send then retry and move on by the same rule. They are still
+two requests, so an endpoint that fails between them can split them. A first endpoint that is down
+now holds up the nonce read as it holds up the send: seven seconds of retries, or about two minutes
+when it accepts the connection and never answers. A UserOp's nonce stays on the faster path: the op
+goes to the bundler, not to one of these endpoints.
 
 ### One node's view of a head and its logs
 

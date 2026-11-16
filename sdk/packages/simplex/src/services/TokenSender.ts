@@ -297,7 +297,7 @@ export class TokenSender {
 		}
 		// Chosen here and sent explicitly, so the nonce is known whatever happens to the tx: a node
 		// that no longer lists it proves nothing, the wallet's nonce moving past this one does.
-		const nonce = await publicClient.getTransactionCount({ address: this.solver, blockTag: "pending" })
+		const nonce = await this.clientManager.getPendingNonce(chain)
 		const tx =
 			calls.length === 1
 				? await walletClient.sendTransaction({

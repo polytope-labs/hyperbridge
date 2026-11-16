@@ -69,6 +69,7 @@ function makeVaultSender(opts: {
 	const clientManager = {
 		getPublicClient: () => publicClient,
 		getWalletClient: () => ({ sendTransaction, chain: undefined }),
+		getPendingNonce: vi.fn().mockResolvedValue(7),
 	} as unknown as ChainClientManager
 	const vaults = [{ chain: "EVM-8453", vault: VAULT, ...(opts.minBalance ? { minBalance: opts.minBalance } : {}) }]
 	// canSponsor decides whether a reserve applies at all; the amount comes from
@@ -130,6 +131,7 @@ function makeSender(vaults: Array<{ chain: string; vault: `0x${string}` }> = [])
 	const clientManager = {
 		getPublicClient: () => publicClient,
 		getWalletClient: () => ({ sendTransaction, chain: undefined }),
+		getPendingNonce: vi.fn().mockResolvedValue(7),
 	} as unknown as ChainClientManager
 	const sender = new TokenSender(clientManager, SOLVER, () => vaults.map((v) => ({ ...v })))
 	return { sender, sendTransaction, publicClient }
@@ -324,6 +326,7 @@ describe("TokenSender", () => {
 				waitForTransactionReceipt: vi.fn().mockResolvedValue({ status: "success" }),
 			}),
 			getWalletClient: () => ({ sendTransaction, chain: undefined }),
+			getPendingNonce: vi.fn().mockResolvedValue(7),
 		} as unknown as ChainClientManager
 		const sender = new TokenSender(clientManager, SOLVER, () => [{ chain: "EVM-8453", vault: VAULT }], {
 			canSponsor: () => true,
@@ -375,6 +378,7 @@ describe("TokenSender sponsored batches", () => {
 				waitForTransactionReceipt: vi.fn().mockResolvedValue({ status: "success" }),
 			}),
 			getWalletClient: () => ({ sendTransaction, chain: undefined }),
+			getPendingNonce: vi.fn().mockResolvedValue(7),
 		} as unknown as ChainClientManager
 		const sender = new TokenSender(
 			clientManager,
@@ -479,13 +483,15 @@ describe("TokenSender native batch safety", () => {
 	function makeNativeSender(isDelegated?: (chain: string) => Promise<boolean>) {
 		const sendTransaction = vi.fn().mockResolvedValue(TX)
 		const waitForTransactionReceipt = vi.fn().mockResolvedValue({ status: "success" })
-		const getTransactionCount = vi.fn().mockResolvedValue(7)
+		const getTransactionCount = vi.fn().mockResolvedValue(3)
+		const getPendingNonce = vi.fn().mockResolvedValue(7)
 		const clientManager = {
 			getPublicClient: () => ({ waitForTransactionReceipt, getTransactionCount }),
 			getWalletClient: () => ({ sendTransaction, chain: undefined }),
+			getPendingNonce,
 		} as unknown as ChainClientManager
 		const sender = new TokenSender(clientManager, SOLVER, () => [], undefined, undefined, isDelegated)
-		return { sender, sendTransaction, waitForTransactionReceipt, getTransactionCount }
+		return { sender, sendTransaction, waitForTransactionReceipt, getTransactionCount, getPendingNonce }
 	}
 
 	it("reports a native tx whose receipt timed out as submitted but unconfirmed", async () => {
@@ -513,12 +519,14 @@ describe("TokenSender native batch safety", () => {
 		expect(error.submission).toMatchObject({ kind: "tx", txHash: TX })
 	})
 
-	it("sends with the wallet's pending nonce, chosen explicitly", async () => {
-		const { sender, sendTransaction, getTransactionCount } = makeNativeSender()
+	it("sends with the wallet's pending nonce, read through the client that sends", async () => {
+		const { sender, sendTransaction, getTransactionCount, getPendingNonce } = makeNativeSender()
 
 		await sender.submitCalls("EVM-8453", [CALL])
 
-		expect(getTransactionCount).toHaveBeenCalledWith({ address: SOLVER, blockTag: "pending" })
+		// The public client fails over sooner than a send does, so its nonce can be another node's.
+		expect(getPendingNonce).toHaveBeenCalledWith("EVM-8453")
+		expect(getTransactionCount).not.toHaveBeenCalled()
 		expect(sendTransaction.mock.calls[0][0].nonce).toBe(7)
 	})
 
@@ -591,6 +599,7 @@ describe("TokenSender sponsored send with a lost bundler response", () => {
 		const clientManager = {
 			getPublicClient: () => publicClient,
 			getWalletClient: () => ({ sendTransaction, chain: undefined }),
+			getPendingNonce: vi.fn().mockResolvedValue(7),
 		} as unknown as ChainClientManager
 		const signer = { address: SOLVER, signTypedData: async () => ("0x" + "11".repeat(65)) as `0x${string}` }
 		const configService = {

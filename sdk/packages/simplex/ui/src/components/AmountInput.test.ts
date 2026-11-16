@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { applyAmountEdit, applyAmountPaste, groupThousands, trimAmount } from "./AmountInput"
+import { applyAmountEdit, applyAmountPaste, groupThousands, isAmbiguousAmount, trimAmount } from "./AmountInput"
 
 /** Types or pastes `text` at the end of a field showing `shown`. */
 const append = (shown: string, text: string) => applyAmountEdit(shown, shown + text, shown.length + text.length).value
@@ -16,17 +16,50 @@ describe("amount edits", () => {
 		expect(append("", "1,5")).toBe("1.5")
 		expect(append("", "0,25")).toBe("0.25")
 		expect(append("1", ",")).toBe("1.")
-		expect(append("", "1,000")).toBe("1000")
 		expect(append("", "12,345,678")).toBe("12345678")
 		expect(append("", "1,000.50")).toBe("1000.50")
 		expect(append("", "1.000,50")).toBe("1000.50")
 		expect(append("", "1 000,50")).toBe("1000.50")
 	})
 
-	it("reads a group that starts with 0 as decimals, since grouping never starts that way", () => {
+	it("refuses text that arrives whole and reads two ways, a thousandfold apart", () => {
+		// 1,500 is fifteen hundred to one reader and one and a half to another.
+		for (const text of ["1,500", "12,345", "999,999", "1,000", " 1,500 "]) {
+			expect(isAmbiguousAmount(text)).toBe(true)
+			expect(applyAmountPaste("", 0, 0, text)).toEqual({ value: "", caret: 0 })
+			expect(append("", text)).toBe("")
+		}
+		// Pasted back over itself, the field's own 1,500 stays fifteen hundred.
+		expect(applyAmountPaste("1,500", 0, 5, "1,500")).toEqual({ value: "1500", caret: 0 })
+	})
+
+	it("reads a lone comma as the decimal mark where it can be nothing else", () => {
+		// Grouping never starts with a 0 group, and never has two or four digits after the comma.
 		expect(trimAmount(append("", "0,500"))).toBe("0.5")
 		expect(append("", "0,125")).toBe("0.125")
-		expect(append("", "100,000")).toBe("100000")
+		expect(append("", "1,50")).toBe("1.50")
+		expect(append("", "1,5000")).toBe("1.5000")
+		expect(append("", "1234,567")).toBe("1234.567")
+		for (const text of ["0,500", "1,5", "1,234,567", "1,500.00", "1500"]) expect(isAmbiguousAmount(text)).toBe(false)
+	})
+
+	it("reads several commas as separators only in groups of three", () => {
+		expect(applyAmountPaste("", 0, 0, "1,234,567")).toEqual({ value: "1234567", caret: 7 })
+		expect(applyAmountPaste("", 0, 0, "1,2,3")).toEqual({ value: "", caret: 0 })
+		expect(applyAmountPaste("", 0, 0, "0,500,000")).toEqual({ value: "", caret: 0 })
+	})
+
+	it("reads text an event names by where the event put it, not by what it shares with the old amount", () => {
+		// Dropped or put in by a keyboard over a selected 1,000. Matched against the old text, "1," is
+		// shared, the comma is taken for the field's own, and 1,5 becomes 15.
+		expect(applyAmountEdit("1,000", "1,5", 3, "insertText", "1,5")).toEqual({ value: "1.5", caret: 3 })
+		expect(applyAmountEdit("1,000", "1,5", 3)).toEqual({ value: "15", caret: 2 })
+		// The same for text that reads two ways: it is refused, where the match would enter 1500.
+		expect(applyAmountEdit("1,000", "1,500", 5, "insertFromDrop", "1,500")).toEqual({ value: "1000", caret: 0 })
+		// Into the middle of an amount, between what was there before and after.
+		expect(applyAmountEdit("1,234", "1,99234", 4, "insertText", "99")).toEqual({ value: "199234", caret: 3 })
+		// A single key is located as before.
+		expect(applyAmountEdit("1,234", "19,234", 2, "insertText", "9")).toEqual({ value: "19234", caret: 2 })
 	})
 
 	it("reads a comma typed after digits as the decimal mark", () => {

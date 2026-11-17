@@ -461,6 +461,13 @@ download is offered again after the next check, which **Update Error — Retry**
 once. On successful relaunch, the OS-protected copy resumes the solver and the install is checked
 even while the dashboard remains locked.
 
+The app can only recover while it is still open. On Windows it quits as soon as it has tried to
+start the installer, so it cannot recover from an installer that fails. An installer that cannot be
+started, a declined elevation prompt or a failed installer leaves Simplex closed, usually with the
+solver stopped, until Simplex is opened again. That launch starts the solver as usual. If the
+install record is still there, it reports that the update was not installed. It then offers the
+update again after its update check.
+
 Before installing, the app records the old and target versions in `desktop-updates.json` under
 Electron user data. The relaunched app clears that record, and reports it once if the check fails. The check passes only after a healthy setup or operator
 solver reports the same version as the desktop app. A background solver boot failure is reported

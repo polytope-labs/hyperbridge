@@ -571,6 +571,42 @@ describe("desktop update coordinator", () => {
 		test.instance.dispose()
 	})
 
+	it("says an update was not installed when the app reopens on the old version, and offers it again", async () => {
+		const store = new MemoryUpdateStore({
+			channel: "stable",
+			receipt: { fromVersion: "0.16.2", targetVersion: "0.17.0", installAttemptedAt: 2 },
+		})
+		const test = coordinator({ store })
+		// The feed still has the update, and the updater reports it during the check.
+		test.updater.checkForUpdates.mockImplementation(async () => {
+			finishDownload(test.updater, "0.17.0")
+			return undefined
+		})
+		test.instance.start()
+		await vi.waitFor(() => expect(test.options.notify).toHaveBeenCalledOnce())
+		expect(test.options.notify).toHaveBeenCalledWith(
+			"Simplex update was not installed",
+			"Update 0.17.0 was not installed. Simplex is on 0.16.2.",
+		)
+		expect(test.options.onChange).toHaveBeenCalledWith(
+			expect.objectContaining({
+				state: "error",
+				targetVersion: "0.17.0",
+				detail: "Update 0.17.0 was not installed. Simplex is on 0.16.2",
+			}),
+		)
+		expect(store.value.receipt).toBeUndefined()
+		// The solver's version says nothing about an installer that never replaced the app.
+		expect(test.options.probeSolver).not.toHaveBeenCalled()
+		await vi.waitFor(() =>
+			expect(test.instance.status).toMatchObject({ state: "ready", targetVersion: "0.17.0" }),
+		)
+		expect(test.updater.checkForUpdates).toHaveBeenCalledOnce()
+		expect(test.options.requestSolverStop).not.toHaveBeenCalled()
+		expect(test.options.restartSolver).not.toHaveBeenCalled()
+		test.instance.dispose()
+	})
+
 	it("checks the last install once when two checks overlap", async () => {
 		const store = new MemoryUpdateStore({
 			channel: "stable",

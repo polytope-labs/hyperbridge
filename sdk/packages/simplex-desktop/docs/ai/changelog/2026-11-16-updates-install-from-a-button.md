@@ -48,6 +48,26 @@ A failure that comes at once is the answer to the install request, so it shows a
 dialog. A failure that comes later, which is the usual case on macOS, shows as a native notification
 and as a toast in an open dashboard.
 
+### After the app has quit
+
+The app can only do this while it is still open. A failure after it has quit is not seen until
+Simplex is opened again, and nothing reopens it.
+
+- macOS fetches and checks the update before the app quits, and Linux installs the package before
+  the app quits. Most failures on both come while the app is open.
+- Windows quits as soon as the app has tried to start the installer. Every installer failure comes
+  after that: an installer that cannot be started, a declined elevation prompt, or an installer that
+  fails. Simplex is left closed, usually with the solver stopped.
+
+Opening Simplex again starts the solver as any launch does: at once when the operating system holds
+the key, and otherwise after the unlock. The app then reads the install record. If the app is still
+on the old version, it clears the record and reports **Simplex update was not installed** as a
+notification. It then checks the feed, which offers the update again.
+
+An installer that could not be started at all may leave no record. The app hears of that failure
+while it is already quitting, clears the record, and may quit before it has restarted the solver or
+said anything. The next launch then offers the update again without the notification.
+
 Neither `stopping-solver` nor `installing` has a deadline. If the solver never finishes stopping, or
 the installer neither quits the app nor reports a failure, quit Simplex and open it again, as the
 updating screen says. The next launch starts or attaches the solver and offers the update again.

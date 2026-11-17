@@ -274,27 +274,34 @@ export class UpdateCoordinator {
 	private async verifyPreviousInstall(): Promise<void> {
 		const receipt = this.preferences.receipt
 		if (!receipt) return
-		let failure: string | undefined
+		const problem = await this.previousInstallProblem(receipt.targetVersion)
+		this.preferences = { ...this.preferences, receipt: undefined }
+		this.options.store.write(this.preferences)
+		if (!problem) return
+		this.setStatus({ state: "error", targetVersion: receipt.targetVersion, detail: problem.detail })
+		this.options.notify(problem.title, problem.body)
+	}
+
+	/** What went wrong with the last install, if anything, as this launch finds it. */
+	private async previousInstallProblem(
+		target: string,
+	): Promise<{ title: string; detail: string; body: string } | undefined> {
+		// An installer that fails after the app has quit, as it does on Windows, is first seen here.
+		if (this.options.appVersion !== target) {
+			const detail = `Update ${target} was not installed. Simplex is on ${this.options.appVersion}`
+			return { title: "Simplex update was not installed", detail, body: `${detail}.` }
+		}
+		let failure = ""
 		try {
-			const solver = await this.options.probeSolver()
-			const installed =
-				this.options.appVersion === receipt.targetVersion && solverVersion(solver) === this.options.appVersion
-			if (!installed) failure = ""
+			if (solverVersion(await this.options.probeSolver()) === target) return undefined
 		} catch (error) {
 			failure = `: ${errorMessage(error)}`
 		}
-		this.preferences = { ...this.preferences, receipt: undefined }
-		this.options.store.write(this.preferences)
-		if (failure === undefined) return
-		this.setStatus({
-			state: "error",
-			targetVersion: receipt.targetVersion,
-			detail: `Update ${receipt.targetVersion} did not start a matching healthy solver${failure}`,
-		})
-		this.options.notify(
-			"Simplex update needs attention",
-			`The update to ${receipt.targetVersion} did not start a matching solver. Open Simplex and review the solver log.`,
-		)
+		return {
+			title: "Simplex update needs attention",
+			detail: `Update ${target} did not start a matching healthy solver${failure}`,
+			body: `The update to ${target} did not start a matching solver. Open Simplex and review the solver log.`,
+		}
 	}
 
 	private updateDownloaded(version: string | undefined): void {

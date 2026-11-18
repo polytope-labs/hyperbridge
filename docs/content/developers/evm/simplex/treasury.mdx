@@ -1,11 +1,11 @@
 ---
 title: Treasury
-description: Park idle stablecoins in ERC-4626 vaults that still fund fills, and keep per-chain balances near a base.
+description: Park idle stablecoins in ERC-4626 vaults that still fund fills, and gather each asset on a hub chain.
 ---
 
 # Treasury
 
-Idle stablecoins do not have to sit in the wallet doing nothing, and balances do not have to be topped up by hand. The `[vault]` section parks the float in ERC-4626 vaults it can still withdraw from mid-fill; `[rebalancing]` keeps each chain near a base balance.
+Idle stablecoins do not have to sit in the wallet doing nothing, and they do not have to be bridged back by hand. The `[vault]` section parks the float in ERC-4626 vaults it can still withdraw from mid-fill. The `[rebalancing]` section gathers what each chain does not need on one hub chain per asset.
 
 ## Vault treasury (ERC-4626)
 
@@ -57,19 +57,54 @@ minBalance = "3000"
 
 ## Rebalancing
 
-The optional `[rebalancing]` section keeps per-chain, per-asset balances near a configured base. Rebalancing triggers when a balance falls to `(1 - triggerPercentage) × baseBalance`. Base balances are expressed in USD value (treated as $1 per stablecoin), keyed by asset symbol and then by numeric chain ID.
+The optional `[rebalancing]` section gathers each asset on one hub chain. It works like a vault sweep, across chains. Once another chain's wallet holds `threshold` of the asset, everything above `minBalance` is bridged to the hub.
 
 ```toml lineNumbers
 [rebalancing]
-triggerPercentage = 0.5   # trigger when balance ≤ 50% of base
+intervalMs = 300000   # optional, default 5 minutes
 
-[rebalancing.baseBalances."USDC"]
-"1"     = "10000"   # Ethereum: $10k USDC base
-"8453"  = "10000"   # Base
-"42161" = "10000"   # Arbitrum
+[[rebalancing.hubs]]
+asset      = "USDC"
+chain      = "EVM-8453"   # Base
+threshold  = "6000"
+minBalance = "5000"
 
-[rebalancing.baseBalances."USDT"]
-"1"     = "10000"
-"8453"  = "10000"
-"42161" = "10000"
+[[rebalancing.hubs]]
+asset      = "USDT"
+chain      = "EVM-42161"  # Arbitrum
+threshold  = "6000"
+minBalance = "5000"
 ```
+
+With this config, a Polygon wallet holding 7,500 USDC bridges 2,500 to Base on the next check. A wallet holding 5,900 is left alone.
+
+| Field | Required | Description |
+|---|---|---|
+| `asset` | yes | Asset symbol, resolved through the asset registry. One hub per asset. |
+| `chain` | yes | State-machine ID of the hub (e.g. `"EVM-8453"`). It must be a chain the solver runs. |
+| `threshold` | yes | Wallet balance (human units) at which a chain bridges to the hub. |
+| `minBalance` | yes | Balance (human units) each chain keeps. It must be above zero and less than `threshold`. |
+
+Both amounts take at most two decimals. `intervalMs` is at least `10000`.
+
+Every other chain the solver runs is covered automatically, and each one is checked on its own. The gap between `threshold` and `minBalance` is the smallest transfer, so no chain bridges dust. Amounts are read with each chain's own token decimals.
+
+The route follows the asset. USDC moves over CCTP, and USDT over USDT0. With `[binance]` configured, Binance carries the pairs neither reaches, such as BNB Chain.
+
+A chain is left out when:
+
+- the asset registry has no such asset there,
+- no route reaches the hub from it, or
+- it has a vault for the asset. The vault sweep already manages that wallet balance.
+
+The dashboard lists which chains each hub gathers from, and why it leaves out the rest.
+
+Rebalancing only moves funds into the hub. A chain below `minBalance` is not topped up.
+
+Routes pay gas in the native token. Every chain that bridges needs some, and so does the hub for USDC, where the solver wallet mints.
+
+The dashboard edits the same settings under **Wallet → Rebalancing**. A saved change applies from the next check, without a restart. **Rebalance now** runs a check straight away.
+
+<Callout type="warn" title="Upgrading from triggerPercentage">
+`triggerPercentage` and `baseBalances` were removed. A config that still has them is refused at startup, with the new shape in the message. Replace the section with a hub per asset. `simplex init` drops the old section when you choose to update the config.
+</Callout>

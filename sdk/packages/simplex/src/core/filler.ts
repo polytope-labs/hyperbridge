@@ -21,6 +21,8 @@ import {
 	type ChainClientManager,
 	type ContractInteractionService,
 	DelegationService,
+	RebalanceInProgressError,
+	type RebalancePass,
 	type RebalancingService,
 } from "@/services"
 import { sqliteDatetime } from "@/data/memory"
@@ -211,8 +213,7 @@ export class IntentFiller {
 	 * {@link MAX_COMPLETED_ORDERS}, oldest first.
 	 */
 	private completedOrders = new Set<string>()
-	private rebalancingInterval?: NodeJS.Timeout
-	private initialRebalanceTimer?: NodeJS.Timeout
+	private rebalanceTimer?: NodeJS.Timeout
 	private activeRebalances = new Set<Promise<void>>()
 	/**
 	 * Chains whose EIP-7702 delegation to the SolverAccount failed at boot.
@@ -673,9 +674,10 @@ export class IntentFiller {
 	public start(): void {
 		this.monitor.startListening()
 
-		// Start periodic rebalancing if service is configured
 		if (this.rebalancingService) {
-			this.startRebalancing()
+			// The first pass waits 30 seconds, to let the filler start up.
+			this.scheduleRebalance(this.rebalancingService, 30_000)
+			this.logger.info({ intervalMs: this.rebalancingService.intervalMs() }, "Periodic rebalancing started")
 		}
 
 		if (this.bidStorage && this.hyperbridge) {
@@ -748,78 +750,73 @@ export class IntentFiller {
 	}
 
 	/**
-	 * Start periodic rebalancing checks.
-	 * Checks every 5 minutes for triggers and executes rebalancing if needed.
+	 * Arms the next periodic pass. Each pass arms the one after it, reading the interval
+	 * from the live config, so an edited `intervalMs` applies from the next pass on.
 	 */
-	private startRebalancing(): void {
-		// Run initial check after 30 seconds (to let the filler start up). Tracked so
-		// it cannot fire after stop() has resolved.
-		this.initialRebalanceTimer = setTimeout(() => {
-			this.initialRebalanceTimer = undefined
-			void this.runTrackedRebalance()
-		}, 30_000)
-
-		// Then check every 5 minutes
-		this.rebalancingInterval = setInterval(
-			() => {
-				void this.runTrackedRebalance()
-			},
-			5 * 60 * 1000,
-		) // 5 minutes
-
-		this.logger.info("Periodic rebalancing checks started (every 5 minutes)")
-	}
-
-	private runTrackedRebalance(): Promise<void> {
-		if (this.stopping) return Promise.resolve()
-		// One plan at a time. A CEX leg can take half an hour and a USDT0 leg fifteen
-		// minutes, so the 5-minute tick fires while the last pass is still running.
-		// Two passes plan the same deficit twice, moving the money twice.
-		if (this.activeRebalances.size > 0) {
-			this.logger.info("Previous rebalance still running; skipping this tick")
-			return Promise.resolve()
-		}
-		const task = this.checkAndRebalance().catch((error) => {
-			this.logger.error({ error }, "Error in periodic rebalancing check")
-		})
-		this.activeRebalances.add(task)
-		void task.then(() => this.activeRebalances.delete(task))
-		return task
+	private scheduleRebalance(service: RebalancingService, delayMs: number): void {
+		this.rebalanceTimer = setTimeout(() => {
+			this.rebalanceTimer = undefined
+			void this.rebalanceNow()
+				.catch((error) => {
+					// Anything else is logged, and recorded as a failed pass, where it happened.
+					if (error instanceof RebalanceInProgressError) {
+						this.logger.info("Previous rebalance still running; skipping this pass")
+					}
+				})
+				.finally(() => {
+					if (!this.stopping) this.scheduleRebalance(service, service.intervalMs())
+				})
+		}, delayMs)
 	}
 
 	/**
-	 * Check for rebalancing triggers and execute if needed.
+	 * Runs one rebalancing pass now. Resolves once the pass has read the balances and started
+	 * its transfers, with what it started and why every other chain was left alone. The
+	 * transfers themselves take minutes: they finish in the background, and `rebalanceExecuted`
+	 * reports how they ended.
+	 *
+	 * One pass at a time. A CEX transfer can take half an hour and a USDT0 one fifteen minutes,
+	 * and a second pass over the same wallets while the first is still sending would race it.
 	 */
-	private async checkAndRebalance(): Promise<void> {
-		if (!this.rebalancingService) {
-			return
-		}
+	public rebalanceNow(): Promise<RebalancePass> {
+		const service = this.rebalancingService
+		if (!service) return Promise.reject(new Error("Rebalancing is not available on this solver"))
+		if (this.stopping) return Promise.reject(new Error("The solver is stopping"))
+		if (this.activeRebalances.size > 0) return Promise.reject(new RebalanceInProgressError())
 
-		try {
-			const result = await this.rebalancingService.rebalancePortfolio()
-			if (result.success && result.transfers.length > 0) {
+		const planning = service.plan()
+		const task = planning
+			.then(async (pass) => {
+				if (pass.started.length === 0) {
+					this.logger.debug("No rebalancing needed")
+					return
+				}
+				// A transfer waiting behind another is not started once the solver is stopping:
+				// each one can hold the shutdown for as long as a bridge takes.
+				const outcome = await service.execute(pass.started, () => this.stopping)
 				this.logger.info(
-					{
-						transferCount: result.transfers.length,
-						executedCount: result.executedTransfers.length,
-					},
-					"Portfolio rebalancing completed",
+					{ moved: outcome.moved.length, failed: outcome.failed.length, notSent: outcome.notSent.length },
+					"Rebalancing pass completed",
 				)
+				// A transfer that was no longer due when its turn came was never attempted.
+				const attempted = outcome.moved.length + outcome.failed.length
+				if (attempted === 0) return
 				this.monitor.emit("rebalanceExecuted", {
-					transferCount: result.transfers.length,
-					executedCount: result.executedTransfers.length,
-					success: result.success,
+					transferCount: attempted,
+					executedCount: outcome.moved.length,
+					success: outcome.failed.length === 0,
 				})
-			} else if (result.transfers.length === 0) {
-				this.logger.debug("No rebalancing needed")
-			}
-		} catch (error) {
-			this.logger.error({ error }, "Portfolio rebalancing failed")
-			this.monitor.emit("rebalanceExecuted", {
-				success: false,
-				error: error instanceof Error ? error.message : String(error),
 			})
-		}
+			.catch((error) => {
+				this.logger.error({ error }, "Rebalancing pass failed")
+				this.monitor.emit("rebalanceExecuted", {
+					success: false,
+					error: error instanceof Error ? error.message : String(error),
+				})
+			})
+		this.activeRebalances.add(task)
+		void task.then(() => this.activeRebalances.delete(task))
+		return planning
 	}
 
 	private startRetractionSweep(): void {
@@ -862,15 +859,10 @@ export class IntentFiller {
 		this.stopping = true
 		this.monitor.stopListening()
 
-		// Stop rebalancing interval
-		if (this.initialRebalanceTimer) {
-			clearTimeout(this.initialRebalanceTimer)
-			this.initialRebalanceTimer = undefined
-		}
-		if (this.rebalancingInterval) {
-			clearInterval(this.rebalancingInterval)
-			this.rebalancingInterval = undefined
-			this.logger.info("Periodic rebalancing checks stopped")
+		if (this.rebalanceTimer) {
+			clearTimeout(this.rebalanceTimer)
+			this.rebalanceTimer = undefined
+			this.logger.info("Periodic rebalancing stopped")
 		}
 
 		if (this.retractionSweepInterval) {

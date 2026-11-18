@@ -133,16 +133,17 @@ export function emitFillerToml(config: FillerConfigFile, options: EmitOptions = 
 	push()
 
 	if (config.rebalancing) {
-		push("# Rebalancing: triggers when a balance falls to (1 - triggerPercentage) * baseBalance.")
+		push("# Rebalancing: once another chain's wallet holds `threshold` of an asset, everything")
+		push("# above `minBalance` is bridged to the asset's hub chain.")
 		push("[rebalancing]")
-		push(kv("triggerPercentage", config.rebalancing.triggerPercentage))
+		if (config.rebalancing.intervalMs !== undefined) push(kv("intervalMs", config.rebalancing.intervalMs))
 		push()
-		for (const [symbol, balances] of Object.entries(config.rebalancing.baseBalances ?? {})) {
-			if (!balances) continue
-			push(`[rebalancing.baseBalances.${/^[A-Za-z0-9_-]+$/.test(symbol) ? symbol : JSON.stringify(symbol)}]`)
-			for (const [chainId, amount] of Object.entries(balances)) {
-				push(kv(chainId, amount, true))
-			}
+		for (const hub of config.rebalancing.hubs ?? []) {
+			push("[[rebalancing.hubs]]")
+			push(kv("asset", hub.asset))
+			push(kv("chain", hub.chain))
+			push(kv("threshold", hub.threshold))
+			push(kv("minBalance", hub.minBalance))
 			push()
 		}
 	}

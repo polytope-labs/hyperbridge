@@ -91,10 +91,18 @@ export function assembleConfig(state: WizardState): FillerConfigFile {
 	const allowlist = state.allowlist ? { ...state.allowlist } : undefined
 	if (allowlist?.bySource && Object.keys(allowlist.bySource).length === 0) delete allowlist.bySource
 	const scrubbedAllowlist = allowlist && Object.keys(allowlist).length > 0 ? allowlist : undefined
-	// [rebalancing] without base balances can neither trigger nor emit.
+	// Only the hubs' own fields and the interval are carried, since that is all the emit
+	// writes: an extra key on a hand-written row would fail the round-trip gate.
+	const hubs = (state.rebalancing?.hubs ?? []).map(({ asset, chain, threshold, minBalance }) => ({
+		asset,
+		chain,
+		threshold,
+		minBalance,
+	}))
+	const intervalMs = state.rebalancing?.intervalMs
 	const rebalancing =
-		state.rebalancing?.baseBalances && Object.keys(state.rebalancing.baseBalances).length > 0
-			? state.rebalancing
+		hubs.length > 0 || intervalMs !== undefined
+			? { ...(hubs.length > 0 ? { hubs } : {}), ...(intervalMs !== undefined ? { intervalMs } : {}) }
 			: undefined
 
 	const vault: NonNullable<FillerTomlConfig["vault"]> = { ...(state.vault ?? {}) }

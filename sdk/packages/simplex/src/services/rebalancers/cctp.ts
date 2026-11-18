@@ -17,51 +17,59 @@ import {
 } from "@circle-fin/bridge-kit/chains"
 import type { Chain, PublicClient, WalletClient } from "viem"
 import { parseStateMachineId } from "@hyperbridge/sdk"
+import type { HexString } from "@hyperbridge/sdk"
 import type { ChainClientManager } from "@/services/ChainClientManager"
 import type { FillerConfigService } from "@/services/FillerConfigService"
 import { type Logger , moduleLogger} from "@/services/Logger"
-import type { RebalanceOptions } from "."
+import type { RebalanceOptions, RebalanceRoute, RouteTransfer } from "."
 
 /** Viem adapter type */
 type ViemAdapterInstance = ViemAdapter
 
 /**
- * Maps EVM chain IDs to CCTP chain names used by Bridge Kit
+ * The chains this route bridges USDC between, as Bridge Kit defines them. The one list: the
+ * adapter is built from it, and so is what the route says it supports.
  */
-const CHAIN_ID_TO_CCTP: Record<number, string> = {
-	1: "Ethereum",
-	11155111: "Ethereum_Sepolia",
-	42161: "Arbitrum",
-	421614: "Arbitrum_Sepolia",
-	8453: "Base",
-	84532: "Base_Sepolia",
-	10: "Optimism",
-	11155420: "Optimism_Sepolia",
-	137: "Polygon",
-	80002: "Polygon_Amoy_Testnet",
-	130: "Unichain",
-	1301: "Unichain_Sepolia",
+const CCTP_CHAINS = [
+	Ethereum,
+	EthereumSepolia,
+	Arbitrum,
+	ArbitrumSepolia,
+	Base,
+	BaseSepolia,
+	Optimism,
+	OptimismSepolia,
+	Polygon,
+	PolygonAmoy,
+	Unichain,
+	UnichainSepolia,
+]
+
+/** The Bridge Kit chain for a state machine id, or undefined where CCTP does not run. */
+function cctpChain(stateMachineId: string) {
+	const chainId = parseStateMachineId(stateMachineId).stateId.Evm
+	return CCTP_CHAINS.find((chain) => chain.chainId === chainId)
 }
 
 /**
  * Converts state machine ID to CCTP chain name
  */
 function stateMachineToCctpChain(stateMachineId: string): string {
-	const chainId = parseStateMachineId(stateMachineId).stateId.Evm
-	if (chainId === undefined) {
-		throw new Error(`Chain ${stateMachineId} is not an EVM chain`)
+	const chain = cctpChain(stateMachineId)
+	if (!chain) {
+		throw new Error(`Chain ${stateMachineId} is not supported by CCTP`)
 	}
-	const cctpChain = CHAIN_ID_TO_CCTP[chainId]
-	if (!cctpChain) {
-		throw new Error(`Chain ${stateMachineId} (chainId: ${chainId}) is not supported by CCTP`)
-	}
-	return cctpChain
+	return chain.chain
 }
 
 /**
  * CctpRebalancer - Cross-chain USDC transfers using Circle's CCTP via BridgeKit
  */
-export class CctpRebalancer {
+export class CctpRebalancer implements RebalanceRoute {
+	readonly method = "cctp"
+	readonly assets = ["USDC"]
+	/** Bridge Kit mints on the destination from the same wallet that burned on the source. */
+	readonly sendsOnDestination = true
 	private bridgeKit: BridgeKit
 	private adapter: ViemAdapterInstance | null = null
 	private chainClientManager: ChainClientManager
@@ -96,24 +104,33 @@ export class CctpRebalancer {
 			},
 			{
 				addressContext: "user-controlled",
-				supportedChains: [
-					Ethereum,
-					EthereumSepolia,
-					Arbitrum,
-					ArbitrumSepolia,
-					Base,
-					BaseSepolia,
-					Optimism,
-					OptimismSepolia,
-					Polygon,
-					PolygonAmoy,
-					Unichain,
-					UnichainSepolia,
-				],
+				supportedChains: CCTP_CHAINS,
 			},
 		)
 
 		return this.adapter
+	}
+
+	/** Circle's USDC on `chain`, which is the only token CCTP moves. */
+	tokenOn(asset: string, chain: string): HexString | undefined {
+		if (!this.assets.includes(asset)) return undefined
+		return cctpChain(chain)?.usdcAddress as HexString | undefined
+	}
+
+	/** Burns on the source and mints on the destination. A transfer Bridge Kit did not finish is an error. */
+	async send({ amount, source, destination }: RouteTransfer): Promise<{ txHash?: string }> {
+		const result = await this.sendCctp({ amount, source, destination })
+		// By name: the first step with a hash is the approval, which moves nothing.
+		const burn = result.steps.find((step) => step.name === "burn")
+		if (result.state !== "success") {
+			const failed = result.steps.find((step) => step.state === "error")
+			throw new Error(
+				`CCTP transfer ended ${result.state}` +
+					(failed ? ` at ${failed.name}${failed.errorMessage ? `: ${failed.errorMessage}` : ""}` : "") +
+					(burn?.txHash ? ` (source tx ${burn.txHash})` : ""),
+			)
+		}
+		return { txHash: burn?.txHash }
 	}
 
 	/**

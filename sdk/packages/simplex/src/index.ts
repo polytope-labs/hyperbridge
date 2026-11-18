@@ -121,7 +121,12 @@ export type {
 // `SimplexConfig` is a plain object — no TOML required. These validators are
 // pure and run the same rules boot does, so a config that passes here starts.
 
-export { validateConfig, assertConfirmationCoverage, validateVaultToml } from "@/config/filler-toml"
+export {
+	validateConfig,
+	assertConfirmationCoverage,
+	validateVaultToml,
+	validateRebalancingConfig,
+} from "@/config/filler-toml"
 export type {
 	FillerTomlConfig,
 	// The binary's on-disk shape: a config plus the `[simplex.signer]` block.
@@ -130,6 +135,7 @@ export type {
 	ChainConfirmationPolicy,
 	QueueConfig,
 	RebalancingConfig,
+	RebalancingHubToml,
 	BinanceConfig,
 	VaultToml,
 	VaultTomlConfig,
@@ -204,6 +210,17 @@ export type {
 	VaultSweepSkipReason,
 	VaultSweepSubmission,
 } from "@/funding/vault/VaultFundingPlanner"
+export type {
+	RebalanceChainCoverage,
+	RebalanceHubCoverage,
+	RebalancePass,
+	RebalanceSkip,
+	RebalanceSkipReason,
+	RebalanceTransfer,
+	RebalanceUncoveredReason,
+} from "@/services/RebalancingService"
+export { RebalanceInProgressError } from "@/services/RebalancingService"
+export type { RebalanceMethod } from "@/services/rebalancers"
 export type { SolverWork } from "@/services/server/dto"
 
 // ─── Shared scanners ────────────────────────────────────────────────────────

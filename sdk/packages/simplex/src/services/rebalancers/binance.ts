@@ -6,7 +6,7 @@ import type { ChainClientManager } from "@/services/ChainClientManager"
 import type { FillerConfigService } from "@/services/FillerConfigService"
 import { type Logger , moduleLogger} from "@/services/Logger"
 import { ERC20_ABI } from "@/config/abis/ERC20"
-import type { UnifiedRebalanceOptions } from "."
+import type { RebalanceRoute, RouteTransfer, UnifiedRebalanceOptions } from "."
 
 export interface BinanceCexConfig {
 	apiKey: string
@@ -135,7 +135,11 @@ export function assertDepositMatches(
 }
 
 /** Handles cross-chain rebalancing via Binance CEX (with optional travel rule support). */
-export class BinanceRebalancer {
+export class BinanceRebalancer implements RebalanceRoute {
+	readonly method = "cex"
+	readonly assets = ["USDC", "USDT"]
+	/** Binance sends the withdrawal; the solver wallet sends nothing on the destination. */
+	readonly sendsOnDestination = false
 	private readonly walletClient: Wallet
 	private readonly chainClientManager: ChainClientManager
 	private readonly configService: FillerConfigService
@@ -173,6 +177,21 @@ export class BinanceRebalancer {
 		return this.travelRuleQuestionnaire !== null
 	}
 
+	/** The chain's USDC or USDT, on the networks mapped to a Binance network. */
+	tokenOn(asset: string, chain: string): HexString | undefined {
+		if (asset !== "USDC" && asset !== "USDT") return undefined
+		const chainId = parseStateMachineId(chain).stateId.Evm
+		if (chainId === undefined || !CHAIN_ID_TO_BINANCE_NETWORK[chainId]) return undefined
+		return this.tokenAddressForCoin(chain, asset)
+	}
+
+	/** Deposits to Binance and withdraws on the destination. */
+	async send({ asset, amount, source, destination }: RouteTransfer): Promise<{ txHash?: string }> {
+		if (asset !== "USDC" && asset !== "USDT") throw new Error(`Binance route does not carry ${asset}`)
+		const result = await this.sendViaCex({ amount, coin: asset, source, destination })
+		return { txHash: result.depositTxHash }
+	}
+
 	/** Full rebalance: on-chain deposit → Binance credit → withdrawal to destination chain. */
 	async sendViaCex(options: UnifiedRebalanceOptions): Promise<CexRebalanceResult> {
 		const startTime = Date.now()
@@ -193,6 +212,14 @@ export class BinanceRebalancer {
 			throw new Error(
 				`Withdrawals paused for ${coin} on ${destNetwork}.` +
 					(destNetworkInfo.withdrawDesc ? ` Reason: ${destNetworkInfo.withdrawDesc}` : ""),
+			)
+		}
+
+		// Checked before the deposit: an amount Binance will not withdraw would be credited
+		// there and stay there.
+		if (Number(amount) < Number(destNetworkInfo.withdrawMin)) {
+			throw new Error(
+				`${amount} ${coin} is below Binance's minimum withdrawal of ${destNetworkInfo.withdrawMin} on ${destNetwork}`,
 			)
 		}
 

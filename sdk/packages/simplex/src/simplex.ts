@@ -4,8 +4,9 @@ import type { HexString, Order } from "@hyperbridge/sdk"
 import { bootFiller, type FillerRuntime } from "@/core/boot"
 import { formatChainKey } from "@/config/interpolated-curve"
 import type { AssetDefinition } from "@/config/asset-registry"
-import { assertConfirmationCoverage, validateRebalancingConfig, type VaultToml } from "@/config/filler-toml"
-import type { ChainConfirmationPolicy, FillerTomlConfig, RebalancingConfig } from "@/config/filler-toml"
+import { assertConfirmationCoverage, type VaultToml } from "@/config/filler-toml"
+import type { ChainConfirmationPolicy, FillerTomlConfig, RebalancingHubToml } from "@/config/filler-toml"
+import type { RebalanceHubCoverage, RebalancePass } from "@/services/RebalancingService"
 import { resolveChainConfigs, validateRpcUrls, type AllowlistConfig } from "@/services/FillerConfigService"
 import { assertBundlersServeEntryPoint } from "@/services/bundler-preflight"
 import { fundingShortfall } from "@/services/chain-funding"
@@ -532,8 +533,9 @@ export class ChainController {
 	/**
 	 * Removes a chain. In-flight fills on it are drained first.
 	 *
-	 * Refuses while a vault still names the chain — vaults hydrate per chain at
-	 * boot, and one left behind would fail the next start.
+	 * Refuses while a vault or a rebalancing hub still names the chain — both are
+	 * checked against the configured chains at boot, and one left behind would
+	 * fail the next start.
 	 */
 	async remove(chainId: number): Promise<void> {
 		return this.serialise(async () => {
@@ -542,6 +544,12 @@ export class ChainController {
 
 			if (config.vault?.vaults?.some((vault) => vault.chain === chainKey)) {
 				throw new Error(`${chainKey} still holds a vault entry — remove it from the vault treasury first`)
+			}
+			const hub = config.rebalancing?.hubs?.find((entry) => entry.chain === chainKey)
+			if (hub) {
+				throw new Error(
+					`${chainKey} is the rebalancing hub for ${hub.asset} — move the hub to another chain first`,
+				)
 			}
 
 			const index = this.runtime.resolvedChains.findIndex((chain) => chain.chainId === chainId)
@@ -834,26 +842,44 @@ export class WalletController {
 	}
 }
 
-/** Cross-chain inventory rebalancing. */
+/** Cross-chain inventory rebalancing: each asset is gathered on a hub chain. */
 export class RebalanceController {
 	constructor(
 		private runtime: FillerRuntime,
 		private persist: () => void | Promise<void>,
 	) {}
 
-	/** Replaces the rebalancing settings; trigger checks read them live. */
-	async set(rebalancing: RebalancingConfig | undefined): Promise<void> {
-		if (rebalancing) validateRebalancingConfig(rebalancing)
-		this.runtime.configService.setRebalancing(rebalancing)
-		this.runtime.config.rebalancing = rebalancing
+	list(): RebalancingHubToml[] {
+		return [...(this.runtime.config.rebalancing?.hubs ?? [])]
+	}
+
+	/**
+	 * Checks a prospective hub set against the running solver and returns the chains each
+	 * hub would cover, with the reason for every chain it would not. Changes nothing.
+	 */
+	preflight(hubs: RebalancingHubToml[]): RebalanceHubCoverage[] {
+		return this.runtime.rebalancingService.preflight({ hubs })
+	}
+
+	/** Replaces the hub set. The next pass reads it; an empty set switches rebalancing off. */
+	async set(hubs: RebalancingHubToml[], options?: { intervalMs?: number }): Promise<void> {
+		const intervalMs = options?.intervalMs ?? this.runtime.config.rebalancing?.intervalMs
+		const rebalancing = { hubs, ...(intervalMs !== undefined ? { intervalMs } : {}) }
+		this.runtime.rebalancingService.preflight(rebalancing)
+		const next = hubs.length > 0 || intervalMs !== undefined ? rebalancing : undefined
+		this.runtime.configService.setRebalancing(next)
+		this.runtime.config.rebalancing = next
 		await this.persist()
 	}
 
-	/** Runs a trigger check now instead of waiting for the timer. */
-	trigger(): Promise<unknown> {
-		const service = this.runtime.rebalancingService
-		if (!service) throw new Error("This filler was started without rebalancing configured")
-		return service.checkRebalanceTriggers()
+	/**
+	 * Runs a pass now instead of waiting for the timer. Resolves once the balances are read
+	 * and the transfers started, with what was started and why every other chain was left
+	 * alone. The transfers finish in the background; the `rebalance` event reports how they
+	 * ended. Rejects while an earlier pass is still moving funds.
+	 */
+	rebalanceNow(): Promise<RebalancePass> {
+		return this.runtime.intentFiller.rebalanceNow()
 	}
 }
 

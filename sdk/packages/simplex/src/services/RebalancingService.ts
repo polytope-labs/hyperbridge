@@ -1,571 +1,369 @@
-import { formatUnits } from "viem"
-import { parseStateMachineId } from "@hyperbridge/sdk"
-import { Decimal } from "decimal.js"
+import { formatUnits, parseUnits } from "viem"
+import type { HexString } from "@hyperbridge/sdk"
+import { ERC20_ABI } from "@/config/abis/ERC20"
+import { normalizeSymbol, type AssetRegistry } from "@/config/asset-registry"
+import {
+	DEFAULT_REBALANCE_INTERVAL_MS,
+	validateRebalancingConfig,
+	type RebalancingConfig,
+	type RebalancingHubToml,
+} from "@/config/filler-toml"
+import { formatChainKey } from "@/config/interpolated-curve"
 import type { ChainClientManager } from "./ChainClientManager"
 import type { FillerConfigService } from "./FillerConfigService"
-import { type Logger , moduleLogger} from "./Logger"
-import { ERC20_ABI } from "@/config/abis/ERC20"
+import { type Logger, moduleLogger } from "./Logger"
 import {
 	BinanceRebalancer,
 	CctpRebalancer,
 	Usdt0Rebalancer,
 	type BinanceCexConfig,
-	type CexRebalanceEstimate,
-	type CexRebalanceResult,
-	type RouteDecision,
-	type RebalanceOptions,
-	type UnifiedRebalanceOptions,
-	type Usdt0EstimateResult,
-	type Usdt0TransferResult,
+	type RebalanceMethod,
+	type RebalanceRoute,
 } from "./rebalancers"
 
-/**
- * Represents a planned transfer from one chain to another for portfolio-level rebalancing.
- */
-export interface PlannedTransfer {
-	sourceChain: string
-	destChain: string
-	coin: "USDC" | "USDT"
-	amount: string // Human-readable amount (e.g., "5000.00")
+/** Why a chain is left out of a hub, whatever its wallet holds. */
+export type RebalanceUncoveredReason = "no-asset" | "no-route" | "vault"
+
+/** Why one rebalancing pass left a chain alone. */
+export type RebalanceSkipReason = RebalanceUncoveredReason | "below-threshold" | "balance-unavailable"
+
+/** One chain as a hub sees it: the route that reaches the hub, or why there is none. */
+export interface RebalanceChainCoverage {
+	chain: string
+	/** The route that carries the asset to the hub. Absent when the chain is left out. */
+	method?: RebalanceMethod
+	/** Why the chain is left out. Absent when it is covered. */
+	uncovered?: RebalanceUncoveredReason
 }
 
-/**
- * Result of checking portfolio rebalancing triggers.
- */
-export interface TriggerCheckResult {
-	triggered: boolean
-	triggeredChains: Array<{
-		chain: string
-		asset: "USDC" | "USDT"
-		deficit: number
-	}>
+/** Every other chain the solver runs, as one hub sees it. */
+export interface RebalanceHubCoverage {
+	asset: string
+	hub: string
+	chains: RebalanceChainCoverage[]
 }
 
-/**
- * Result of a portfolio rebalancing operation.
- */
-export interface RebalancingResult {
-	success: boolean
-	transfers: PlannedTransfer[]
-	executedTransfers: Array<{
-		transfer: PlannedTransfer
-		result: unknown
-	}>
-	errors?: string[]
+/** One asset a route can bridge, with every chain that could be its hub and what each would cover. */
+export interface RebalanceAssetOptions {
+	asset: string
+	hubs: Array<{ chain: string; chains: RebalanceChainCoverage[] }>
 }
 
-// Chain IDs where CCTP is supported (Circle native mint/burn)
-const CCTP_CHAINS = new Set([1, 42161, 8453, 137, 130])
+/** A transfer into a hub. `amount` is in human units. */
+export interface RebalanceTransfer {
+	asset: string
+	source: string
+	hub: string
+	amount: string
+	method: RebalanceMethod
+}
 
-// Chain IDs where USDT0 (LayerZero OFT) is supported
-const USDT0_CHAINS = new Set([1, 42161, 8453, 137])
+export interface RebalanceSkip {
+	asset: string
+	chain: string
+	hub: string
+	reason: RebalanceSkipReason
+	/** Solver wallet balance of the asset, human units. Only read on a covered chain. */
+	walletBalance?: string
+	/** The hub's threshold, human units. Present with `walletBalance`. */
+	threshold?: string
+}
 
-// Chain IDs where Binance CEX route is available
-const BINANCE_CHAINS = new Set([1, 56, 137, 42161, 8453])
+/** What one pass decided: the transfers it started, and why every other chain was left alone. */
+export interface RebalancePass {
+	started: RebalanceTransfer[]
+	skipped: RebalanceSkip[]
+}
 
-function selectRoute(coin: "USDC" | "USDT", sourceChainId: number, destChainId: number): RouteDecision {
-	// USDC: prefer CCTP if both chains support it
-	if (coin === "USDC") {
-		if (CCTP_CHAINS.has(sourceChainId) && CCTP_CHAINS.has(destChainId)) {
-			return { method: "cctp", reason: "Both chains support CCTP for USDC" }
-		}
+/** How the transfers of one pass ended. */
+export interface RebalanceOutcome {
+	/** Delivered to the hub. `amount` is what was sent, decided when the transfer's turn came. */
+	moved: Array<RebalanceTransfer & { txHash?: string }>
+	failed: Array<RebalanceTransfer & { error: string }>
+	/** No longer due when their turn came: the balance was spent, or the hub was edited. */
+	notSent: Array<RebalanceTransfer & { reason: string }>
+}
+
+type TransferResult =
+	| { moved: RebalanceOutcome["moved"][number] }
+	| { failed: RebalanceOutcome["failed"][number] }
+	| { notSent: RebalanceOutcome["notSent"][number] }
+
+/** Thrown when a pass is asked for while the previous one is still moving funds. */
+export class RebalanceInProgressError extends Error {
+	constructor() {
+		super("A rebalance is already running")
+		this.name = "RebalanceInProgressError"
 	}
-
-	// USDT: prefer USDT0/OFT if both chains support it
-	if (coin === "USDT") {
-		if (USDT0_CHAINS.has(sourceChainId) && USDT0_CHAINS.has(destChainId)) {
-			return { method: "usdt0", reason: "Both chains support USDT0 OFT" }
-		}
-	}
-
-	// Fallback to CEX
-	if (BINANCE_CHAINS.has(sourceChainId) && BINANCE_CHAINS.has(destChainId)) {
-		return {
-			method: "cex",
-			reason: `${coin} not natively bridgeable between chainId ${sourceChainId} → ${destChainId}, using Binance`,
-		}
-	}
-
-	throw new Error(`No rebalancing route available for ${coin} from chainId ${sourceChainId} to ${destChainId}`)
 }
 
-/**
- * The chains a planned transfer sends transactions on from the filler's EOA. Every route sends
- * from the source. CCTP also mints on the destination: BridgeKit's `receiveMessage` goes out
- * through the same adapter. USDT0 is delivered by LayerZero and a CEX leg is withdrawn by
- * Binance, so neither sends anything from us on the destination. A leg with no route sends at
- * most from its source before it fails.
- */
-function sendingChains(transfer: PlannedTransfer): string[] {
-	try {
-		const route = selectRoute(
-			transfer.coin,
-			parseStateMachineId(transfer.sourceChain).stateId.Evm!,
-			parseStateMachineId(transfer.destChain).stateId.Evm!,
-		)
-		if (route.method === "cctp") return [transfer.sourceChain, transfer.destChain]
-	} catch {
-		// No route: `rebalance` reports it as this leg's error.
-	}
-	return [transfer.sourceChain]
+export interface RebalancingServiceOptions {
+	/** Enables the Binance route, for pairs no native route connects. */
+	binance?: BinanceCexConfig
+	/** Whether a vault on `chain` holds `token`. Such a chain is left to its vault sweep. */
+	hasVault?: (chain: string, token: HexString) => boolean
 }
 
+const sameAddress = (a: string | undefined | null, b: string | undefined | null): boolean =>
+	!!a && !!b && a.toLowerCase() === b.toLowerCase()
+
 /**
- * RebalancingService - Facade over CCTP, USDT0, and Binance CEX rebalancers.
- * Provides both low-level methods (sendCctp, sendUsdt0, sendViaCex) and a high-level router (rebalance).
+ * Gathers each configured asset on its hub chain. Once any other chain's wallet holds the
+ * hub's `threshold`, everything above `minBalance` is bridged to the hub. Every chain is
+ * judged on its own: see `rebalancers/Rules.md`.
  */
 export class RebalancingService {
-	private readonly chainClientManager: ChainClientManager
-	private readonly configService: FillerConfigService
-	private readonly walletAddress: string
-
-	private readonly cctpRebalancer: CctpRebalancer
-	private readonly usdt0Rebalancer: Usdt0Rebalancer
-	private readonly binanceRebalancer?: BinanceRebalancer
-
 	private readonly logger: Logger
+	private readonly walletAddress: HexString
+	/** In order of preference: a native route first, Binance where no native route runs. */
+	private readonly routes: RebalanceRoute[]
 
 	constructor(
-		chainClientManager: ChainClientManager,
-		configService: FillerConfigService,
-		binanceConfig?: BinanceCexConfig,
+		private readonly chainClientManager: ChainClientManager,
+		private readonly configService: FillerConfigService,
+		private readonly assetRegistry: AssetRegistry,
+		private readonly options: RebalancingServiceOptions = {},
 	) {
 		this.logger = moduleLogger(configService.loggers, "RebalancingService")
-		this.chainClientManager = chainClientManager
-		this.configService = configService
-
-		this.walletAddress = this.chainClientManager.getSigner().address
-
-		this.cctpRebalancer = new CctpRebalancer(chainClientManager, configService)
-		this.usdt0Rebalancer = new Usdt0Rebalancer(chainClientManager, configService)
-		this.binanceRebalancer = binanceConfig
-			? new BinanceRebalancer(chainClientManager, configService, binanceConfig)
-			: undefined
+		this.walletAddress = chainClientManager.getSigner().address as HexString
+		this.routes = [
+			new CctpRebalancer(chainClientManager, configService),
+			new Usdt0Rebalancer(chainClientManager, configService),
+			...(options.binance ? [new BinanceRebalancer(chainClientManager, configService, options.binance)] : []),
+		]
 	}
 
-	// ------------------------------------------------------------------------
-	// CCTP wrappers (backwards compatible)
-	// ------------------------------------------------------------------------
-
-	async sendCctp(options: RebalanceOptions) {
-		return this.cctpRebalancer.sendCctp(options)
+	/** How long to wait between passes, read from the live config. */
+	intervalMs(): number {
+		return this.configService.getRebalancingConfig()?.intervalMs ?? DEFAULT_REBALANCE_INTERVAL_MS
 	}
 
-	async estimateCctp(options: RebalanceOptions) {
-		return this.cctpRebalancer.estimateCctp(options)
+	/** Every asset some route can bridge. */
+	assets(): string[] {
+		return [...new Set(this.routes.flatMap((route) => route.assets))]
 	}
-
-	async retrySendCctp(failedResult: Awaited<ReturnType<CctpRebalancer["sendCctp"]>>) {
-		return this.cctpRebalancer.retrySendCctp(failedResult)
-	}
-
-	// ------------------------------------------------------------------------
-	// USDT0 wrappers (backwards compatible)
-	// ------------------------------------------------------------------------
-
-	async sendUsdt0(options: RebalanceOptions): Promise<Usdt0TransferResult> {
-		return this.usdt0Rebalancer.sendUsdt0(options)
-	}
-
-	async estimateUsdt0(options: RebalanceOptions): Promise<Usdt0EstimateResult> {
-		return this.usdt0Rebalancer.estimateUsdt0(options)
-	}
-
-	// ------------------------------------------------------------------------
-	// CEX wrappers
-	// ------------------------------------------------------------------------
-
-	async sendViaCex(options: UnifiedRebalanceOptions): Promise<CexRebalanceResult> {
-		if (!this.binanceRebalancer) {
-			throw new Error("Binance CEX rebalancer not configured")
-		}
-		return this.binanceRebalancer.sendViaCex(options)
-	}
-
-	async estimateCexRebalance(options: UnifiedRebalanceOptions): Promise<CexRebalanceEstimate> {
-		if (!this.binanceRebalancer) {
-			throw new Error("Binance CEX rebalancer not configured")
-		}
-		return this.binanceRebalancer.estimateCexRebalance(options)
-	}
-
-	// ------------------------------------------------------------------------
-	// High-level router
-	// ------------------------------------------------------------------------
 
 	/**
-	 * Execute a single cross-chain transfer, selecting the best route (CCTP / USDT0 / CEX).
-	 * Requires coin to be specified for routing decisions.
+	 * Every other chain the solver runs, as a hub for `asset` on `hub` would see it. A chain is
+	 * covered when the asset registry names the asset there and one route moves that same
+	 * token on both the chain and the hub. A chain with a vault for the asset is left out, so
+	 * the vault sweep and the rebalance never compete for one wallet balance.
 	 */
-	async rebalance(
-		options: UnifiedRebalanceOptions,
-	): Promise<Awaited<ReturnType<CctpRebalancer["sendCctp"]>> | Usdt0TransferResult | CexRebalanceResult> {
-		const { amount, coin, source, destination } = options
-
-		const sourceChainId = parseStateMachineId(source).stateId.Evm!
-		const destChainId = parseStateMachineId(destination).stateId.Evm!
-
-		const route = selectRoute(coin, sourceChainId, destChainId)
-		this.logger.info({ ...route, coin, source, destination, amount }, "Route selected")
-
-		switch (route.method) {
-			case "cctp":
-				return this.sendCctp({ amount, source, destination })
-
-			case "usdt0":
-				return this.sendUsdt0({ amount, source, destination })
-
-			case "cex":
-				return this.sendViaCex(options)
-		}
+	coverage({ asset, chain: hub }: Pick<RebalancingHubToml, "asset" | "chain">): RebalanceChainCoverage[] {
+		const symbol = normalizeSymbol(asset)
+		const hubToken = this.assetRegistry.getAddress(symbol, hub)
+		return this.configService
+			.getConfiguredChainIds()
+			.map(formatChainKey)
+			.filter((chain) => chain !== hub)
+			.map((chain): RebalanceChainCoverage => {
+				const token = this.assetRegistry.getAddress(symbol, chain)
+				if (!token) return { chain, uncovered: "no-asset" }
+				const route = this.routes.find(
+					(candidate) =>
+						sameAddress(candidate.tokenOn(symbol, chain), token) &&
+						sameAddress(candidate.tokenOn(symbol, hub), hubToken),
+				)
+				if (!route) return { chain, uncovered: "no-route" }
+				if (this.options.hasVault?.(chain, token)) return { chain, uncovered: "vault" }
+				return { chain, method: route.method }
+			})
 	}
 
-	// ------------------------------------------------------------------------
-	// Portfolio-level rebalancing (multi-chain)
-	// ------------------------------------------------------------------------
+	/**
+	 * What an operator can choose from: every asset a route can bridge, each running chain
+	 * that could be its hub (the asset registry names the asset there), and what that hub
+	 * would cover. Computed from the routes and the registry; no chain is read.
+	 */
+	catalog(): RebalanceAssetOptions[] {
+		const chains = this.configService.getConfiguredChainIds().map(formatChainKey)
+		return this.assets().map((asset) => ({
+			asset,
+			hubs: chains
+				.filter((chain) => this.assetRegistry.getAddress(asset, chain) !== null)
+				.map((chain) => ({ chain, chains: this.coverage({ asset, chain }) })),
+		}))
+	}
 
 	/**
-	 * Check if any chains/assets have triggered portfolio rebalancing thresholds.
+	 * Checks a prospective `[rebalancing]` section against the running solver and reports what
+	 * each hub would cover. Throws on a section this solver cannot use: a hub on a chain it does
+	 * not run, an asset no route carries, or one the registry does not name on the hub.
+	 * Changes nothing.
 	 */
-	async checkRebalanceTriggers(): Promise<TriggerCheckResult> {
-		const rebalancingConfig = this.configService.getRebalancingConfig()
-		if (!rebalancingConfig) {
-			this.logger.debug("Rebalancing config not found, skipping trigger check")
-			return { triggered: false, triggeredChains: [] }
+	preflight(rebalancing: RebalancingConfig): RebalanceHubCoverage[] {
+		validateRebalancingConfig(rebalancing, this.configService.getConfiguredChainIds())
+		return (rebalancing.hubs ?? []).map((hub) => {
+			const asset = normalizeSymbol(hub.asset)
+			if (!this.assets().includes(asset)) {
+				throw new Error(
+					`rebalancing.hubs: no bridge route carries ${asset}; routes exist for ${this.assets().join(" and ")}`,
+				)
+			}
+			if (!this.assetRegistry.getAddress(asset, hub.chain)) {
+				throw new Error(`rebalancing.hubs: ${asset} is not in the asset registry on ${hub.chain}`)
+			}
+			return { asset, hub: hub.chain, chains: this.coverage(hub) }
+		})
+	}
+
+	/**
+	 * Reads every covered chain's wallet balance and decides what to move. Reads only: the
+	 * transfers it returns are sent by {@link execute}.
+	 */
+	async plan(): Promise<RebalancePass> {
+		const hubs = this.configService.getRebalancingConfig()?.hubs ?? []
+		const decisions = await Promise.all(
+			hubs.flatMap((hub) => this.coverage(hub).map((entry) => this.decide(hub, entry))),
+		)
+		const pass: RebalancePass = { started: [], skipped: [] }
+		for (const decision of decisions) {
+			if ("reason" in decision) pass.skipped.push(decision)
+			else pass.started.push(decision)
+		}
+		for (const transfer of pass.started) this.logger.info(transfer, "Wallet reached its rebalancing threshold")
+		return pass
+	}
+
+	private async decide(
+		hub: RebalancingHubToml,
+		entry: RebalanceChainCoverage,
+	): Promise<RebalanceTransfer | RebalanceSkip> {
+		const asset = normalizeSymbol(hub.asset)
+		const where = { asset, chain: entry.chain, hub: hub.chain }
+		if (!entry.method) return { ...where, reason: entry.uncovered ?? "no-route" }
+
+		let wallet: { balance: bigint; decimals: number }
+		try {
+			wallet = await this.readWallet(asset, entry.chain)
+		} catch (error) {
+			this.logger.warn({ error, ...where }, "Could not read the wallet balance; chain skipped this pass")
+			return { ...where, reason: "balance-unavailable" }
 		}
 
-		const triggerPercentage = rebalancingConfig.triggerPercentage
-		const chainIds = this.configService.getConfiguredChainIds()
-		const triggeredChains: TriggerCheckResult["triggeredChains"] = []
-
-		for (const chainId of chainIds) {
-			const chain = `EVM-${chainId}`
-
-			for (const asset of ["USDC", "USDT"] as const) {
-				const baseBalance = this.configService.getBaseBalance(chainId, asset)
-				if (baseBalance === undefined) {
-					continue // Skip if base balance not configured
-				}
-
-				const currentBalance = await this.getCurrentBalance(chain, asset)
-				if (currentBalance === undefined) {
-					this.logger.warn({ chain, asset }, "Could not fetch current balance")
-					continue
-				}
-
-				const threshold = baseBalance * (1 - triggerPercentage)
-				if (currentBalance <= threshold) {
-					const deficit = baseBalance - currentBalance
-					triggeredChains.push({
-						chain,
-						asset,
-						deficit,
-					})
-					this.logger.info(
-						{ chain, asset, currentBalance, baseBalance, threshold, deficit },
-						"Portfolio rebalancing trigger detected",
-					)
-				}
+		// Amounts are configured in human units and scaled with this chain's own decimals:
+		// one asset has 6 on most chains and 18 on BNB Chain.
+		const threshold = parseUnits(hub.threshold, wallet.decimals)
+		// Whole cents, rounded down: every route takes the amount as a decimal string, and an
+		// 18-decimal remainder is finer than Binance accepts on a withdrawal.
+		const cent = 10n ** BigInt(Math.max(wallet.decimals - 2, 0))
+		const excess = wallet.balance - parseUnits(hub.minBalance, wallet.decimals)
+		const amount = excess - (excess % cent)
+		if (wallet.balance < threshold || amount <= 0n) {
+			return {
+				...where,
+				reason: "below-threshold",
+				walletBalance: formatUnits(wallet.balance, wallet.decimals),
+				threshold: hub.threshold,
 			}
 		}
 
 		return {
-			triggered: triggeredChains.length > 0,
-			triggeredChains,
+			asset,
+			source: entry.chain,
+			hub: hub.chain,
+			amount: formatUnits(amount, wallet.decimals),
+			method: entry.method,
 		}
 	}
 
 	/**
-	 * Plan portfolio-level rebalancing transfers for triggered chains using greedy matching.
+	 * Sends the transfers of one pass and reports how each ended. Never rejects: a transfer
+	 * that fails is reported, and the next pass tries again if the balance is still there.
+	 *
+	 * Every transfer is sent from the one solver wallet with no nonce manager, so two that send
+	 * on the same chain at once would race for its nonce. Each chain is a lane: a transfer waits
+	 * for the previous one on every chain it sends on, and transfers that share no chain run in
+	 * parallel. The result keeps plan order.
+	 *
+	 * `cancelled` is asked before each transfer is sent. Once it answers true, the transfers
+	 * still waiting their turn are not sent; one already under way runs to its end.
 	 */
-	async planPortfolioRebalancing(triggeredChains: TriggerCheckResult["triggeredChains"]): Promise<PlannedTransfer[]> {
-		const transfers: PlannedTransfer[] = []
-		const chainIds = this.configService.getConfiguredChainIds()
-
-		// Group by asset
-		const deficitsByAsset = new Map<"USDC" | "USDT", Array<{ chain: string; deficit: number }>>()
-		for (const triggered of triggeredChains) {
-			if (!deficitsByAsset.has(triggered.asset)) {
-				deficitsByAsset.set(triggered.asset, [])
-			}
-			deficitsByAsset.get(triggered.asset)!.push({
-				chain: triggered.chain,
-				deficit: triggered.deficit,
-			})
-		}
-
-		// Plan transfers for each asset separately
-		for (const [asset, deficits] of deficitsByAsset.entries()) {
-			const assetTransfers = await this.planTransfersForAsset(asset, deficits, chainIds)
-			transfers.push(...assetTransfers)
-		}
-
-		return transfers
-	}
-
-	/**
-	 * Plan transfers for a specific asset using greedy surplus–deficit matching.
-	 */
-	private async planTransfersForAsset(
-		asset: "USDC" | "USDT",
-		deficits: Array<{ chain: string; deficit: number }>,
-		allChainIds: number[],
-	): Promise<PlannedTransfer[]> {
-		const transfers: PlannedTransfer[] = []
-
-		// Compute surpluses for this asset
-		const surpluses: Array<{ chain: string; surplus: number }> = []
-		for (const chainId of allChainIds) {
-			const chain = `EVM-${chainId}`
-			const baseBalance = this.configService.getBaseBalance(chainId, asset)
-			if (baseBalance === undefined) {
-				continue
-			}
-
-			const currentBalance = await this.getCurrentBalance(chain, asset)
-			if (currentBalance === undefined) {
-				continue
-			}
-
-			if (currentBalance > baseBalance) {
-				const surplus = currentBalance - baseBalance
-				surpluses.push({ chain, surplus })
-			}
-		}
-
-		// Check if total surplus is sufficient
-		const totalDeficit = deficits.reduce((sum, d) => sum + d.deficit, 0)
-		const totalSurplus = surpluses.reduce((sum, s) => sum + s.surplus, 0)
-
-		if (totalSurplus < totalDeficit) {
-			throw new Error(
-				`Insufficient surplus to bring ${asset} balances back to base. ` +
-					`Total deficit: ${totalDeficit}, Total surplus: ${totalSurplus}`,
-			)
-		}
-
-		// Greedy matching: sort deficits and surpluses in descending order
-		const sortedDeficits = [...deficits].sort((a, b) => b.deficit - a.deficit)
-		// Create mutable copies of surpluses for tracking remaining amounts
-		const workingSurpluses = surpluses.map((s) => ({ ...s })).sort((a, b) => b.surplus - a.surplus)
-
-		// Match deficits with surpluses
-		for (const deficitInfo of sortedDeficits) {
-			let remainingDeficit = deficitInfo.deficit
-
-			for (const surplusInfo of workingSurpluses) {
-				if (remainingDeficit <= 0) {
-					break
-				}
-
-				if (surplusInfo.surplus <= 0) {
-					continue
-				}
-
-				// Skip if source and dest are the same chain
-				if (surplusInfo.chain === deficitInfo.chain) {
-					continue
-				}
-
-				const transferAmount = Math.min(remainingDeficit, surplusInfo.surplus)
-				transfers.push({
-					sourceChain: surplusInfo.chain,
-					destChain: deficitInfo.chain,
-					coin: asset,
-					amount: transferAmount.toFixed(2),
-				})
-
-				remainingDeficit -= transferAmount
-				surplusInfo.surplus -= transferAmount
-			}
-
-			if (remainingDeficit > 0) {
-				throw new Error(
-					`Could not fully satisfy deficit for ${asset} on ${deficitInfo.chain}. ` +
-						`Remaining deficit: ${remainingDeficit}`,
-				)
-			}
-		}
-
-		return transfers
-	}
-
-	/**
-	 * Execute planned portfolio-level transfers via this service.
-	 */
-	async executePortfolioRebalancing(transfers: PlannedTransfer[]): Promise<RebalancingResult> {
-		const executedTransfers: RebalancingResult["executedTransfers"] = []
-		const errors: string[] = []
-
-		this.logger.info({ transferCount: transfers.length }, "Executing portfolio rebalancing transfers")
-
-		const execute = async (transfer: PlannedTransfer) => {
-			try {
-				this.logger.info(
-					{
-						sourceChain: transfer.sourceChain,
-						destChain: transfer.destChain,
-						coin: transfer.coin,
-						amount: transfer.amount,
-					},
-					"Executing portfolio transfer",
-				)
-
-				const result = await this.rebalance({
-					amount: transfer.amount,
-					coin: transfer.coin,
-					source: transfer.sourceChain,
-					destination: transfer.destChain,
-				})
-
-				return { transfer, result }
-			} catch (error) {
-				const errorMsg = `Portfolio transfer failed: ${transfer.sourceChain} -> ${transfer.destChain} (${transfer.coin} ${transfer.amount}): ${
-					error instanceof Error ? error.message : String(error)
-				}`
-				this.logger.error({ error, transfer }, errorMsg)
-				errors.push(errorMsg)
-				return null
-			}
-		}
-
-		// Every leg is sent from the one filler EOA with no nonce manager, so two legs sending on
-		// the same chain at once would race for its nonce. Each chain is a lane, and a leg waits
-		// for the previous leg on every lane it sends on (see `sendingChains`); legs that share
-		// no chain still run in parallel. Results keep plan order.
-		const results: Array<Awaited<ReturnType<typeof execute>>> = new Array(transfers.length).fill(null)
+	async execute(transfers: RebalanceTransfer[], cancelled: () => boolean = () => false): Promise<RebalanceOutcome> {
+		const results: TransferResult[] = new Array(transfers.length)
 		const lanes = new Map<string, Promise<void>>()
 		transfers.forEach((transfer, index) => {
-			const chains = sendingChains(transfer)
+			const route = this.routes.find((candidate) => candidate.method === transfer.method)
+			const chains = route?.sendsOnDestination ? [transfer.source, transfer.hub] : [transfer.source]
 			const previous = chains.map((chain) => lanes.get(chain) ?? Promise.resolve())
 			const run = Promise.all(previous).then(async () => {
-				results[index] = await execute(transfer)
+				results[index] = cancelled()
+					? { notSent: { ...transfer, reason: "cancelled" } }
+					: await this.send(route, transfer)
 			})
 			for (const chain of chains) lanes.set(chain, run)
 		})
 		await Promise.all(lanes.values())
+
+		const outcome: RebalanceOutcome = { moved: [], failed: [], notSent: [] }
 		for (const result of results) {
-			if (result !== null) {
-				executedTransfers.push(result)
-			}
+			if ("moved" in result) outcome.moved.push(result.moved)
+			else if ("failed" in result) outcome.failed.push(result.failed)
+			else outcome.notSent.push(result.notSent)
 		}
-
-		return {
-			success: errors.length === 0,
-			transfers,
-			executedTransfers,
-			errors: errors.length > 0 ? errors : undefined,
-		}
+		return outcome
 	}
 
-	/**
-	 * High-level portfolio rebalance:
-	 * 1) Check triggers
-	 * 2) Plan transfers
-	 * 3) Execute transfers
-	 */
-	async rebalancePortfolio(): Promise<RebalancingResult> {
-		const triggerCheck = await this.checkRebalanceTriggers()
-
-		if (!triggerCheck.triggered) {
-			this.logger.debug("No portfolio rebalancing triggers detected")
-			return {
-				success: true,
-				transfers: [],
-				executedTransfers: [],
-			}
-		}
-
-		this.logger.info(
-			{ triggeredChains: triggerCheck.triggeredChains },
-			"Portfolio rebalancing triggers detected, planning transfers",
-		)
-
-		const plannedTransfers = await this.planPortfolioRebalancing(triggerCheck.triggeredChains)
-		this.logger.info({ transferCount: plannedTransfers.length }, "Portfolio transfer plan created")
-
-		if (plannedTransfers.length === 0) {
-			return {
-				success: true,
-				transfers: [],
-				executedTransfers: [],
-			}
-		}
-
-		return await this.executePortfolioRebalancing(plannedTransfers)
-	}
-
-	/**
-	 * Get current balance for a token on a chain.
-	 * Returns balance in normalized USD value (treating token as $1).
-	 */
-	private async getCurrentBalance(chain: string, asset: "USDC" | "USDT"): Promise<number | undefined> {
+	private async send(route: RebalanceRoute | undefined, planned: RebalanceTransfer): Promise<TransferResult> {
+		let transfer = planned
 		try {
-			const publicClient = this.chainClientManager.getPublicClient(chain)
-			const tokenAddress =
-				asset === "USDC" ? this.configService.getUsdcAsset(chain) : this.configService.getUsdtAsset(chain)
+			if (!route) throw new Error(`The ${planned.method} route is not available`)
 
-			if (!tokenAddress || tokenAddress === "0x") {
-				this.logger.warn({ chain, asset }, "Token address not configured")
-				return undefined
+			// A transfer can wait in its lane for many minutes behind another, while fills keep
+			// spending the wallet. So it is decided again now, from the balance and the hub as
+			// they are now: a stale amount would take the chain below its minimum balance.
+			const current = await this.decideAgain(planned)
+			if ("reason" in current) {
+				this.logger.info({ ...planned, reason: current.reason }, "Rebalancing transfer no longer due; not sent")
+				return { notSent: { ...planned, reason: current.reason } }
 			}
+			transfer = current
 
-			// Get decimals
-			const decimals = await publicClient.readContract({
-				address: tokenAddress as `0x${string}`,
-				abi: ERC20_ABI,
-				functionName: "decimals",
+			this.logger.info(transfer, "Sending rebalancing transfer")
+			const receipt = await route.send({
+				asset: transfer.asset,
+				amount: transfer.amount,
+				source: transfer.source,
+				destination: transfer.hub,
 			})
+			this.logger.info({ ...transfer, ...receipt }, "Rebalancing transfer delivered")
+			return { moved: { ...transfer, ...(receipt.txHash ? { txHash: receipt.txHash } : {}) } }
+		} catch (error) {
+			this.logger.error({ error, ...transfer }, "Rebalancing transfer failed")
+			return { failed: { ...transfer, error: error instanceof Error ? error.message : String(error) } }
+		}
+	}
 
-			// Get balance
-			const balanceWei = await publicClient.readContract({
-				address: tokenAddress as `0x${string}`,
+	/**
+	 * The planned transfer as it stands now, or why it is no longer due. The hub is looked up
+	 * in the live config, so switching rebalancing off or moving a hub also stops the
+	 * transfers still waiting their turn.
+	 */
+	private async decideAgain(planned: RebalanceTransfer): Promise<RebalanceTransfer | { reason: string }> {
+		const hub = (this.configService.getRebalancingConfig()?.hubs ?? []).find(
+			(candidate) => normalizeSymbol(candidate.asset) === planned.asset && candidate.chain === planned.hub,
+		)
+		if (!hub) return { reason: "hub-changed" }
+		const entry = this.coverage(hub).find((candidate) => candidate.chain === planned.source)
+		// A different route would need a different lane; the next pass plans it afresh.
+		if (!entry || (entry.method && entry.method !== planned.method)) return { reason: "hub-changed" }
+		return this.decide(hub, entry)
+	}
+
+	/** The solver wallet's balance of `asset` on `chain`, with the token's own decimals. */
+	private async readWallet(asset: string, chain: string): Promise<{ balance: bigint; decimals: number }> {
+		const token = this.assetRegistry.getAddress(asset, chain)
+		if (!token) throw new Error(`${asset} is not in the asset registry on ${chain}`)
+		const publicClient = this.chainClientManager.getPublicClient(chain)
+		const [decimals, balance] = await Promise.all([
+			publicClient.readContract({ address: token, abi: ERC20_ABI, functionName: "decimals" }),
+			publicClient.readContract({
+				address: token,
 				abi: ERC20_ABI,
 				functionName: "balanceOf",
-				args: [this.walletAddress as `0x${string}`],
-			})
-
-			// Convert to normalized USD value
-			const balanceDecimal = new Decimal(formatUnits(balanceWei, Number(decimals)))
-			return balanceDecimal.toNumber()
-		} catch (error) {
-			this.logger.error({ error, chain, asset }, "Failed to get current balance")
-			return undefined
-		}
-	}
-
-	async estimate(
-		options: UnifiedRebalanceOptions,
-	): Promise<
-		| { method: "cctp"; estimate: Awaited<ReturnType<CctpRebalancer["estimateCctp"]>> }
-		| { method: "usdt0"; estimate: Usdt0EstimateResult }
-		| { method: "cex"; estimate: CexRebalanceEstimate }
-	> {
-		const { coin, source, destination, amount } = options
-
-		const sourceChainId = parseStateMachineId(source).stateId.Evm!
-		const destChainId = parseStateMachineId(destination).stateId.Evm!
-
-		const route = selectRoute(coin, sourceChainId, destChainId)
-
-		switch (route.method) {
-			case "cctp":
-				return {
-					method: "cctp",
-					estimate: await this.estimateCctp({ amount, source, destination }),
-				}
-
-			case "usdt0":
-				return {
-					method: "usdt0",
-					estimate: await this.estimateUsdt0({ amount, source, destination }),
-				}
-
-			case "cex":
-				return {
-					method: "cex",
-					estimate: await this.estimateCexRebalance(options),
-				}
-		}
+				args: [this.walletAddress],
+			}),
+		])
+		return { balance: balance as bigint, decimals: Number(decimals) }
 	}
 }

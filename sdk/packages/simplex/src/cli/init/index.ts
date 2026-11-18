@@ -6,7 +6,7 @@ import { parse } from "toml"
 import { validateConfig, type FillerConfigFile } from "@/config/filler-toml"
 import { fetchChainId } from "@/services/FillerConfigService"
 import { guard, withTimeout, PROBE_TIMEOUT_MS } from "./prompt-utils"
-import { migrateLegacyConfig } from "./migrate-legacy"
+import { dropRemovedRebalancing, migrateLegacyConfig } from "./migrate-legacy"
 import { newWizardState, type Prefill } from "./state"
 import { stepChains } from "./steps/chains"
 import { stepSigner } from "./steps/signer"
@@ -99,6 +99,13 @@ async function handleExistingConfig(outputPath: string): Promise<Prefill | undef
 				delete (config as Record<string, unknown>).strategies
 				degraded = true
 			}
+		}
+		// Nothing in a [rebalancing] section from before hubs can be carried over, and
+		// validation refuses it. Dropping it keeps the rest of the config prefilled.
+		if (dropRemovedRebalancing(config)) {
+			log.warn(
+				'This config has a [rebalancing] section from before hubs (triggerPercentage, baseBalances), which is no longer read. Choose "Update values" to write the file without it, then set a hub chain per asset under [[rebalancing.hubs]] or from the dashboard (Wallet > Rebalancing).',
+			)
 		}
 		if (!degraded) validateConfig(config)
 	} catch (error) {

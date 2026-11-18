@@ -15,11 +15,17 @@ import { TESTNET_CONFIRMATION_POINTS } from "@/cli/init/state"
 import { ChainConfigService } from "@hyperbridge/sdk"
 import {
 	assertConfirmationCoverage,
-	validateRebalancingConfig,
 	type FillerConfigFile,
-	type FillerTomlConfig,
+	type RebalancingConfig,
+	type RebalancingHubToml,
 	type VaultToml,
 } from "@/config/filler-toml"
+import {
+	RebalanceInProgressError,
+	type RebalanceAssetOptions,
+	type RebalanceHubCoverage,
+	type RebalancePass,
+} from "@/services/RebalancingService"
 import { emitFillerToml, writeConfigFileAtomic } from "@/cli/init/emit-toml"
 import { formatUnits, isAddress } from "viem"
 import { validateRpcUrls, type AllowlistConfig } from "@/services/FillerConfigService"
@@ -81,6 +87,8 @@ import {
 	type StatusOperator,
 	type WalletTxDto,
 	type VaultSweepDto,
+	type RebalancingDto,
+	type RebalancePassDto,
 	type OrderHistoryDto,
 	type LedgerLeg,
 } from "./dto"
@@ -193,11 +201,23 @@ export interface OperatorContext {
 		/** Re-hydrates the shared venue with a new vault set; rejects on bad vaults. */
 		reconfigure(vaults: VaultToml[], sweepIntervalMs?: number): Promise<void>
 	}
-	rebalancing?: { checkTriggers(): Promise<unknown> }
+	/** Cross-chain rebalancing: each asset is gathered on a hub chain. */
+	rebalancing: {
+		/** Every asset a route can bridge, with the chains that could be its hub and what each covers. */
+		catalog(): RebalanceAssetOptions[]
+		/** Checks a prospective section against the running solver; throws on a bad one. */
+		preflight(rebalancing: RebalancingConfig): RebalanceHubCoverage[]
+		/** Applies the section to the running solver; the next pass reads it. */
+		apply(rebalancing: RebalancingConfig | undefined): void
+		/** How often balances are checked, in milliseconds. */
+		intervalMs(): number
+		/** Whether a pass is still moving funds. */
+		running(): boolean
+		/** Starts a pass now; rejects with `RebalanceInProgressError` while one is running. */
+		rebalanceNow(): Promise<RebalancePass>
+	}
 	/** Applies a new allowlist to the running filler (persistence handled by the server). */
 	applyAllowlist(allowlist: AllowlistConfig | undefined): void
-	/** Applies rebalancing settings to the running filler; trigger checks read them live. */
-	applyRebalancing(rebalancing: FillerTomlConfig["rebalancing"]): void
 	/** First RPC URL for a running chain (state machine id) — backs the custom-token verify probe. */
 	rpcUrlFor?: (chain: string) => string | undefined
 	/**
@@ -1385,23 +1405,29 @@ export class UiServer {
 			}
 		}
 
+		if (path === "/api/rebalancing/run") {
+			if (this.mode !== "operator") return sendJson(res, 409, { error: "Filler is not running" })
+			if (method !== "POST") return sendJson(res, 405, { error: "Method not allowed" })
+			try {
+				const pass: RebalancePassDto = { ok: true, ...(await this.operator!.rebalancing.rebalanceNow()) }
+				return sendJson(res, 200, pass)
+			} catch (err) {
+				const status = err instanceof RebalanceInProgressError ? 409 : 500
+				return sendJson(res, status, { error: err instanceof Error ? err.message : String(err) })
+			}
+		}
+
 		if (path === "/api/rebalancing") {
 			if (this.mode !== "operator") return sendJson(res, 409, { error: "Filler is not running" })
 			if (method !== "GET") return sendJson(res, 405, { error: "Method not allowed" })
 			const op = this.operator!
-			if (!op.rebalancing || !op.config.rebalancing) {
-				return sendJson(res, 200, { configured: false })
+			const dto: RebalancingDto = {
+				hubs: op.config.rebalancing?.hubs ?? [],
+				intervalMs: op.rebalancing.intervalMs(),
+				running: op.rebalancing.running(),
+				assets: op.rebalancing.catalog(),
 			}
-			try {
-				return sendJson(res, 200, {
-					configured: true,
-					triggerPercentage: op.config.rebalancing.triggerPercentage,
-					baseBalances: op.config.rebalancing.baseBalances,
-					triggers: await op.rebalancing.checkTriggers(),
-				})
-			} catch (err) {
-				return sendJson(res, 500, { error: err instanceof Error ? err.message : String(err) })
-			}
+			return sendJson(res, 200, dto)
 		}
 
 		if (path === "/api/tunnel") {
@@ -1698,6 +1724,12 @@ export class UiServer {
 				if (op.config.vault?.vaults?.some((vault) => vault.chain === chainKey)) {
 					throw new Error(
 						`${chainLabel(chainId)} still holds a vault entry — remove it from the vault treasury before dropping the chain`,
+					)
+				}
+				const hub = op.config.rebalancing?.hubs?.find((entry) => entry.chain === chainKey)
+				if (hub) {
+					throw new Error(
+						`${chainLabel(chainId)} is the rebalancing hub for ${hub.asset} — move the hub to another chain before dropping the chain`,
 					)
 				}
 			}
@@ -2157,42 +2189,31 @@ export class UiServer {
 	}
 
 	private async handleRebalancingUpdate(req: IncomingMessage, res: ServerResponse): Promise<void> {
-		let body: {
-			triggerPercentage?: number
-			baseBalances?: { USDC?: Record<string, string>; USDT?: Record<string, string> }
-		}
+		let body: { hubs?: RebalancingHubToml[]; intervalMs?: number }
 		try {
 			body = JSON.parse(await readBody(req))
 		} catch {
 			return sendJson(res, 400, { error: "Invalid JSON body" })
 		}
-		const trigger = Number(body.triggerPercentage)
-		const baseBalances = body.baseBalances ?? {}
-		const rebalancing = { triggerPercentage: trigger, baseBalances }
+		if (!Array.isArray(body.hubs)) {
+			return sendJson(res, 400, { error: "Provide hubs as an array (empty to switch rebalancing off)" })
+		}
+		const op = this.operator!
+		// A save from the editor carries hubs only; the configured interval stays.
+		const intervalMs = body.intervalMs ?? op.config.rebalancing?.intervalMs
+		const rebalancing: RebalancingConfig = { hubs: body.hubs, ...(intervalMs !== undefined ? { intervalMs } : {}) }
 		try {
-			validateRebalancingConfig(rebalancing)
+			op.rebalancing.preflight(rebalancing)
 		} catch (error) {
 			return sendJson(res, 400, { error: error instanceof Error ? error.message : String(error) })
 		}
-		const entries = [...Object.entries(baseBalances.USDC ?? {}), ...Object.entries(baseBalances.USDT ?? {})]
-		if (entries.length === 0) {
-			return sendJson(res, 400, { error: "Provide at least one base balance" })
-		}
-		// Balances are read by numeric chain id; any other key would be stored and never consulted.
-		for (const [chainId, amount] of entries) {
-			if (!/^\d+$/.test(chainId)) {
-				return sendJson(res, 400, { error: `Invalid base balance for chain ${chainId}: ${amount}` })
-			}
-		}
 
-		const op = this.operator!
-		op.applyRebalancing(rebalancing)
-		op.config.rebalancing = rebalancing
+		const next = body.hubs.length > 0 || intervalMs !== undefined ? rebalancing : undefined
+		op.rebalancing.apply(next)
+		op.config.rebalancing = next
 		const persisted = this.persistConfig()
-		// The trigger loop only runs when rebalancing was configured at boot.
-		const applied = Boolean(op.rebalancing)
-		this.logger.warn({ trigger, chains: entries.length }, "Rebalancing settings updated from the UI")
-		return sendJson(res, 200, { applied, restartNeeded: !applied, persisted })
+		this.logger.warn({ hubs: body.hubs.length }, "Rebalancing hubs updated from the UI")
+		return sendJson(res, 200, { ok: true, persisted })
 	}
 
 	private async handleAllowlist(req: IncomingMessage, res: ServerResponse): Promise<void> {

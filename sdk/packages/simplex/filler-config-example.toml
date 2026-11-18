@@ -103,9 +103,6 @@ hyperbridgeWsUrl = ""
 # Logging level: trace, debug, info, warn, error
 logging = "debug"
 
-# Rebalancing configuration
-# Trigger percentage: rebalancing triggers when balance falls to (1 - triggerPercentage) * baseBalance
-# Example: triggerPercentage = 0.5 means trigger when balance <= 50% of base
 # SimplexPaymaster fee-recycling keeper (optional) — used by the
 # `simplex paymaster-keeper` subcommand, not by `run`. The keeper periodically
 # calls the paymaster's onchain swapAndDeposit, which swaps accrued stablecoins
@@ -117,27 +114,33 @@ logging = "debug"
 # intervalMinutes = 30
 # minSwapUsd = 1          # skip tokens whose accrued balance is below this
 
+# Rebalancing (optional): gathers each asset on one hub chain.
+# Every other chain the solver runs is checked on its own. Once a chain's wallet
+# holds `threshold` of the asset, everything above `minBalance` is bridged to the
+# hub. The gap between the two is the smallest transfer.
+#   - One hub per asset. The hub must be a chain listed under [[chains]].
+#   - Amounts are in whole tokens, above zero, with at most two decimals.
+#     `threshold` must be greater than `minBalance`.
+#   - USDC moves over CCTP and USDT over USDT0. With [binance] set, Binance
+#     carries the pairs neither reaches (BNB Chain, for example).
+#   - A chain with no route to the hub is left out. So is a chain with a vault
+#     for the asset: its sweep already manages that wallet balance.
+#   - Routes pay gas in the native token: on every chain that bridges, and on
+#     the hub too for USDC.
 [rebalancing]
-triggerPercentage = 0.5
+# intervalMs = 300000   # how often balances are checked (default: 5 minutes)
 
-# Base balances per chain and per asset (in USD value, treated as $1 per token)
-# Format: [rebalancing.baseBalances."USDC"] or [rebalancing.baseBalances."USDT"]
-# Then specify per chainId as string keys
-[rebalancing.baseBalances."USDC"]
-"1" = "10000"      # Ethereum Mainnet: $10k USDC base
-"56" = "10000"     # BSC Mainnet: $10k USDC base
-"42161" = "10000"  # Arbitrum: $10k USDC base
-"8453" = "10000"   # Base: $10k USDC base
-"137" = "10000"    # Polygon: $10k USDC base
-"130" = "10000"    # Unichain: $10k USDC base
+[[rebalancing.hubs]]
+asset      = "USDC"
+chain      = "EVM-8453"   # Base
+threshold  = "6000"
+minBalance = "5000"
 
-[rebalancing.baseBalances."USDT"]
-"1" = "10000"      # Ethereum Mainnet: $10k USDT base
-"56" = "10000"     # BSC Mainnet: $10k USDT base
-"42161" = "10000"  # Arbitrum: $10k USDT base
-"8453" = "10000"   # Base: $10k USDT base
-"137" = "10000"    # Polygon: $10k USDT base
-"130" = "10000"    # Unichain: $10k USDT base
+[[rebalancing.hubs]]
+asset      = "USDT"
+chain      = "EVM-42161"  # Arbitrum
+threshold  = "6000"
+minBalance = "5000"
 
 # Vault configuration (optional) — filler-wide stablecoin treasury.
 # Any ERC-4626 vault works (e.g. Aave's stataToken); the underlying asset is

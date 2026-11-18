@@ -599,12 +599,30 @@ sponsored the gas. `history` covers operator sends plus vault sweeps and redeems
 `simplex.rebalancing`.
 
 ```typescript lineNumbers
-set(rebalancing: RebalancingConfig | undefined): Promise<void>
-trigger(): Promise<unknown>
+list(): RebalancingHubToml[]
+preflight(hubs: RebalancingHubToml[]): RebalanceHubCoverage[]
+set(hubs: RebalancingHubToml[], options?: { intervalMs?: number }): Promise<void>
+rebalanceNow(): Promise<RebalancePass>
 ```
 
-`set` replaces the settings; trigger checks read them live. It cannot *enable* rebalancing on a solver that booted without it — the service is constructed at boot — so that still needs a restart. `trigger` runs a check now instead of
-waiting for the timer, and throws if the solver was started without rebalancing configured.
+Each asset is gathered on a hub chain. A hub is `{ asset, chain, threshold, minBalance }`, with
+the amounts as decimal strings in whole tokens. Once another chain's wallet holds `threshold`,
+everything above `minBalance` is bridged to the hub.
+
+`preflight` checks a hub set against the running solver and changes nothing. It throws when a hub
+is not a chain the solver runs, when no route carries the asset, or when the asset registry has
+no such asset on the hub. It returns, per hub, every other chain with the route that reaches the
+hub (`method`) or why the chain is left out (`uncovered`): `no-asset`, `no-route` or `vault`.
+
+`set` runs the same checks, replaces the hubs and persists them. The next check reads them, so
+rebalancing can be switched on, edited and switched off (an empty list) without a restart.
+
+`rebalanceNow` runs a check now instead of waiting for the timer. It resolves with
+`{ started, skipped }` once the balances are read and the transfers started. `skipped` gives a
+`reason` for every chain left alone: the three above, `below-threshold`, or `balance-unavailable`.
+A bridge takes minutes, so the transfers finish in the background and the `rebalance` event
+reports how they ended. It rejects with `RebalanceInProgressError` while an earlier check is
+still moving funds.
 
 ## Signing
 
@@ -1074,6 +1092,7 @@ Useful for gating input from a form, a database or an API before committing to a
 | `validateAssetDefinitions(assets)` | Custom asset entries |
 | `assertConfirmationCoverage(policies, chainIds)` | Every configured chain has a confirmation curve |
 | `validateVaultToml(vaults)` | Vault treasury entries; takes the array, not one entry |
+| `validateRebalancingConfig(rebalancing, chainIds?)` | The `rebalancing` section; with `chainIds`, every hub must be one of them |
 | `normalizeSymbol(symbol)` | Trimmed, uppercased |
 | `isRegistrySymbol(symbol)` / `registrySymbols()` | Built-in registry membership |
 | `parseChainKey(key)` / `formatChainKey(id)` | `"EVM-1"` ↔ `1` |
@@ -1092,14 +1111,16 @@ Exported from `@hyperbridge/simplex`:
 
 `SimplexConfig`, `SimplexOptions`, `SimplexEvents`, `SimplexStatus`, `ChainView`,
 `ChainInput`, `AssetDefinition`, `CurvePoint`, `CurveConfig`, `ChainConfirmationPolicy`,
-`QueueConfig`, `RebalancingConfig`, `BinanceConfig`, `VaultToml`, `VaultTomlConfig`,
+`QueueConfig`, `RebalancingConfig`, `RebalancingHubToml`, `BinanceConfig`, `VaultToml`, `VaultTomlConfig`,
 `FillerTomlConfig`, `FillerConfigFile`, `Signer`, `DerivingSigner`, `Signature`, `TypedDataPayload`,
 `SignerTransaction`, `AuthorizationRequest`, `Eip7702Authorization`, `SignerConfig`, `SignerType`,
 `PrivateKeySignerConfig`, `SecretPhraseSignerConfig`, `MpcVaultSignerConfig`, `TurnkeySignerConfig`,
 `AllowlistConfig`,
 `UserProvidedChainConfig`, `ResolvedChainConfig`, `BalanceSnapshot`, `BalanceIssue`,
 `AssetBalanceRow`, `ChainBalanceRow`, `VaultBalanceRow`, `HyperbridgeBalance`, `VaultSweepResult`,
-`VaultSweepDeposit`, `VaultSweepSkip`, `VaultSweepSkipReason`, `VaultSweepSubmission`, `SolverWork`,
+`VaultSweepDeposit`, `VaultSweepSkip`, `VaultSweepSkipReason`, `VaultSweepSubmission`,
+`RebalanceHubCoverage`, `RebalanceChainCoverage`, `RebalanceUncoveredReason`, `RebalancePass`,
+`RebalanceTransfer`, `RebalanceSkip`, `RebalanceSkipReason`, `RebalanceMethod`, `SolverWork`,
 `SimplexDataStore`, `BidStore`, `ActivityStore`, `StateStore`, `StoredBid`, `BidInsert`, `BidStats`,
 `ActivityEvent`, `ActivityInsert`, `ActivityType`, `OperatorNotification`, `WalletTx`,
 `WalletTxKind`, `RuntimeState`, `LogLevel`, `Logger`, `LogSink`, `LoggerContext`, `OrderScanner`,
@@ -1108,6 +1129,7 @@ Exported from `@hyperbridge/simplex`:
 
 Controller classes are exported as values: `ChainController`, `VaultController`, `AssetController`,
 `WalletController`, `RebalanceController`. You receive them from a `Simplex`; never construct one.
+`RebalanceInProgressError` is exported as a value too, for `instanceof` checks.
 
 <Callout type="info">
     `LimitOrderController` and the limit-order types — `LimitOrder`, `LimitOrderFill`,

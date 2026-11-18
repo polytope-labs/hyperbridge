@@ -198,7 +198,7 @@ describe("CLI wizard update run", () => {
 		expect(JSON.parse(JSON.stringify(parsed)).allowlist).toEqual(JSON.parse(JSON.stringify(assembled)).allowlist)
 	})
 
-	it("drops a carried [rebalancing] without baseBalances instead of crashing the emit", () => {
+	it("carries rebalancing hubs and their interval through an update run", () => {
 		const state = newWizardState()
 		state.chains = [
 			{
@@ -209,14 +209,20 @@ describe("CLI wizard update run", () => {
 		state.signer = existing.simplex.signer
 		state.substratePrivateKey = existing.simplex.substratePrivateKey
 		state.hyperbridgeWsUrl = existing.simplex.hyperbridgeWsUrl
-		state.rebalancing = { triggerPercentage: 0.2 } as FillerConfigFile["rebalancing"]
+		const hub = { asset: "USDC", chain: "EVM-1", threshold: "6000", minBalance: "5000" }
+		state.rebalancing = {
+			intervalMs: 600000,
+			// A key the emit does not write must not reach the round-trip check.
+			hubs: [{ ...hub, label: "mainnet float" } as typeof hub],
+		}
 		const assembled = assembleConfig(state)
-		expect(assembled.rebalancing).toBeUndefined()
+		expect(assembled.rebalancing).toEqual({ intervalMs: 600000, hubs: [hub] })
+		expect((parse(emitFillerToml(assembled)) as FillerConfigFile).rebalancing).toEqual(assembled.rebalancing)
 	})
 
 	it("emits a degenerate hand-written [rebalancing] without crashing", () => {
 		const config = JSON.parse(JSON.stringify(existing)) as FillerConfigFile
-		config.rebalancing = { triggerPercentage: 0.2 } as FillerConfigFile["rebalancing"]
+		config.rebalancing = { triggerPercentage: 0.2 } as unknown as FillerConfigFile["rebalancing"]
 		expect(() => emitFillerToml(config)).not.toThrow()
 	})
 

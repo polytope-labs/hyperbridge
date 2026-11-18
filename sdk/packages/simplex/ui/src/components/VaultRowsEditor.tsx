@@ -102,7 +102,7 @@ function defaultsForKnownVault(known: KnownVault) {
 	return CURATED_VAULT_DEFAULTS.get(known.label) ?? ROW_DEFAULTS
 }
 
-function VaultAmountField(props: {
+export function VaultAmountField(props: {
 	label: string
 	help: string
 	value: string

@@ -222,11 +222,15 @@ async function operatorContextFrom(
 					},
 				}
 			: undefined,
-		rebalancing: runtime.rebalancingService
-			? { checkTriggers: () => runtime.rebalancingService!.checkRebalanceTriggers() }
-			: undefined,
+		rebalancing: {
+			catalog: () => runtime.rebalancingService.catalog(),
+			preflight: (rebalancing) => runtime.rebalancingService.preflight(rebalancing),
+			apply: (rebalancing) => runtime.configService.setRebalancing(rebalancing),
+			intervalMs: () => runtime.rebalancingService.intervalMs(),
+			running: () => runtime.intentFiller.getWorkSnapshot().rebalancing > 0,
+			rebalanceNow: () => runtime.intentFiller.rebalanceNow(),
+		},
 		applyAllowlist: (allowlist) => runtime.configService.setAllowlist(allowlist),
-		applyRebalancing: (rebalancing) => runtime.configService.setRebalancing(rebalancing),
 		vaultPreflight: (vaults) => runtime.vaultPreflight(vaults),
 		rpcUrlFor: (chain) => {
 			const chainId = parseChainKey(chain)

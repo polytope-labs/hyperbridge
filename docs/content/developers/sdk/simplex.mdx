@@ -441,16 +441,17 @@ await simplex.vaults.redeemAll()
 await simplex.assets.add({ BRZ: { "EVM-137": "0x…" } })
 simplex.assets.resolve("USDC", "EVM-8453")
 
-// Requires `rebalancing` in the boot config; on a solver started without
-// it, `set` throws rather than conjuring a rebalancer mid-flight.
-await simplex.rebalancing.set({
-    // A fraction, not a percentage: rebalance once the balance falls to
-    // (1 - triggerPercentage) x base, so 0.2 triggers at 80% of base.
-    triggerPercentage: 0.2,
-    // Keyed by numeric chain id as a string, not the state machine id.
-    baseBalances: { USDC: { "8453": "10000" } },
-})
-await simplex.rebalancing.trigger()
+// One hub per asset. Once another chain's wallet holds `threshold`,
+// everything above `minBalance` is bridged to the hub.
+const hubs = [{ asset: "USDC", chain: "EVM-8453", threshold: "6000", minBalance: "5000" }]
+// Validate against the running solver, change nothing. Returns the chains
+// each hub gathers from, and why it leaves out the rest.
+simplex.rebalancing.preflight(hubs)
+// Applies from the next check. No restart, and an empty list switches it off.
+await simplex.rebalancing.set(hubs)
+// Resolves once the transfers have started. A bridge takes minutes, so the
+// `rebalance` event reports how they ended.
+const pass = await simplex.rebalancing.rebalanceNow()
 ```
 
 ### Wallet and lifecycle

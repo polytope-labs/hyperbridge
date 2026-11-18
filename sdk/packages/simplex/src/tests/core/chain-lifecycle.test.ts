@@ -565,4 +565,19 @@ describe("ChainController bundler EntryPoint check", () => {
 		expect(runtime.intentFiller.setWatchOnly).toHaveBeenCalledWith(56, true)
 		expect(runtime.config.simplex.watchOnly).toEqual({ "56": true })
 	})
+
+	it("refuses to remove a chain that is a rebalancing hub, mutating nothing", async () => {
+		const service = new FillerConfigService([{ chainId: 8453, rpcUrls: RPC_A }])
+		const runtime = runtimeFor(service, [{ chainId: 8453, rpcUrls: RPC_A }])
+		runtime.config.rebalancing = {
+			hubs: [{ asset: "USDC", chain: "EVM-8453", threshold: "6000", minBalance: "5000" }],
+		}
+		const persist = vi.fn()
+		const controller = new ChainController(runtime, persist, emptyScanner(), true)
+
+		await expect(controller.remove(8453)).rejects.toThrow("EVM-8453 is the rebalancing hub for USDC")
+		expect(service.getConfiguredChainIds()).toEqual([8453])
+		expect(runtime.resolvedChains).toHaveLength(1)
+		expect(persist).not.toHaveBeenCalled()
+	})
 })

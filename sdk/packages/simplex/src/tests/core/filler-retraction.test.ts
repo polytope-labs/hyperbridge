@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest"
 import type { BidSubmissionResult, HexString } from "@hyperbridge/sdk"
 import { IntentFiller } from "@/core/filler"
 import { MemoryDataStore } from "@/data/memory"
+import { RebalanceInProgressError, type RebalanceOutcome, type RebalancingService } from "@/services/RebalancingService"
 import { stubOrderScanner } from "../helpers/stub-scanner"
 
 /**
@@ -31,7 +32,7 @@ const OUR_BID = `0x${"b1".repeat(32)}` as HexString
 const OUR_OTHER_BID = `0x${"b2".repeat(32)}` as HexString
 
 describe("IntentFiller bid retraction", () => {
-	function build(results: BidSubmissionResult[], rebalancingService?: { rebalancePortfolio(): Promise<unknown> }) {
+	function build(results: BidSubmissionResult[], rebalancingService?: Pick<RebalancingService, "plan" | "execute" | "intervalMs">) {
 		const bidStorage = new MemoryDataStore().bids
 
 		const retractBid = vi.fn(async (): Promise<BidSubmissionResult> => {
@@ -221,64 +222,157 @@ describe("IntentFiller bid retraction", () => {
 		})
 	})
 
-	it("reports and drains a rebalance already in flight before stopping", async () => {
-		vi.useFakeTimers()
-		let finishRebalance!: (value: { success: boolean; transfers: never[]; executedTransfers: never[] }) => void
-		const rebalancePortfolio = vi.fn(
-			() =>
-				new Promise<{ success: boolean; transfers: never[]; executedTransfers: never[] }>((resolve) => {
-					finishRebalance = resolve
-				}),
-		)
-		const { filler } = build([], { rebalancePortfolio })
-		try {
-			filler.start()
-			await vi.advanceTimersByTimeAsync(30_000)
-			expect(rebalancePortfolio).toHaveBeenCalledOnce()
+	describe("rebalancing passes", () => {
+		const TRANSFER = { asset: "USDC", source: "EVM-137", hub: "EVM-8453", amount: "2500", method: "cctp" as const }
+		const PASS = { started: [TRANSFER], skipped: [] }
+		const MOVED = { moved: [TRANSFER], failed: [], notSent: [] }
+
+		/** A rebalancer whose pass always finds one transfer, and whose transfers end when the case says. */
+		function slowRebalancer(intervalMs = 5 * 60 * 1000) {
+			const finish: Array<(outcome: RebalanceOutcome) => void> = []
+			const plan = vi.fn(async () => PASS)
+			const execute = vi.fn(
+				(_transfers: unknown, _cancelled?: () => boolean) =>
+					new Promise<RebalanceOutcome>((resolve) => finish.push(resolve)),
+			)
+			return { plan, execute, intervalMs: vi.fn(() => intervalMs), finish }
+		}
+
+		it("reports and drains a rebalance already in flight before stopping", async () => {
+			vi.useFakeTimers()
+			const rebalancer = slowRebalancer()
+			const { filler } = build([], rebalancer)
+			try {
+				filler.start()
+				await vi.advanceTimersByTimeAsync(30_000)
+				expect(rebalancer.plan).toHaveBeenCalledOnce()
+				expect(filler.getWorkSnapshot().rebalancing).toBe(1)
+
+				let stopped = false
+				const stop = filler.stop().then(() => {
+					stopped = true
+				})
+				await Promise.resolve()
+				expect(stopped).toBe(false)
+
+				rebalancer.finish[0](MOVED)
+				await stop
+				expect(filler.getWorkSnapshot().rebalancing).toBe(0)
+			} finally {
+				vi.useRealTimers()
+			}
+		})
+
+		it("does not start a second pass while one is still moving funds", async () => {
+			vi.useFakeTimers()
+			const rebalancer = slowRebalancer()
+			const { filler } = build([], rebalancer)
+			try {
+				filler.start()
+				await vi.advanceTimersByTimeAsync(30_000)
+				expect(rebalancer.plan).toHaveBeenCalledTimes(1)
+
+				// A CEX transfer can run for half an hour; the 5-minute passes must not stack
+				// behind it and send from the same wallets again.
+				await vi.advanceTimersByTimeAsync(5 * 60 * 1000)
+				await vi.advanceTimersByTimeAsync(5 * 60 * 1000)
+				expect(rebalancer.plan).toHaveBeenCalledTimes(1)
+				await expect(filler.rebalanceNow()).rejects.toBeInstanceOf(RebalanceInProgressError)
+
+				rebalancer.finish[0](MOVED)
+				await vi.advanceTimersByTimeAsync(5 * 60 * 1000)
+				expect(rebalancer.plan).toHaveBeenCalledTimes(2)
+			} finally {
+				// stop() waits for the pass in flight, so let the second one end.
+				for (const finish of rebalancer.finish) finish(MOVED)
+				await filler.stop()
+				vi.useRealTimers()
+			}
+		})
+
+		it("waits the configured interval between passes, as it reads at each pass", async () => {
+			vi.useFakeTimers()
+			const rebalancer = slowRebalancer()
+			rebalancer.plan.mockResolvedValue({ started: [], skipped: [] })
+			const { filler } = build([], rebalancer)
+			try {
+				filler.start()
+				await vi.advanceTimersByTimeAsync(30_000)
+				expect(rebalancer.plan).toHaveBeenCalledTimes(1)
+
+				// Saved from the dashboard while running: the pass after the next one follows it.
+				rebalancer.intervalMs.mockReturnValue(60_000)
+				await vi.advanceTimersByTimeAsync(5 * 60 * 1000)
+				expect(rebalancer.plan).toHaveBeenCalledTimes(2)
+				await vi.advanceTimersByTimeAsync(60_000)
+				expect(rebalancer.plan).toHaveBeenCalledTimes(3)
+			} finally {
+				await filler.stop()
+				vi.useRealTimers()
+			}
+		})
+
+		it("answers a manual pass once the transfers have started, and reports how they ended", async () => {
+			const rebalancer = slowRebalancer()
+			const { filler } = build([], rebalancer)
+			const ended: unknown[] = []
+			;(filler as any).monitor.on("rebalanceExecuted", (event: unknown) => ended.push(event))
+
+			await expect(filler.rebalanceNow()).resolves.toEqual(PASS)
+			await vi.waitFor(() => expect(rebalancer.execute).toHaveBeenCalledWith([TRANSFER], expect.any(Function)))
 			expect(filler.getWorkSnapshot().rebalancing).toBe(1)
+			expect(ended).toEqual([])
 
-			let stopped = false
-			const stop = filler.stop().then(() => {
-				stopped = true
-			})
-			await Promise.resolve()
-			expect(stopped).toBe(false)
+			rebalancer.finish[0]({ moved: [], failed: [{ ...TRANSFER, error: "bridge down" }], notSent: [] })
+			await vi.waitFor(() => expect(filler.getWorkSnapshot().rebalancing).toBe(0))
+			expect(ended).toEqual([{ transferCount: 1, executedCount: 0, success: false }])
+		})
 
-			finishRebalance({ success: true, transfers: [], executedTransfers: [] })
+		it("tells the rebalancer to stop starting transfers once the solver is stopping", async () => {
+			const rebalancer = slowRebalancer()
+			const { filler } = build([], rebalancer)
+
+			await filler.rebalanceNow()
+			await vi.waitFor(() => expect(rebalancer.execute).toHaveBeenCalled())
+			const cancelled = rebalancer.execute.mock.calls[0][1] as () => boolean
+			expect(cancelled()).toBe(false)
+
+			const stop = filler.stop()
+			expect(cancelled()).toBe(true)
+			rebalancer.finish[0](MOVED)
 			await stop
-			expect(filler.getWorkSnapshot().rebalancing).toBe(0)
-		} finally {
-			vi.useRealTimers()
-		}
-	})
+		})
 
-	it("does not start a second rebalance while one is still running", async () => {
-		vi.useFakeTimers()
-		let finishRebalance!: (value: { success: boolean; transfers: never[]; executedTransfers: never[] }) => void
-		const rebalancePortfolio = vi.fn(
-			() =>
-				new Promise<{ success: boolean; transfers: never[]; executedTransfers: never[] }>((resolve) => {
-					finishRebalance = resolve
-				}),
-		)
-		const { filler } = build([], { rebalancePortfolio })
-		try {
-			filler.start()
-			await vi.advanceTimersByTimeAsync(30_000)
-			expect(rebalancePortfolio).toHaveBeenCalledTimes(1)
+		it("records nothing for a pass whose transfers were no longer due when their turn came", async () => {
+			const rebalancer = slowRebalancer()
+			const { filler } = build([], rebalancer)
+			const ended: unknown[] = []
+			;(filler as any).monitor.on("rebalanceExecuted", (event: unknown) => ended.push(event))
 
-			// A CEX leg can run for half an hour; the 5-minute ticks must not stack
-			// behind it and plan the same deficit twice.
-			await vi.advanceTimersByTimeAsync(5 * 60 * 1000)
-			await vi.advanceTimersByTimeAsync(5 * 60 * 1000)
-			expect(rebalancePortfolio).toHaveBeenCalledTimes(1)
+			await filler.rebalanceNow()
+			await vi.waitFor(() => expect(rebalancer.execute).toHaveBeenCalled())
+			rebalancer.finish[0]({ moved: [], failed: [], notSent: [{ ...TRANSFER, reason: "below-threshold" }] })
+			await vi.waitFor(() => expect(filler.getWorkSnapshot().rebalancing).toBe(0))
+			expect(ended).toEqual([])
+		})
 
-			finishRebalance({ success: true, transfers: [], executedTransfers: [] })
-			await vi.advanceTimersByTimeAsync(5 * 60 * 1000)
-			expect(rebalancePortfolio).toHaveBeenCalledTimes(2)
-		} finally {
-			vi.useRealTimers()
-		}
+		it("records a pass that could not be planned, and lets the next one run", async () => {
+			const rebalancer = slowRebalancer()
+			rebalancer.plan.mockRejectedValueOnce(new Error("registry unavailable"))
+			const { filler } = build([], rebalancer)
+			const ended: unknown[] = []
+			;(filler as any).monitor.on("rebalanceExecuted", (event: unknown) => ended.push(event))
+
+			await expect(filler.rebalanceNow()).rejects.toThrow("registry unavailable")
+			await vi.waitFor(() => expect(ended).toEqual([{ success: false, error: "registry unavailable" }]))
+			await expect(filler.rebalanceNow()).resolves.toEqual(PASS)
+			rebalancer.finish[0](MOVED)
+		})
+
+		it("refuses a manual pass on a solver built without rebalancing", async () => {
+			const { filler } = build([])
+			await expect(filler.rebalanceNow()).rejects.toThrow("Rebalancing is not available on this solver")
+		})
 	})
 
 	describe("one retraction pass", () => {

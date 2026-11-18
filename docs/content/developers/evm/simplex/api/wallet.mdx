@@ -246,7 +246,7 @@ curl -s -X POST -H 'X-Simplex-UI: 1' $SIMPLEX/api/vault/redeem
 
 ## GET /api/rebalancing
 
-Returns the rebalancing settings, and which balances are at or below their trigger right now.
+Returns the saved hubs, and what an operator can choose from.
 
 ```bash lineNumbers
 curl -s $SIMPLEX/api/rebalancing
@@ -254,33 +254,93 @@ curl -s $SIMPLEX/api/rebalancing
 
 ```json lineNumbers
 {
-  "configured": true,
-  "triggerPercentage": 0.5,
-  "baseBalances": { "USDC": { "1": "10000", "8453": "10000" } },
-  "triggers": {
-    "triggered": true,
-    "triggeredChains": [ { "chain": "EVM-8453", "asset": "USDC", "deficit": 6200 } ]
-  }
+  "hubs": [
+    { "asset": "USDC", "chain": "EVM-8453", "threshold": "6000", "minBalance": "5000" }
+  ],
+  "intervalMs": 300000,
+  "running": false,
+  "assets": [
+    {
+      "asset": "USDC",
+      "hubs": [
+        {
+          "chain": "EVM-8453",
+          "chains": [
+            { "chain": "EVM-137", "method": "cctp" },
+            { "chain": "EVM-56", "uncovered": "no-route" }
+          ]
+        }
+      ]
+    }
+  ]
 }
 ```
 
-`deficit` is how far the balance is below its base, in whole tokens. Without rebalancing, the route returns `{ "configured": false }`.
+`hubs` is the saved configuration, one hub per asset. `running` is `true` while a check is still moving funds.
+
+`assets` lists every asset a route can bridge. Under each, `hubs` lists the running chains that could be its hub. For each of those, `chains` lists every other running chain. A chain the hub gathers from has a `method`: `cctp`, `usdt0` or `cex`. A chain it leaves out has `uncovered`:
+
+| `uncovered` | Meaning |
+|---|---|
+| `no-asset` | The asset registry has no such asset on that chain. |
+| `no-route` | No route reaches the hub from that chain. |
+| `vault` | The chain has a vault for the asset, and its sweep manages that balance. |
 
 ## PUT /api/rebalancing
 
-Replaces the rebalancing settings.
+Replaces the hubs. The change applies from the next check, without a restart.
 
 ```bash lineNumbers
 curl -s -X PUT $SIMPLEX/api/rebalancing \
     -H 'Content-Type: application/json' -H 'X-Simplex-UI: 1' \
-    -d '{ "triggerPercentage": 0.5,
-          "baseBalances": { "USDC": { "1": "10000", "8453": "10000" } } }'
-# → { "applied": true, "restartNeeded": false, "persisted": true }
+    -d '{ "hubs": [ { "asset": "USDC", "chain": "EVM-8453",
+                      "threshold": "6000", "minBalance": "5000" } ] }'
+# → { "ok": true, "persisted": true }
 ```
 
 | Field | Description |
 |---|---|
-| `triggerPercentage` | Between 0 and 1. Rebalancing triggers when a balance falls to `(1 - triggerPercentage) × base`. |
-| `baseBalances` | Base balances for `USDC` and `USDT`, keyed by numeric chain ID, in whole tokens. At least one is required. |
+| `hubs` | One hub per asset. An empty array switches rebalancing off. |
+| `hubs[].asset` | Asset symbol, such as `USDC`. |
+| `hubs[].chain` | State-machine ID of the hub. It must be a chain the solver runs. |
+| `hubs[].threshold` | Wallet balance, in whole tokens, at which another chain bridges to the hub. |
+| `hubs[].minBalance` | Balance, in whole tokens, every other chain keeps. It must be less than `threshold`. |
+| `intervalMs` | Optional. How often balances are checked, from `10000` to `2147483647`. Left unchanged when omitted. |
 
-The new settings apply straight away when the solver started with rebalancing. Otherwise they are saved, and `restartNeeded` is `true`.
+Both amounts are strings, above zero, with at most two decimals.
+
+It answers `400` with the reason when a hub is refused: two hubs for one asset, a hub on a chain the solver does not run, an asset no route carries, or a `threshold` that is not above `minBalance`. `persisted` is `false` when the change was applied but could not be written to the config file.
+
+## POST /api/rebalancing/run
+
+Runs a check now instead of waiting for the timer. It reads each chain's balance, starts the transfers that are due, and answers straight away. A bridge takes minutes, so the transfers finish in the background and the activity feed records how they ended.
+
+```bash lineNumbers
+curl -s -X POST -H 'X-Simplex-UI: 1' $SIMPLEX/api/rebalancing/run
+```
+
+```json lineNumbers
+{
+  "ok": true,
+  "started": [
+    { "asset": "USDC", "source": "EVM-137", "hub": "EVM-8453", "amount": "2500", "method": "cctp" }
+  ],
+  "skipped": [
+    { "asset": "USDC", "chain": "EVM-42161", "hub": "EVM-8453", "reason": "below-threshold",
+      "walletBalance": "5200", "threshold": "6000" },
+    { "asset": "USDC", "chain": "EVM-56", "hub": "EVM-8453", "reason": "no-route" }
+  ]
+}
+```
+
+`started` lists the transfers, in whole tokens. Transfers that share a chain run one after another. Each is checked against the balance again when its turn comes, so the amount sent can differ, and a wallet that fell back under its threshold sends nothing.
+
+`skipped` says why each other chain was left alone:
+
+| `reason` | Meaning |
+|---|---|
+| `below-threshold` | The wallet holds less than the `threshold`. |
+| `balance-unavailable` | The balance could not be read. The next check tries again. |
+| `no-asset`, `no-route`, `vault` | The hub does not gather from this chain, as in `GET /api/rebalancing`. |
+
+It answers `409` while an earlier check is still moving funds, and `500` when the check fails.

@@ -6,7 +6,7 @@ import type { FillerConfigService } from "@/services/FillerConfigService"
 import { type Logger , moduleLogger} from "@/services/Logger"
 import { OFT_ABI } from "@/config/abis/Oft"
 import { ERC20_ABI } from "@/config/abis/ERC20"
-import type { RebalanceOptions } from "."
+import type { RebalanceOptions, RebalanceRoute, RouteTransfer } from "."
 
 const LZ_SCAN_API = "https://scan.layerzero-api.com/v1/messages/tx"
 const DEST_DELIVERED_TIMEOUT_MS = 15 * 60_000 // 15 minutes
@@ -28,7 +28,11 @@ export interface Usdt0EstimateResult {
 	maxAmount: bigint
 }
 
-export class Usdt0Rebalancer {
+export class Usdt0Rebalancer implements RebalanceRoute {
+	readonly method = "usdt0"
+	readonly assets = ["USDT"]
+	/** LayerZero delivers on the destination; the solver wallet sends nothing there. */
+	readonly sendsOnDestination = false
 	private readonly chainClientManager: ChainClientManager
 	private readonly configService: FillerConfigService
 	private readonly account: Account
@@ -42,6 +46,25 @@ export class Usdt0Rebalancer {
 		this.configService = configService
 		this.account = this.chainClientManager.getAccount()
 		this.logger = moduleLogger(chainClientManager.loggers, "Usdt0Rebalancer")
+	}
+
+	/**
+	 * USDT on `chain` where USDT0 is deployed: the chain config names both an OFT contract
+	 * and a LayerZero endpoint id for it. An endpoint id alone is not enough (Base has one
+	 * and no USDT0).
+	 */
+	tokenOn(asset: string, chain: string): HexString | undefined {
+		if (!this.assets.includes(asset)) return undefined
+		if (!this.configService.getUsdt0OftAddress(chain) || !this.configService.getLayerZeroEid(chain)) return undefined
+		const token = this.configService.getUsdtAsset(chain)
+		return token && token !== "0x" ? token : undefined
+	}
+
+	/** Sends through the OFT and waits for LayerZero to deliver. */
+	async send({ amount, source, destination }: RouteTransfer): Promise<{ txHash?: string }> {
+		const result = await this.sendUsdt0({ amount, source, destination })
+		if (!result.success) throw new Error(`USDT0 send reverted on ${source} (tx ${result.txHash})`)
+		return { txHash: result.txHash }
 	}
 
 	async sendUsdt0(options: RebalanceOptions): Promise<Usdt0TransferResult> {

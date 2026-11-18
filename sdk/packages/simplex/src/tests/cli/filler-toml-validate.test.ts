@@ -5,6 +5,7 @@ import { resolve } from "path"
 import {
 	assertConfirmationCoverage,
 	validateConfig,
+	validateRebalancingConfig,
 	type FillerConfigFile,
 	type FillerTomlConfig,
 } from "@/config/filler-toml"
@@ -168,43 +169,81 @@ describe("validateConfig [simplex.overfillProtection]", () => {
 })
 
 describe("validateConfig [rebalancing]", () => {
-	const withRebalancing = (triggerPercentage: number, base = "12000"): FillerTomlConfig => ({
+	const hub = { asset: "USDC", chain: "EVM-8453", threshold: "6000", minBalance: "5000" }
+	const withHubs = (...hubs: unknown[]): FillerTomlConfig => ({
 		...minimalConfig(),
-		rebalancing: { triggerPercentage, baseBalances: { USDC: { "8453": base } } },
+		rebalancing: { hubs } as FillerTomlConfig["rebalancing"],
 	})
 
-	it.each([0, 1, -0.1, Number.NaN])("rejects a triggerPercentage of %s", (trigger) => {
-		expect(() => validateConfig(withRebalancing(trigger))).toThrow(/triggerPercentage must be a number between 0 and 1/)
+	it("accepts a hub per asset, and a section with no hubs", () => {
+		expect(() => validateConfig(withHubs(hub, { ...hub, asset: "USDT", chain: "EVM-42161" }))).not.toThrow()
+		expect(() => validateConfig({ ...minimalConfig(), rebalancing: { intervalMs: 60_000 } })).not.toThrow()
 	})
 
-	it("accepts a quoted triggerPercentage that parses to a number in range", () => {
-		// A TOML `triggerPercentage = "0.5"` parses as a string, which the rebalancer coerces.
-		expect(() => validateConfig(withRebalancing("0.5" as unknown as number))).not.toThrow()
-	})
-
-	it.each(["abc", "0", "1", "", "-0.5", "Infinity"])("rejects a quoted triggerPercentage of %j", (trigger) => {
-		expect(() => validateConfig(withRebalancing(trigger as unknown as number))).toThrow(
-			`rebalancing.triggerPercentage must be a number between 0 and 1 (exclusive); got the string ${JSON.stringify(trigger)}`,
+	it("rejects the settings from before hubs with the new shape", () => {
+		const config = minimalConfig()
+		config.rebalancing = {
+			triggerPercentage: 0.5,
+			baseBalances: { USDC: { "8453": "10000" } },
+		} as unknown as FillerTomlConfig["rebalancing"]
+		expect(() => validateConfig(config)).toThrow(
+			/rebalancing\.triggerPercentage and rebalancing\.baseBalances were removed[\s\S]*\[\[rebalancing\.hubs\]\]\nasset      = "USDC"/,
 		)
 	})
 
-	it("accepts a triggerPercentage strictly between 0 and 1", () => {
-		expect(() => validateConfig(withRebalancing(0.5))).not.toThrow()
+	it("rejects a rebalancing value that is not a section", () => {
+		const config = { ...minimalConfig(), rebalancing: true as unknown as FillerTomlConfig["rebalancing"] }
+		expect(() => validateConfig(config)).toThrow(/rebalancing must be a \[rebalancing\] section; got boolean/)
 	})
 
-	it.each(["-5", "abc", "Infinity"])("rejects a base balance of %s", (base) => {
-		expect(() => validateConfig(withRebalancing(0.5, base))).toThrow(/baseBalances\.USDC for chain 8453/)
+	it("rejects two hubs for one asset, however the symbol is written", () => {
+		expect(() => validateConfig(withHubs(hub, { ...hub, asset: "usdc", chain: "EVM-137" }))).toThrow(
+			/USDC has more than one hub/,
+		)
 	})
 
-	it.each(["0", 0 as unknown as string])("accepts a base balance of %s: finite and not negative", (base) => {
-		expect(() => validateConfig(withRebalancing(0.5, base))).not.toThrow()
+	it.each(["8453", "base", "EVM-", "EVM-08453", undefined])("rejects a hub chain of %j", (chain) => {
+		expect(() => validateConfig(withHubs({ ...hub, chain }))).toThrow(/USDC 'chain' must be "EVM-<chainId>"/)
 	})
 
-	it("accepts base balances with no triggerPercentage, because rebalancing is then switched off", () => {
-		// Boot starts the rebalancer only when a trigger is set, so these configs run today.
-		const config = withRebalancing(0.5, "0")
-		config.rebalancing = { baseBalances: { USDC: { "8453": "-5", "1": "abc" } } } as unknown as FillerTomlConfig["rebalancing"]
-		expect(() => validateConfig(config)).not.toThrow()
+	it("rejects a threshold that is not above the minimum balance", () => {
+		expect(() => validateConfig(withHubs({ ...hub, threshold: "5000" }))).toThrow(
+			/USDC 'threshold' must be greater than 'minBalance'/,
+		)
+	})
+
+	it.each(["0", "0.00"])("rejects a minimum balance of %j, as a vault's is", (minBalance) => {
+		expect(() => validateConfig(withHubs({ ...hub, minBalance }))).toThrow(
+			/USDC 'minBalance' must be a quoted positive amount/,
+		)
+	})
+
+	it.each([6000, "-1", "abc", "", undefined])("rejects a threshold of %j", (threshold) => {
+		// A bare TOML number is refused too: the amount is scaled as a decimal string.
+		expect(() => validateConfig(withHubs({ ...hub, threshold }))).toThrow(
+			/USDC 'threshold' must be a quoted positive amount with at most two decimals, such as "5000"/,
+		)
+	})
+
+	it("rejects amounts finer than a cent, which could differ on paper and scale to one balance", () => {
+		expect(() => validateConfig(withHubs({ ...hub, threshold: "5000.0000004", minBalance: "5000.0000001" }))).toThrow(
+			/at most two decimals/,
+		)
+		expect(() => validateConfig(withHubs({ ...hub, threshold: "5000.01", minBalance: "5000" }))).not.toThrow()
+	})
+
+	// 2^31 ms and above: Node arms such a timer for one millisecond.
+	it.each([0, 9_999, 60_000.5, "300000", 2_147_483_648, 9_999_999_999])("rejects an intervalMs of %j", (intervalMs) => {
+		const config = withHubs(hub)
+		config.rebalancing = { ...config.rebalancing, intervalMs: intervalMs as number }
+		expect(() => validateConfig(config)).toThrow(/rebalancing\.intervalMs must be an integer from 10000 to 2147483647/)
+	})
+
+	it("requires every hub to be a chain the solver runs, once the chains are known", () => {
+		expect(() => validateRebalancingConfig({ hubs: [hub] }, [8453, 137])).not.toThrow()
+		expect(() => validateRebalancingConfig({ hubs: [hub] }, [1, 137])).toThrow(
+			/USDC's hub EVM-8453 is not a chain this solver runs/,
+		)
 	})
 })
 

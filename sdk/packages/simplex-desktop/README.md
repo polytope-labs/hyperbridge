@@ -146,7 +146,7 @@ key storage, filling waits for an interactive unlock after a reboot or update. m
 Electron's login-item API; Linux uses the equivalent per-user XDG autostart entry. Development runs
 do not register the Electron development binary.
 
-Native menus also provide About, Open Data Directory, Open Current Log, update checks, and a
+Native menus also provide About, Open Data Directory, Open Current Log, the update check and install, and a
 stable/beta channel selector while preserving the platform Edit and Window roles and their keyboard
 shortcuts. Update controls are available only in an installed build; development launches never
 contact the release feed.
@@ -433,32 +433,47 @@ release directory. Absolute URLs, foreign hosts, path traversal, query strings, 
 rejected. SHA-512 still protects download integrity, but is not treated as publisher authentication
 because the checksum and artifact list come from the same release metadata.
 
-After download, the app waits until `/api/status` reports no active evaluation, queued fill, active
-fill, bid retraction, or portfolio rebalancing work. A running solver must also have no queued
-evaluations; a paused solver may discard those not-yet-started evaluations through its existing
-graceful-stop behavior. The app then asks the solver to stop gracefully and waits for both its private
-socket and operating-system process to disappear before invoking the installer. A solver that does
-not drain is never killed: the update remains staged and is retried. After 24 hours the app notifies
-the operator to pause new fills and create a safe window.
+A downloaded update is never installed by itself. When the download finishes, the dashboard shows
+an **Update to \<version\>** button at the bottom of its sidebar, and the update item in the tray and
+application menus becomes **Install Update \<version\>**. Nothing more happens until the operator
+uses one of them. The app does not check the feed again while a downloaded update waits. A newer
+release is found after the waiting one is installed, or the next time the app starts.
 
-A previous-version solver that does not yet report its PID can still be attached and restarted
-gracefully, using release of the private socket as the exit proof. Automatic installation remains
-staged until the app is supervising a PID-reporting solver, so updater safety is never weakened.
+The install asks the solver to stop gracefully, so it finishes its in-flight fills as it does for
+**Stop solver**. The app then waits for both the private socket and the operating-system process to
+disappear before it invokes the installer. That wait has no deadline, because a stop cannot be taken
+back, and the solver is never killed. The dashboard shows an updating screen in place of its pages
+while the install runs, and it says to quit and reopen Simplex if the install never finishes. While
+the install runs, nothing can start a solver: both restart menu items are disabled, and so are the
+reset and the channel selector.
 
-A staged update is also left untouched while the operator has intentionally stopped the solver. On
-relaunch, Electron rechecks the feed so its updater instance revalidates the cached artifact before
-stopping anything. If the installer reports an error after the updater stopped the solver, the app
-clears the attempted marker, restarts that solver using its retained protected key, and leaves the
-update available for a later retry. On successful relaunch, the OS-protected copy resumes the solver
-and the update receipt check runs even while the dashboard remains locked. Without a usable restart
-key, updater activity waits for an interactive unlock so it cannot stop a solver it cannot restart.
+The install does not start, and the update stays downloaded, when the solver is stopped, starting,
+stopping or unreachable, when it does not report its PID, when a reset is in progress, or when the
+stop request fails and the solver is not stopping. The dashboard or a dialog says why. A stopped solver must be restarted first,
+and the menu item is disabled until then. A previous-version solver that does not yet report its PID
+can still be attached and restarted gracefully with **Restart with bundled solver**, using release
+of the private socket as the exit proof.
+
+If the installer fails after the solver was stopped, the app clears the install record and restarts
+that solver using its retained protected key. The reason shows in the dashboard or a dialog, or as a
+notification when the failure comes after the installer was started, as it does on macOS. The
+download is offered again after the next check, which **Update Error — Retry** in the menu runs at
+once. On successful relaunch, the OS-protected copy resumes the solver and the install is checked
+even while the dashboard remains locked.
+
+The app can only recover while it is still open. On Windows it quits as soon as it has tried to
+start the installer, so it cannot recover from an installer that fails. An installer that cannot be
+started, a declined elevation prompt or a failed installer leaves Simplex closed, usually with the
+solver stopped, until Simplex is opened again. That launch starts the solver as usual. If the
+install record is still there, it reports that the update was not installed. It then offers the
+update again after its update check.
 
 Before installing, the app records the old and target versions in `desktop-updates.json` under
-Electron user data. The relaunched app clears that receipt only after a healthy setup or operator
+Electron user data. The relaunched app clears that record, and reports it once if the check fails. The check passes only after a healthy setup or operator
 solver reports the same version as the desktop app. A background solver boot failure is reported
 and leaves the app at the unlock screen. A version mismatch remains visible in the native menu
 and blocks both onboarding and the dashboard from driving the mismatched solver. Changing update
-channels ignores a download that was started on the previous channel.
+channels discards an update downloaded on the previous channel and ignores one still downloading.
 
 Update artifacts use electron-updater's SHA-512 metadata checks after the platform trust gate passes.
 macOS updates require a valid application signature and Windows NSIS updates require a configured

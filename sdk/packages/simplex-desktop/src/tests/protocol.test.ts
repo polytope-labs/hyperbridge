@@ -3,7 +3,7 @@ import { existsSync, mkdtempSync, mkdirSync, rmSync, unlinkSync, writeFileSync }
 import { createServer, type RequestListener, type Server } from "node:http"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { afterEach, describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 import { handleSimplexProtocol, proxyToSimplex } from "../protocol"
 
 describe("simplex protocol proxy", () => {
@@ -137,6 +137,39 @@ describe("simplex protocol proxy", () => {
 		unlocked = true
 		expect((await handleSimplexProtocol(new Request("simplex://local/api/status"), options)).status).toBe(200)
 		expect(requests).toBe(1)
+	})
+
+	it("reports the update state and installs only for an unlocked dashboard request", async () => {
+		let unlocked = false
+		let outcome: Error | undefined
+		const install = vi.fn(async () => {
+			if (outcome) throw outcome
+		})
+		const options = {
+			socketPath: "/nonexistent/simplex.sock",
+			uiDistDir: uiFixture(),
+			access: { isUnlocked: () => unlocked, handle: async () => new Response("{}", { status: 404 }) },
+			update: { status: () => ({ state: "ready", channel: "stable", targetVersion: "0.21.0" }), install },
+		}
+		const call = (method: string, headers?: Record<string, string>) =>
+			handleSimplexProtocol(new Request("simplex://local/api/desktop/update", { method, headers }), options)
+		const fromUi = { "X-Simplex-UI": "1" }
+
+		expect((await call("GET")).status).toBe(423)
+		expect((await call("POST", fromUi)).status).toBe(423)
+		unlocked = true
+		expect(await (await call("GET")).json()).toEqual({ state: "ready", channel: "stable", targetVersion: "0.21.0" })
+		expect((await call("POST")).status).toBe(403)
+		expect((await call("POST", { ...fromUi, Origin: "https://example.com" })).status).toBe(403)
+		expect((await call("DELETE", fromUi)).status).toBe(405)
+		expect(install).not.toHaveBeenCalled()
+
+		expect(await (await call("POST", fromUi)).json()).toEqual({ ok: true })
+		expect(install).toHaveBeenCalledOnce()
+		outcome = new Error("The solver is stopped. Restart it, then install the update.")
+		const refused = await call("POST", fromUi)
+		expect(refused.status).toBe(409)
+		expect(await refused.json()).toEqual({ error: outcome.message })
 	})
 
 	it("preserves a GET path, query, status and response headers", async () => {

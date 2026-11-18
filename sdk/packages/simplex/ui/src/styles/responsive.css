@@ -74,6 +74,29 @@
 		display: none;
 	}
 
+	/* The rail has no room for labels, but the update button still says which version it installs. */
+	button.operator-update-nav {
+		gap: 0.3rem;
+		padding-inline: 0.2rem;
+	}
+
+	.operator-update-nav > span {
+		display: grid;
+	}
+
+	.operator-update-nav small,
+	.operator-update-prefix {
+		display: none;
+	}
+
+	.operator-update-nav strong {
+		font-family: var(--font-mono);
+		font-size: 0.625rem;
+		line-height: 1.25;
+		text-align: center;
+		overflow-wrap: anywhere;
+	}
+
 	.operator-main {
 		--page-inset: 2rem;
 	}
@@ -355,6 +378,30 @@
 		width: 1.3rem;
 		height: 1.3rem;
 		margin-top: 0;
+	}
+
+	/* Only a zoomed desktop window is this narrow. The update button becomes a strip over the nav bar. */
+	button.operator-update-nav {
+		order: -1;
+		grid-template-columns: 1.3rem auto;
+		justify-content: center;
+		gap: 0.75rem;
+		min-height: 2.5rem;
+		margin: 0 0 0.45rem;
+		padding: 0.4rem 0.75rem;
+	}
+
+	.operator-update-prefix {
+		display: inline;
+	}
+
+	.operator-update-nav strong {
+		font-family: inherit;
+		font-size: 0.8125rem;
+	}
+
+	.operator-layout:has(.operator-update-nav) .operator-main {
+		padding-bottom: calc(9.5rem + env(safe-area-inset-bottom));
 	}
 
 	.operator-main {

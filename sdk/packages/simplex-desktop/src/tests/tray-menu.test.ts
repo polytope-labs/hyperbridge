@@ -12,6 +12,7 @@ function actions() {
 		toggleLoginItem: vi.fn(),
 		showAbout: vi.fn(),
 		checkForUpdates: vi.fn(),
+		installUpdate: vi.fn(),
 		setUpdateChannel: vi.fn(),
 		openDataDirectory: vi.fn(),
 		openLog: vi.fn(),
@@ -127,24 +128,63 @@ describe("native desktop menus", () => {
 		expect(zoomIn.map((entry) => entry.accelerator)).toEqual(["CmdOrCtrl+=", "CmdOrCtrl+Plus"])
 	})
 
-	it("surfaces staged updates and a version-skew restart", () => {
-		const template = buildTrayMenuTemplate(
-			{
-				...runningModel,
-				versionSkew: true,
-				update: { state: "waiting-for-idle", channel: "beta", targetVersion: "0.17.0-beta.1" },
-			},
-			actions(),
-		)
-		expect(item(template, "check-for-updates").label).toBe("Update Ready — Waiting for Idle")
+	it("turns the update check into the install once an update is downloaded", () => {
+		const callbacks = actions()
+		const ready = { state: "ready", channel: "beta", targetVersion: "0.17.0-beta.1" } as const
+		const template = buildTrayMenuTemplate({ ...runningModel, versionSkew: true, update: ready }, callbacks)
+		expect(item(template, "check-for-updates").label).toBe("Install Update 0.17.0-beta.1")
+		expect(item(template, "check-for-updates").enabled).toBe(true)
+		;(item(template, "check-for-updates").click as () => void)()
+		expect(callbacks.installUpdate).toHaveBeenCalledOnce()
+		expect(callbacks.checkForUpdates).not.toHaveBeenCalled()
 		expect(item(template, "restart-bundled-solver").visible).toBe(true)
 		expect(item(template, "restart-bundled-solver").enabled).toBe(true)
+
+		// The install stops the solver first, so it is offered only while there is one to stop.
+		const stopped = buildTrayMenuTemplate(
+			{ ...runningModel, status: { state: "stopped" }, update: ready },
+			callbacks,
+		)
+		expect(item(stopped, "check-for-updates").enabled).toBe(false)
+
+		const resetting = buildTrayMenuTemplate({ ...runningModel, update: ready, resetting: true }, callbacks)
+		expect(item(resetting, "check-for-updates").enabled).toBe(false)
+
+		const idle = buildTrayMenuTemplate(runningModel, callbacks)
+		expect(item(idle, "check-for-updates").label).toBe("Check for Updates…")
+		;(item(idle, "check-for-updates").click as () => void)()
+		expect(callbacks.checkForUpdates).toHaveBeenCalledOnce()
 
 		const stopping = buildTrayMenuTemplate(
 			{ ...runningModel, update: { state: "stopping-solver", channel: "stable", targetVersion: "0.17.0" } },
 			actions(),
 		)
 		expect(item(stopping, "update-channel").enabled).toBe(false)
+		expect(item(stopping, "check-for-updates").enabled).toBe(false)
+	})
+
+	it("keeps the solver from being restarted under an installing update", () => {
+		// On macOS the app stays open, with the solver stopped, while the installer fetches the update.
+		for (const state of ["stopping-solver", "installing"] as const) {
+			const model = {
+				...runningModel,
+				status: { state: "stopped" } as const,
+				update: { state, channel: "stable", targetVersion: "0.17.0" } as const,
+			}
+			const template = buildTrayMenuTemplate(model, actions())
+			expect(item(template, "restart-solver").enabled).toBe(false)
+			// The menu can still read "running" for a moment after the stop was asked for.
+			const draining = buildTrayMenuTemplate({ ...runningModel, versionSkew: true, update: model.update }, actions())
+			expect(item(draining, "restart-bundled-solver").enabled).toBe(false)
+			expect(item(template, "update-channel").enabled).toBe(false)
+			expect(item(template, "check-for-updates").enabled).toBe(false)
+		}
+		const failed = {
+			...runningModel,
+			status: { state: "stopped" } as const,
+			update: { state: "error", channel: "stable", targetVersion: "0.17.0" } as const,
+		}
+		expect(item(buildTrayMenuTemplate(failed, actions()), "restart-solver").enabled).toBe(true)
 	})
 
 	it("disables privileged menu actions until this desktop session is unlocked", () => {
@@ -192,12 +232,12 @@ describe("native desktop menus", () => {
 			expect(item(buildTrayMenuTemplate(model, callbacks), "reset-configuration").enabled).toBe(false)
 			expect(item(application, "reset-configuration").enabled).toBe(false)
 		}
-		// An update that is only waiting for the solver to go idle has not started stopping it.
-		const waiting = {
+		// A downloaded update that nobody has asked to install has not started stopping the solver.
+		const ready = {
 			...runningModel,
-			update: { state: "waiting-for-idle", channel: "stable", targetVersion: "0.19.0" } as const,
+			update: { state: "ready", channel: "stable", targetVersion: "0.19.0" } as const,
 		}
-		expect(item(buildTrayMenuTemplate(waiting, callbacks), "reset-configuration").enabled).toBe(true)
+		expect(item(buildTrayMenuTemplate(ready, callbacks), "reset-configuration").enabled).toBe(true)
 	})
 
 	it("shows a reset in progress, and keeps the solver from being restarted under it", () => {

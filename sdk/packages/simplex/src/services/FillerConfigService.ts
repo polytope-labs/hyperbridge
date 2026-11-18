@@ -3,6 +3,7 @@ import { defaultLoggerContext, moduleLogger, type LoggerContext } from "./Logger
 import { ChainConfigService, bytes32ToBytes20 } from "@hyperbridge/sdk"
 import type { LogLevel } from "./Logger"
 import { hyperbridgeBundlerUrl } from "@/config/bundlers"
+import type { RebalancingConfig } from "@/config/filler-toml"
 
 /** Block-scanner poll period in seconds when `simplex.blockScanIntervalSeconds` is not set. */
 export const DEFAULT_BLOCK_SCAN_INTERVAL_SECONDS = 3
@@ -175,14 +176,6 @@ export interface GasFeeBumpConfig {
 	maxFeePerGasBumpPercent?: number
 }
 
-export interface RebalancingConfig {
-	triggerPercentage: number
-	baseBalances: {
-		USDC?: Record<string, string>
-		USDT?: Record<string, string>
-	}
-}
-
 export interface AllowlistConfig {
 	/** Hex addresses eligible across all chains. */
 	users?: string[]
@@ -328,7 +321,7 @@ export class FillerConfigService {
 		this.rpcOverrides.set(chainId, validateRpcUrls(rpcUrls))
 	}
 
-	/** Replaces the rebalancing config at runtime; trigger checks read it live. */
+	/** Replaces the rebalancing config at runtime; the next rebalancing pass reads it. */
 	setRebalancing(rebalancing: RebalancingConfig | undefined): void {
 		if (this.fillerConfig) this.fillerConfig.rebalancing = rebalancing
 	}
@@ -617,35 +610,6 @@ export class FillerConfigService {
 	 */
 	getRebalancingConfig(): RebalancingConfig | undefined {
 		return this.fillerConfig?.rebalancing
-	}
-
-	/**
-	 * Get base balance for a specific chain and asset
-	 * @param chainId Chain ID as number
-	 * @param asset "USDC" or "USDT"
-	 * @returns Base balance as Decimal, or undefined if not configured
-	 */
-	getBaseBalance(chainId: number, asset: "USDC" | "USDT"): number | undefined {
-		const rebalancingConfig = this.fillerConfig?.rebalancing
-		if (!rebalancingConfig) {
-			return undefined
-		}
-
-		const chainIdStr = chainId.toString()
-		const baseBalances = rebalancingConfig.baseBalances[asset]
-		if (!baseBalances || !baseBalances[chainIdStr]) {
-			return undefined
-		}
-
-		return Number.parseFloat(baseBalances[chainIdStr])
-	}
-
-	/**
-	 * Get trigger percentage for rebalancing
-	 * @returns Trigger percentage (0-1), or undefined if not configured
-	 */
-	getTriggerPercentage(): number | undefined {
-		return this.fillerConfig?.rebalancing?.triggerPercentage
 	}
 
 	/**

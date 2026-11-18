@@ -85,6 +85,20 @@ beforeEach(() => {
 })
 
 describe("BinanceRebalancer deposit preflight", () => {
+	it("refuses an amount below Binance's minimum withdrawal before depositing it", async () => {
+		const coins = allCoins(USDC)
+		coins[0].networkList[1].withdrawMin = "250"
+		restAPI.allCoinsInformation.mockResolvedValue({ data: () => coins })
+		const { rebalancer, writeContract } = makeRebalancer()
+
+		// Deposited first, the 100 would be credited at Binance and could not be withdrawn.
+		await expect(rebalancer.sendViaCex(OPTIONS)).rejects.toThrow(
+			"100 USDC is below Binance's minimum withdrawal of 250 on ARBITRUM",
+		)
+		expect(restAPI.depositAddress).not.toHaveBeenCalled()
+		expect(writeContract).not.toHaveBeenCalled()
+	})
+
 	it("refuses a deposit whose Binance contract is a different token", async () => {
 		restAPI.allCoinsInformation.mockResolvedValue({
 			data: () => allCoins("0x1111111111111111111111111111111111111111"),

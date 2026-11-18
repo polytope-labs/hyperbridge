@@ -3,7 +3,7 @@ import { act } from "react"
 import { createRoot, type Root } from "react-dom/client"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { ApiError, api } from "../api"
-import type { BalanceSnapshot } from "../types"
+import type { BalanceSnapshot, RebalancingDto } from "../types"
 import { WalletTools } from "./WalletTools"
 
 const USER_OP_HASH = `0x${"ab".repeat(32)}`
@@ -14,6 +14,15 @@ let root: Root
 let element: HTMLDivElement
 /** What the next `/api/send` post answers with. */
 let sendReply: unknown
+/** What `/api/rebalancing` answers with. */
+let rebalancingReply: RebalancingDto
+/** Answers `/api/config` with `configDto` and `/api/rebalancing` with `rebalancingReply`. */
+const serveConfig = (configDto: unknown) =>
+	vi
+		.mocked(api.get)
+		.mockImplementation(
+			async (path: string) => (path === "/api/rebalancing" ? rebalancingReply : configDto) as never,
+		)
 let onBalancesChanged: ReturnType<typeof vi.fn>
 const flush = () => act(async () => {})
 
@@ -99,7 +108,9 @@ beforeEach(async () => {
 	onBalancesChanged = vi.fn()
 	// The review's confirm button comes on after a delay, which the tests step over.
 	vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] })
-	vi.spyOn(api, "get").mockResolvedValue(config({ "EVM-8453": NATIVE_ONLY }))
+	rebalancingReply = { hubs: [], intervalMs: 300_000, running: false, assets: [] }
+	vi.spyOn(api, "get")
+	serveConfig(config({ "EVM-8453": NATIVE_ONLY }))
 	vi.spyOn(api, "post").mockImplementation(async () => sendReply)
 	element = document.createElement("div")
 	document.body.append(element)
@@ -117,7 +128,7 @@ const render = async (balances?: BalanceSnapshot, chains = [8453]) => {
 		root.render(
 			<WalletTools
 				chains={chains}
-				chainLabels={{ "8453": "Base", "56": "BNB Chain" }}
+				chainLabels={{ "8453": "Base", "56": "BNB Chain", "137": "Polygon" }}
 				balances={balances}
 				onBalancesChanged={onBalancesChanged}
 				onOpenChains={vi.fn()}
@@ -150,7 +161,7 @@ describe("send funds", () => {
 		const usdc = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
 		const usdt = "0xfde4C96c8593536E31F229EA8f37b2ADa2699bb2"
 		const dai = "0x50c5725949A6F0c72E6C4a641F24049A917DB0Cb"
-		vi.mocked(api.get).mockResolvedValue({
+		serveConfig({
 			toml: "",
 			logLevel: "info",
 			vaultConfigured: false,
@@ -336,9 +347,7 @@ describe("send funds", () => {
 			{ chainId: 56, native: { symbol: "BNB", amount: 3 }, assets: [] },
 		])
 		beforeEach(() => {
-			vi.mocked(api.get).mockResolvedValue(
-				config({ "EVM-8453": NATIVE_ONLY, "EVM-56": [{ symbol: "BNB", address: "native" }] }),
-			)
+			serveConfig(config({ "EVM-8453": NATIVE_ONLY, "EVM-56": [{ symbol: "BNB", address: "native" }] }))
 		})
 
 		it("sends the picked token on its own network", async () => {
@@ -410,9 +419,7 @@ describe("send funds", () => {
 
 	it("lets the whole wallet be sent when a vault's floor is above it", async () => {
 		const usdc = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
-		vi.mocked(api.get).mockResolvedValue(
-			config({ "EVM-8453": [...NATIVE_ONLY, { symbol: "USDC", address: usdc }] }),
-		)
+		serveConfig(config({ "EVM-8453": [...NATIVE_ONLY, { symbol: "USDC", address: usdc }] }))
 		// The dashboard's `available` is zero here: the wallet is under the 3,000 the vault asks it to keep.
 		await render(
 			snapshot([
@@ -438,7 +445,7 @@ describe("send funds", () => {
 
 	it("counts what the largest vault can return, and never fills more than that", async () => {
 		const usdc = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
-		vi.mocked(api.get).mockResolvedValue(config({ "EVM-8453": [{ symbol: "USDC", address: usdc }] }))
+		serveConfig(config({ "EVM-8453": [{ symbol: "USDC", address: usdc }] }))
 		// The two parts add up to a float a hair under 12463.331201.
 		await render(
 			snapshot([
@@ -641,5 +648,187 @@ describe("send funds", () => {
 		})
 		expect(sheet.querySelector(".send-asset-list")).toBeNull()
 		expect(document.querySelector('[role="dialog"]')).not.toBeNull()
+	})
+})
+
+describe("rebalancing", () => {
+	const USDC_ON_BASE = { asset: "USDC", chain: "EVM-8453", threshold: "6000", minBalance: "5000" }
+	/** Three chains: CCTP links Base and Polygon, and nothing reaches or leaves BNB Chain. */
+	const CATALOG: RebalancingDto["assets"] = [
+		{
+			asset: "USDC",
+			hubs: [
+				{
+					chain: "EVM-8453",
+					chains: [
+						{ chain: "EVM-137", method: "cctp" },
+						{ chain: "EVM-56", uncovered: "no-route" },
+					],
+				},
+				{
+					chain: "EVM-137",
+					chains: [
+						{ chain: "EVM-8453", method: "cctp" },
+						{ chain: "EVM-56", uncovered: "vault" },
+					],
+				},
+			],
+		},
+		{ asset: "USDT", hubs: [{ chain: "EVM-137", chains: [{ chain: "EVM-8453", uncovered: "no-asset" }] }] },
+	]
+
+	/** Opens the rebalancing sheet. */
+	async function openRebalancing() {
+		const rows = [...element.querySelectorAll<HTMLElement>(".operator-tool-row")]
+		await click(rows.find((row) => row.textContent?.startsWith("Rebalancing"))!)
+		return document.querySelector<HTMLElement>('[role="dialog"]')!
+	}
+	const hubRow = (sheet: ParentNode, asset: string) =>
+		[...sheet.querySelectorAll<HTMLElement>(".vault-item")].find(
+			(row) => row.querySelector("strong")?.textContent === asset,
+		)!
+	const coverage = (row: ParentNode) => row.querySelector(".rebalancing-coverage")?.textContent
+
+	it("shows what the saved hub gathers from and what it leaves out, and saves an edit", async () => {
+		rebalancingReply = { hubs: [USDC_ON_BASE], intervalMs: 300_000, running: false, assets: CATALOG }
+		const put = vi.spyOn(api, "put").mockResolvedValue({ ok: true, persisted: true })
+		await render(undefined, [8453, 137, 56])
+		expect(element.textContent).toContain("USDC on Base")
+
+		const sheet = await openRebalancing()
+		const usdc = hubRow(sheet, "USDC")
+		expect(coverage(usdc)).toBe("Gathers from Polygon (CCTP).Left out: BNB Chain (no route to Base).")
+		expect(hubRow(sheet, "USDT").querySelector(".rebalancing-coverage")).toBeNull()
+
+		const [threshold] = usdc.querySelectorAll<HTMLInputElement>('input[type="text"]')
+		await enter(threshold, " 7000 ")
+		await click(button(sheet, "Save rebalancing"))
+		await flush()
+		expect(put).toHaveBeenCalledWith("/api/rebalancing", { hubs: [{ ...USDC_ON_BASE, threshold: "7000" }] })
+	})
+
+	it("starts a new asset on its first possible hub, and drops a hub that is cleared", async () => {
+		rebalancingReply = { hubs: [USDC_ON_BASE], intervalMs: 300_000, running: false, assets: CATALOG }
+		const put = vi.spyOn(api, "put").mockResolvedValue({ ok: true, persisted: true })
+		await render(undefined, [8453, 137, 56])
+		const sheet = await openRebalancing()
+
+		await click(hubRow(sheet, "USDT").querySelector<HTMLInputElement>('input[type="checkbox"]')!)
+		// Base has no USDT in the registry, so a Polygon hub has nothing to gather from.
+		expect(coverage(hubRow(sheet, "USDT"))).toBe(
+			"No other chain can bridge USDT to Polygon, so nothing will move.Left out: Base (no USDT there).",
+		)
+		await click(hubRow(sheet, "USDC").querySelector<HTMLInputElement>('input[type="checkbox"]')!)
+		expect(hubRow(sheet, "USDC").querySelector(".rebalancing-coverage")).toBeNull()
+
+		await click(button(sheet, "Save rebalancing"))
+		await flush()
+		expect(put).toHaveBeenCalledWith("/api/rebalancing", {
+			hubs: [{ asset: "USDT", chain: "EVM-137", threshold: "6000", minBalance: "5000" }],
+		})
+	})
+
+	it("runs a pass on request and says what it started", async () => {
+		rebalancingReply = { hubs: [USDC_ON_BASE], intervalMs: 300_000, running: false, assets: CATALOG }
+		sendReply = {
+			ok: true,
+			started: [{ asset: "USDC", source: "EVM-137", hub: "EVM-8453", amount: "2500", method: "cctp" }],
+			skipped: [{ asset: "USDC", chain: "EVM-56", hub: "EVM-8453", reason: "no-route" }],
+		}
+		await render(undefined, [8453, 137, 56])
+		const sheet = await openRebalancing()
+
+		await click(button(sheet, "Rebalance now"))
+		await flush()
+		expect(api.post).toHaveBeenCalledWith("/api/rebalancing/run")
+		expect(sheet.textContent).toContain("Rebalance started: 2500 USDC from Polygon to Base.")
+	})
+
+	it("says why nothing moved when every wallet is under its threshold", async () => {
+		rebalancingReply = { hubs: [USDC_ON_BASE], intervalMs: 300_000, running: false, assets: CATALOG }
+		sendReply = {
+			ok: true,
+			started: [],
+			skipped: [
+				{
+					asset: "USDC",
+					chain: "EVM-137",
+					hub: "EVM-8453",
+					reason: "below-threshold",
+					walletBalance: "5200",
+					threshold: "6000",
+				},
+				{ asset: "USDC", chain: "EVM-56", hub: "EVM-8453", reason: "no-route" },
+			],
+		}
+		await render(undefined, [8453, 137, 56])
+		const sheet = await openRebalancing()
+
+		await click(button(sheet, "Rebalance now"))
+		await flush()
+		expect(sheet.textContent).toContain("Nothing to move. USDC on Polygon is at 5200 of its 6000 threshold.")
+	})
+
+	it("does not offer a pass over edits that are not saved, since it would run the saved hubs", async () => {
+		rebalancingReply = { hubs: [USDC_ON_BASE], intervalMs: 300_000, running: false, assets: CATALOG }
+		await render(undefined, [8453, 137, 56])
+		const sheet = await openRebalancing()
+		expect(button(sheet, "Rebalance now").disabled).toBe(false)
+
+		const [threshold] = hubRow(sheet, "USDC").querySelectorAll<HTMLInputElement>('input[type="text"]')
+		await enter(threshold, "9000")
+		expect(button(sheet, "Rebalance now").disabled).toBe(true)
+		expect(button(sheet, "Rebalance now").title).toBe("Save your changes first")
+
+		// Saved: the editor shows what the server holds, and the pass is offered again.
+		vi.spyOn(api, "put").mockImplementation(async () => {
+			rebalancingReply = { ...rebalancingReply, hubs: [{ ...USDC_ON_BASE, threshold: "9000" }] }
+			return { ok: true, persisted: true }
+		})
+		await click(button(sheet, "Save rebalancing"))
+		await flush()
+		expect(button(sheet, "Rebalance now").disabled).toBe(false)
+	})
+
+	it("offers a pass again once the running one has ended, without the page being reopened", async () => {
+		// The shared setup fakes timeouts only; the sheet's watch is an interval.
+		vi.useRealTimers()
+		vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval"] })
+		rebalancingReply = { hubs: [USDC_ON_BASE], intervalMs: 300_000, running: true, assets: CATALOG }
+		await render(undefined, [8453, 137, 56])
+		const sheet = await openRebalancing()
+		expect(button(sheet, "Rebalancing…").disabled).toBe(true)
+
+		rebalancingReply = { ...rebalancingReply, running: false }
+		await act(async () => vi.advanceTimersByTime(5_000))
+		await flush()
+		expect(button(sheet, "Rebalance now").disabled).toBe(false)
+	})
+
+	it("shows why a pass was refused, and that a save did not reach the config file", async () => {
+		rebalancingReply = { hubs: [USDC_ON_BASE], intervalMs: 300_000, running: false, assets: CATALOG }
+		await render(undefined, [8453, 137, 56])
+		const sheet = await openRebalancing()
+
+		vi.mocked(api.post).mockRejectedValueOnce(new ApiError(409, "A rebalance is already running"))
+		await click(button(sheet, "Rebalance now"))
+		await flush()
+		expect(sheet.querySelector(".error")?.textContent).toBe("A rebalance is already running")
+
+		vi.spyOn(api, "put").mockResolvedValue({ ok: true, persisted: false })
+		await click(button(sheet, "Save rebalancing"))
+		await flush()
+		expect(sheet.querySelector(".error")?.textContent).toContain("could not be saved to the config file")
+	})
+
+	it("does not offer a pass with no hub saved, or while one is still running", async () => {
+		await render(undefined, [8453, 137, 56])
+		expect(button(await openRebalancing(), "Rebalance now").disabled).toBe(true)
+		await act(async () => root.unmount())
+		root = createRoot(element)
+
+		rebalancingReply = { hubs: [USDC_ON_BASE], intervalMs: 300_000, running: true, assets: CATALOG }
+		await render(undefined, [8453, 137, 56])
+		expect(button(await openRebalancing(), "Rebalancing…").disabled).toBe(true)
 	})
 })

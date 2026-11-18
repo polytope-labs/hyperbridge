@@ -4,7 +4,7 @@
 export type { InitChainMeta as ChainDefault, InitNetwork as Network } from "@/cli/init/chains"
 // The wizard writes the binary's config file, signer block included — that is
 // `FillerConfigFile`, not the library's `FillerTomlConfig`.
-export type { FillerConfigFile as FillerConfig } from "@/config/filler-toml"
+export type { FillerConfigFile as FillerConfig, RebalancingHubToml as RebalancingHub } from "@/config/filler-toml"
 export type { CurvePoint } from "@/config/interpolated-curve"
 // The limit-order routes answer with the stored rows themselves rather than a
 // DTO, so the browser reads the same shape the store writes.
@@ -31,6 +31,8 @@ export type {
 	ProfitBucketFigures,
 	ProfitFigures,
 	ProfitPeriod,
+	RebalancePassDto,
+	RebalancingDto,
 	StartingInventory,
 	BalanceSnapshot,
 	BidDto,

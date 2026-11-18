@@ -2,7 +2,7 @@ import type { TunnelConfig } from "@/services/tunnel/TunnelService"
 import { isAddress } from "viem"
 import type { HexString } from "@hyperbridge/sdk"
 import { ConfirmationPolicy, DEFAULT_CONFIRMATION_POLICIES } from "@/config/interpolated-curve"
-import { validateAssetDefinitions, type AssetDefinition } from "@/config/asset-registry"
+import { normalizeSymbol, validateAssetDefinitions, type AssetDefinition } from "@/config/asset-registry"
 import type { SignerConfig } from "@/services/wallet"
 import { MIN_BLOCK_SCAN_INTERVAL_SECONDS } from "@/services/FillerConfigService"
 import { MIN_ORDER_TTL_SECONDS } from "@/orderbook/types"
@@ -44,13 +44,35 @@ export interface QueueConfig {
 	recheckDelayMs: number
 }
 
-export interface RebalancingConfig {
-	triggerPercentage: number
-	baseBalances: {
-		USDC?: Record<string, string>
-		USDT?: Record<string, string>
-	}
+/**
+ * TOML row for a `[[rebalancing.hubs]]` entry: the chain one asset is gathered on. Once any
+ * other chain's wallet holds `threshold` of the asset, everything above `minBalance` is
+ * bridged to `chain`. Amounts are in human units.
+ */
+export interface RebalancingHubToml {
+	/** Asset symbol, resolved through the asset registry (e.g. "USDC"). */
+	asset: string
+	/** The hub chain's state machine id (e.g. "EVM-8453"). */
+	chain: string
+	threshold: string
+	minBalance: string
 }
+
+/** Top-level `[rebalancing]` config: one hub chain per asset. */
+export interface RebalancingConfig {
+	hubs?: RebalancingHubToml[]
+	/** How often wallet balances are checked, in milliseconds. Defaults to 5 minutes. */
+	intervalMs?: number
+}
+
+/** Rebalancing check cadence when the config omits `intervalMs`. */
+export const DEFAULT_REBALANCE_INTERVAL_MS = 5 * 60 * 1000
+
+/** The shortest `rebalancing.intervalMs`: each check reads every chain's balance over RPC. */
+export const MIN_REBALANCE_INTERVAL_MS = 10_000
+
+/** The longest: a timer armed with a longer delay fires after one millisecond instead. */
+export const MAX_REBALANCE_INTERVAL_MS = 2_147_483_647
 
 export interface BinanceConfig {
 	apiKey: string
@@ -282,39 +304,103 @@ export function validateVaultToml(
 	}
 }
 
+/** The settings rebalancing had before hubs. */
+const REMOVED_REBALANCING_KEYS = ["triggerPercentage", "baseBalances"]
+
+/**
+ * Whether a `[rebalancing]` section still carries the settings from before hubs. They cannot
+ * be translated: a base balance per chain does not say which chain the funds should gather on.
+ */
+export function hasRemovedRebalancingKeys(rebalancing: unknown): boolean {
+	return (
+		typeof rebalancing === "object" &&
+		rebalancing !== null &&
+		REMOVED_REBALANCING_KEYS.some((key) => key in rebalancing)
+	)
+}
+
+const REBALANCING_EXAMPLE = [
+	"[[rebalancing.hubs]]",
+	'asset      = "USDC"',
+	'chain      = "EVM-8453"',
+	'threshold  = "6000"',
+	'minBalance = "5000"',
+].join("\n")
+
 /**
  * The one check every way of setting rebalancing goes through: the TOML at boot, the library's
- * `RebalanceController.set`, and the UI's PUT. With no `triggerPercentage` rebalancing is switched
- * off (boot starts the service only when one is set), so base balances alone are inert and are not
- * checked. Otherwise the threshold is `base × (1 − p)`: a trigger of 0 fires whenever a balance is
- * at or below its base, 1 fires only at a zero balance, above 1 never fires, and NaN fails every
- * comparison, so each would run away with rebalancing or quietly disable it. A string that parses
- * to a finite number (`"0.5"`) is judged by the same rule, since the service coerces it. A negative or
- * unparseable base would turn the threshold negative or NaN the same way. A base of `0` or `"0"` is
- * finite and not negative, so it passes (`FillerConfigService.getBaseBalance` skips a bare 0 as not
- * configured). Base balances are parsed with `parseFloat`, as `getBaseBalance` reads them.
+ * `RebalanceController.set`, and the UI's PUT. Pure and browser-safe.
+ *
+ * Pass `chainIds`, the chains the solver runs, to also require every hub to be one of them.
+ * `validateConfig` cannot: chain ids are only known once the RPCs have answered.
  */
-export function validateRebalancingConfig(rebalancing: RebalancingConfig): void {
-	const trigger: unknown = rebalancing.triggerPercentage
-	if (trigger === undefined) return
-	// A quoted number boots: the threshold is `base * (1 - p)`, which coerces a string, so it is
-	// judged by what it parses to.
-	const parsed = typeof trigger === "string" ? Number(trigger) : trigger
-	if (typeof parsed !== "number" || !Number.isFinite(parsed) || parsed <= 0 || parsed >= 1) {
+export function validateRebalancingConfig(rebalancing: RebalancingConfig, chainIds?: number[]): void {
+	if (typeof rebalancing !== "object" || rebalancing === null) {
+		throw new Error(`rebalancing must be a [rebalancing] section; got ${describeValue(rebalancing)}`)
+	}
+	if (hasRemovedRebalancingKeys(rebalancing)) {
+		const removed = REMOVED_REBALANCING_KEYS.filter((key) => key in rebalancing)
 		throw new Error(
-			`rebalancing.triggerPercentage must be a number between 0 and 1 (exclusive); got ${describeValue(trigger)}`,
+			`rebalancing.${removed.join(" and rebalancing.")} ${removed.length === 1 ? "was" : "were"} removed. ` +
+				"Rebalancing now gathers each asset on a hub chain: once another chain holds `threshold`, " +
+				`everything above \`minBalance\` is bridged to the hub. Replace the section with:\n\n${REBALANCING_EXAMPLE}\n\n` +
+				"`simplex init` drops the old section when you choose to update the config.",
 		)
 	}
-	for (const asset of ["USDC", "USDT"] as const) {
-		for (const [chainId, amount] of Object.entries(rebalancing.baseBalances?.[asset] ?? {}) as [string, unknown][]) {
-			// A base balance is written as a string; parseFloat also takes a bare TOML number.
-			const parsed =
-				typeof amount === "string" || typeof amount === "number" ? Number.parseFloat(String(amount)) : Number.NaN
-			if (!Number.isFinite(parsed) || parsed < 0) {
-				throw new Error(
-					`rebalancing.baseBalances.${asset} for chain ${chainId} must be a number >= 0; got ${describeValue(amount)}`,
-				)
-			}
+
+	const interval: unknown = rebalancing.intervalMs
+	if (
+		interval !== undefined &&
+		(!Number.isInteger(interval) ||
+			(interval as number) < MIN_REBALANCE_INTERVAL_MS ||
+			(interval as number) > MAX_REBALANCE_INTERVAL_MS)
+	) {
+		throw new Error(
+			`rebalancing.intervalMs must be an integer from ${MIN_REBALANCE_INTERVAL_MS} to ${MAX_REBALANCE_INTERVAL_MS} (milliseconds); got ${describeValue(interval)}`,
+		)
+	}
+
+	const hubs: unknown = rebalancing.hubs ?? []
+	if (!Array.isArray(hubs)) {
+		throw new Error(`rebalancing.hubs must be a list of [[rebalancing.hubs]] entries; got ${describeValue(hubs)}`)
+	}
+	// Whole cents at most, as transfers are sent: a finer amount would let `threshold` and
+	// `minBalance` differ on paper and scale to the same balance. Positive, like a vault's.
+	const amount = (asset: string, field: "threshold" | "minBalance", value: unknown): number => {
+		if (typeof value !== "string" || !/^\d+(\.\d{1,2})?$/.test(value) || Number(value) <= 0) {
+			throw new Error(
+				`rebalancing.hubs: ${asset} '${field}' must be a quoted positive amount with at most two decimals, such as "5000"; got ${describeValue(value)}`,
+			)
+		}
+		return Number(value)
+	}
+	const seen = new Set<string>()
+	for (const hub of hubs as Partial<RebalancingHubToml>[]) {
+		if (typeof hub?.asset !== "string" || !hub.asset.trim()) {
+			throw new Error("rebalancing.hubs: each hub must name an 'asset' (e.g. USDC)")
+		}
+		const asset = normalizeSymbol(hub.asset)
+		if (seen.has(asset)) {
+			throw new Error(`rebalancing.hubs: ${asset} has more than one hub; an asset gathers on one chain`)
+		}
+		seen.add(asset)
+
+		// Exactly the id the solver names its chains by: "EVM-08453" would pass for a chain it
+		// runs and then never equal it.
+		if (typeof hub.chain !== "string" || !/^EVM-[1-9]\d*$/.test(hub.chain)) {
+			throw new Error(
+				`rebalancing.hubs: ${asset} 'chain' must be "EVM-<chainId>" (e.g. "EVM-8453"); got ${describeValue(hub.chain)}`,
+			)
+		}
+		if (chainIds && !chainIds.includes(Number(hub.chain.slice("EVM-".length)))) {
+			throw new Error(`rebalancing.hubs: ${asset}'s hub ${hub.chain} is not a chain this solver runs`)
+		}
+
+		const threshold = amount(asset, "threshold", hub.threshold)
+		const minBalance = amount(asset, "minBalance", hub.minBalance)
+		// The gap between the two is the smallest transfer, so it has to exist.
+		if (threshold <= minBalance) {
+			throw new Error(`rebalancing.hubs: ${asset} 'threshold' must be greater than 'minBalance'`)
 		}
 	}
 }

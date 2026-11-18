@@ -1,14 +1,15 @@
 import { describe, it, expect } from "vitest"
-import { ChainClientManager, FillerConfigService, RebalancingService, type ResolvedChainConfig } from "@/services"
+import { ChainClientManager, FillerConfigService, type ResolvedChainConfig } from "@/services"
+import { CctpRebalancer } from "@/services/rebalancers"
 import type { HexString } from "@hyperbridge/sdk"
 import { createSigner, SignerType } from "@/services/wallet"
 import "../setup"
 
-describe("RebalancingService - CCTP", () => {
+describe("CctpRebalancer", () => {
 	it("Should send 0.1 USDC from Polygon Amoy to Arbitrum Sepolia", async () => {
-		const { rebalancingService } = await setUp()
+		const { rebalancer } = await setUp()
 
-		const result = await rebalancingService.sendCctp({
+		const result = await rebalancer.sendCctp({
 			amount: "0.1",
 			source: "EVM-80002", // Polygon Amoy
 			destination: "EVM-421614", // Arbitrum Sepolia
@@ -30,9 +31,9 @@ describe("RebalancingService - CCTP", () => {
 	}, 300_000) // 5 minute timeout for cross-chain transfer
 
 	it("Should estimate CCTP transfer cost", async () => {
-		const { rebalancingService } = await setUp()
+		const { rebalancer } = await setUp()
 
-		const estimate = await rebalancingService.estimateCctp({
+		const estimate = await rebalancer.estimateCctp({
 			amount: "0.1",
 			source: "EVM-80002", // Polygon Amoy
 			destination: "EVM-421614", // Arbitrum Sepolia
@@ -70,10 +71,10 @@ async function setUp() {
 	const signer = await createSigner({ type: SignerType.PrivateKey, key: privateKey })
 	const chainClientManager = new ChainClientManager(chainConfigService, signer)
 
-	const rebalancingService = new RebalancingService(chainClientManager, chainConfigService)
+	const rebalancer = new CctpRebalancer(chainClientManager, chainConfigService)
 
 	return {
-		rebalancingService,
+		rebalancer,
 		chainClientManager,
 		chainConfigService,
 		polygonAmoyId,

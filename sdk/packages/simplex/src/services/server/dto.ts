@@ -5,7 +5,8 @@
  * dependencies beyond constants.
  */
 import type { InitChainMeta, InitNetwork } from "@/cli/init/chains"
-import type { VaultToml } from "@/config/filler-toml"
+import type { RebalancingHubToml, VaultToml } from "@/config/filler-toml"
+import type { RebalanceAssetOptions, RebalancePass } from "@/services/RebalancingService"
 import type { BalanceSnapshot as RuntimeBalanceSnapshot } from "@/services/BalanceProvider"
 import type { VaultSweepSkipReason } from "@/funding/vault/VaultFundingPlanner"
 import type { ActivityType, OrderSummary } from "@/data/types"
@@ -154,6 +155,28 @@ export interface VaultSweepDto {
 		threshold?: string
 	}[]
 }
+
+/** GET /api/rebalancing */
+export interface RebalancingDto {
+	/** The saved hubs, one per asset. */
+	hubs: RebalancingHubToml[]
+	/** How often balances are checked, in milliseconds. */
+	intervalMs: number
+	/** True while a pass is still moving funds; "Rebalance now" is refused until it ends. */
+	running: boolean
+	/**
+	 * Every asset a route can bridge. Each lists the running chains that could be its hub,
+	 * and for each of those, every other running chain: the route that reaches the hub or
+	 * why the chain is left out. The editor shows coverage from this as the operator picks.
+	 */
+	assets: RebalanceAssetOptions[]
+}
+
+/**
+ * POST /api/rebalancing/run: what the pass started and why every other chain was left alone.
+ * Amounts are in the asset's display units.
+ */
+export type RebalancePassDto = RebalancePass & { ok: true }
 
 /** GET /api/chains rows; one per `[[chains]]` entry in the running config. */
 export interface ChainRowDto {

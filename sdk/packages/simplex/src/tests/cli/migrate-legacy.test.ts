@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest"
-import { migrateLegacyConfig } from "@/cli/init/migrate-legacy"
+import { dropRemovedRebalancing, migrateLegacyConfig } from "@/cli/init/migrate-legacy"
 import { validateConfig, type FillerTomlConfig } from "@/config/filler-toml"
 import { DEFAULT_ORDERBOOK_URLS } from "@/config/defaults"
 import { SignerType } from "@/services/wallet"
@@ -60,5 +60,31 @@ describe("migrateLegacyConfig", () => {
 		expect(migrateLegacyConfig(config)).toEqual([])
 		expect("strategies" in config).toBe(false)
 		expect(config.orderbook).toBeUndefined()
+	})
+})
+
+describe("dropRemovedRebalancing", () => {
+	const withRebalancing = (rebalancing: unknown): FillerTomlConfig => ({
+		...legacyConfig([]),
+		orderbook: { url: DEFAULT_ORDERBOOK_URLS.mainnet },
+		rebalancing: rebalancing as FillerTomlConfig["rebalancing"],
+	})
+
+	it("drops a section from before hubs, so the rest of the config passes validation", () => {
+		const config = withRebalancing({ triggerPercentage: 0.5, baseBalances: { USDC: { "8453": "10000" } } })
+		delete (config as unknown as Record<string, unknown>).strategies
+		expect(() => validateConfig(config)).toThrow(/were removed/)
+
+		expect(dropRemovedRebalancing(config)).toBe(true)
+		expect(config.rebalancing).toBeUndefined()
+		expect(() => validateConfig(config)).not.toThrow()
+	})
+
+	it("leaves hubs alone", () => {
+		const rebalancing = { hubs: [{ asset: "USDC", chain: "EVM-8453", threshold: "6000", minBalance: "5000" }] }
+		const config = withRebalancing(rebalancing)
+		expect(dropRemovedRebalancing(config)).toBe(false)
+		expect(config.rebalancing).toEqual(rebalancing)
+		expect(dropRemovedRebalancing(withRebalancing(undefined))).toBe(false)
 	})
 })

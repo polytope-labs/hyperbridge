@@ -567,6 +567,20 @@ button.vault-others-trigger:hover:not(:disabled) {
 	border-radius: 0;
 }
 
+/* Under a rebalancing hub's fields: the chains it gathers from and the ones it leaves out. */
+.rebalancing-coverage {
+	margin: 0 1rem;
+	padding: 0 0 1rem 5.3rem;
+}
+
+.rebalancing-coverage p {
+	margin: 0;
+}
+
+.rebalancing-coverage p + p {
+	margin-top: 0.3rem;
+}
+
 /* Operator drawer frame: one summary line with the treasury actions beside it. */
 .vault-panel-summary {
 	display: flex;

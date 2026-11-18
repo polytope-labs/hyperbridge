@@ -13,6 +13,7 @@ import { LogStore } from "@/services/server/LogStore"
 import type { LogRecordDto } from "@/services/server/dto"
 import type { FillerConfigFile } from "@/config/filler-toml"
 import { OrderbookRequestError } from "@/orderbook/client"
+import { RebalanceInProgressError } from "@/services/RebalancingService"
 import { SignerType } from "@/services/wallet"
 import { describe, it, expect, afterEach, vi } from "vitest"
 import { existsSync, mkdtempSync, readFileSync, writeFileSync, mkdirSync } from "fs"
@@ -83,6 +84,23 @@ function fakePauseControl(): PauseControl & { paused: boolean } {
 		getWatchOnly() {
 			return { 56: true }
 		},
+	}
+}
+
+const USDC_HUB = { asset: "USDC", chain: "EVM-8453", threshold: "6000", minBalance: "5000" }
+
+/** The rebalancing controls with nothing behind them; a case overrides what it exercises. */
+function fakeRebalancing(overrides: Partial<OperatorContext["rebalancing"]> = {}): OperatorContext["rebalancing"] {
+	return {
+		catalog: vi.fn(() => [
+			{ asset: "USDC", hubs: [{ chain: "EVM-8453", chains: [{ chain: "EVM-56", uncovered: "no-route" as const }] }] },
+		]),
+		preflight: vi.fn(() => []),
+		apply: vi.fn(),
+		intervalMs: vi.fn(() => 300_000),
+		running: vi.fn(() => false),
+		rebalanceNow: vi.fn(async () => ({ started: [], skipped: [] })),
+		...overrides,
 	}
 }
 
@@ -175,7 +193,7 @@ function baseOperator(overrides: Partial<OperatorContext> = {}): TestOperator {
 		setPaused: (paused: boolean) => data.state.set({ paused }),
 		setLogLevel: (level: LogLevel) => loggers.setLevel(level),
 		applyAllowlist: vi.fn(),
-		applyRebalancing: vi.fn(),
+		rebalancing: fakeRebalancing(),
 		version: "0.0.0-test",
 		startedAt: Date.now(),
 		configPath: join(dataDir, "filler-config.toml"),
@@ -775,19 +793,35 @@ describe("UiServer (operator mode)", () => {
 		expect(redeemAll).toHaveBeenCalledTimes(1)
 	})
 
-	it("reports rebalancing configuration and triggers", async () => {
-		const unconfigured = await startServer()
-		expect(await (await fetch(`${unconfigured.base}/api/rebalancing`)).json()).toEqual({ configured: false })
-		server?.stop()
-
+	it("reports the saved hubs and what each possible hub would cover", async () => {
 		const config = fakeConfig()
-		config.rebalancing = { triggerPercentage: 0.5, baseBalances: { USDC: { "8453": "10000" } } }
-		const checkTriggers = vi.fn().mockResolvedValue({ triggeredChains: [] })
-		const { base } = await startServer({ config, rebalancing: { checkTriggers } })
-		const res = await (await fetch(`${base}/api/rebalancing`)).json()
-		expect(res.configured).toBe(true)
-		expect(res.triggerPercentage).toBe(0.5)
-		expect(res.triggers).toEqual({ triggeredChains: [] })
+		config.rebalancing = { hubs: [USDC_HUB] }
+		const { base } = await startServer({ config, rebalancing: fakeRebalancing({ running: () => true }) })
+		expect(await (await fetch(`${base}/api/rebalancing`)).json()).toEqual({
+			hubs: [USDC_HUB],
+			intervalMs: 300_000,
+			running: true,
+			assets: [
+				{ asset: "USDC", hubs: [{ chain: "EVM-8453", chains: [{ chain: "EVM-56", uncovered: "no-route" }] }] },
+			],
+		})
+	})
+
+	it("starts a rebalancing pass and reports what it started and skipped", async () => {
+		const pass = {
+			started: [{ asset: "USDC", source: "EVM-137", hub: "EVM-8453", amount: "2500", method: "cctp" as const }],
+			skipped: [{ asset: "USDC", chain: "EVM-56", hub: "EVM-8453", reason: "no-route" as const }],
+		}
+		const rebalanceNow = vi.fn().mockResolvedValueOnce(pass).mockRejectedValueOnce(new RebalanceInProgressError())
+		const { base } = await startServer({ rebalancing: fakeRebalancing({ rebalanceNow }) })
+
+		const started = await fetch(`${base}/api/rebalancing/run`, { method: "POST", headers: CSRF })
+		expect(await started.json()).toEqual({ ok: true, ...pass })
+
+		// The first pass is still bridging: a second one is refused rather than raced against it.
+		const refused = await fetch(`${base}/api/rebalancing/run`, { method: "POST", headers: CSRF })
+		expect(refused.status).toBe(409)
+		expect((await refused.json()).error).toBe("A rebalance is already running")
 	})
 
 	it("updates the vault set at runtime and persists it", async () => {
@@ -1071,36 +1105,50 @@ describe("UiServer (operator mode)", () => {
 		})
 	})
 
-	it("updates rebalancing settings at runtime and persists them", async () => {
-		const checkTriggers = vi.fn().mockResolvedValue({ triggeredChains: [] })
-		const { base, operator } = await startServer({ rebalancing: { checkTriggers } })
+	it("saves rebalancing hubs to the running solver and the config file, keeping the interval", async () => {
+		const config = fakeConfig()
+		config.rebalancing = { intervalMs: 600_000 }
+		const rebalancing = fakeRebalancing()
+		const { base, operator } = await startServer({ config, rebalancing })
+		const save = (hubs: unknown) =>
+			fetch(`${base}/api/rebalancing`, { method: "PUT", headers: CSRF, body: JSON.stringify({ hubs }) })
 
-		const body = { triggerPercentage: 0.4, baseBalances: { USDC: { "8453": "12000" } } }
-		const res = await fetch(`${base}/api/rebalancing`, { method: "PUT", headers: CSRF, body: JSON.stringify(body) })
-		expect(await res.json()).toEqual({ applied: true, restartNeeded: false, persisted: true })
-		expect(operator.applyRebalancing).toHaveBeenCalledWith({
-			triggerPercentage: 0.4,
-			baseBalances: { USDC: { "8453": "12000" } },
+		expect(await (await save([USDC_HUB])).json()).toEqual({ ok: true, persisted: true })
+		const saved = { hubs: [USDC_HUB], intervalMs: 600_000 }
+		expect(rebalancing.preflight).toHaveBeenCalledWith(saved)
+		expect(rebalancing.apply).toHaveBeenCalledWith(saved)
+		expect((parse(readFileSync(operator.configPath!, "utf-8")) as FillerConfigFile).rebalancing).toEqual(saved)
+
+		// Clearing the hubs switches rebalancing off; only the interval stays in the file.
+		await save([])
+		expect(rebalancing.apply).toHaveBeenLastCalledWith({ hubs: [], intervalMs: 600_000 })
+		expect((parse(readFileSync(operator.configPath!, "utf-8")) as FillerConfigFile).rebalancing).toEqual({
+			intervalMs: 600_000,
 		})
-		const written = parse(readFileSync(operator.configPath!, "utf-8")) as FillerConfigFile
-		expect(written.rebalancing?.triggerPercentage).toBe(0.4)
+	})
 
-		const badTrigger = await fetch(`${base}/api/rebalancing`, {
+	it("refuses hubs the running solver cannot use, and changes nothing", async () => {
+		const rebalancing = fakeRebalancing({
+			preflight: vi.fn(() => {
+				throw new Error("rebalancing.hubs: USDC's hub EVM-1 is not a chain this solver runs")
+			}),
+		})
+		const { base, operator } = await startServer({ rebalancing })
+
+		const refused = await fetch(`${base}/api/rebalancing`, {
 			method: "PUT",
 			headers: CSRF,
-			body: JSON.stringify({ triggerPercentage: 1.5, baseBalances: { USDC: { "1": "10" } } }),
+			body: JSON.stringify({ hubs: [{ ...USDC_HUB, chain: "EVM-1" }] }),
 		})
-		expect(badTrigger.status).toBe(400)
-		expect((await badTrigger.json()).error).toMatch(/triggerPercentage must be a number between 0 and 1/)
+		expect(refused.status).toBe(400)
+		expect((await refused.json()).error).toMatch(/is not a chain this solver runs/)
 
-		const badBase = await fetch(`${base}/api/rebalancing`, {
-			method: "PUT",
-			headers: CSRF,
-			body: JSON.stringify({ triggerPercentage: 0.4, baseBalances: { USDC: { "1": "-1" } } }),
-		})
-		expect(badBase.status).toBe(400)
-		expect((await badBase.json()).error).toMatch(/must be a number >= 0/)
-		expect(operator.applyRebalancing).toHaveBeenCalledTimes(1)
+		const malformed = await fetch(`${base}/api/rebalancing`, { method: "PUT", headers: CSRF, body: "{}" })
+		expect(malformed.status).toBe(400)
+
+		expect(rebalancing.apply).not.toHaveBeenCalled()
+		expect(operator.config.rebalancing).toBeUndefined()
+		expect(existsSync(operator.configPath!)).toBe(false)
 	})
 
 	it("serves the running config without any word of a secret phrase", async () => {
@@ -1324,6 +1372,18 @@ describe("UiServer (operator mode)", () => {
 		})
 		expect(res.status).toBe(400)
 		expect((await res.json()).error).toContain("vault treasury")
+		expect(operator.config.chains).toHaveLength(2)
+	})
+
+	it("refuses to drop a chain that is a rebalancing hub", async () => {
+		const config = chainsConfig()
+		config.rebalancing = { hubs: [{ ...USDC_HUB, chain: "EVM-56" }] }
+		const { base, operator } = await startServer({ config }, { fetchChainId: vi.fn(async () => 8453) })
+		const res = await put(base, "/api/chains", {
+			chains: [{ chainId: 8453, rpcUrls: ["https://base.example"] }],
+		})
+		expect(res.status).toBe(400)
+		expect((await res.json()).error).toContain("is the rebalancing hub for USDC")
 		expect(operator.config.chains).toHaveLength(2)
 	})
 

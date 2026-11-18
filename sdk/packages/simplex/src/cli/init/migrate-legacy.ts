@@ -1,5 +1,5 @@
 import { DEFAULT_ORDERBOOK_URLS } from "@/config/defaults"
-import type { ChainConfirmationPolicy, FillerTomlConfig } from "@/config/filler-toml"
+import { hasRemovedRebalancingKeys, type ChainConfirmationPolicy, type FillerTomlConfig } from "@/config/filler-toml"
 import { normalizeConfirmationPolicyKeys } from "./confirmation-keys"
 
 /** The pre-limit-order strategy rows, as far as migration needs them. */
@@ -50,4 +50,14 @@ export function migrateLegacyConfig(config: FillerTomlConfig): string[] {
 		config.confirmationPolicies = confirmationPolicies
 	}
 	return notes
+}
+
+/**
+ * Drops a `[rebalancing]` section from before hubs, which validation refuses. It cannot be
+ * translated, because a base balance per chain does not name a hub. Returns whether it did.
+ */
+export function dropRemovedRebalancing(config: FillerTomlConfig): boolean {
+	if (!hasRemovedRebalancingKeys(config.rebalancing)) return false
+	delete config.rebalancing
+	return true
 }

@@ -330,6 +330,11 @@ export class VaultFundingPlanner implements FundingVenue {
 		})
 	}
 
+	/** Whether a configured vault on `chain` holds `token` as its underlying asset. */
+	hasVaultFor(chain: string, token: string): boolean {
+		return this.stateByChain.get(chain)?.vaultForToken(token.toLowerCase()) !== undefined
+	}
+
 	// =========================================================================
 	// Sweeping — deposit idle wallet balance into the vault
 	// =========================================================================

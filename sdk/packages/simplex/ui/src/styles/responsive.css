@@ -222,7 +222,8 @@
 		flex-direction: column;
 	}
 
-	.vault-settings-grid {
+	.vault-settings-grid,
+	.rebalancing-coverage {
 		padding-left: 0.3rem;
 	}
 

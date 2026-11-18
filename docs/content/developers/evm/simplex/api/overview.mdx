@@ -120,8 +120,9 @@ curl -sN $SIMPLEX/api/events
 | `PUT` | [`/api/vault`](/developers/evm/simplex/api/wallet#put-apivault) | Replace the vault treasury |
 | `POST` | [`/api/vault/sweep`](/developers/evm/simplex/api/wallet#post-apivaultsweep) | Run a vault sweep now |
 | `POST` | [`/api/vault/redeem`](/developers/evm/simplex/api/wallet#post-apivaultredeem) | Redeem every vault position |
-| `GET` | [`/api/rebalancing`](/developers/evm/simplex/api/wallet#get-apirebalancing) | Rebalancing settings, and which balances are below their trigger |
-| `PUT` | [`/api/rebalancing`](/developers/evm/simplex/api/wallet#put-apirebalancing) | Change rebalancing settings |
+| `GET` | [`/api/rebalancing`](/developers/evm/simplex/api/wallet#get-apirebalancing) | Rebalancing hubs, and the chains each one gathers from |
+| `PUT` | [`/api/rebalancing`](/developers/evm/simplex/api/wallet#put-apirebalancing) | Replace the rebalancing hubs |
+| `POST` | [`/api/rebalancing/run`](/developers/evm/simplex/api/wallet#post-apirebalancingrun) | Run a rebalancing check now |
 
 ### [Configuration](/developers/evm/simplex/api/configuration)
 

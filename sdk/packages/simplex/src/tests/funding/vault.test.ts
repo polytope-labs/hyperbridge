@@ -142,6 +142,17 @@ function makeSweepPlanner(
 const u = (n: string) => parseUnits(n, 6)
 
 describe("VaultFundingPlanner", () => {
+	it("says whether a chain has a vault for a token, once its vaults are hydrated", async () => {
+		const planner = makeWithdrawPlanner({ positionAssets: 0n, maxWithdrawable: 0n }, { vault: VAULT_USDC })
+		// Nothing sweeps before hydration either, so there is nothing to keep out of the way of.
+		expect(planner.hasVaultFor(CHAIN, USDC)).toBe(false)
+
+		await planner.initialise(SOLVER)
+		expect(planner.hasVaultFor(CHAIN, USDC.toUpperCase().replace("0X", "0x"))).toBe(true)
+		expect(planner.hasVaultFor(CHAIN, USDT)).toBe(false)
+		expect(planner.hasVaultFor("EVM-137", USDC)).toBe(false)
+	})
+
 	it("exposes owned and withdrawable vault liquidity as one coherent snapshot", async () => {
 		const planner = makeWithdrawPlanner(
 			{ positionAssets: u("4200"), maxWithdrawable: u("3500") },

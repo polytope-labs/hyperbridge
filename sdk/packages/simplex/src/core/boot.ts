@@ -119,7 +119,7 @@ export interface FillerRuntime {
 	assetRegistry: AssetRegistry
 	/** Creates and posts the operator's limit orders. */
 	limitOrders?: LimitOrderService
-	rebalancingService?: RebalancingService
+	rebalancingService: RebalancingService
 	resolvedChains: ResolvedChainConfig[]
 	fillerAddress: HexString
 	/** The indexer this filler reads history from: order details, and what it held at past moments. */
@@ -376,24 +376,35 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 	await engine.initialise()
 	const strategies: FXFiller[] = [engine]
 
-	// Initialize rebalancing service only if fully configured
-	let rebalancingService: RebalancingService | undefined
-	const rebalancingConfig = configService.getRebalancingConfig()
-	if (rebalancingConfig?.triggerPercentage !== undefined && rebalancingConfig?.baseBalances) {
-		let binanceConfig: BinanceCexConfig | undefined
-		if (config.binance) {
-			binanceConfig = {
-				apiKey: config.binance.apiKey,
-				apiSecret: config.binance.apiSecret,
-				basePath: config.binance.basePath,
-				timeout: config.binance.timeout,
-				pollIntervalMs: config.binance.pollIntervalMs,
-			}
-			logger.info("Binance CEX rebalancing configured")
+	// Always built, so hubs saved from the dashboard take effect without a restart. With no
+	// hubs configured a pass reads nothing and moves nothing.
+	let binanceConfig: BinanceCexConfig | undefined
+	if (config.binance) {
+		binanceConfig = {
+			apiKey: config.binance.apiKey,
+			apiSecret: config.binance.apiSecret,
+			basePath: config.binance.basePath,
+			timeout: config.binance.timeout,
+			pollIntervalMs: config.binance.pollIntervalMs,
 		}
-
-		rebalancingService = new RebalancingService(chainClientManager, configService, binanceConfig)
-		logger.info("Rebalancing service initialized")
+		logger.info("Binance CEX rebalancing configured")
+	}
+	const rebalancingService = new RebalancingService(chainClientManager, configService, assetRegistry, {
+		binance: binanceConfig,
+		hasVault: (chain, token) => vaultVenue?.hasVaultFor(chain, token) ?? false,
+	})
+	// The checks `validateConfig` could not make before the chains were resolved: every hub is
+	// a chain this solver runs, and its asset is one a route carries.
+	for (const hub of config.rebalancing ? rebalancingService.preflight(config.rebalancing) : []) {
+		logger.info(
+			{
+				asset: hub.asset,
+				hub: hub.hub,
+				gathersFrom: hub.chains.filter((chain) => chain.method).map((chain) => `${chain.chain} (${chain.method})`),
+				leftOut: hub.chains.filter((chain) => !chain.method).map((chain) => `${chain.chain} (${chain.uncovered})`),
+			},
+			"Rebalancing hub configured",
+		)
 	}
 
 	// Initialize and start the intent filler

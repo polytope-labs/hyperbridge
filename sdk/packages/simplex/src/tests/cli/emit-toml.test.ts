@@ -86,11 +86,11 @@ const kitchenSink: FillerConfigFile = {
 	},
 	chains: [{ rpcUrls: ["https://eth.example/rpc", "https://eth-two.example/rpc"] }],
 	rebalancing: {
-		triggerPercentage: 0.5,
-		baseBalances: {
-			USDC: { "1": "10000", "8453": "10000" },
-			USDT: { "1": "5000" },
-		},
+		intervalMs: 600000,
+		hubs: [
+			{ asset: "USDC", chain: "EVM-8453", threshold: "6000", minBalance: "5000" },
+			{ asset: "USDT", chain: "EVM-1", threshold: "2500.5", minBalance: "100" },
+		],
 	},
 	vault: {
 		sweepIntervalMs: 300000,

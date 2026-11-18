@@ -1,14 +1,15 @@
 import { describe, it, expect } from "vitest"
-import { ChainClientManager, FillerConfigService, RebalancingService, type ResolvedChainConfig } from "@/services"
+import { ChainClientManager, FillerConfigService, type ResolvedChainConfig } from "@/services"
+import { Usdt0Rebalancer } from "@/services/rebalancers"
 import type { HexString } from "@hyperbridge/sdk"
 import { createSigner, SignerType } from "@/services/wallet"
 import "../setup"
 
-describe("RebalancingService - USDT0 (LayerZero OFT)", () => {
+describe("Usdt0Rebalancer (LayerZero OFT)", () => {
 	it("Should send 1 USDT from Arbitrum to Polygon", async () => {
-		const { rebalancingService } = await setUp()
+		const { rebalancer } = await setUp()
 
-		const result = await rebalancingService.sendUsdt0({
+		const result = await rebalancer.sendUsdt0({
 			amount: "1",
 			source: "EVM-42161", // Arbitrum
 			destination: "EVM-137", // Polygon
@@ -29,9 +30,9 @@ describe("RebalancingService - USDT0 (LayerZero OFT)", () => {
 	}, 300_000) // 5 minute timeout for cross-chain transfer
 
 	it("Should estimate USDT0 transfer cost from Arbitrum to Polygon", async () => {
-		const { rebalancingService } = await setUp()
+		const { rebalancer } = await setUp()
 
-		const estimate = await rebalancingService.estimateUsdt0({
+		const estimate = await rebalancer.estimateUsdt0({
 			amount: "10",
 			source: "EVM-42161", // Arbitrum
 			destination: "EVM-137", // Polygon
@@ -71,10 +72,10 @@ async function setUp() {
 	const signer = await createSigner({ type: SignerType.PrivateKey, key: privateKey })
 	const chainClientManager = new ChainClientManager(chainConfigService, signer)
 
-	const rebalancingService = new RebalancingService(chainClientManager, chainConfigService)
+	const rebalancer = new Usdt0Rebalancer(chainClientManager, chainConfigService)
 
 	return {
-		rebalancingService,
+		rebalancer,
 		chainClientManager,
 		chainConfigService,
 		arbitrumId,

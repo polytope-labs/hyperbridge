@@ -2,8 +2,12 @@
 
 mod common;
 
+use std::time::Duration;
+
 use common::{database, text};
+use futures::{channel::mpsc::UnboundedReceiver, StreamExt};
 use omniplex::metadata::{record_progress, register, table};
+use tokio_postgres::{AsyncMessage, NoTls};
 
 #[tokio::test]
 async fn each_chain_keeps_one_metadata_table_omnihedron_lists() {
@@ -44,4 +48,55 @@ async fn each_chain_keeps_one_metadata_table_omnihedron_lists() {
 	assert_eq!(listed.as_deref(), Some("1"));
 	let plain_absent = text(&db, "SELECT (to_regclass('app._metadata') IS NULL)::text").await;
 	assert_eq!(plain_absent.as_deref(), Some("true"));
+}
+
+/** The next notification within two seconds. */
+async fn next(notifications: &mut UnboundedReceiver<String>) -> Option<String> {
+	tokio::time::timeout(Duration::from_secs(2), notifications.next())
+		.await
+		.ok()
+		.flatten()
+}
+
+/** omnihedron reads the schema at startup, so a new chain's table is announced on the channel
+ * omnihedron listens on, and only when the table is new. */
+#[tokio::test]
+async fn a_new_metadata_table_tells_omnihedron_to_reload() {
+	let Ok(url) = std::env::var("INDEXER_TEST_DATABASE_URL") else { return };
+	let Some(mut client) = database().await else { return };
+	let (listener, mut connection) = tokio_postgres::connect(&url, NoTls).await.unwrap();
+	let (sender, mut notifications) = futures::channel::mpsc::unbounded();
+	tokio::spawn(async move {
+		while let Some(Ok(message)) =
+			futures::future::poll_fn(|cx| connection.poll_message(cx)).await
+		{
+			if let AsyncMessage::Notification(notification) = message {
+				let _ = sender.unbounded_send(notification.payload().to_string());
+			}
+		}
+	});
+	listener
+		.batch_execute(
+			r#"LISTEN "9d679a5c8ab87467a7e5a14e0e727eb318af1e19cdf781e2aafa793629461a4""#,
+		)
+		.await
+		.unwrap();
+
+	let chain = "Hyperbridge (Notify Test)";
+	client
+		.batch_execute(&format!("DROP TABLE IF EXISTS {}", table(chain)))
+		.await
+		.unwrap();
+
+	let db = client.transaction().await.unwrap();
+	register(&db, chain).await.unwrap();
+	db.commit().await.unwrap();
+	assert_eq!(next(&mut notifications).await.as_deref(), Some("schema_updated"));
+
+	let db = client.transaction().await.unwrap();
+	register(&db, chain).await.unwrap();
+	db.commit().await.unwrap();
+	assert_eq!(next(&mut notifications).await, None, "an existing table is not announced");
+
+	client.batch_execute(&format!("DROP TABLE {}", table(chain))).await.unwrap();
 }

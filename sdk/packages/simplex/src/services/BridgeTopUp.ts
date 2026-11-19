@@ -851,7 +851,29 @@ export class BridgeTopUp {
 			saveCursor: (next: bigint) => Promise<void>
 		},
 	): Promise<{ txHash?: HexString; scannedTo: bigint }> {
-		const client = this.deps.clientManager.getPublicClient(chain)
+		// The head and the logs up to it must come from one node. Read from two, a head from the
+		// one that is ahead makes the other's logs look complete for blocks it has not seen. So
+		// the whole scan runs on one endpoint, and on the next only when that one cannot do it.
+		const failures: unknown[] = []
+		for (const client of this.deps.clientManager.getEndpointClients(chain)) {
+			try {
+				return await this.scanGatewayEventOn(client, chain, scan)
+			} catch (err) {
+				failures.push(err)
+			}
+		}
+		if (failures.length === 1) throw failures[0]
+		if (failures.length === 0) throw new Error(`No RPC endpoint is configured for ${chain}`)
+		// Every endpoint's reason, in list order: the last one alone can blame the wrong node.
+		throw new Error(failures.map((err) => (err instanceof Error ? err.message : String(err))).join("; "))
+	}
+
+	/** {@link scanGatewayEvent} on one endpoint: its head, and its logs up to that head. */
+	private async scanGatewayEventOn(
+		client: PublicClient,
+		chain: string,
+		scan: Parameters<BridgeTopUp["scanGatewayEvent"]>[1],
+	): Promise<{ txHash?: HexString; scannedTo: bigint }> {
 		const margin = await this.evidenceMargin(chain, client)
 		const first = belowTip(scan.submittedFrom, margin)
 		const cursor = scan.savedCursor ?? first

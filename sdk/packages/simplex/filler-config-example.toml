@@ -227,6 +227,7 @@ url = "https://orderbook.hyperfx.finance/mainnet/graphql"   # testnet: https://o
 # defaultTtlSecs = 31536000     # how long an order lives, and its posting's TTL; default 365 days, floor 900
 # reconcileIntervalSecs = 300   # how often to check the orderbook still matches (default 300)
 # requestTimeoutMs = 10000      # per orderbook request (default 10000)
+# delegateHeartbeats = true     # sign heartbeats with an in-memory key the signer authorises (default true)
 
 # Remote access from a phone. Off by default. When enabled, simplex keeps an outbound
 # SSH tunnel to a relay so a phone's SSH client can open this UI with a local port

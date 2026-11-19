@@ -12,8 +12,3 @@ export function sendTokenOptionsForChain(
 		option.address === "native" && option.symbol !== nativeSymbol ? { ...option, symbol: nativeSymbol } : option,
 	)
 }
-
-/** Human-readable picker label without changing the token symbol used by balances and icons. */
-export function sendTokenOptionLabel(option: SendTokenOption): string {
-	return option.address === "native" ? `${option.symbol} (native)` : option.symbol
-}

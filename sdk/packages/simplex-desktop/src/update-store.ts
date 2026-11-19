@@ -4,17 +4,16 @@ import { dirname, join } from "node:path"
 
 export type UpdateChannel = "stable" | "beta"
 
+/** An install that was started. The next launch checks that it took, then clears it. */
 export interface UpdateReceipt {
 	fromVersion: string
 	targetVersion: string
-	downloadedAt: number
-	installAttemptedAt?: number
+	installAttemptedAt: number
 }
 
 export interface UpdatePreferences {
 	channel: UpdateChannel
 	receipt?: UpdateReceipt
-	lastNagAt?: number
 }
 
 export interface UpdateStore {
@@ -30,8 +29,7 @@ function validReceipt(value: unknown): value is UpdateReceipt {
 	return (
 		typeof receipt.fromVersion === "string" &&
 		typeof receipt.targetVersion === "string" &&
-		typeof receipt.downloadedAt === "number" &&
-		(receipt.installAttemptedAt === undefined || typeof receipt.installAttemptedAt === "number")
+		typeof receipt.installAttemptedAt === "number"
 	)
 }
 
@@ -48,7 +46,6 @@ export class FileUpdateStore implements UpdateStore {
 			return {
 				channel: parsed.channel === "beta" ? "beta" : "stable",
 				receipt: validReceipt(parsed.receipt) ? parsed.receipt : undefined,
-				lastNagAt: typeof parsed.lastNagAt === "number" ? parsed.lastNagAt : undefined,
 			}
 		} catch {
 			return { ...DEFAULTS }

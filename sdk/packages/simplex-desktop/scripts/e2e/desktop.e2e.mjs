@@ -1054,6 +1054,67 @@ test("Stop solver and quit closes Electron after shutdown is accepted", async (t
 	}, "the detached solver to finish draining")
 })
 
+test("Reset Configuration does nothing when cancelled, and otherwise stops the solver and relaunches on an empty profile", async (t) => {
+	const userDataDir = await temporaryUserData("reset")
+	const socketPath = socketPathFor(userDataDir)
+	let electronApp
+	t.after(async () => cleanupDesktop(electronApp, userDataDir))
+	;({ electronApp } = await launchDesktop(userDataDir))
+	await waitForHealth(socketPath, "init")
+	const [daemonPid] = await waitForDaemonPids(userDataDir)
+	await writeFile(join(userDataDir, "bids.db"), "rows that must not outlive the reset")
+	assert.ok(existsSync(join(userDataDir, "desktop-vault.json")), "the first launch must have saved a sign-in")
+
+	// The confirmation is a native dialog, so the test answers it in place of a click.
+	const answerResetDialog = (response) =>
+		electronApp.evaluate(({ dialog }, answer) => {
+			dialog.showMessageBox = async (...shown) => {
+				globalThis.__resetDialog = shown.at(-1)
+				return { response: answer, checkboxChecked: false }
+			}
+		}, response)
+	const clickReset = () =>
+		electronApp.evaluate(({ Menu }) => Menu.getApplicationMenu()?.getMenuItemById("reset-configuration")?.click())
+
+	await answerResetDialog(0)
+	await clickReset()
+	const shown = await waitFor(() => electronApp.evaluate(() => globalThis.__resetDialog), "the reset confirmation")
+	assert.ok(shown.detail.includes(userDataDir), "the confirmation must name the directory it deletes")
+	assert.equal(shown.defaultId, 0, "Cancel must be the default answer")
+	await delay(1_500)
+	assert.equal(existsSync(join(userDataDir, "reset-pending")), false, "a cancelled reset must not be requested")
+	assert.equal((await daemonPids(userDataDir)).includes(daemonPid), true, "a cancelled reset must leave the solver running")
+
+	await answerResetDialog(1)
+	const exited = electronProcessExit(electronApp.process(), 120_000)
+	// The inspector connection drops as the app quits, which can reject this call.
+	await clickReset().catch(() => {})
+	await exited
+	electronApp = undefined
+
+	// The app relaunches itself, and that launch deletes the old profile before it opens it.
+	await waitFor(
+		async () => {
+			const left = await readdir(userDataDir)
+			return !["reset-pending", "desktop-vault.json", "bids.db", "logs"].some((name) => left.includes(name))
+		},
+		"the relaunched app to delete the old profile",
+		60_000,
+	)
+	assert.equal((await daemonPids(userDataDir)).includes(daemonPid), false, "the old solver must have exited")
+
+	// The relaunched app is outside Playwright's reach. Replace it to drive the new profile.
+	await stopLeftoverElectron(userDataDir)
+	await waitFor(
+		async () => !(await processRows()).some((row) => row.includes(electronExecutable) && row.includes(userDataDir)),
+		"the relaunched app to stop",
+	)
+	let page
+	;({ electronApp, page } = await launchDesktop(userDataDir, { locked: true }))
+	await usePasswordLogin(page)
+	await page.locator("#desktop-confirmation").waitFor()
+})
+
 test("graceful stop keeps the socket lock and disables restart until draining finishes", async (t) => {
 	const userDataDir = await temporaryUserData("stopping-lock")
 	const socketPath = socketPathFor(userDataDir)

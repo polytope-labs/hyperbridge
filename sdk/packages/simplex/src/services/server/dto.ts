@@ -78,6 +78,8 @@ export interface SetupDefaults {
 	usdStables: string[]
 	maxConcurrentOrders: number
 	configPath: string
+	/** Set when the config file is saved encrypted, as the desktop app saves it. Absent for a plain file. */
+	configEncrypted?: true
 	/** Registry symbols resolvable per chain (state machine id), addresses included. */
 	knownTokens: Record<string, KnownToken[]>
 	knownVaults: Record<string, KnownVault[]>
@@ -315,6 +317,8 @@ export interface TunnelDeviceDto {
 	label: string
 	/** Unix milliseconds; 0 for a line added to `authorized_keys` by hand. */
 	addedAt: number
+	/** Whether a session that logged in with this key is open right now. */
+	connected: boolean
 }
 
 /** GET /api/tunnel */

@@ -540,6 +540,31 @@ describe("TunnelService", { timeout: 30_000 }, () => {
 		await expect(service.configure({ relay: "nope:abc" })).rejects.toThrow(/out of range/)
 	})
 
+	it("shows a device as connected for as long as it holds a session", async () => {
+		relay = new FakeRelay()
+		await relay.start()
+		const service = startTunnel()
+		await waitFor(() => service.status().state === "connected")
+		const paired = service.addDevice("phone")
+		const connected = () =>
+			service.status().devices.find((device) => device.fingerprint === paired.device.fingerprint)?.connected
+		expect(connected()).toBe(false)
+
+		const login = { port: service.status().port!, privateKey: paired.privateKey! }
+		const first = await phoneConnect(login)
+		const second = await phoneConnect(login)
+		phones.push(first, second)
+		await waitFor(() => service.status().activeConnections === 2)
+		expect(connected()).toBe(true)
+
+		// One of its two sessions is still open.
+		first.end()
+		await waitFor(() => service.status().activeConnections === 1)
+		expect(connected()).toBe(true)
+		second.end()
+		await waitFor(() => connected() === false)
+	})
+
 	it("hangs up on a live session when its device is revoked", async () => {
 		relay = new FakeRelay()
 		await relay.start()
@@ -553,6 +578,12 @@ describe("TunnelService", { timeout: 30_000 }, () => {
 		phones.push(phone)
 		expect(await httpThrough(phone, "127.0.0.1", ui.port)).toContain("ui ok")
 		await waitFor(() => service.status().activeConnections === 1)
+		// The status says which device holds the session, not only how many are open.
+		const spare = service.addDevice("spare")
+		const connectedOf = (fingerprint: string) =>
+			service.status().devices.find((device) => device.fingerprint === fingerprint)?.connected
+		expect(connectedOf(paired.device.fingerprint)).toBe(true)
+		expect(connectedOf(spare.device.fingerprint)).toBe(false)
 
 		const closed = new Promise<void>((resolve) => phone.on("close", () => resolve()))
 		expect(service.removeDevice(paired.device.fingerprint)).toBe(true)

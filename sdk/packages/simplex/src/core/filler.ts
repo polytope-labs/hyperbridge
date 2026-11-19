@@ -441,31 +441,36 @@ export class IntentFiller {
 	}
 
 	public async initialize(): Promise<void> {
-		await this.connectHyperbridge()
-		if (this.hyperbridge) {
-			this.bridgeBalance = new BridgeBalanceGate(await this.hyperbridge, this.logger)
-		}
-		const chains = await this.solverSelectionChains(this.configService.getConfiguredChainIds())
-		// Boot tolerates partial failure: as long as one chain delegated, the
-		// filler is useful. Only a total failure is fatal.
-		await this.setupSolverSelection(chains, { requireAll: false })
+		// The Hyperbridge connection and the chains' own setup do not depend on each
+		// other, so they run together. Both are waited for, so a failure in one never
+		// leaves the other running with nobody to stop it.
+		const [hyperbridge, chains] = await Promise.allSettled([
+			this.connectHyperbridge().then(async () => {
+				if (this.hyperbridge) {
+					this.bridgeBalance = new BridgeBalanceGate(await this.hyperbridge, this.logger)
+				}
+			}),
+			this.solverSelectionChains(this.configService.getConfiguredChainIds()).then((active) =>
+				// Boot tolerates partial failure: as long as one chain delegated, the
+				// filler is useful. Only a total failure is fatal.
+				this.setupSolverSelection(active, { requireAll: false }),
+			),
+		])
+		if (hyperbridge.status === "rejected") throw hyperbridge.reason
+		if (chains.status === "rejected") throw chains.reason
 	}
 
 	/** Chains that both fill and have solver selection active, as state machine ids. */
 	private async solverSelectionChains(chainIds: number[]): Promise<string[]> {
-		const active: string[] = []
-		for (const chainId of chainIds) {
-			// Watch-only chains never fill, so they never need EIP-7702 delegation
-			// or an EntryPoint deposit. Skipping them lets a signerless watch-only
-			// filler (which runs on a throwaway key) start without attempting a
-			// delegation that would fail on the unfunded account.
-			if (this.isChainWatchOnly(chainId)) continue
-			const chain = `EVM-${chainId}`
-			if (await this.contractService.isSolverSelectionActive(chain)) {
-				active.push(chain)
-				this.logger.info({ chain }, "Solver selection is active on chain")
-			}
-		}
+		// Watch-only chains never fill, so they never need EIP-7702 delegation
+		// or an EntryPoint deposit. Skipping them lets a signerless watch-only
+		// filler (which runs on a throwaway key) start without attempting a
+		// delegation that would fail on the unfunded account.
+		const chains = chainIds.filter((chainId) => !this.isChainWatchOnly(chainId)).map((chainId) => `EVM-${chainId}`)
+		// Read side by side, so a slow chain does not hold the others up.
+		const flags = await Promise.all(chains.map((chain) => this.contractService.isSolverSelectionActive(chain)))
+		const active = chains.filter((_, index) => flags[index])
+		for (const chain of active) this.logger.info({ chain }, "Solver selection is active on chain")
 		return active
 	}
 
@@ -588,19 +593,22 @@ export class IntentFiller {
 		// Chains with a paymaster pay gas in stablecoins instead.
 		// Paymaster authorization is handled per-order inside buildPaymasterAndData.
 		const targetGasUnits = this.configService.getTargetGasUnits()
-		for (const chain of chains) {
-			if (hasPaymaster(chain, this.configService)) {
-				this.logger.info({ chain }, "Skipping EntryPoint deposit — paymaster available")
-				continue
-			}
-			try {
-				await this.contractService.topUpEntryPointDeposit(chain, targetGasUnits)
-			} catch (err) {
-				// Non-fatal on both paths: the deposit is topped up again after
-				// every fill, so a transient RPC failure here self-heals.
-				this.logger.error({ chain, err }, "Failed to deposit to EntryPoint at startup")
-			}
-		}
+		// Side by side: each chain has its own deposit and its own nonce.
+		await Promise.all(
+			chains.map(async (chain) => {
+				if (hasPaymaster(chain, this.configService)) {
+					this.logger.info({ chain }, "Skipping EntryPoint deposit — paymaster available")
+					return
+				}
+				try {
+					await this.contractService.topUpEntryPointDeposit(chain, targetGasUnits)
+				} catch (err) {
+					// Non-fatal on both paths: the deposit is topped up again after
+					// every fill, so a transient RPC failure here self-heals.
+					this.logger.error({ chain, err }, "Failed to deposit to EntryPoint at startup")
+				}
+			}),
+		)
 	}
 
 	/**

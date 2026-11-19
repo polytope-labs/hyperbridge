@@ -1,5 +1,9 @@
 # Simplex desktop auto-update
 
+> Installs are no longer automatic. A downloaded update waits for the operator: see
+> [Desktop updates install from a button](../../../../simplex-desktop/docs/ai/changelog/2026-11-16-updates-install-from-a-button.md).
+> The idle wait, the staged-update retry and the daily notification described below are gone.
+
 Trusted Simplex desktop builds use `electron-updater` with a GitHub provider that filters the
 `polytope-labs/hyperbridge` release API to `simplex-desktop-v*` tags. It accepts only plain artifact
 filenames under the selected HTTPS GitHub release path; absolute URLs, foreign hosts, traversal,

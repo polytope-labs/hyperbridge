@@ -224,6 +224,12 @@ input:focus-visible {
 	background: rgba(255, 122, 137, 0.035);
 }
 
+/* The same panel, for an update that is installing rather than a failure. */
+.connection-error.update-progress {
+	border-left-color: var(--focus);
+	background: rgba(74, 222, 255, 0.035);
+}
+
 .screen-error h1,
 .connection-error h1 {
 	margin: 0.6rem 0 0;

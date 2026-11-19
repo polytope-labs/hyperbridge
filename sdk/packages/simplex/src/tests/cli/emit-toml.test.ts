@@ -53,7 +53,7 @@ const crossAssetWithCurves: FillerConfigFile = {
 }
 
 const kitchenSink: FillerConfigFile = {
-	orderbook: { url: "https://orderbook.hyperbridge.network/graphql" },
+	orderbook: { url: "https://orderbook.hyperbridge.network/graphql", delegateHeartbeats: false },
 	simplex: {
 		signer: {
 			type: SignerType.MpcVault,

@@ -29,7 +29,12 @@ function fakeTunnel(): TunnelControls & { calls: unknown[]; enabled: boolean; re
 		port: state.enabled ? 24567 : undefined,
 		hostFingerprint: "SHA256:host",
 		operatorFingerprint: "SHA256:operator",
-		devices: state.devices.map((label, i) => ({ fingerprint: `SHA256:dev${i}`, label, addedAt: 1 })),
+		devices: state.devices.map((label, i) => ({
+			fingerprint: `SHA256:dev${i}`,
+			label,
+			addedAt: 1,
+			connected: false,
+		})),
 		activeConnections: 0,
 		connection: {
 			host: state.relay.split(":")[0],

@@ -1,7 +1,8 @@
 # Send transaction explorer link
 
-Before posting to `/api/send`, `SendCard` resolves the selected chain through the canonical
-initialization catalog. A successful response stores that explorer URL alongside its transaction hash,
-and the success row exposes the truncated hash plus external-link icon as one anchor that opens the
-chain's `/tx/<hash>` page in a new tab. The captured URL remains paired with the completed transaction
-even if the operator subsequently changes the form's network selection.
+When a reviewed send is confirmed, `SendDialog` resolves the reviewed chain through the canonical
+initialization catalog before it posts to `/api/send`. A confirmed response stores that explorer URL
+alongside its transaction hash, and the success screen's "View transaction" link opens the chain's
+`/tx/<hash>` page in a new tab. A send that is still pending shows the truncated hash in the form's
+warning, linked the same way when it has a transaction hash. The captured URL stays paired with that
+transaction whatever is selected in the form afterwards.

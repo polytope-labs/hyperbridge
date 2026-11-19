@@ -4,12 +4,14 @@ import { createServer } from "node:net"
 import { tmpdir } from "node:os"
 import { fileURLToPath } from "node:url"
 import { join } from "node:path"
+import { generatePrivateKey } from "viem/accounts"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import { ChainConfigService, type HexString } from "@hyperbridge/sdk"
 import { MemoryDataStore } from "@/data/memory"
 import { OrderbookClient } from "@/orderbook/client"
 import { LimitOrderService } from "@/orderbook/limit-orders"
 import { ORDERBOOK_SCALE } from "@/orderbook/amounts"
+import { privateKeySigner } from "@/services/wallet"
 import { BASE_CHAIN, baseAssetRegistry, postingRig } from "../helpers/posting"
 import { settleFill } from "../helpers/limit-orders"
 
@@ -129,9 +131,13 @@ describe.skipIf(!RUNNING && !BINARY)("a limit order on a running orderbook", () 
 	let client: OrderbookClient
 	let service: LimitOrderService
 	let store: MemoryDataStore
+	let url: string | undefined
+	/** The in-memory heartbeat key, and how many heartbeats it has signed. */
+	const heartbeatKey = privateKeySigner(generatePrivateKey())
+	let delegatedBeats = 0
 
 	beforeAll(async () => {
-		let url = RUNNING
+		url = RUNNING
 		if (!url) {
 			const directory = mkdtempSync(join(tmpdir(), "hyperfx-"))
 			const [port, stubPort] = [await freePort(), await freePort()]
@@ -160,6 +166,18 @@ describe.skipIf(!RUNNING && !BINARY)("a limit order on a running orderbook", () 
 			baseAssetRegistry() as any,
 			signer,
 			900,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			{
+				...heartbeatKey,
+				signTypedData: (payload) => {
+					delegatedBeats += 1
+					return heartbeatKey.signTypedData(payload)
+				},
+			},
 		)
 	}, 60_000)
 
@@ -199,7 +217,41 @@ describe.skipIf(!RUNNING && !BINARY)("a limit order on a running orderbook", () 
 		expect(cancelled.kind).toBe("cancelled")
 		expect((await client.myOrders(signerAddress(service))).orders).toEqual([])
 	}, 60_000)
+
+	it("hands heartbeats to the heartbeat key once the solver is validated", async (ctx) => {
+		// An orderbook that predates heartbeat keys refuses the field, and the main key goes on signing.
+		if ((await client.heartbeatSignerTtlSecs()) === null) ctx.skip()
+
+		const { order } = await service.create(REQUEST)
+		// A new solver is refused with SOLVER_NOT_VALIDATED until a validation cycle has read it.
+		const until = Date.now() + 60_000
+		while ((await heartbeatSignerOf(url!, signerAddress(service))) !== heartbeatKey.address.toLowerCase()) {
+			if (Date.now() > until) throw new Error("The orderbook never took the heartbeat key")
+			await new Promise((resolve) => setTimeout(resolve, 1_000))
+			await service.authorizeHeartbeatSigner()
+		}
+
+		delegatedBeats = 0
+		expect(await service.heartbeat()).toMatchObject({ kind: "accepted", status: "ACTIVE" })
+		expect(delegatedBeats).toBe(1)
+
+		await service.cancel(order.id)
+	}, 90_000)
 })
+
+/** The heartbeat key the orderbook holds for `solver`, lowercased, or null. */
+async function heartbeatSignerOf(url: string, solver: HexString): Promise<string | null> {
+	const response = await fetch(url, {
+		method: "POST",
+		headers: { "content-type": "application/json" },
+		body: JSON.stringify({
+			query: "query($solver: Address!) { solver(address: $solver) { heartbeatSigner } }",
+			variables: { solver },
+		}),
+	})
+	const { data } = (await response.json()) as { data?: { solver: { heartbeatSigner: string | null } | null } }
+	return data?.solver?.heartbeatSigner?.toLowerCase() ?? null
+}
 
 /** The solver the service signs as, which is the address its orders are filed under. */
 function signerAddress(service: LimitOrderService): HexString {

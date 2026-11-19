@@ -1,0 +1,549 @@
+import { useId, useMemo, useState } from "react"
+import { toast } from "sonner"
+import { chainByChainId } from "@/cli/init/chains"
+import { formatChainKey, parseChainKey } from "@/config/interpolated-curve"
+import { ApiError, api } from "../api"
+import { AmountInput, groupThousands, trimAmount } from "../components/AmountInput"
+import { ChainLogo } from "../components/ChainLogo"
+import { CheckIcon, CloseIcon, DashedCircleIcon, ExternalLinkIcon, PasteIcon } from "../components/InterfaceIcons"
+import { SendReview, type SendSummary } from "../components/SendReview"
+import { TokenIcon } from "../components/TokenIcon"
+import { WizardDialog } from "../components/WizardDialog"
+import { useAction } from "../lib/hooks"
+import type { BalanceSnapshot, SendTokenOption } from "../types"
+import { type SendAssetOption, SendAssetSelect } from "./SendAssetSelect"
+import { sendTokenOptionsForChain } from "./sendModel"
+
+/**
+ * What `/api/send` answers. A 200 carries a confirmed tx hash. A 202 means the send was
+ * submitted but its confirmation outlived the wait, so it is still pending: a sponsored
+ * send has only a `userOpHash` then, a native one has its `txHash`.
+ */
+type SendResult =
+	| { pending?: false; txHash: string; redeemed: boolean }
+	| { pending: true; sponsored: boolean; txHash?: string; userOpHash?: string; message: string }
+
+interface SendBalance {
+	label: string
+	status: "loading" | "available" | "unavailable"
+	/** Underlying held directly by the wallet; null when unknown. */
+	wallet: number | null
+	/**
+	 * The most one send can move: the wallet's balance plus what the largest vault can return.
+	 * Null when unknown. This is not the dashboard's "available", which leaves out the wallet
+	 * floor a vault asks for. A send does not have to keep that floor.
+	 */
+	available: number | null
+	/** Largest single vault that could cover a shortfall — withdrawals draw on one vault, not several. */
+	largestVault: number
+}
+
+/** What a finished send shows: the amount as it was typed, its token and its network. */
+interface SentSummary {
+	amount: string
+	symbol: string
+	network: string
+}
+
+/** One token on one network that the wallet can send. */
+interface SendAsset {
+	key: string
+	chain: string
+	chainId: number
+	symbol: string
+	address: string
+	balance: SendBalance
+}
+
+const PERCENTAGES = [25, 50, 75, 100] as const
+/** Statuses a proxy in front of the solver answers with. The solver's own send handler never does. */
+const PROXY_STATUSES = [502, 503, 504]
+// The wallet history is no check here: a send is written to it only once the solver has its outcome.
+const NO_ANSWER =
+	"The solver did not answer, so this send may have gone through. Wait a few minutes and check the balance before you send again."
+/** Fraction digits a percentage fill keeps. It rounds down, so it never asks for more than is held. */
+const PERCENTAGE_FRACTION_DIGITS = 6
+const ADDRESS = /^0x[0-9a-fA-F]{40}$/
+
+function percentageAmount(available: number, percentage: number): string {
+	const scale = 10 ** PERCENTAGE_FRACTION_DIGITS
+	let units = Math.floor(((available * percentage) / 100) * scale)
+	// A balance that is a sum of floats can sit a hair under the unit the multiplication lands on.
+	if (units / scale > available) units -= 1
+	return (units / scale).toLocaleString("en-US", {
+		useGrouping: false,
+		maximumFractionDigits: PERCENTAGE_FRACTION_DIGITS,
+	})
+}
+
+function SendHash({ hash, explorerUrl }: { hash?: string; explorerUrl?: string }) {
+	if (!hash) return null
+	if (explorerUrl) {
+		return (
+			<a
+				className="operator-send-tx-link"
+				href={`${explorerUrl}/tx/${hash}`}
+				target="_blank"
+				rel="noreferrer"
+				title={hash}
+				aria-label={`Open transaction ${hash} on the block explorer in a new tab`}
+			>
+				<span className="mono">{hash.slice(0, 18)}…</span>
+				<ExternalLinkIcon aria-hidden="true" />
+			</a>
+		)
+	}
+	return (
+		<span className="mono" title={hash}>
+			{hash.slice(0, 18)}…
+		</span>
+	)
+}
+
+/**
+ * Sends tokens out of the filler wallet: the asset on its network, the recipient, then the
+ * amount. The review replaces the form in the same dialog, and nothing is submitted until it
+ * is confirmed.
+ */
+export function SendDialog(props: {
+	open: boolean
+	onClose: () => void
+	chains: number[]
+	chainLabel: (id: number | string) => string
+	sendTokens?: Record<string, SendTokenOption[]>
+	balances?: BalanceSnapshot
+	onSent: () => Promise<void> | void
+}) {
+	const { chains, chainLabel, sendTokens, balances } = props
+	const [selectedKey, setSelectedKey] = useState<string>()
+	const [custom, setCustom] = useState(false)
+	const [customToken, setCustomToken] = useState("")
+	const [amount, setAmount] = useState("")
+	/** Text that was not entered because it reads two ways, such as 1,500. Any new amount clears it. */
+	const [unread, setUnread] = useState<string>()
+	const changeAmount = (raw: string) => {
+		setUnread(undefined)
+		setAmount(raw)
+	}
+	const [to, setTo] = useState("")
+	const [result, setResult] = useState<SendResult & { explorerUrl?: string; sent: SentSummary }>()
+	const [sending, setSending] = useState(false)
+	const [review, setReview] = useState<SendSummary>()
+	const { run: act, error, clear } = useAction()
+	const addressId = useId()
+	const amountId = useId()
+
+	const assets = useMemo<SendAsset[]>(
+		() =>
+			chains.flatMap((chainId) => {
+				const chain = formatChainKey(chainId)
+				return sendTokenOptionsForChain(sendTokens?.[chain], chainId).map((option) => ({
+					key: `${chain}:${option.address}`,
+					chain,
+					chainId,
+					symbol: option.symbol,
+					address: option.address,
+					balance: selectedSendBalance(balances, chain, option.address),
+				}))
+			}),
+		[chains, sendTokens, balances],
+	)
+	const asset = assets.find((entry) => entry.key === selectedKey) ?? assets[0]
+	const chain = asset?.chain ?? formatChainKey(chains[0] ?? "")
+	const network = chainLabel(asset?.chainId ?? chain)
+	const tokenAddress = custom ? customToken.trim() : (asset?.address ?? "")
+	const symbol = custom ? "tokens" : (asset?.symbol ?? "")
+	const balance = custom ? selectedSendBalance(balances, chain, tokenAddress) : (asset?.balance ?? UNKNOWN)
+
+	const recipient = to.trim()
+	const addressValid = ADDRESS.test(recipient)
+	const requested = Number.parseFloat(amount.trim())
+	const amountValid = /^\d*\.?\d+$/.test(amount.trim()) && requested > 0
+	const exceeds = amountValid && balance.available !== null && requested > balance.available
+	const tokenValid = custom ? ADDRESS.test(tokenAddress) : tokenAddress !== ""
+	const ready = amountValid && !exceeds && addressValid && tokenValid
+	const canPaste = typeof navigator !== "undefined" && typeof navigator.clipboard?.readText === "function"
+
+	const balanceText = balance.available === null ? balance.label : formatSendBalance(balance.available)
+	/** A network is listed under its first token, which every network has: its native one. */
+	const networkKey = (chainId: number | undefined) => assets.find((entry) => entry.chainId === chainId)?.key ?? ""
+	const currentAsset: SendAssetOption = {
+		key: custom ? networkKey(asset?.chainId) : (asset?.key ?? ""),
+		symbol: custom || !asset ? null : asset.symbol,
+		network,
+		balance: custom ? "" : balanceText,
+		funded: isHeld(balance.available),
+	}
+	/** The tokens the wallet holds, largest balance first. */
+	const heldOptions: SendAssetOption[] = assets
+		.flatMap((entry) => (isHeld(entry.balance.available) ? [{ ...entry, held: entry.balance.available }] : []))
+		.sort((a, b) => b.held - a.held)
+		.map((entry) => ({
+			key: entry.key,
+			symbol: entry.symbol,
+			network: chainLabel(entry.chainId),
+			balance: formatSendBalance(entry.held),
+			funded: true,
+		}))
+	/** A token sent by contract address has no balance to list by, so its list is the networks. */
+	const networkOptions: SendAssetOption[] = chains.flatMap((chainId) => {
+		const key = networkKey(chainId)
+		return key ? [{ key, symbol: null, network: chainLabel(chainId), balance: "", funded: true }] : []
+	})
+
+	/** Shows the review in place of the form; nothing is submitted until it is confirmed. */
+	const openReview = () => {
+		const wallet = balance.wallet
+		const covered = wallet === null ? null : Math.min(requested, wallet)
+		setReview({
+			chain,
+			token: tokenAddress,
+			contract: custom ? tokenAddress : undefined,
+			// Without trailing zeros, so 1.000 is reviewed and sent as 1 and cannot pass for a thousand.
+			amount: trimAmount(amount.trim()),
+			symbol,
+			native: tokenAddress === "native",
+			chainLabel: network,
+			to: recipient,
+			wallet,
+			available: balance.available,
+			fromWallet: covered,
+			fromVault: covered === null ? null : Math.max(0, requested - covered),
+			largestVault: balance.largestVault,
+		})
+	}
+
+	/** Submits exactly what the review showed, whatever the form has become since. */
+	const send = (summary: SendSummary) => {
+		const chainId = parseChainKey(summary.chain)
+		const explorerUrl = chainId === null ? undefined : chainByChainId(chainId)?.explorerUrl
+		return act(async () => {
+			// Set in here, not before: an action that is skipped must not leave the dialog "sending",
+			// since a dialog that is sending cannot be closed.
+			setResult(undefined)
+			setSending(true)
+			try {
+				const res = await api.post<SendResult>("/api/send", {
+					chain: summary.chain,
+					token: summary.token,
+					amount: summary.amount,
+					to: summary.to,
+				})
+				// `act` gets no "Sent" label here because a pending response sets `result`, and the
+				// success screen already renders from it.
+				setResult({
+					...res,
+					explorerUrl,
+					sent: { amount: summary.amount, symbol: summary.symbol, network: summary.chainLabel },
+				})
+			} catch (error) {
+				// No answer is not a refusal: the solver may have submitted before the connection dropped.
+				const answered = error instanceof ApiError && !PROXY_STATUSES.includes(error.status)
+				throw answered ? error : new Error(NO_ANSWER)
+			} finally {
+				// The amount is cleared whatever the outcome. A send that came back pending, or that
+				// failed after it was submitted, must not be sent again by the next click.
+				changeAmount("")
+				// The review stays up while the send is in flight, then gives way to the outcome.
+				setReview(undefined)
+				setSending(false)
+			}
+			// Not awaited: the send is over, and a slow balance refresh must not hold the next one back.
+			void Promise.resolve()
+				.then(() => props.onSent())
+				.catch(() => {})
+		})
+	}
+
+	const paste = async () => {
+		try {
+			setTo((await navigator.clipboard.readText()).trim())
+		} catch {
+			toast.error("Could not read the clipboard")
+		}
+	}
+
+	const success = result && !result.pending ? result : undefined
+	/**
+	 * Nothing entered for one send carries into the next: the dialog opens on an empty form.
+	 *
+	 * A send in flight keeps the dialog open. Its outcome would otherwise land after the reset and
+	 * show on the next open.
+	 */
+	const close = () => {
+		if (sending) return
+		clear()
+		setResult(undefined)
+		setReview(undefined)
+		changeAmount("")
+		setTo("")
+		setCustom(false)
+		setCustomToken("")
+		setSelectedKey(undefined)
+		props.onClose()
+	}
+
+	return (
+		<WizardDialog
+			className="send-dialog"
+			open={props.open}
+			onClose={close}
+			title={review ? "Review transfer" : "Send from solver wallet"}
+			description={
+				review
+					? "Check the destination and the amount. Transfers cannot be undone."
+					: "Check the address and the network. A transfer cannot be undone."
+			}
+		>
+			{review ? (
+				<SendReview
+					summary={review}
+					sending={sending}
+					onConfirm={() => void send(review)}
+					onBack={() => setReview(undefined)}
+				/>
+			) : null}
+			{success ? (
+				<div className="send-success" role="status">
+					<span className="send-success-mark" aria-hidden="true">
+						<CheckIcon />
+					</span>
+					<div>
+						<h3>Funds sent</h3>
+						<p>
+							{groupThousands(success.sent.amount)} {success.sent.symbol} sent on {success.sent.network}
+							{success.redeemed ? ", topped up from the vault" : ""}.
+						</p>
+					</div>
+					{success.explorerUrl ? (
+						<a
+							className="send-success-link"
+							href={`${success.explorerUrl}/tx/${success.txHash}`}
+							target="_blank"
+							rel="noreferrer"
+							title={success.txHash}
+						>
+							View transaction
+						</a>
+					) : (
+						<SendHash hash={success.txHash} />
+					)}
+					<div className="send-actions" data-single>
+						{/* The button that was pressed is gone, so focus goes to the one that ends the flow. */}
+						<button type="button" className="primary" onClick={close} autoFocus>
+							Done
+						</button>
+					</div>
+				</div>
+			) : null}
+			<div className="send-form" hidden={Boolean(success) || Boolean(review)}>
+				<SendAssetSelect
+					current={currentAsset}
+					options={custom ? networkOptions : heldOptions}
+					onSelect={setSelectedKey}
+				/>
+				{/* Everything the open asset list covers. */}
+				<div className="send-fields">
+					<div className="send-custom">
+						{custom ? (
+							<label className="field">
+								<span>Token contract on {network}</span>
+								<input
+									type="text"
+									placeholder="0x…"
+									value={customToken}
+									autoComplete="off"
+									autoCapitalize="off"
+									spellCheck={false}
+									onChange={(e) => setCustomToken(e.target.value)}
+								/>
+							</label>
+						) : null}
+						{custom && tokenAddress && !tokenValid ? (
+							<p className="send-address-note" data-state="error">
+								<CloseIcon aria-hidden="true" />
+								Enter a valid contract address
+							</p>
+						) : null}
+						<button
+							type="button"
+							className="send-custom-toggle"
+							onClick={() => setCustom((value) => !value)}
+						>
+							{custom ? "Choose a listed token" : "Token not listed? Send it by contract address"}
+						</button>
+					</div>
+
+					<div className="send-address">
+						<label htmlFor={addressId}>To address</label>
+						<div className="send-address-field">
+							<span className="send-address-status" aria-hidden="true">
+								{addressValid ? <ChainLogo label={network} /> : <DashedCircleIcon />}
+							</span>
+							<input
+								id={addressId}
+								type="text"
+								value={to}
+								placeholder="Recipient address"
+								autoComplete="off"
+								autoCapitalize="off"
+								spellCheck={false}
+								onChange={(e) => setTo(e.target.value)}
+							/>
+							{canPaste ? (
+								<button
+									type="button"
+									className="send-paste"
+									aria-label="Paste from clipboard"
+									onClick={() => void paste()}
+								>
+									<PasteIcon aria-hidden="true" />
+								</button>
+							) : null}
+						</div>
+						{recipient ? (
+							<p className="send-address-note" data-state={addressValid ? "ok" : "error"}>
+								{addressValid ? <CheckIcon aria-hidden="true" /> : <CloseIcon aria-hidden="true" />}
+								{addressValid ? "Valid address" : "Enter a valid address"}
+							</p>
+						) : null}
+					</div>
+
+					<div className="send-amount" data-invalid={exceeds || undefined}>
+						<div className="send-amount-head">
+							<label htmlFor={amountId}>Amount</label>
+							<span className="send-amount-chip">
+								{custom ? null : <TokenIcon symbol={symbol} />}
+								{custom ? "Custom token" : symbol}
+							</span>
+						</div>
+						<AmountInput
+							id={amountId}
+							value={amount}
+							invalid={exceeds}
+							onValueChange={changeAmount}
+							onAmbiguous={setUnread}
+						/>
+						{exceeds ? <p className="send-amount-error">More than the {balance.label} available</p> : null}
+						{unread ? (
+							<p className="send-amount-error" role="status">
+								{unread} can mean {unread.replace(/[\s,]/g, "")} or{" "}
+								{trimAmount(unread.replace(/\s/g, "").replace(",", "."))}, so it was not entered. Type the amount.
+							</p>
+						) : null}
+						<div className="send-amount-foot">
+							<small className="operator-send-balance" data-status={balance.status} aria-live="polite">
+								Available <strong>{balance.label}</strong>
+							</small>
+							<div className="send-percentages" role="group" aria-label="Share of the available balance">
+								{PERCENTAGES.map((percentage) => {
+									const fill = isHeld(balance.available)
+										? percentageAmount(balance.available, percentage)
+										: undefined
+									return (
+										<button
+											key={percentage}
+											type="button"
+											disabled={!fill}
+											aria-pressed={fill !== undefined && fill === amount.trim()}
+											onClick={() => fill && changeAmount(fill)}
+										>
+											{percentage === 100 ? "Max" : `${percentage}%`}
+										</button>
+									)
+								})}
+							</div>
+						</div>
+					</div>
+
+					{tokenAddress === "native" ? (
+						<p className="hint">Keep some {symbol} for gas on networks without a paymaster.</p>
+					) : null}
+					{result?.pending && (
+						// A pending send is not a success, and its message is worded by the server for the
+						// sponsored (no tx hash) or native case. The hash is shown only when there is one.
+						<p className="warning">
+							⚠ {result.message}
+							{(result.txHash ?? result.userOpHash) && (
+								<>
+									{" — "}
+									<SendHash
+										hash={result.txHash ?? result.userOpHash}
+										explorerUrl={result.txHash ? result.explorerUrl : undefined}
+									/>
+								</>
+							)}
+						</p>
+					)}
+					{error && <p className="error">{error}</p>}
+				</div>
+
+				<div className="send-actions">
+					<button type="button" className="secondary" onClick={close} disabled={sending}>
+						Cancel
+					</button>
+					<button type="button" className="primary" disabled={!ready || sending} onClick={openReview}>
+						Send
+					</button>
+				</div>
+			</div>
+		</WizardDialog>
+	)
+}
+
+const UNKNOWN_BALANCE = { wallet: null, available: null, largestVault: 0 } as const
+const UNKNOWN: SendBalance = { label: "—", status: "loading", ...UNKNOWN_BALANCE }
+
+function selectedSendBalance(balances: BalanceSnapshot | undefined, chain: string, token: string): SendBalance {
+	if (!balances || balances.status === "loading") return { label: "Loading…", status: "loading", ...UNKNOWN_BALANCE }
+
+	const chainId = parseChainKey(chain)
+	const chainBalance = balances.chains.find((row) => row.chainId === chainId)
+	if (!chainBalance) return { label: "Unavailable", status: "unavailable", ...UNKNOWN_BALANCE }
+
+	if (token === "native") {
+		// Native has no vault behind it: the wallet is the whole balance.
+		return chainBalance.native
+			? {
+					label: `${formatSendBalance(chainBalance.native.amount)} ${chainBalance.native.symbol}`,
+					status: "available",
+					wallet: chainBalance.native.amount,
+					available: chainBalance.native.amount,
+					largestVault: 0,
+				}
+			: { label: "Unavailable", status: "unavailable", ...UNKNOWN_BALANCE }
+	}
+
+	if (!token) return UNKNOWN
+	const asset = chainBalance.assets.find((row) => row.address.toLowerCase() === token.toLowerCase())
+	if (!asset || asset.wallet === null) {
+		return { label: "Unavailable", status: "unavailable", ...UNKNOWN_BALANCE }
+	}
+	const largestVault = asset.vaults.reduce((most, vault) => Math.max(most, vault.available), 0)
+	const available = asset.wallet + largestVault
+	return {
+		label: `${formatSendBalance(available)} ${asset.symbol}`,
+		status: "available",
+		wallet: asset.wallet,
+		available,
+		largestVault,
+	}
+}
+
+/** Fraction digits a balance is shown with. */
+const BALANCE_FRACTION_DIGITS = 4
+
+function formatSendBalance(value: number): string {
+	// Grouped the way the amount field groups, whatever the browser's locale.
+	return value.toLocaleString("en-US", { maximumFractionDigits: BALANCE_FRACTION_DIGITS })
+}
+
+/**
+ * Whether a balance is known and shows above zero.
+ *
+ * Dust that rounds to zero at the digits shown does not count: it would read as a token the
+ * wallet does not hold.
+ */
+function isHeld(available: number | null): available is number {
+	return available !== null && Number(available.toFixed(BALANCE_FRACTION_DIGITS)) > 0
+}

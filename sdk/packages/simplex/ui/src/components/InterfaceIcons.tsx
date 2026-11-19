@@ -52,6 +52,24 @@ export function CopyIcon(props: IconProps) {
 	)
 }
 
+export function PasteIcon(props: IconProps) {
+	return (
+		<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" {...props}>
+			<path d="M7.5 4.5H6A1.5 1.5 0 0 0 4.5 6v9A1.5 1.5 0 0 0 6 16.5h8a1.5 1.5 0 0 0 1.5-1.5V6A1.5 1.5 0 0 0 14 4.5h-1.5" />
+			<rect x="7.5" y="3" width="5" height="3" rx="1" />
+			<path d="M10 9v4.5m0 0 1.75-1.75M10 13.5l-1.75-1.75" strokeLinecap="round" strokeLinejoin="round" />
+		</svg>
+	)
+}
+
+export function DashedCircleIcon(props: IconProps) {
+	return (
+		<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" {...props}>
+			<circle cx="10" cy="10" r="6.5" strokeDasharray="2.6 2.5" strokeLinecap="round" />
+		</svg>
+	)
+}
+
 export function ExternalLinkIcon(props: IconProps) {
 	return (
 		<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" {...props}>
@@ -93,6 +111,33 @@ export function WalletIcon(props: IconProps) {
 		<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" {...props}>
 			<path d="M3 5.5A2.5 2.5 0 0 1 5.5 3h9A1.5 1.5 0 0 1 16 4.5v11A1.5 1.5 0 0 1 14.5 17h-9A2.5 2.5 0 0 1 3 14.5v-9Z" />
 			<path d="M13 8h4v4h-4a2 2 0 1 1 0-4Z" />
+		</svg>
+	)
+}
+
+export function PenIcon(props: IconProps) {
+	return (
+		<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" {...props}>
+			<path d="M12.5 4.5 15.5 7.5 7 16H4v-3l8.5-8.5Z" strokeLinejoin="round" />
+			<path d="m10.75 6.25 3 3" />
+		</svg>
+	)
+}
+
+export function LockIcon(props: IconProps) {
+	return (
+		<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" {...props}>
+			<rect x="4.5" y="9" width="11" height="8" rx="1.5" />
+			<path d="M7 9V6.5a3 3 0 0 1 6 0V9" />
+		</svg>
+	)
+}
+
+export function ToggleIcon(props: IconProps) {
+	return (
+		<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" {...props}>
+			<rect x="2.5" y="6" width="15" height="8" rx="4" />
+			<circle cx="13" cy="10" r="1.6" />
 		</svg>
 	)
 }

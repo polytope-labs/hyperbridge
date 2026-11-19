@@ -1,22 +1,22 @@
 import type { SolverStatus } from "./solver-supervisor"
-import { solverIsIdle, solverVersion } from "./solver-supervisor"
-import type { UpdateChannel, UpdatePreferences, UpdateReceipt, UpdateStore } from "./update-store"
+import { solverVersion } from "./solver-supervisor"
+import type { UpdateChannel, UpdatePreferences, UpdateStore } from "./update-store"
 
 const CHECK_INTERVAL_MS = 6 * 60 * 60 * 1_000
-const IDLE_RETRY_MS = 15_000
-const STALE_AFTER_MS = 24 * 60 * 60 * 1_000
-const NAG_INTERVAL_MS = 24 * 60 * 60 * 1_000
 const EXIT_TIMEOUT_MS = 10 * 60 * 1_000
 
+/**
+ * `ready` is a downloaded update that waits for the operator: `targetVersion` is installed only
+ * when they ask for it. `stopping-solver` and `installing` are that install in progress.
+ */
 export type UpdateState =
 	| "disabled"
 	| "idle"
 	| "checking"
 	| "downloading"
-	| "waiting-for-idle"
+	| "ready"
 	| "stopping-solver"
 	| "installing"
-	| "deferred"
 	| "error"
 
 export interface UpdateStatus {
@@ -61,29 +61,34 @@ export async function waitForSolverExit(options: ExitWaitOptions): Promise<boole
 	const delay =
 		options.delay ?? ((milliseconds: number) => new Promise((resolve) => setTimeout(resolve, milliseconds)))
 	const deadline = Date.now() + (options.timeoutMs ?? EXIT_TIMEOUT_MS)
-	while (Date.now() < deadline) {
+	for (;;) {
 		const health = await options.probe().catch(() => ({ state: "unavailable" }))
 		const socketGone = health.state === "spawnable"
 		if (socketGone && (options.pid === undefined || !processExists(options.pid))) return true
+		// Read after the probe, so a machine that slept past the deadline still gets one look.
+		if (Date.now() >= deadline) return false
 		await delay(250)
 	}
-	return false
+}
+
+/** An update is stopping the solver or running the installer, so nothing else may start a solver. */
+export function updateInstalling(status: UpdateStatus): boolean {
+	return status.state === "stopping-solver" || status.state === "installing"
 }
 
 export class UpdateCoordinator {
 	private current: UpdateStatus
 	private preferences: UpdatePreferences
 	private checkTimer?: NodeJS.Timeout
-	private idleTimer?: NodeJS.Timeout
-	private installing = false
 	private installAttempt?: Promise<void>
 	private checkAttempt?: Promise<void>
 	private checkQueued = false
 	private activeCheckChannel?: UpdateChannel
 	private started = false
-	private downloadReady = false
 	private solverStoppedForInstall = false
-	private recoveringInstallFailure = false
+	/** Set while `install` will still reject with an installer failure. After that, `notify` reports it. */
+	private installRejects = false
+	private recovery?: Promise<string>
 	private readonly downloadChannels = new Map<string, UpdateChannel>()
 
 	private readonly listeners: Record<string, (...args: any[]) => void>
@@ -98,12 +103,12 @@ export class UpdateCoordinator {
 			canRestartSolver: () => boolean
 			requestSolverStop: () => Promise<void>
 			restartSolver: () => Promise<void>
-			waitForExit: (pid: number) => Promise<boolean>
+			/** Resolves once the solver's socket and process are gone. */
+			waitForExit: (pid: number) => Promise<void>
 			onChange: (status: UpdateStatus) => void
 			notify: (title: string, body: string) => void
 			now?: () => number
 			setInterval?: typeof setInterval
-			setTimeout?: typeof setTimeout
 		},
 	) {
 		this.preferences = options.store.read()
@@ -127,10 +132,6 @@ export class UpdateCoordinator {
 			},
 			"update-not-available": () => {
 				if (this.activeCheckChannel !== this.preferences.channel) return
-				if (this.preferences.receipt && !this.downloadReady) {
-					this.preferences = { ...this.preferences, receipt: undefined, lastNagAt: undefined }
-					this.options.store.write(this.preferences)
-				}
 				this.setStatus({ state: "idle" })
 			},
 			"download-progress": (progress: { percent?: number }) => {
@@ -142,20 +143,14 @@ export class UpdateCoordinator {
 					progress: typeof progress.percent === "number" ? progress.percent : undefined,
 				})
 			},
-			"update-downloaded": (info: { version?: string }) =>
-				void this.updateDownloaded(info.version).catch((error) => this.fail(error)),
+			"update-downloaded": (info: { version?: string }) => this.updateDownloaded(info.version),
 			error: (error: unknown) => {
 				if (this.activeCheckChannel && this.activeCheckChannel !== this.preferences.channel) return
-				if (this.installing) {
+				if (this.current.state === "installing") {
 					void this.recoverInstallerFailure(error)
 					return
 				}
-				if (this.preferences.receipt) {
-					this.defer(error)
-					this.scheduleIdleRetry()
-				} else {
-					this.fail(error)
-				}
+				this.fail(error)
 			},
 		}
 	}
@@ -164,44 +159,40 @@ export class UpdateCoordinator {
 		return this.current
 	}
 
+	/** Nothing else may touch the updater while an install is in progress. */
+	private get installing(): boolean {
+		return updateInstalling(this.current)
+	}
+
 	start(): void {
 		if (this.started || !this.options.packaged) return
 		this.started = true
 		this.configureUpdater()
 		for (const [event, listener] of Object.entries(this.listeners)) this.options.updater.on(event, listener)
-		void this.resumeUpdateLifecycle().catch((error) => this.fail(error))
+		void this.checkNow()
 		this.checkTimer = (this.options.setInterval ?? setInterval)(() => void this.checkNow(), CHECK_INTERVAL_MS)
 		this.checkTimer.unref?.()
 	}
 
 	dispose(): void {
 		if (this.checkTimer) clearInterval(this.checkTimer)
-		if (this.idleTimer) clearTimeout(this.idleTimer)
 		this.checkTimer = undefined
-		this.idleTimer = undefined
 		this.checkQueued = false
 		this.activeCheckChannel = undefined
-		this.downloadReady = false
 		this.downloadChannels.clear()
 		for (const [event, listener] of Object.entries(this.listeners))
 			this.options.updater.removeListener(event, listener)
 		this.started = false
 	}
 
+	/** Checks for an update and downloads it. A downloaded update is kept as it is until it is installed. */
 	async checkNow(): Promise<void> {
-		if (!this.options.packaged || this.installing) return
+		if (!this.options.packaged || this.installing || this.current.state === "ready") return
 		let checkChannel: UpdateChannel | undefined
 		try {
 			if (this.checkAttempt) {
 				this.checkQueued = true
 				await this.checkAttempt.catch(() => {})
-				return
-			}
-			if (this.preferences.receipt?.installAttemptedAt) {
-				await this.verifyPreviousInstall()
-			}
-			if (this.preferences.receipt && this.downloadReady) {
-				await this.tryInstall()
 				return
 			}
 			const channel = this.preferences.channel
@@ -220,28 +211,39 @@ export class UpdateCoordinator {
 			}
 		} catch (error) {
 			if (!checkChannel || checkChannel !== this.preferences.channel) return
-			if (this.preferences.receipt) {
-				this.defer(error)
-				this.scheduleIdleRetry()
-			} else {
-				this.fail(error)
-			}
+			this.fail(error)
 		}
 	}
 
 	setChannel(channel: UpdateChannel): void {
 		if (this.preferences.channel === channel || this.installing) return
 		try {
-			const receipt = this.preferences.receipt?.installAttemptedAt ? this.preferences.receipt : undefined
-			this.preferences = { ...this.preferences, channel, receipt, lastNagAt: undefined }
-			this.downloadReady = false
-			this.options.store.write(this.preferences)
+			// Saved first: a channel that could not be saved is not the one the updater follows.
+			const next = { ...this.preferences, channel }
+			this.options.store.write(next)
+			this.preferences = next
 			this.configureUpdater()
+			// Leaving `ready` discards an update downloaded on the old channel.
 			this.setStatus({ state: "idle", channel })
 			void this.checkNow()
 		} catch (error) {
 			this.fail(error)
 		}
+	}
+
+	/**
+	 * Installs the downloaded update, and is called only when the operator asks for it. The solver
+	 * is stopped and its exit proven before the installer runs and relaunches the app.
+	 *
+	 * Resolves once the installer has taken the update. Rejects when the solver could not be stopped,
+	 * which leaves the update downloaded, and when the installer fails at once, which restarts the
+	 * solver. An installer failure that arrives after it resolved is reported through `notify`.
+	 */
+	install(): Promise<void> {
+		this.installAttempt ??= this.runInstall().finally(() => {
+			this.installAttempt = undefined
+		})
+		return this.installAttempt
 	}
 
 	private configureUpdater(): void {
@@ -257,234 +259,179 @@ export class UpdateCoordinator {
 	}
 
 	private async runUpdateCheck(channel: UpdateChannel): Promise<void> {
+		if (this.preferences.receipt) {
+			await this.verifyPreviousInstall()
+			// The channel changed during the probe: the check queued behind this one follows the new one.
+			if (channel !== this.preferences.channel) return
+		}
 		this.activeCheckChannel = channel
 		this.setStatus({ state: "checking", channel })
 		const result = await this.options.updater.checkForUpdates()
 		if (result?.downloadPromise) await result.downloadPromise
 	}
 
-	private async resumeUpdateLifecycle(): Promise<void> {
-		if (this.preferences.receipt && !this.preferences.receipt.installAttemptedAt) {
-			this.setStatus({
-				state: "waiting-for-idle",
-				targetVersion: this.preferences.receipt.targetVersion,
-			})
-		}
-		await this.checkNow()
-	}
-
+	/** An install was started in the last session: it took if this app and its solver are that version. */
 	private async verifyPreviousInstall(): Promise<void> {
 		const receipt = this.preferences.receipt
-		if (!receipt?.installAttemptedAt) return
-		let solver: SolverStatus
-		try {
-			solver = await this.options.probeSolver()
-		} catch (error) {
-			return this.reportFailedInstall(receipt, error)
-		}
-		if (this.options.appVersion === receipt.targetVersion && solverVersion(solver) === this.options.appVersion) {
-			this.preferences = { ...this.preferences, receipt: undefined, lastNagAt: undefined }
-			this.options.store.write(this.preferences)
-			this.setStatus({ state: "idle" })
-			return
-		}
-		this.reportFailedInstall(receipt)
-	}
-
-	private reportFailedInstall(receipt: UpdateReceipt, cause?: unknown): void {
-		const suffix = cause ? `: ${cause instanceof Error ? cause.message : String(cause)}` : ""
-		this.preferences = {
-			...this.preferences,
-			receipt: { ...receipt, installAttemptedAt: undefined },
-		}
+		if (!receipt) return
+		const problem = await this.previousInstallProblem(receipt.targetVersion)
+		this.preferences = { ...this.preferences, receipt: undefined }
 		this.options.store.write(this.preferences)
-		this.setStatus({
-			state: "error",
-			targetVersion: receipt.targetVersion,
-			detail: `Update ${receipt.targetVersion} did not start a matching healthy solver${suffix}`,
-		})
-		this.options.notify(
-			"Simplex update needs attention",
-			`The update to ${receipt.targetVersion} did not start a matching solver. Open Simplex and review the solver log.`,
-		)
+		if (!problem) return
+		this.setStatus({ state: "error", targetVersion: receipt.targetVersion, detail: problem.detail })
+		this.options.notify(problem.title, problem.body)
 	}
 
-	private async updateDownloaded(version: string | undefined): Promise<void> {
+	/** What went wrong with the last install, if anything, as this launch finds it. */
+	private async previousInstallProblem(
+		target: string,
+	): Promise<{ title: string; detail: string; body: string } | undefined> {
+		// An installer that fails after the app has quit, as it does on Windows, is first seen here.
+		if (this.options.appVersion !== target) {
+			const detail = `Update ${target} was not installed. Simplex is on ${this.options.appVersion}`
+			return { title: "Simplex update was not installed", detail, body: `${detail}.` }
+		}
+		let failure = ""
+		try {
+			if (solverVersion(await this.options.probeSolver()) === target) return undefined
+		} catch (error) {
+			failure = `: ${errorMessage(error)}`
+		}
+		return {
+			title: "Simplex update needs attention",
+			detail: `Update ${target} did not start a matching healthy solver${failure}`,
+			body: `The update to ${target} did not start a matching solver. Open Simplex and review the solver log.`,
+		}
+	}
+
+	private updateDownloaded(version: string | undefined): void {
 		if (!version) return this.fail(new Error("Downloaded update did not include a version"))
 		const channel = this.downloadChannels.get(version)
 		this.downloadChannels.delete(version)
 		if (!channel) return this.fail(new Error(`Downloaded update ${version} did not match an active check`))
 		if (channel !== this.preferences.channel) return
-		const previous = this.preferences.receipt
-		const receipt: UpdateReceipt =
-			previous?.targetVersion === version && !previous.installAttemptedAt
-				? previous
-				: {
-						fromVersion: this.options.appVersion,
-						targetVersion: version,
-						downloadedAt: this.options.now?.() ?? Date.now(),
-					}
-		this.downloadReady = true
-		this.preferences = { ...this.preferences, receipt, lastNagAt: undefined }
-		this.options.store.write(this.preferences)
-		this.setStatus({ state: "waiting-for-idle", targetVersion: version })
-		await this.tryInstall()
+		this.setStatus({ state: "ready", targetVersion: version })
 	}
 
-	private tryInstall(): Promise<void> {
-		if (this.installAttempt) return this.installAttempt
-		const attempt = this.runInstallAttempt()
-		this.installAttempt = attempt
-		return attempt.finally(() => {
-			if (this.installAttempt === attempt) this.installAttempt = undefined
-		})
-	}
-
-	private async runInstallAttempt(): Promise<void> {
-		if (this.installing) return
-		const receipt = this.preferences.receipt
-		if (!receipt) return
-		const solver = await this.options.probeSolver().catch((error) => {
-			this.defer(error)
-			return undefined
-		})
-		if (!solver) return this.scheduleIdleRetry()
-		// A channel change can discard the receipt while the idle probe is pending.
-		if (this.preferences.receipt !== receipt) return
-
-		if (solver.state === "stopped") {
-			this.defer(new Error("Solver is stopped; restart it before installing the staged update"))
-			return this.scheduleIdleRetry()
+	private async runInstall(): Promise<void> {
+		const version = this.current.state === "ready" ? this.current.targetVersion : undefined
+		if (!version) throw new Error("No downloaded update is ready to install")
+		const solver = await this.options.probeSolver()
+		// A channel change can discard the download while the probe is pending.
+		if (this.current.state !== "ready" || this.current.targetVersion !== version) {
+			throw new Error("The downloaded update was discarded before it could be installed")
 		}
 		if (solver.state !== "setup" && solver.state !== "running" && solver.state !== "paused") {
-			this.defer(new Error(`Solver is ${solver.state}; update remains staged`))
-			return this.scheduleIdleRetry()
+			throw new Error(
+				solver.state === "stopped"
+					? "The solver is stopped. Restart it, then install the update."
+					: `The solver is ${solver.state}. Try again in a moment.`,
+			)
 		}
-		if ((solver.state === "running" || solver.state === "paused") && !solverIsIdle(solver)) {
-			this.setStatus({ state: "waiting-for-idle", targetVersion: receipt.targetVersion })
-			this.maybeNag(receipt)
-			return this.scheduleIdleRetry()
-		}
-		if (!solver.pid) {
-			this.defer(new Error("Solver did not report its process id"))
-			return this.scheduleIdleRetry()
-		}
+		if (!solver.pid) throw new Error("The solver did not report its process id, so its exit cannot be confirmed")
 		if (!this.options.canRestartSolver()) {
-			this.defer(new Error("Unlock Simplex to install the staged update"))
-			return this.scheduleIdleRetry()
+			throw new Error("Simplex cannot restart the solver right now, so the update was not installed")
 		}
 
-		this.installing = true
-		this.setStatus({ state: "stopping-solver", targetVersion: receipt.targetVersion })
+		this.setStatus({ state: "stopping-solver", targetVersion: version })
 		try {
-			await this.options.requestSolverStop()
-			if (!(await this.options.waitForExit(solver.pid))) {
-				throw new Error("Solver did not exit after its graceful stop; update remains staged")
-			}
-			this.solverStoppedForInstall = true
-			await this.install(receipt)
+			await this.stopSolver()
+			// A stop cannot be taken back, so there is no deadline: the update goes in once the solver has drained.
+			await this.options.waitForExit(solver.pid)
 		} catch (error) {
-			this.installing = false
-			this.defer(error)
-			this.scheduleIdleRetry()
+			// The installer was never reached, so the download is offered again unless the updater failed meanwhile.
+			if (this.status.state === "stopping-solver") this.setStatus({ state: "ready", targetVersion: version })
+			throw error
 		}
-	}
-
-	private async install(receipt: UpdateReceipt): Promise<void> {
-		this.installing = true
+		this.solverStoppedForInstall = true
+		let failure: Promise<string> | undefined
+		this.installRejects = true
 		try {
-			const attempted: UpdateReceipt = {
-				...receipt,
-				installAttemptedAt: this.options.now?.() ?? Date.now(),
-			}
-			this.preferences = { ...this.preferences, receipt: attempted }
-			this.options.store.write(this.preferences)
-			this.setStatus({ state: "installing", targetVersion: receipt.targetVersion })
-			this.options.updater.quitAndInstall(false, true)
-		} catch (error) {
-			await this.recoverInstallerFailure(error)
-		}
-	}
-
-	private async recoverInstallerFailure(error: unknown): Promise<void> {
-		if (this.recoveringInstallFailure) return
-		this.recoveringInstallFailure = true
-		try {
-			const recoveryErrors: string[] = []
-			const receipt = this.preferences.receipt
-			this.installing = false
-			this.downloadReady = false
-			if (receipt) {
+			try {
+				// The updater failed while the solver was stopping, so there is nothing sound to install.
+				if (this.status.state !== "stopping-solver") {
+					throw new Error(this.current.detail ?? "The update is no longer available")
+				}
 				this.preferences = {
 					...this.preferences,
-					receipt: { ...receipt, installAttemptedAt: undefined },
+					receipt: {
+						fromVersion: this.options.appVersion,
+						targetVersion: version,
+						installAttemptedAt: this.options.now?.() ?? Date.now(),
+					},
 				}
-				try {
-					this.options.store.write(this.preferences)
-				} catch (storeError) {
-					recoveryErrors.push(
-						`the retry receipt could not be saved: ${storeError instanceof Error ? storeError.message : String(storeError)}`,
-					)
-				}
+				this.options.store.write(this.preferences)
+				this.setStatus({ state: "installing", targetVersion: version })
+				this.options.updater.quitAndInstall(false, true)
+			} catch (error) {
+				failure = this.recoverInstallerFailure(error)
 			}
-			this.defer(error)
-			if (this.solverStoppedForInstall) {
-				this.solverStoppedForInstall = false
-				try {
-					await this.options.restartSolver()
-				} catch (restartError) {
-					recoveryErrors.push(
-						`the solver could not be restarted: ${restartError instanceof Error ? restartError.message : String(restartError)}`,
-					)
-				}
-			}
-			if (recoveryErrors.length > 0) {
-				this.fail(
-					new Error(
-						`The update installer failed (${error instanceof Error ? error.message : String(error)}); ${recoveryErrors.join("; ")}`,
-					),
-				)
-				return
-			}
-			this.scheduleIdleRetry()
+			// electron-updater reports most installer failures through its error event instead of throwing.
+			failure ??= this.recovery
+			if (failure) throw new Error(await failure)
 		} finally {
-			this.recoveringInstallFailure = false
+			this.installRejects = false
 		}
 	}
 
-	private scheduleIdleRetry(): void {
-		if (this.idleTimer || this.installing) return
-		this.idleTimer = (this.options.setTimeout ?? setTimeout)(() => {
-			this.idleTimer = undefined
-			void (this.downloadReady ? this.tryInstall() : this.checkNow())
-		}, IDLE_RETRY_MS)
-		this.idleTimer.unref?.()
+	/** Asks the solver to stop. A request that fails after the solver took it still counts as a stop. */
+	private async stopSolver(): Promise<void> {
+		try {
+			await this.options.requestSolverStop()
+		} catch (error) {
+			const solver = await this.options.probeSolver().catch(() => undefined)
+			if (solver?.state !== "stopping" && solver?.state !== "stopped") throw error
+		}
 	}
 
-	private maybeNag(receipt: UpdateReceipt): void {
-		const now = this.options.now?.() ?? Date.now()
-		if (now - receipt.downloadedAt < STALE_AFTER_MS) return
-		if (this.preferences.lastNagAt && now - this.preferences.lastNagAt < NAG_INTERVAL_MS) return
-		this.preferences = { ...this.preferences, lastNagAt: now }
-		this.options.store.write(this.preferences)
-		this.options.notify(
-			"Simplex update is waiting",
-			`Version ${receipt.targetVersion} has been ready for more than a day. Pause new fills to create a safe update window.`,
-		)
+	/**
+	 * The installer failed with the solver already stopped. The app stays on this version, so the
+	 * solver is started again. The state stays `error` with the reason until the next check.
+	 * Resolves to that reason.
+	 */
+	private recoverInstallerFailure(error: unknown): Promise<string> {
+		this.recovery ??= this.runRecovery(error).finally(() => {
+			this.recovery = undefined
+		})
+		return this.recovery
 	}
 
-	private defer(error: unknown): void {
-		const detail = error instanceof Error ? error.message : String(error)
-		this.setStatus({ state: "deferred", targetVersion: this.preferences.receipt?.targetVersion, detail })
+	private async runRecovery(error: unknown): Promise<string> {
+		const version = this.current.targetVersion
+		const rejected = this.installRejects
+		const problems: string[] = []
+		const detail = () => [`Update ${version} could not be installed: ${errorMessage(error)}`, ...problems].join("; ")
+		this.preferences = { ...this.preferences, receipt: undefined }
+		try {
+			this.options.store.write(this.preferences)
+		} catch (storeError) {
+			problems.push(`the install record could not be cleared: ${errorMessage(storeError)}`)
+		}
+		// Leaves `installing` before the restart, which is refused while an install is in progress.
+		this.fail(new Error(detail()))
+		if (this.solverStoppedForInstall) {
+			this.solverStoppedForInstall = false
+			try {
+				await this.options.restartSolver()
+			} catch (restartError) {
+				problems.push(`the solver could not be restarted: ${errorMessage(restartError)}`)
+				this.fail(new Error(detail()))
+			}
+		}
+		if (!rejected) this.options.notify("Simplex update was not installed", `${detail()}.`)
+		return detail()
 	}
 
 	private fail(error: unknown): void {
-		const detail = error instanceof Error ? error.message : String(error)
-		this.setStatus({ state: "error", targetVersion: this.current.targetVersion, detail })
+		this.setStatus({ state: "error", targetVersion: this.current.targetVersion, detail: errorMessage(error) })
 	}
 
 	private setStatus(next: Omit<UpdateStatus, "channel"> & { channel?: UpdateChannel }): void {
 		this.current = { ...next, channel: next.channel ?? this.preferences.channel }
 		this.options.onChange(this.current)
 	}
+}
+
+function errorMessage(error: unknown): string {
+	return error instanceof Error ? error.message : String(error)
 }

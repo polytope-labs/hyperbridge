@@ -88,17 +88,42 @@ const BEEFY_WHITELISTED_PARATHREADS: &'static [u32] = &[3367];
 /// Parathreads whitelisted to be added to the beefy mmr leaf parachains header root
 const BEEFY_WHITELISTED_PARATHREADS_PASEO: &'static [u32] = &[4009];
 
+/// First Polkadot runtime `spec_version` whose BEEFY MMR leaf `leaf_extra` is the merkle root of
+/// `Paras::sorted_para_heads()` plus the whitelisted parathreads, instead of the heads of
+/// `Paras::Parachains` plus the whitelisted parathreads (polkadot-fellows/runtimes v2.5.3,
+/// polkadot-sdk stable2606-5). The runtime executing a block is the one stored in its parent's
+/// state, so this is compared against the runtime version at the block the heads are read at.
+const POLKADOT_SORTED_PARA_HEADS_SPEC_VERSION: u32 = 2_005_003;
+
+/// Mirrors `polkadot_runtime_parachains::paras::MIN_PARA_HEAD_LEN`: heads shorter than this are
+/// left out of `Paras::sorted_para_heads()`.
+const MIN_PARA_HEAD_LEN: usize = 64;
+
+/// Mirrors `polkadot_runtime_parachains::paras::MAX_PARA_HEADS`.
+const MAX_PARA_HEADS: usize = 1024;
+
+/// Page size used when listing the keys of `Paras::Heads`.
+const PARA_HEADS_KEYS_PAGE_SIZE: u32 = 1000;
+
 /// Fetch all parachain headers committed by BEEFY at provided height
 pub async fn paras_parachains<T: Config>(
 	rpc: &LegacyRpcMethods<T>,
 	at: Option<HashFor<T>>,
 ) -> Result<Vec<(u32, Vec<u8>)>, anyhow::Error> {
+	let chain = rpc.system_chain().await?.to_lowercase();
 	// Select the whitelisted parathreads based on the relay chain
-	let whitelisted_parathreads = if rpc.system_chain().await?.to_lowercase().contains("paseo") {
+	let whitelisted_parathreads = if chain.contains("paseo") {
 		BEEFY_WHITELISTED_PARATHREADS_PASEO
 	} else {
 		BEEFY_WHITELISTED_PARATHREADS
 	};
+
+	if chain == "polkadot" &&
+		rpc.state_get_runtime_version(at).await?.spec_version >=
+			POLKADOT_SORTED_PARA_HEADS_SPEC_VERSION
+	{
+		return sorted_para_heads(rpc, at, whitelisted_parathreads).await;
+	}
 
 	let ids = rpc
 		.state_get_storage(PARAS_PARACHAINS.as_slice(), at)
@@ -122,6 +147,69 @@ pub async fn paras_parachains<T: Config>(
 		}
 	}
 	heads.sort_by_key(|(id, _)| *id);
+
+	Ok(heads)
+}
+
+/// The para heads committed to by Polkadot's `ParaHeadsRootProvider` from
+/// [`POLKADOT_SORTED_PARA_HEADS_SPEC_VERSION`] onwards: `Paras::sorted_para_heads()` (every entry
+/// of `Paras::Heads` at least [`MIN_PARA_HEAD_LEN`] bytes long, sorted by para id and truncated to
+/// [`MAX_PARA_HEADS`]), then each whitelisted parathread inserted at its sorted position when it
+/// is missing and its head passes the same length bound.
+async fn sorted_para_heads<T: Config>(
+	rpc: &LegacyRpcMethods<T>,
+	at: Option<HashFor<T>>,
+	whitelisted_parathreads: &[u32],
+) -> Result<Vec<(u32, Vec<u8>)>, anyhow::Error> {
+	let prefix = frame_support::storage::storage_prefix(b"Paras", b"Heads");
+
+	let mut keys = vec![];
+	let mut start_key: Option<Vec<u8>> = None;
+	loop {
+		let page = rpc
+			.state_get_keys_paged(&prefix, PARA_HEADS_KEYS_PAGE_SIZE, start_key.as_deref(), at)
+			.await?;
+		let last_page = page.len() < PARA_HEADS_KEYS_PAGE_SIZE as usize;
+		start_key = page.last().cloned();
+		keys.extend(page);
+		if last_page {
+			break;
+		}
+	}
+
+	let mut heads = vec![];
+	if !keys.is_empty() {
+		for change_set in rpc.state_query_storage_at(keys.iter().map(|k| k.as_slice()), at).await? {
+			for (key, value) in change_set.changes {
+				let Some(value) = value else { continue };
+				// `Paras::Heads` is `Twox64Concat`: prefix ++ twox64(para_id) ++ para_id.
+				let id_bytes = key.0.get(prefix.len() + 8..).ok_or_else(|| {
+					anyhow!("malformed Paras::Heads key 0x{}", hex::encode(&key.0))
+				})?;
+				let id = u32::decode(&mut &*id_bytes)?;
+				let head = Vec::<u8>::decode(&mut &*value.0)?;
+				if head.len() >= MIN_PARA_HEAD_LEN {
+					heads.push((id, head));
+				}
+			}
+		}
+	}
+	heads.sort_by_key(|(id, _)| *id);
+	heads.truncate(MAX_PARA_HEADS);
+
+	for id in whitelisted_parathreads {
+		if let Err(pos) = heads.binary_search_by_key(id, |(id, _)| *id) {
+			if let Some(head) = rpc
+				.state_get_storage(parachain_header_storage_key(*id).as_ref(), at)
+				.await?
+				.map(|data| Vec::<u8>::decode(&mut data.as_ref()))
+				.transpose()?
+				.filter(|head| head.len() >= MIN_PARA_HEAD_LEN)
+			{
+				heads.insert(pos, (*id, head));
+			}
+		}
+	}
 
 	Ok(heads)
 }

@@ -1,6 +1,6 @@
 import type { MenuItemConstructorOptions } from "electron"
 import type { SolverStatus } from "./solver-supervisor"
-import type { UpdateStatus } from "./update-coordinator"
+import { updateInstalling, type UpdateStatus } from "./update-coordinator"
 import type { UpdateChannel } from "./update-store"
 
 export interface DesktopMenuActions {
@@ -12,9 +12,11 @@ export interface DesktopMenuActions {
 	toggleLoginItem: () => void | Promise<void>
 	showAbout: () => void
 	checkForUpdates: () => void | Promise<void>
+	installUpdate: () => void | Promise<void>
 	setUpdateChannel: (channel: UpdateChannel) => void | Promise<void>
 	openDataDirectory: () => void | Promise<void>
 	openLog: () => void | Promise<void>
+	resetConfiguration: () => void | Promise<void>
 	quitApp: () => void
 	stopAndQuit: () => void | Promise<void>
 }
@@ -29,6 +31,8 @@ export interface DesktopMenuModel {
 	updatesEnabled: boolean
 	update: UpdateStatus
 	versionSkew: boolean
+	/** A confirmed reset is stopping the solver before the app relaunches. */
+	resetting?: boolean
 }
 
 function run(action: () => void | Promise<void>): () => void {
@@ -63,7 +67,12 @@ export function solverStatusLabel(status: SolverStatus): string {
 function operationItems(model: DesktopMenuModel, actions: DesktopMenuActions): MenuItemConstructorOptions[] {
 	const canPause = !model.locked && (model.status.state === "running" || model.status.state === "paused")
 	const canStop = !model.locked && (canPause || model.status.state === "setup")
-	const canRestart = !model.locked && (model.status.state === "stopped" || model.status.state === "unreachable")
+	// An update that has stopped the solver is about to replace it: a restart would put one back under the installer.
+	const canRestart =
+		!model.locked &&
+		!model.resetting &&
+		!updateInstalling(model.update) &&
+		(model.status.state === "stopped" || model.status.state === "unreachable")
 	return [
 		{
 			id: "solver-status",
@@ -88,27 +97,50 @@ function operationItems(model: DesktopMenuModel, actions: DesktopMenuActions): M
 			id: "restart-bundled-solver",
 			label: "Restart with bundled solver",
 			visible: model.versionSkew,
-			enabled: model.versionSkew && canStop,
+			enabled: model.versionSkew && canStop && !updateInstalling(model.update),
 			click: run(actions.restartBundledSolver),
 		},
 		{ id: "stop-solver", label: "Stop solver", enabled: canStop, click: run(actions.stopSolver) },
 	]
 }
 
+/**
+ * Whether a reset may start. It stops the solver and deletes the profile, so it needs an unlocked
+ * session like stopping does, and it must not run alongside an update that is doing the same.
+ */
+export function resetAvailable(model: Pick<DesktopMenuModel, "locked" | "update" | "resetting">): boolean {
+	return !model.locked && !model.resetting && !updateInstalling(model.update)
+}
+
+function resetItem(model: DesktopMenuModel, actions: DesktopMenuActions): MenuItemConstructorOptions {
+	return {
+		id: "reset-configuration",
+		label: model.resetting ? "Resetting Configuration…" : "Reset Configuration…",
+		enabled: resetAvailable(model),
+		click: run(actions.resetConfiguration),
+	}
+}
+
 function updateItems(model: DesktopMenuModel, actions: DesktopMenuActions): MenuItemConstructorOptions[] {
+	const { state } = model.update
+	const installing = updateInstalling(model.update)
+	// A downloaded update turns the check into the install, which needs a solver it can stop.
+	const ready = state === "ready"
+	const canInstall = canStopSolver(model.status) && !model.resetting
 	return [
 		{
 			id: "check-for-updates",
 			label: updateMenuLabel(model.update),
 			visible: model.updatesEnabled,
-			enabled: !model.locked && model.update.state !== "checking" && model.update.state !== "installing",
-			click: run(actions.checkForUpdates),
+			enabled:
+				!model.locked && !installing && state !== "checking" && state !== "downloading" && (!ready || canInstall),
+			click: run(ready ? actions.installUpdate : actions.checkForUpdates),
 		},
 		{
 			id: "update-channel",
 			label: "Update Channel",
 			visible: model.updatesEnabled,
-			enabled: !model.locked && model.update.state !== "stopping-solver" && model.update.state !== "installing",
+			enabled: !model.locked && !installing,
 			submenu: (["stable", "beta"] as const).map((channel) => ({
 				id: `update-channel-${channel}`,
 				label: channel === "stable" ? "Stable" : "Beta",
@@ -145,6 +177,7 @@ export function buildTrayMenuTemplate(
 			enabled: !model.locked && model.logAvailable,
 			click: run(actions.openLog),
 		},
+		resetItem(model, actions),
 		{ type: "separator" },
 		{
 			id: "quit-simplex",
@@ -224,6 +257,7 @@ export function buildApplicationMenuTemplate(
 					enabled: model.logAvailable,
 					click: run(actions.openLog),
 				},
+				resetItem(model, actions),
 				{ type: "separator" },
 				{
 					id: "quit-simplex",
@@ -253,14 +287,12 @@ function updateMenuLabel(status: UpdateStatus): string {
 			return status.progress === undefined
 				? "Downloading Update…"
 				: `Downloading Update… ${Math.round(status.progress)}%`
-		case "waiting-for-idle":
-			return "Update Ready — Waiting for Idle"
+		case "ready":
+			return `Install Update ${status.targetVersion ?? ""}`.trimEnd()
 		case "stopping-solver":
-			return "Update Ready — Stopping Solver"
+			return "Installing Update — Stopping Solver"
 		case "installing":
 			return "Installing Update…"
-		case "deferred":
-			return "Update Deferred — Retry Now"
 		case "error":
 			return "Update Error — Retry"
 		default:

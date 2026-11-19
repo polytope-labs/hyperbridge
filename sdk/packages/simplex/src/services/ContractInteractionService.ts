@@ -182,7 +182,7 @@ export class ContractInteractionService {
 
 	/**
 	 * The endpoint SDK helpers should use for `chain`: the first configured RPC,
-	 * matching the one viem's `fallback` transport tries first.
+	 * the one the wallet client sends to first.
 	 */
 	private primaryRpcUrl(chain: string): string {
 		const [rpcUrl] = this.configService.getRpcUrls(chain)
@@ -205,11 +205,11 @@ export class ContractInteractionService {
 		}
 
 		// Read the endpoint from the config, NOT from `publicClient.transport.url`:
-		// a multi-URL chain is built on a viem `fallback` transport, whose `url`
-		// is undefined. Passing that through leaves the SDK's EvmChain with no
-		// RPC, so viem silently substitutes the chain's built-in public default
-		// (e.g. polygon.drpc.org for Polygon) and the operator's endpoints are
-		// bypassed entirely on this path.
+		// a multi-URL chain is built on a transport that has no `url`. Passing
+		// that through leaves the SDK's EvmChain with no RPC, so viem silently
+		// substitutes the chain's built-in public default (e.g. polygon.drpc.org
+		// for Polygon) and the operator's endpoints are bypassed entirely on this
+		// path.
 		const sourceEvmChain = EvmChain.fromParams({
 			chainId: getChainId(source)!,
 			host: this.configService.getHostAddress(source),
@@ -353,7 +353,7 @@ export class ContractInteractionService {
 		}
 
 		// Cross-check the read against the curated registry. The read goes through the plain
-		// fallback client, not the event monitor's quorum, so the first endpoint to answer wins:
+		// public client, not the event monitor's quorum, so the first endpoint to answer wins:
 		// one endpoint reporting 18 for a 6-decimal token inflates every amount scaled by it by
 		// 10^12. The registry was verified on-chain when the token was curated, so where it knows
 		// the token its disagreement is a hard error rather than something to price — callers on

@@ -127,6 +127,9 @@ export function emitFillerToml(config: FillerConfigFile, options: EmitOptions = 
 		push(kv("reconcileIntervalSecs", config.orderbook.reconcileIntervalSecs))
 	}
 	if (config.orderbook?.requestTimeoutMs !== undefined) push(kv("requestTimeoutMs", config.orderbook.requestTimeoutMs))
+	if (config.orderbook?.delegateHeartbeats !== undefined) {
+		push(kv("delegateHeartbeats", config.orderbook.delegateHeartbeats))
+	}
 	push()
 
 	if (config.rebalancing) {

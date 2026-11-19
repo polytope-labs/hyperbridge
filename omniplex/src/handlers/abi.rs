@@ -1,0 +1,71 @@
+//! Event types decoded from the ABIs rindexer is given.
+
+alloy::sol!(
+	#[sol(all_derives)]
+	EthereumHost,
+	"abis/EthereumHost.abi.json"
+);
+alloy::sol!(
+	#[sol(all_derives)]
+	Erc6160Ext20,
+	"abis/ERC6160Ext20.abi.json"
+);
+alloy::sol!(
+	#[sol(all_derives)]
+	IntentGatewayV3,
+	"abis/IntentGatewayV3.abi.json"
+);
+alloy::sol!(
+	#[sol(all_derives)]
+	IntentGatewayV3Legacy,
+	"abis/IntentGatewayV3Legacy.abi.json"
+);
+alloy::sol!(
+	#[sol(all_derives)]
+	Erc4626,
+	"abis/Erc4626.abi.json"
+);
+alloy::sol!(
+	#[sol(all_derives)]
+	Erc20,
+	"abis/Erc20.abi.json"
+);
+
+/** Pallet events as substrate-eth-rpc serves them. */
+pub mod pallets {
+	alloy::sol!(
+		#[sol(all_derives)]
+		Ismp,
+		"../modules/utils/substrate-eth-rpc/abis/ismp.abi.json"
+	);
+	alloy::sol!(
+		#[sol(all_derives)]
+		Balances,
+		"../modules/utils/substrate-eth-rpc/abis/balances.abi.json"
+	);
+	alloy::sol!(
+		#[sol(all_derives)]
+		Bandwidth,
+		"../modules/utils/substrate-eth-rpc/abis/bandwidth.abi.json"
+	);
+	alloy::sol!(
+		#[sol(all_derives)]
+		CollatorManager,
+		"../modules/utils/substrate-eth-rpc/abis/collatorManager.abi.json"
+	);
+	alloy::sol!(
+		#[sol(all_derives)]
+		ConsensusIncentives,
+		"../modules/utils/substrate-eth-rpc/abis/consensusIncentives.abi.json"
+	);
+	alloy::sol!(
+		#[sol(all_derives)]
+		IntentsCoprocessor,
+		"../modules/utils/substrate-eth-rpc/abis/intentsCoprocessor.abi.json"
+	);
+	alloy::sol!(
+		#[sol(all_derives)]
+		Relayer,
+		"../modules/utils/substrate-eth-rpc/abis/relayer.abi.json"
+	);
+}

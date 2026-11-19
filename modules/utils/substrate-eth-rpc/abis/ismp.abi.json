@@ -7,7 +7,7 @@
         "name": "stateMachineId",
         "type": "tuple",
         "indexed": false,
-        "internalType": "tuple",
+        "internalType": "struct StateMachineId",
         "components": [
           {
             "name": "stateId",

@@ -155,7 +155,7 @@
         "name": "config",
         "type": "tuple",
         "indexed": false,
-        "internalType": "tuple",
+        "internalType": "struct Config",
         "components": [
           {
             "name": "isSome",
@@ -165,7 +165,7 @@
           {
             "name": "value",
             "type": "tuple",
-            "internalType": "tuple",
+            "internalType": "struct ConfigValue",
             "components": [
               {
                 "name": "byteCount",

@@ -12,7 +12,8 @@ async-trait = "0.1.53"
 futures = "0.3.28"
 tokio = { workspace = true, features = ["full"] }
 primitive-types = { workspace = true, default-features = true }
-prisma-client-rust = { git = "https://github.com/Brendonovich/prisma-client-rust.git", tag = "0.6.11", features = ["sqlite", "migrations"] }
+# Our fork of the archived upstream: 0.6.11 plus an import fix that Rust 1.98 and later need.
+prisma-client-rust = { git = "https://github.com/polytope-labs/prisma-client-rust.git", tag = "0.6.11-polytope.1", features = ["sqlite", "migrations"] }
 serde = { workspace = true, features = ["derive"] }
 itertools = "0.12.1"
 tracing = "0.1.40"

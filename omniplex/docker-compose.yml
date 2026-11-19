@@ -58,6 +58,7 @@ services:
 
   omnihedron:
     image: ${OMNIHEDRON_IMAGE:-polytopelabs/omnihedron:latest}
+    profiles: [testnet, mainnet]
     restart: unless-stopped
     command: ["--name=app", "--playground"]
     environment:

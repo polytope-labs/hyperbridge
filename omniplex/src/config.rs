@@ -114,6 +114,10 @@ impl Config {
 				bail!("chain {name}: the explorer follows Substrate chains only");
 			}
 		}
+		// The explorer's tables hold one chain, so each explorer has a database of its own.
+		if config.explorer && config.chains.len() != 1 {
+			bail!("an explorer config follows exactly one chain");
+		}
 		Ok(config)
 	}
 }

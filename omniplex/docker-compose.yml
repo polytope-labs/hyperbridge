@@ -4,7 +4,8 @@
 #
 # The `explorer-testnet` and `explorer-mainnet` profiles run the block explorer instead: one
 # process reading Gargantua or Nexus from genesis, and the API the Statescan site reads on
-# `127.0.0.1:7011`, for both its REST and its GraphQL endpoint.
+# `127.0.0.1:7011`, for both its REST and its GraphQL endpoint. The explorer's tables hold one
+# chain, so run each network as its own project (`-p`) with its own database.
 #
 # `omniplex/.env.omniplex` (or `OMNIPLEX_ENV_FILE`) holds each chain's RPC URLs, named after the
 # chain (`bsc-mainnet` reads `BSC_MAINNET`), and `<CHAIN>_SUBSTRATE` for a Substrate chain. The

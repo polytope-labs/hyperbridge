@@ -2,6 +2,7 @@ pub mod chains;
 pub mod config;
 pub mod db;
 pub mod errors;
+pub mod explorer_api;
 pub mod failover;
 pub mod handlers;
 pub mod manifest;

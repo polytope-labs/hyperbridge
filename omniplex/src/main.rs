@@ -31,6 +31,11 @@ enum Command {
 		#[arg(long, value_delimiter = ',')]
 		new_chains: Vec<String>,
 	},
+	/** Serves the block explorer's tables to the Statescan site. */
+	ExplorerApi {
+		#[arg(long, env = "EXPLORER_API_LISTEN", default_value = "0.0.0.0:7011")]
+		listen: std::net::SocketAddr,
+	},
 }
 
 #[tokio::main]
@@ -45,6 +50,7 @@ async fn main() -> anyhow::Result<()> {
 		None => omniplex::run(&cli.config, &cli.run_dir, &cli.chains, &cli.end_blocks).await,
 		Some(Command::ImportSubquery { new_chains }) =>
 			omniplex::import_subquery(&cli.config, &new_chains).await,
+		Some(Command::ExplorerApi { listen }) => omniplex::explorer_api::serve(listen).await,
 	}
 }
 

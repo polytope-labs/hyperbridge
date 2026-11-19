@@ -9,7 +9,9 @@ The `explorer` key adds three logs to every block: `Block` once, `Extrinsic` per
 `Event` per event, with calls and events decoded against the block's own metadata and their
 arguments rendered as JSON. They come from the same decode and block cache as the pallet logs,
 take log indices after the block's events, and never fail a block when a call doesn't decode.
-The facade README lists the signatures.
+The facade README lists the signatures. A standalone facade serves them for chains whose
+`pallets` include `explorer`, and a node only with `--eth-rpc-explorer`, since decoding and
+caching every call costs memory no other indexer needs.
 
 ## Indexing
 
@@ -22,15 +24,19 @@ The handlers write the `explorer` schema (migration `0003_explorer`):
 
 - `blocks`, `extrinsics`, `events` and `transfers`, with times in milliseconds and addresses
   in SS58 with prefix 0. Transfers come from the typed `balances` `Transfer` log.
-- `accounts`, refreshed after each batch from `System.Account` for every account a transfer
-  or a signed extrinsic touched. An account the chain reaped is removed.
+- `accounts`, refreshed after each batch from `System.Account` for every account a transfer,
+  a signed extrinsic or an event argument typed as an account touched, which covers every
+  balance change. The first batch reads every `System.Account` once, so accounts that never
+  move, such as those funded at genesis, are listed too. An account the chain reaped is
+  removed.
 - `call_names`, every section and method seen under each runtime, for the site's filters.
 - `status`, the total issuance read after each batch.
 
-An argument value larger than 1 KiB is stored as a note of its size, such as
-`"41210 bytes, not stored"`, keeping the argument's name and type. On Hyperbridge those values
-are relay chain proofs, consensus proofs and runtime code, which no page shows and which would
-otherwise be most of the database.
+Arguments keep their names, types and structure, so an ISMP message still shows its source,
+destination, nonce and body. Only a string, or a list of strings, longer than 512 characters is
+stored as a note of its size, such as `"4861 bytes, not stored"`. On Hyperbridge those are relay
+chain proofs, consensus proofs, trie nodes and runtime code, which no page shows and which would
+otherwise be most of the database: 300 Gargantua blocks take 1.5 MB of extrinsics and events.
 
 ## API
 

@@ -138,12 +138,26 @@ async fn a_block_its_extrinsics_events_and_transfers_are_stored_as_the_site_read
 		Some("8800 call balances.transferKeepAlive,8800 event balances.Transfer")
 	);
 
+	// A deposit changes a balance with no transfer or signature, and names the account only as
+	// an argument typed as one.
+	let carol = [5u8; 32];
+	let deposit = Explorer::Event {
+		index: 2,
+		isExtrinsic: false,
+		extrinsicIndex: 0,
+		section: "balances".into(),
+		method: "Deposit".into(),
+		args: format!(
+			r#"[{{"name":"who","typeName":"AccountId","value":"0x{}"}},{{"name":"amount","typeName":"Balance","value":7}}]"#,
+			hex::encode(carol)
+		),
+	};
+	write_event(&db, &log(2, 7), &deposit).await.unwrap();
+
 	let touched = touched_accounts(&db, HEIGHT, HEIGHT).await.unwrap();
-	assert_eq!(touched.into_iter().collect::<Vec<_>>(), {
-		let mut both = vec![alice_address.clone(), bob_address];
-		both.sort();
-		both
-	});
+	let mut expected = vec![alice_address.clone(), bob_address, encode_address(&carol, 0).unwrap()];
+	expected.sort();
+	assert_eq!(touched.into_iter().collect::<Vec<_>>(), expected);
 	assert!(touched_accounts(&db, HEIGHT + 1, HEIGHT + 5).await.unwrap().is_empty());
 }
 

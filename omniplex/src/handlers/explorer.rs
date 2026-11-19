@@ -5,6 +5,7 @@
 use std::{collections::BTreeSet, sync::Arc};
 
 use async_trait::async_trait;
+use serde_json::{json, Value};
 use sp_crypto_hashing::{blake2_128, twox_128};
 use tokio_postgres::Transaction;
 
@@ -24,6 +25,9 @@ use crate::{
 
 /** The prefix addresses are stored with, which the Statescan site shows for Hyperbridge. */
 const SS58_PREFIX: u8 = 0;
+
+/** `System.Account` keys read per request when seeding the accounts. */
+const SEED_PAGE: usize = 1000;
 
 pub fn handlers() -> Handlers {
 	Handlers {
@@ -196,6 +200,9 @@ impl BlockHook for Accounts {
 	}
 
 	async fn after_batch(&self, ctx: &BlockContext<'_>) -> anyhow::Result<()> {
+		if !seeded(ctx.db).await? {
+			seed_accounts(ctx).await?;
+		}
 		let from = ctx.previous_block.map_or(0, |block| block + 1);
 		for address in touched_accounts(ctx.db, from, ctx.block_number).await? {
 			let Some(account) = account_id(&address) else { continue };
@@ -217,7 +224,10 @@ impl BlockHook for Accounts {
 	}
 }
 
-/** Every address a transfer or a signed extrinsic touched in blocks `from..=to`. */
+/**
+ * Every address blocks `from..=to` touched: in a transfer, as a signer, or in an event argument
+ * typed as an account, which covers every balance change such as a deposit, slash or reserve.
+ */
 pub async fn touched_accounts(
 	db: &Transaction<'_>,
 	from: u64,
@@ -228,11 +238,70 @@ pub async fn touched_accounts(
 			"SELECT \"from\" FROM explorer.transfers WHERE height BETWEEN $1 AND $2
 			 UNION SELECT \"to\" FROM explorer.transfers WHERE height BETWEEN $1 AND $2
 			 UNION SELECT signer FROM explorer.extrinsics
-			 WHERE height BETWEEN $1 AND $2 AND signer IS NOT NULL",
+			 WHERE height BETWEEN $1 AND $2 AND signer IS NOT NULL
+			 UNION SELECT arg->>'value' FROM explorer.events e, jsonb_array_elements(e.args) arg
+			 WHERE e.height BETWEEN $1 AND $2 AND jsonb_typeof(e.args) = 'array'
+			   AND arg->>'typeName' LIKE 'AccountId%' AND jsonb_typeof(arg->'value') = 'string'",
 			&[&(from as i64), &(to as i64)],
 		)
 		.await?;
-	Ok(rows.iter().map(|row| row.get(0)).collect())
+	Ok(rows.iter().filter_map(|row| address(row.get(0))).collect())
+}
+
+/** An address as the tables hold it, from an SS58 address or an account's hex in an event. */
+fn address(value: String) -> Option<String> {
+	match value.strip_prefix("0x") {
+		Some(hex) => encode_address(&hex::decode(hex).ok()?, SS58_PREFIX),
+		None => Some(value),
+	}
+}
+
+/** Whether every account the chain held has been read once. */
+async fn seeded(db: &Transaction<'_>) -> anyhow::Result<bool> {
+	let row = db.query_opt("SELECT 1 FROM explorer.status WHERE name = 'accountsSeeded'", &[]);
+	Ok(row.await?.is_some())
+}
+
+/**
+ * Reads every account the chain holds at the batch's block, once, so accounts that never move,
+ * such as those funded at genesis, are listed too. Events keep them current after that.
+ */
+async fn seed_accounts(ctx: &BlockContext<'_>) -> anyhow::Result<()> {
+	let node = ctx.chain.substrate()?;
+	let hash: String = node.call("chain_getBlockHash", json!([ctx.block_number])).await?;
+	let prefix = format!("0x{}", hex::encode([twox_128(b"System"), twox_128(b"Account")].concat()));
+	let mut start: Option<String> = None;
+	loop {
+		let keys: Vec<String> =
+			node.call("state_getKeysPaged", json!([prefix, SEED_PAGE, start, hash])).await?;
+		let Some(last) = keys.last().cloned() else { break };
+		let sets: Value = node.call("state_queryStorageAt", json!([keys, hash])).await?;
+		let changes = sets[0]["changes"].as_array().cloned().unwrap_or_default();
+		for change in changes {
+			let (Some(key), Some(info)) = (change[0].as_str(), change[1].as_str()) else {
+				continue
+			};
+			let key = hex::decode(key.trim_start_matches("0x"))?;
+			let Some(address) =
+				key.get(48..).and_then(|account| encode_address(account, SS58_PREFIX))
+			else {
+				continue;
+			};
+			let info = hex::decode(info.trim_start_matches("0x"))?;
+			write_account(ctx.db, &address, &info, ctx.block_number).await?;
+		}
+		if keys.len() < SEED_PAGE {
+			break;
+		}
+		start = Some(last);
+	}
+	ctx.db
+		.execute(
+			"INSERT INTO explorer.status (name, value) VALUES ('accountsSeeded', $1)",
+			&[&ctx.block_number.to_string()],
+		)
+		.await?;
+	Ok(())
 }
 
 /** Stores an account's `AccountInfo`, or removes it once the chain has reaped it. */
@@ -308,21 +377,38 @@ fn total_issuance_key() -> Vec<u8> {
 	[twox_128(b"Balances"), twox_128(b"TotalIssuance")].concat()
 }
 
-/** A value larger than this is stored as a note of its size. Those are proofs, trie nodes or
- * runtime code, which nobody reads on a page and which would make up most of the database. */
-const VALUE_LIMIT: usize = 1024;
+/** A string, or a list of strings, longer than this in total is stored as a note of its size.
+ * Those are proofs, trie nodes or runtime code, which nobody reads on a page and which would
+ * make up most of the database. */
+const STRING_LIMIT: usize = 512;
 
 /** Call and event arguments as JSON, or `NULL` when they didn't decode. Every argument keeps its
- * name and type, since the site lists them all, and a large value is replaced by its size. */
-fn args(json: &str) -> Option<serde_json::Value> {
-	let mut args: serde_json::Value = serde_json::from_str(json).ok()?;
-	for arg in args.as_array_mut()? {
-		let size = arg["value"].to_string().len();
-		if size > VALUE_LIMIT {
-			arg["value"] = format!("{size} bytes, not stored").into();
-		}
+ * name, type and structure; only its long strings are replaced by their size. */
+fn args(json: &str) -> Option<Value> {
+	let args: Value = serde_json::from_str(json).ok()?;
+	args.is_array().then(|| shorten(args))
+}
+
+/** `value` with every long string, and every long list of strings such as a proof's trie
+ * nodes, replaced by a note of its size. */
+fn shorten(value: Value) -> Value {
+	match value {
+		Value::String(text) if text.len() > STRING_LIMIT => {
+			let bytes = text.strip_prefix("0x").map_or(text.len(), |hex| hex.len() / 2);
+			Value::String(format!("{bytes} bytes, not stored"))
+		},
+		Value::Array(items) if strings_length(&items).is_some_and(|n| n > STRING_LIMIT) =>
+			Value::String(format!("{} items, not stored", items.len())),
+		Value::Array(items) => Value::Array(items.into_iter().map(shorten).collect()),
+		Value::Object(fields) =>
+			Value::Object(fields.into_iter().map(|(key, value)| (key, shorten(value))).collect()),
+		other => other,
 	}
-	Some(args)
+}
+
+/** The total length of a list that holds only strings. */
+fn strings_length(items: &[Value]) -> Option<usize> {
+	items.iter().map(|item| item.as_str().map(str::len)).sum()
 }
 
 fn height(log: &LogMeta) -> i64 {
@@ -352,15 +438,28 @@ mod tests {
 	}
 
 	#[test]
-	fn large_values_keep_their_argument() {
+	fn long_strings_are_cut_and_the_rest_is_kept() {
 		let small = r#"[{"name":"now","type":"Moment","value":1}]"#;
 		assert_eq!(args(small), serde_json::from_str(small).ok());
 		assert_eq!(args("null"), None);
-		let proof =
-			format!(r#"[{{"name":"proof","type":"Bytes","value":"{}"}}]"#, "a".repeat(5000));
-		let stored = args(&proof).unwrap();
-		assert_eq!(stored[0]["name"], "proof");
-		assert_eq!(stored[0]["value"], "5002 bytes, not stored");
+		let proof = format!("0x{}", "ab".repeat(4000));
+		let messages = json!([{ "name": "messages", "type": "Vec<Message>", "value": [{ "request": {
+			"proof": { "height": { "height": 53267715 }, "proof": proof },
+			"requests": [{ "post": { "source": { "evm": 97 }, "dest": { "evm": 80002 }, "nonce": 716 } }],
+		} }] }]);
+		let stored = args(&messages.to_string()).unwrap();
+		let message = &stored[0]["value"][0]["request"];
+		assert_eq!(message["proof"]["proof"], "4000 bytes, not stored");
+		assert_eq!(message["proof"]["height"]["height"], 53267715);
+		assert_eq!(message["requests"][0]["post"]["nonce"], 716);
+		assert_eq!(message["requests"][0]["post"]["dest"]["evm"], 80002);
+
+		let nodes: Vec<String> = (0..20).map(|_| format!("0x{}", "cd".repeat(40))).collect();
+		let state = json!([{ "name": "data", "type": "Data", "value": { "trieNodes": nodes } }]);
+		assert_eq!(
+			args(&state.to_string()).unwrap()[0]["value"]["trieNodes"],
+			"20 items, not stored"
+		);
 	}
 
 	#[test]

@@ -5,6 +5,7 @@ pub mod cache;
 pub mod cli;
 pub mod config;
 pub mod decode;
+pub mod explorer;
 pub mod mapping;
 pub mod server;
 pub mod substrate;

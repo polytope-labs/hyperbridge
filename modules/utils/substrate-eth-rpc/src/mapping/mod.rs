@@ -2,6 +2,7 @@ mod balances;
 mod bandwidth;
 mod collator_manager;
 mod consensus_incentives;
+pub mod explorer;
 mod intents_coprocessor;
 mod ismp;
 mod relayer;
@@ -35,6 +36,7 @@ pub fn all_pallets() -> Vec<PalletSpec> {
 		collator_manager::spec(),
 		bandwidth::spec(),
 		intents_coprocessor::spec(),
+		explorer::spec(),
 	]
 }
 
@@ -101,6 +103,11 @@ impl Mapper {
 
 	pub fn specs(&self) -> &[PalletSpec] {
 		&self.specs
+	}
+
+	/** Whether the chain serves the `explorer` logs. */
+	pub fn explorer(&self) -> bool {
+		self.specs.iter().any(|spec| spec.key == explorer::KEY)
 	}
 
 	pub fn skipped_count(&self) -> u64 {
@@ -389,6 +396,21 @@ mod tests {
 				"BidPlaced(bytes32,bytes32,bytes32,uint128)",
 				"e748081ee84c233cccf40e896838190e251a6365294df61dfe135c4de730042a",
 			),
+			(
+				"explorer",
+				"Block(uint32,bytes32,bytes32,bytes32,uint32,uint32)",
+				"65988e923516e396655b7c9bbf5ea39b7e7293115f7c1ccfbd01044ca84d339c",
+			),
+			(
+				"explorer",
+				"Extrinsic(uint32,bool,bool,bytes,string,string,string,uint32)",
+				"bfbdc3b5b74ee1eb361c95d6f86c109a2782fa468943242bb9ecd1ba4ca6ea80",
+			),
+			(
+				"explorer",
+				"Event(uint32,bool,uint32,string,string,string)",
+				"a4da8371a1b2468021f4ec82012d7aa076608b2c4d1b9fc82eed25b77abc6c90",
+			),
 		];
 		let actual = all_pallets()
 			.into_iter()
@@ -417,7 +439,8 @@ mod tests {
 				"relayer",
 				"collatorManager",
 				"bandwidth",
-				"intentsCoprocessor"
+				"intentsCoprocessor",
+				"explorer"
 			]
 		);
 		let names = pallets.iter().map(|p| p.metadata_name).collect::<Vec<_>>();
@@ -430,7 +453,8 @@ mod tests {
 				"Relayer",
 				"CollatorManager",
 				"Bandwidth",
-				"IntentsCoprocessor"
+				"IntentsCoprocessor",
+				""
 			]
 		);
 	}
@@ -438,7 +462,7 @@ mod tests {
 	#[test]
 	fn all_pallet_keys_follow_spec_order() {
 		let keys = all_pallet_keys();
-		assert_eq!(keys.len(), 7);
+		assert_eq!(keys.len(), 8);
 		assert_eq!(keys[0], "ismp");
 		assert_eq!(keys, all_pallets().iter().map(|p| p.key.to_string()).collect::<Vec<_>>());
 	}

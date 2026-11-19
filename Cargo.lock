@@ -30329,6 +30329,7 @@ dependencies = [
  "lru 0.16.3",
  "parity-scale-codec",
  "polkadot-sdk",
+ "scale-info",
  "scale-value",
  "serde",
  "serde_json",

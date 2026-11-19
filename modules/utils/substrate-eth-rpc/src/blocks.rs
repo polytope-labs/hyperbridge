@@ -21,7 +21,8 @@ use crate::{
 	cache::{BlockCache, FinalizedCache},
 	config::ChainConfig,
 	decode::{decode_events, extrinsic_hashes, DecodeError, MetadataCache},
-	mapping::{pallets_for, Mapper, MappingError},
+	explorer,
+	mapping::{pallets_for, MappedLog, Mapper, MappingError},
 	substrate::{system_events_key, timestamp_now_key, RawBlock, RpcError, SubstrateRpc},
 	types::{DecodedBlock, EthLog, Hasher, Phase, H256},
 };
@@ -167,7 +168,8 @@ impl BlockService {
 		if let Some(block) = self.cache.get_by_hash(hash) {
 			return Ok(Some(block.number));
 		}
-		let Some(header) = self.upstream(&format!("block {hash}"), || self.rpc.header(hash)).await?
+		let Some(header) =
+			self.upstream(&format!("block {hash}"), || self.rpc.header(hash)).await?
 		else {
 			return Ok(None);
 		};
@@ -433,27 +435,21 @@ fn build_block(
 	let init_hash = synthetic_tx_hash(raw.hash, b"init");
 	let final_hash = synthetic_tx_hash(raw.hash, b"final");
 
-	let mut logs = Vec::new();
-	for event in decode_events(metadata, events)? {
-		let Some(mapped) = mapper.map_event(&event)? else {
-			continue;
-		};
-		let (transaction_index, transaction_hash) = match event.phase {
-			Phase::ApplyExtrinsic(index) => {
-				let hash = hashes.get(index as usize).copied().ok_or_else(|| {
-					RpcError::Decode(format!(
-						"event {} at block {} references extrinsic {index} of {}",
-						event.event_index,
-						raw.number,
-						hashes.len()
-					))
-				})?;
-				(index as u64, hash)
-			},
-			Phase::Initialization => (hashes.len() as u64, init_hash),
-			Phase::Finalization => (hashes.len() as u64 + 1, final_hash),
-		};
-		logs.push(EthLog {
+	let transaction = |phase: &Phase| match phase {
+		Phase::ApplyExtrinsic(index) =>
+			hashes.get(*index as usize).map(|hash| (*index as u64, *hash)).ok_or_else(|| {
+				RpcError::Decode(format!(
+					"block {} references extrinsic {index} of {}",
+					raw.number,
+					hashes.len()
+				))
+			}),
+		Phase::Initialization => Ok((hashes.len() as u64, init_hash)),
+		Phase::Finalization => Ok((hashes.len() as u64 + 1, final_hash)),
+	};
+	let log = |mapped: MappedLog, phase: &Phase, log_index: u64| {
+		let (transaction_index, transaction_hash) = transaction(phase)?;
+		Ok::<_, RpcError>(EthLog {
 			address: mapped.address,
 			topics: mapped.topics,
 			data: mapped.data,
@@ -462,8 +458,23 @@ fn build_block(
 			block_timestamp: timestamp,
 			transaction_hash,
 			transaction_index,
-			log_index: event.event_index as u64,
-		});
+			log_index,
+		})
+	};
+
+	let events = decode_events(metadata, events)?;
+	let mut logs = Vec::new();
+	for event in &events {
+		if let Some(mapped) = mapper.map_event(event)? {
+			logs.push(log(mapped, &event.phase, event.event_index as u64)?);
+		}
+	}
+	// Explorer logs come after every event's index, so they never share one with a pallet log.
+	if mapper.explorer() {
+		let explorer = explorer::logs(metadata, &raw, spec_version, &events);
+		for (offset, (mapped, phase)) in explorer.into_iter().enumerate() {
+			logs.push(log(mapped, &phase, (events.len() + offset) as u64)?);
+		}
 	}
 
 	let logs_bloom = block_bloom(&logs);
@@ -632,10 +643,12 @@ mod tests {
 		}
 
 		fn take_storage_failure(&self) -> Result<(), RpcError> {
-			match self.storage_failures.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |n| {
-				n.checked_sub(1)
-			}) {
-				Ok(_) => Err(RpcError::Transport("User error: RPC rate limit exceeded (-32999)".into())),
+			match self
+				.storage_failures
+				.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1))
+			{
+				Ok(_) =>
+					Err(RpcError::Transport("User error: RPC rate limit exceeded (-32999)".into())),
 				Err(_) => Ok(()),
 			}
 		}

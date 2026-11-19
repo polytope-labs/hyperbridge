@@ -29,6 +29,7 @@ subxt-core = { workspace = true, default-features = true }
 ismp = { workspace = true, default-features = true }
 codec = { workspace = true, default-features = true }
 scale-value = "0.18"
+scale-info = { workspace = true, default-features = true }
 alloy-primitives = { workspace = true, features = ["std", "serde"] }
 alloy-sol-types = { workspace = true, features = ["std", "json"] }
 alloy-dyn-abi = "1.5.7"

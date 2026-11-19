@@ -13,15 +13,20 @@ the testnet orderbook. A chain missing from it counts as mainnet, so it is scree
 
 ## Where it runs
 
-In `IntentFiller.handleNewOrder`, once any strategy's `canFill` is true. An order nothing here can
-fill is never sent. Screening runs alongside the confirmation wait and the evaluation, and a drop
-aborts the wait. The verdict is checked after evaluation and before the confirmation result and
-`executeOrder`. A dropped order emits `orderSkipped` with one of these reasons:
+In `IntentFiller.handleNewOrder`, once the evaluation returns a strategy that would bid. An order
+nothing here bids on is never sent: each screen costs a signature, a request, and a billed
+analysis of every address the orderbook has not screened. The screen runs beside whatever is
+left of the source confirmation wait, and a drop aborts that wait. The handler checks a reorged
+placement first, since nothing screening says can save it. It then awaits the verdict, and only
+then reads the rest of the confirmation result and calls `executeOrder`. When the handler is done
+with the order, however it ends, it aborts a screen still retrying.
+
+A dropped order emits `orderSkipped` with one of these reasons:
 
 - `Screening flagged the order`
 - `Screening unavailable: <code>`, where `<code>` is the orderbook's `MessageRejectionCode` or
-  `ScreeningFailureCode`, or one of `REQUEST_FAILED`, `COMMITMENT_MISMATCH`, `NO_COMMITMENT`,
-  `SCREENER_ERROR`
+  `ScreeningFailureCode`, or one of `REQUEST_FAILED`, `GRAPHQL_ERROR`, `COMMITMENT_MISMATCH`,
+  `NO_COMMITMENT`, `SCREENER_ERROR`
 - `Screening unavailable: no screener`, when `setScreener` was never called. Boot always calls
   it, so this reason only shows up in an embedder or a test.
 
@@ -31,20 +36,41 @@ aborts the wait. The verdict is checked after evaluation and before the confirma
 under the orderbook's `eip712DomainName`/`eip712DomainVersion` (`LimitOrderService.signingDomain`),
 the same domain as `CancelOrder`. It sends `order` as `abi.encode(order)` (the `placeOrder` input
 tuple, the bytes the commitment hashes) whenever those bytes hash to `order.id`. The orderbook
-reads them only if its indexer has not seen the order yet.
+reads the parties from them, and needs no indexer record of the order.
+
+Boot calls `assertOrderEncoding()` before anything starts. It hashes `ORDER_ENCODING_VECTOR`, an
+order with every field set, and compares the result with the commitment Foundry's `cast` computes
+for it independently. A drifted encoding stops the filler there. Otherwise every mainnet order
+would go out without its bytes and wait on the orderbook's indexer.
+
+`screenOrder` waits `SCREEN_ORDER_TIMEOUT_MS` (35 s), or the configured request timeout when
+that is longer. The orderbook gives one screening up to 25 s and cuts `/graphql` off at 30 s with
+a 503, so simplex receives its answer rather than abandoning work the orderbook is still doing.
+
+## Retries
 
 The orderbook spends the signature once it has checked it, so every attempt is signed again at a
-strictly later timestamp. There are up to four attempts, 500 ms, 1 s and 2 s apart
-(`SCREENING_BACKOFF_MS`). An attempt is retried when:
+strictly later timestamp. An attempt is retried when:
 
-- the request got no answer;
+- the request got no answer, including an HTTP error such as the orderbook's 503;
 - the answer is `ScreeningFailed` with `retryable: true` (`ORDER_NOT_ON_CHAIN`,
   `PROVIDER_UNAVAILABLE`, …);
-- the answer is `SIGNATURE_EXPIRED` or `SIGNATURE_REUSED`.
+- the answer is `SIGNATURE_EXPIRED` or `SIGNATURE_REUSED`;
+- the answer is `NO_ACTIVE_ORDER`. That is often a passing state: between `LimitOrderService`
+  withdrawing a limit order and posting its replacement, or until the next heartbeat brings
+  suspended postings back.
 
-Every other answer is final. That includes `SCREENING_DISABLED` and `NO_ACTIVE_ORDER`: the
-orderbook screens only for an active solver that holds an active, unexpired order on the book. A
-verdict naming another commitment is also refused.
+The first retry comes after 500 ms, and the wait doubles to at most 8 s (`SCREENING_RETRY`).
+Retries go on for 60 s, or for the order's expected confirmation wait (confirmations × block time)
+when that is longer: the order waits that long anyway, and a screen that gives up drops it for
+every solver at once.
+
+Every other answer is final:
+
+- `SCREENING_DISABLED`, `UNSCREENABLE_PARTY` and any other refusal;
+- a GraphQL error (`GRAPHQL_ERROR`, from `OrderbookGraphqlError`), which is the orderbook
+  refusing the request as written, for example while it does not serve `screenOrder` yet;
+- a verdict naming another commitment.
 
 ## The solver's own screening
 
@@ -77,4 +103,12 @@ The orderbook screens the solver too, and a solver it has not cleared cannot ask
 ## Deployment order
 
 Simplex drops every mainnet order until the mainnet orderbook serves `screenOrder` with
-Elliptic credentials. Deploy the orderbook first.
+Elliptic credentials. Deploy the orderbook first. At boot, `reportScreeningStatus` reads
+`serverInfo.screeningEnabled` in a query of its own, so the long-standing `limits` query still
+works against an older orderbook. If the filler has a chain outside `TESTNET_CHAINS`, it logs an
+error when the orderbook has screening off or does not know the field yet.
+
+Whether an order is screened is still decided by `TESTNET_CHAINS`, not by `screeningEnabled`.
+Taking the orderbook's flag would let a mainnet filler pointed at an orderbook without screening
+fill mainnet orders unscreened. A testnet chain the SDK does not list needs an SDK release
+anyway, since `TESTNET_CHAINS` also picks its orderbook URL and its gas pricing.

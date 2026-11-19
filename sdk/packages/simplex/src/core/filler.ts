@@ -27,8 +27,8 @@ import { sqliteDatetime } from "@/data/memory"
 import type { BidPricing, BidStore, LimitOrderStore, StoredBid } from "@/data/types"
 import type { AssetRegistry } from "@/config/asset-registry"
 import type { LimitOrderService } from "@/orderbook/limit-orders"
-import type { OrderbookClient } from "@/orderbook/client"
-import { requiresScreening, type OrderScreening } from "@/orderbook/screening"
+import { describeError, type OrderbookClient } from "@/orderbook/client"
+import { requiresScreening, type OrderScreening, type ScreenOptions } from "@/orderbook/screening"
 import { toRaw, toScaled, toScaledUp } from "@/orderbook/amounts"
 import { BidVenues, BridgeBalanceGate, orderbookHoldsBid } from "./bid-venues"
 import type { OrderScanner } from "@/scanner/types"
@@ -1048,6 +1048,8 @@ export class IntentFiller {
 		// This can happen in parallel for PublicClient orders
 		this.globalQueue.add(async () => {
 			this.logger.info({ orderId: order.id }, "New order detected")
+			// Ends a screening still retrying once this order is done with, however it ends.
+			const screeningAbort = new AbortController()
 			try {
 				// Orders destined to chains this filler cannot fill on are expected
 				// mainnet traffic, not faults — other fillers cover other lanes. They
@@ -1223,12 +1225,11 @@ export class IntentFiller {
 				// beside, so that lives as long as the confirmations take on the source chain on top of
 				// the cache's own lifetime. Entries keep the expiry they were written with, so the wait
 				// is released once the evaluation is over.
+				const confirmationWaitMs =
+					requiredConfirmations > 0 ? await this.confirmationWaitMs(order.source, requiredConfirmations) : 0
 				const releaseWait =
 					order.id && requiredConfirmations > 0
-						? this.contractService.cacheService.extendForConfirmations(
-								order.id,
-								await this.confirmationWaitMs(order.source, requiredConfirmations),
-							)
+						? this.contractService.cacheService.extendForConfirmations(order.id, confirmationWaitMs)
 						: undefined
 
 				// Run confirmation waiting and evaluation in parallel.
@@ -1237,17 +1238,16 @@ export class IntentFiller {
 				const abortController = new AbortController()
 				const confirmStartMs = Date.now()
 
-				// Screened beside the confirmation wait and the evaluation, so it adds no time
-				// unless it is the slowest of the three. Only once a strategy could fill the
-				// order: an order nothing here fills is never sent to be screened. A drop ends
-				// the confirmation wait early, as an unprofitable evaluation does.
+				// Screened once the evaluation would bid, so an order nobody here bids on is never
+				// sent to be screened, and beside what is left of the confirmation wait. It keeps
+				// asking through a passing outage for at least as long as that wait. A drop ends the
+				// wait early, as an unprofitable evaluation does.
 				let screening: Promise<string | null> | undefined
-				const screened = () => (screening ??= this.screeningDrop(order))
-				if ([...canFillCache.values()].some(Boolean)) {
-					void screened().then((drop) => {
-						if (drop) abortController.abort()
-					})
-				}
+				const screened = () =>
+					(screening ??= this.screeningDrop(order, {
+						budgetMs: confirmationWaitMs,
+						signal: screeningAbort.signal,
+					}))
 
 				// Single-provider setups keep the tight 300ms poll; quorum setups
 				// fan every poll out to all providers, so poll less aggressively
@@ -1334,6 +1334,10 @@ export class IntentFiller {
 					waitForConfirmations(),
 					this.evaluateOrder(order, canFillCache).then((result) => {
 						if (!result) abortController.abort()
+						else
+							void screened().then((drop) => {
+								if (drop) abortController.abort()
+							})
 						return result
 					}),
 				]).finally(() => releaseWait?.())
@@ -1346,18 +1350,18 @@ export class IntentFiller {
 
 				// Evaluation already reported why it passed on the order.
 				if (!evaluationResult) return
-				// Before the confirmation result: a drop here is what cut the wait short.
+				// A placement that moved is dead whatever screening says, so it is not waited on.
+				if (confirmation === "reorged") {
+					this.monitor.emit("orderSkipped", { orderId: order.id, reason: "Source placement reorged" })
+					return
+				}
+				// Before the rest of the confirmation result: a drop here is what cut the wait short.
 				const screeningDrop = await screened()
 				if (screeningDrop) {
 					this.monitor.emit("orderSkipped", { orderId: order.id, reason: screeningDrop })
 					return
 				}
-				if (confirmation !== "confirmed") {
-					if (confirmation === "reorged") {
-						this.monitor.emit("orderSkipped", { orderId: order.id, reason: "Source placement reorged" })
-					}
-					return
-				}
+				if (confirmation !== "confirmed") return
 				// The pre-wait read was one endpoint at the scan head. A reorg during the
 				// wait can re-mine the placement under a new nonce and commitment — the
 				// same transaction hash, a different commitment — so the source escrow is
@@ -1388,6 +1392,8 @@ export class IntentFiller {
 				)
 			} catch (error) {
 				this.logger.error({ orderId: order.id, err: error }, "Error processing order")
+			} finally {
+				screeningAbort.abort()
 			}
 		})
 	}
@@ -1398,16 +1404,16 @@ export class IntentFiller {
 	 * beneficiary, and when it could not be screened at all, including for want of a screener:
 	 * no mainnet order is bid on unscreened. Never rejects.
 	 */
-	private async screeningDrop(order: Order): Promise<string | null> {
+	private async screeningDrop(order: Order, options: ScreenOptions): Promise<string | null> {
 		if (!requiresScreening(order)) return null
 		if (!this.screener) {
 			this.logger.error({ orderId: order.id }, "No order screener is configured; dropping the mainnet order")
 			return "Screening unavailable: no screener"
 		}
-		const decision = await this.screener.screen(order).catch((err: unknown) => ({
+		const decision = await this.screener.screen(order, options).catch((err: unknown) => ({
 			kind: "unavailable" as const,
 			code: "SCREENER_ERROR",
-			message: err instanceof Error ? err.message : String(err),
+			message: describeError(err),
 		}))
 		switch (decision.kind) {
 			case "clear":

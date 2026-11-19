@@ -54,7 +54,8 @@ On mainnet, every order Simplex could fill is screened through the orderbook bef
 |---|---|
 | `Screening flagged the order` | Elliptic flags the order's user or beneficiary. Simplex never bids on it. |
 | `Screening unavailable: NO_ACTIVE_ORDER` | The orderbook screens only for an active solver with an active limit order on the book. Post a [limit order](/developers/evm/simplex/limit-orders), and check that heartbeats are not failing. A new solver also stays inactive until the orderbook's own screening clears its wallet, which happens once the orderbook has read the wallet's balance. A solver the orderbook has suspended stays inactive as well. |
-| `Screening unavailable: PROVIDER_UNAVAILABLE`, `ORDER_NOT_ON_CHAIN`, `REQUEST_FAILED` and similar | Simplex asked four times over about 3.5 seconds and got no verdict. The log line `Could not screen the order; dropping it` carries the orderbook's message. |
+| `Screening unavailable: PROVIDER_UNAVAILABLE`, `ORDER_NOT_ON_CHAIN`, `REQUEST_FAILED` and similar | Simplex kept asking, backing off to 8 seconds between attempts, for a minute or for as long as the swap's confirmations take, whichever is longer, and got no verdict. The log line `Could not screen the order; dropping it` carries the orderbook's message. |
+| `Screening unavailable: GRAPHQL_ERROR` | The orderbook refused the screening request itself, usually because it does not serve screening yet. Simplex logs this at startup too: `The orderbook does not serve screening yet`. Mainnet orders are dropped until the orderbook is upgraded. |
 | `Screening unavailable: SCREENING_DISABLED` | The orderbook has screening turned off, which only the testnet orderbook should. Check that `[orderbook] url` points at the mainnet orderbook. |
 
 ---

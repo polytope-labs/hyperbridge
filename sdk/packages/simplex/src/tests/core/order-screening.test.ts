@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest"
 import { Decimal } from "decimal.js"
 import type { HexString, Order } from "@hyperbridge/sdk"
 import { IntentFiller } from "@/core/filler"
-import type { OrderScreening, ScreeningDecision } from "@/orderbook/screening"
+import type { OrderScreening, ScreeningDecision, ScreenOptions } from "@/orderbook/screening"
 import type { FillerStrategy } from "@/strategies/base"
 import { MemoryDataStore } from "@/data/memory"
 import { stubOrderScanner } from "../helpers/stub-scanner"
@@ -31,6 +31,8 @@ function order(source: string, destination: string): Order {
 interface Build {
 	chains?: number[]
 	confirmations?: { required: number; reached: bigint }
+	/** The block the quorum places the placement in; another than the scanned one is a reorg. */
+	inclusionBlock?: string
 	canFill?: boolean
 	screener?: OrderScreening | null
 }
@@ -50,7 +52,7 @@ function build(options: Build = {}) {
 	const quorumStub = {
 		size: 1,
 		getTransactionInclusion: vi.fn(async () => ({
-			blockHash: SCANNED_BLOCK,
+			blockHash: options.inclusionBlock ?? SCANNED_BLOCK,
 			blockNumber: 100n,
 			confirmations: options.confirmations?.reached ?? 0n,
 		})),
@@ -111,7 +113,7 @@ describe("screening a mainnet order", () => {
 
 		await handle(filler, placed)
 
-		expect(clear.screen).toHaveBeenCalledWith(placed)
+		expect(clear.screen).toHaveBeenCalledWith(placed, expect.objectContaining({ budgetMs: 0 }))
 		expect(skipped).toEqual([])
 		expect(executeOrder).toHaveBeenCalledTimes(1)
 	})
@@ -192,6 +194,58 @@ describe("screening a mainnet order", () => {
 		await handle(filler, order("EVM-8453", "EVM-8453"))
 
 		expect(clear.screen).not.toHaveBeenCalled()
+	})
+
+	it("does not screen an order the evaluation would not bid on", async () => {
+		// Each screen is a signature, a request, and a billed analysis of every new address.
+		const clear = screener({ kind: "clear" })
+		const { filler, evaluateOrder, executeOrder } = build({ screener: clear })
+		evaluateOrder.mockResolvedValue(null)
+
+		await handle(filler, order("EVM-137", "EVM-8453"))
+
+		expect(clear.screen).not.toHaveBeenCalled()
+		expect(executeOrder).not.toHaveBeenCalled()
+	})
+
+	it("lets the screen keep asking for as long as the order's confirmations take", async () => {
+		// 60 confirmations of 2 s blocks: two minutes the order waits whatever screening does.
+		const clear = screener({ kind: "clear" })
+		const { filler, executeOrder } = build({ screener: clear, confirmations: { required: 60, reached: 60n } })
+
+		await handle(filler, order("EVM-137", "EVM-8453"))
+
+		expect(clear.screen).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ budgetMs: 120_000 }))
+		expect(executeOrder).toHaveBeenCalledTimes(1)
+	})
+
+	it("stops the screen's retries once the order is done with", async () => {
+		let signal: AbortSignal | undefined
+		const capturing = {
+			screen: vi.fn(async (_order: Order, options?: ScreenOptions) => {
+				signal = options?.signal
+				return { kind: "clear" } as const
+			}),
+		}
+		const { filler } = build({ screener: capturing })
+
+		await handle(filler, order("EVM-137", "EVM-8453"))
+
+		expect(signal?.aborted).toBe(true)
+	})
+
+	it("reports a reorged placement without waiting on a screen still in progress", async () => {
+		const pending = screener(() => new Promise<ScreeningDecision>(() => {}))
+		const { filler, skipped, executeOrder } = build({
+			screener: pending,
+			confirmations: { required: 1, reached: 5n },
+			inclusionBlock: "0x" + "cd".repeat(32),
+		})
+
+		await handle(filler, order("EVM-137", "EVM-8453"))
+
+		expect(executeOrder).not.toHaveBeenCalled()
+		expect(skipped).toEqual([{ orderId: order("", "").id, reason: "Source placement reorged" }])
 	})
 })
 

@@ -32,7 +32,7 @@ import { DelegationService } from "@/services/DelegationService"
 import { OrderbookClient } from "@/orderbook/client"
 import { LimitOrderLifecycle } from "@/orderbook/lifecycle"
 import { LimitOrderService, initialOrderNonce } from "@/orderbook/limit-orders"
-import { OrderScreener } from "@/orderbook/screening"
+import { assertOrderEncoding, OrderScreener, reportScreeningStatus } from "@/orderbook/screening"
 import { DEFAULT_LIMIT_ORDER_TTL_SECONDS } from "@/orderbook/types"
 import { UserOpSender } from "@/services/UserOpSender"
 import { RebalancingService } from "@/services/RebalancingService"
@@ -157,6 +157,9 @@ export function allChainsWatchOnly(watchOnly: Record<number, boolean> | undefine
  */
 export async function bootFiller(config: FillerTomlConfig, options: BootOptions): Promise<FillerRuntime> {
 	validateConfig(config, options.watchOnlyOverride === true)
+	// Before anything starts: screening sends each order as abi.encode(order), and an encoding that
+	// has drifted would degrade every mainnet order's screening rather than fail once here.
+	assertOrderEncoding()
 
 	const logger = moduleLogger(options.loggers, "cli")
 	logger.info({ configPath: options.configPath }, "Loading configuration")
@@ -445,6 +448,12 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 	// when flagged or when no verdict can be had. Testnet orders are not screened.
 	intentFiller.setScreener(
 		new OrderScreener(orderbookClient, runtimeSigner, () => limitOrderService.signingDomain(), options.loggers),
+	)
+	// Fire-and-forget, like the backfills: a slow orderbook must not hold up the boot.
+	void reportScreeningStatus(
+		orderbookClient,
+		resolvedChains.map((chain) => formatChainKey(chain.chainId)),
+		moduleLogger(options.loggers, "screening"),
 	)
 	const lifecycle = new LimitOrderLifecycle(
 		limitOrderService,

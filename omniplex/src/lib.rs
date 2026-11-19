@@ -58,16 +58,29 @@ impl Indexer {
 }
 
 /**
- * Connects, migrates, and indexes `selected` chains (all when empty) until shutdown. rindexer
+ * Connects, migrates, and indexes `selected` chains (all when empty) until shutdown, or up to
+ * a chain's block in `end_blocks`. rindexer
  * finishes every chain's history before any chain goes live, so one process per chain keeps a
  * slow or stuck chain from holding back the others.
  */
-pub async fn run(config_path: &Path, run_dir: &Path, selected: &[String]) -> anyhow::Result<()> {
-	let config = Config::load(config_path)?;
+pub async fn run(
+	config_path: &Path,
+	run_dir: &Path,
+	selected: &[String],
+	end_blocks: &[(String, u64)],
+) -> anyhow::Result<()> {
+	let mut config = Config::load(config_path)?;
 	for name in selected {
 		if !config.chains.contains_key(name) {
 			return Err(anyhow!("--chains: {name} is not in {}", config_path.display()));
 		}
+	}
+	for (name, block) in end_blocks {
+		let chain = config
+			.chains
+			.get_mut(name)
+			.ok_or_else(|| anyhow!("--end-blocks: {name} is not in {}", config_path.display()))?;
+		chain.end_block = Some(*block);
 	}
 	let indexed: Vec<&String> = config
 		.chains

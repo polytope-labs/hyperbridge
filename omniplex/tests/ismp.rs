@@ -50,6 +50,7 @@ fn chain_config(kind: ChainKind, state_machine_id: &str, host: Option<&str>) -> 
 		max_block_range: None,
 		op_stack: false,
 		contracts: Contracts { ethereum_host: host.map(address), ..Default::default() },
+		end_block: None,
 	}
 }
 

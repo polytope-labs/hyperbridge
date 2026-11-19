@@ -147,6 +147,7 @@ async fn test_indexer(network: &str) -> (Indexer, ChainConfig) {
 		max_block_range: None,
 		op_stack: false,
 		contracts: Contracts { ethereum_host: Some(HOST), ..Default::default() },
+		end_block: None,
 	};
 	let chain = Chain {
 		name: network.to_string(),

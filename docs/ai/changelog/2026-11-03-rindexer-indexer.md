@@ -22,6 +22,11 @@ Rust 1.98 and later.
   the rest. `--chains` (or `INDEXER_CHAINS`) takes a comma-separated list, and indexes every
   chain in the config when unset. The solver watchlist poller runs in the process that indexes
   Hyperbridge.
+- `--end-blocks` (or `INDEXER_END_BLOCKS`) takes `chain=block` pairs and stops each named chain
+  at its block instead of going live. It exists for the parity run in `omniplex/README.md`.
+- `scripts/docker/omniplex.Dockerfile` is the image, published as `polytopelabs/omniplex` on an
+  `omniplex-v<version>` tag. `omniplex/docker/{testnet,mainnet}.yml` run Postgres, a process per
+  chain and omnihedron.
 - `DATABASE_URL` is the Postgres database. `DATABASE_POOL_SIZE` defaults to twice the number of
   chains the process indexes plus 4, and at least 10. At startup, processes take turns to apply
   the migrations and create rindexer's tables, so they can all start at once on a fresh

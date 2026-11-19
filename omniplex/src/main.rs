@@ -15,6 +15,10 @@ struct Cli {
 	 * chain so a slow or stuck chain can't hold back the others. */
 	#[arg(long, env = "INDEXER_CHAINS", value_delimiter = ',')]
 	chains: Vec<String>,
+	/** Stops chains at these blocks instead of going live, as `chain=block` pairs separated by
+	 * commas. For checking parity with SubQuery at a copy's heights. */
+	#[arg(long, env = "INDEXER_END_BLOCKS", value_delimiter = ',', value_parser = parse_end_block)]
+	end_blocks: Vec<(String, u64)>,
 	#[command(subcommand)]
 	command: Option<Command>,
 }
@@ -38,8 +42,14 @@ async fn main() -> anyhow::Result<()> {
 	rindexer::setup_info_logger();
 	let cli = Cli::parse();
 	match cli.command {
-		None => omniplex::run(&cli.config, &cli.run_dir, &cli.chains).await,
+		None => omniplex::run(&cli.config, &cli.run_dir, &cli.chains, &cli.end_blocks).await,
 		Some(Command::ImportSubquery { new_chains }) =>
 			omniplex::import_subquery(&cli.config, &new_chains).await,
 	}
+}
+
+fn parse_end_block(value: &str) -> Result<(String, u64), String> {
+	let (chain, block) = value.split_once('=').ok_or("expected chain=block")?;
+	let block = block.parse().map_err(|e| format!("{chain}: {e}"))?;
+	Ok((chain.to_string(), block))
 }

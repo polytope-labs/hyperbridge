@@ -57,6 +57,10 @@ pub struct ChainConfig {
 	pub op_stack: bool,
 	#[serde(default)]
 	pub contracts: Contracts,
+	/** The last block to index, set by `--end-blocks` for a parity run. rindexer stops the
+	 * chain there instead of going live. */
+	#[serde(skip)]
+	pub end_block: Option<u64>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]

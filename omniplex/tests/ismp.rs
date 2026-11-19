@@ -20,11 +20,14 @@ use omniplex::{
 		ismp::{
 			calldata::HandlerV2,
 			commitment::{get_request_commitment, post_request_commitment},
-			evm, substrate, Shared,
+			evm,
+			requests::{ensure_get_request, upsert_get_request, GetRequestRow},
+			substrate, Shared,
 		},
 	},
 	registry::{EventContext, EventHandler, LogMeta},
 	services::prices::Orderbook,
+	store::numeric,
 	Indexer,
 };
 use serde_json::json;
@@ -667,6 +670,46 @@ async fn get_requests_handled_before_they_are_indexed_get_a_skeleton() {
 		filled.as_deref(),
 		Some("EVM-56|EVM-56|[\"0x0102\"]|0x|1800000000|2023-11-14 22:13:20.123")
 	);
+}
+
+/**
+ * Hyperbridge's chain can be indexed before the source chain, so the skeleton comes first even
+ * though the request was sent earlier. The row still ends up dated by when it was sent.
+ */
+#[tokio::test]
+async fn a_get_request_keeps_the_time_it_was_sent_when_hyperbridge_is_indexed_first() {
+	let Some(mut client) = database().await else { return };
+	let db = client.transaction().await.unwrap();
+	let commitment = format!("{:#x}", B256::repeat_byte(0x42));
+	let (sent, handled) = (1_795_090_469u64, 1_795_090_536_000u64);
+
+	ensure_get_request(&db, &commitment, handled).await.unwrap();
+	let row = GetRequestRow {
+		commitment: &commitment,
+		chain: "EVM-97",
+		source: "EVM-97",
+		dest: "EVM-80002",
+		from: "0xab1e0f59dd32d7b4f2ac0a94a78dd9bbda5510a2",
+		keys: vec!["0x01".into()],
+		nonce: numeric(716),
+		height: numeric(53_267_715),
+		context: "0x",
+		timeout_timestamp: numeric(0),
+		fee: numeric(0),
+		block_number: 143_636_982,
+		block_hash: "0x01",
+		transaction_hash: "0x02",
+		block_timestamp: sent,
+	};
+	upsert_get_request(&db, &row).await.unwrap();
+	let created = text(
+		&db,
+		&format!(
+			"SELECT source || ' ' || created_at FROM app.get_request_v2s WHERE id = '{commitment}'"
+		),
+	)
+	.await;
+	assert_eq!(created.as_deref(), Some("EVM-97 2026-11-19 12:14:29"));
 }
 
 /**

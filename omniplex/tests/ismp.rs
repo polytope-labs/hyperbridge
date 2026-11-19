@@ -62,6 +62,7 @@ async fn indexer(environment: Environment, chains: &[(&str, ChainConfig, &Assert
 	}
 	let config = Config {
 		environment,
+		explorer: false,
 		chains: chains
 			.iter()
 			.map(|(name, config, _)| (name.to_string(), config.clone()))

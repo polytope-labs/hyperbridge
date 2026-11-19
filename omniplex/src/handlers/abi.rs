@@ -65,6 +65,11 @@ pub mod pallets {
 	);
 	alloy::sol!(
 		#[sol(all_derives)]
+		Explorer,
+		"../modules/utils/substrate-eth-rpc/abis/explorer.abi.json"
+	);
+	alloy::sol!(
+		#[sol(all_derives)]
 		Relayer,
 		"../modules/utils/substrate-eth-rpc/abis/relayer.abi.json"
 	);

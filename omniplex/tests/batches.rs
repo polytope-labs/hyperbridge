@@ -162,6 +162,7 @@ async fn test_indexer(network: &str) -> (Indexer, ChainConfig) {
 	let indexer = Indexer {
 		config: Config {
 			environment: Environment::Testnet,
+			explorer: false,
 			chains: BTreeMap::from([(network.to_string(), chain_config.clone())]),
 		},
 		db: Arc::new(PostgresClient::new().await.unwrap()),

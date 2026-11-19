@@ -245,6 +245,13 @@ pub fn encode_address(key: &[u8], prefix: u8) -> Option<String> {
 	Some(bs58::encode(payload).into_string())
 }
 
+/** The 32-byte account behind an SS58 address with a one-byte prefix, as `encode_address`
+ * writes it. The checksum is not checked: addresses come from this indexer's own tables. */
+pub fn account_id(address: &str) -> Option<[u8; 32]> {
+	let bytes = bs58::decode(address).into_vec().ok()?;
+	bytes.get(1..33)?.try_into().ok().filter(|_| bytes.len() == 35)
+}
+
 #[cfg(test)]
 mod tests {
 	use super::*;

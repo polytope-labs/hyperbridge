@@ -9,6 +9,9 @@ use serde::Deserialize;
 #[serde(deny_unknown_fields)]
 pub struct Config {
 	pub environment: Environment,
+	/** Runs the block explorer's handlers instead of the indexer's. */
+	#[serde(default)]
+	pub explorer: bool,
 	pub chains: BTreeMap<String, ChainConfig>,
 }
 
@@ -106,6 +109,9 @@ impl Config {
 		for (name, chain) in &config.chains {
 			if chain.kind == ChainKind::Evm && chain.contracts.ethereum_host.is_none() {
 				bail!("chain {name}: EVM chains need contracts.ethereum_host");
+			}
+			if config.explorer && chain.kind == ChainKind::Evm {
+				bail!("chain {name}: the explorer follows Substrate chains only");
 			}
 		}
 		Ok(config)

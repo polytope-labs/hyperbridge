@@ -135,10 +135,11 @@ mod tests {
 	 * serde_json's `arbitrary_precision`. */
 	#[test]
 	fn every_chain_reads_back_as_rindexer_parses_it() {
-		let handlers = handlers::all();
-		for env in ["mainnet", "testnet"] {
+		for env in ["mainnet", "testnet", "explorer-mainnet", "explorer-testnet"] {
 			let root = Path::new(env!("CARGO_MANIFEST_DIR"));
 			let config = Config::load(&root.join(format!("config/{env}.toml"))).unwrap();
+			let handlers =
+				if config.explorer { handlers::explorer::handlers() } else { handlers::all() };
 			let routes = config
 				.chains
 				.iter()

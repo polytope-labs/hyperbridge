@@ -132,7 +132,7 @@ pub async fn run(
 		.map(|(name, chain)| (name.clone(), chain.rpc_urls[0].clone()))
 		.collect();
 
-	let handlers = handlers::all();
+	let handlers = if config.explorer { handlers::explorer::handlers() } else { handlers::all() };
 	let routes: HashMap<String, Arc<registry::ChainRoutes>> = config
 		.chains
 		.iter()
@@ -207,7 +207,10 @@ pub async fn run(
 		orderbook: services::prices::Orderbook::from_env(http.clone()),
 		http,
 	});
-	handlers::spawn_tasks(&indexer);
+	// The explorer has no background jobs, and its chains keep no SubQuery metadata.
+	if !indexer.config.explorer {
+		handlers::spawn_tasks(&indexer);
+	}
 	let mut registry = EventCallbackRegistry::new();
 	registry::register_all(
 		&indexer,
@@ -217,7 +220,9 @@ pub async fn run(
 		&providers,
 		&mut registry,
 	)?;
-	registry::spawn_upkeep(indexer.clone(), &routes);
+	if !indexer.config.explorer {
+		registry::spawn_upkeep(indexer.clone(), &routes);
+	}
 
 	start_rindexer(StartDetails {
 		manifest_path: &manifest_path,

@@ -1,6 +1,7 @@
 //! Every handler, grouped by the area of the TypeScript indexer it was ported from.
 
 pub mod abi;
+pub mod explorer;
 pub mod intents;
 pub mod ismp;
 pub mod pallets;

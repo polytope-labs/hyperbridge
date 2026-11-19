@@ -185,7 +185,7 @@ async fn a_subquery_copy_becomes_the_indexers_database() {
 		text(&db, "SELECT string_agg(name, ',' ORDER BY name) FROM indexer.migrations").await;
 	assert_eq!(
 		migrations.as_deref(),
-		Some("0000_indexer,0001_app_schema,0002_deferred_fill_points")
+		Some("0000_indexer,0001_app_schema,0002_deferred_fill_points,0003_explorer")
 	);
 	// SubQuery's own tables went with its schema, and every table is keyed by `id` again.
 	let leftovers = text(

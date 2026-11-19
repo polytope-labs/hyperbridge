@@ -52,7 +52,9 @@ use sp_core::traits::CodeExecutor;
 use sp_keystore::KeystorePtr;
 use sp_runtime::traits::Keccak256;
 use substrate_eth_rpc::{
-	blocks::BlockService, mapping::all_pallet_keys, ChainConfig, ClientRpc, Hasher,
+	blocks::BlockService,
+	mapping::{all_pallet_keys, explorer},
+	ChainConfig, ClientRpc, Hasher,
 };
 use substrate_prometheus_endpoint::Registry;
 
@@ -194,11 +196,15 @@ where
 		cfg.concurrency,
 	);
 	let rpc = ClientRpc::<FullClient<Runtime, Executor>, FullBackend, opaque::Block>::new(client);
+	let mut pallets = all_pallet_keys();
+	if cfg.explorer {
+		pallets.push(explorer::KEY.to_string());
+	}
 	let config = ChainConfig::in_node(
 		&cfg.chain_name,
 		cfg.eth_chain_id,
 		Hasher::Keccak,
-		all_pallet_keys(),
+		pallets,
 		cfg.max_block_range,
 		cfg.cache_blocks,
 		cfg.concurrency,

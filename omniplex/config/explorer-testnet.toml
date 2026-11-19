@@ -1,0 +1,14 @@
+# Hyperbridge's block explorer on testnet. It reads every block from genesis through the
+# substrate-eth-rpc served by an archive node, so point `GARGANTUA_EXPLORER` and
+# `GARGANTUA_EXPLORER_SUBSTRATE` at our own node, never at a public RPC.
+
+environment = "testnet"
+explorer = true
+
+[chains.gargantua-explorer]
+kind = "substrate"
+chain_id = 1000004009  # substrate-eth-rpc eth_chain_id
+state_machine_id = "KUSAMA-4009"
+start_block = 1
+reorg_safe_distance = 0
+max_block_range = 100

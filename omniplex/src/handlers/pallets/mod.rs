@@ -59,7 +59,7 @@ fn utc_day(ms: u64) -> (String, NaiveDateTime) {
  * The log's extrinsic as SubQuery saw it: `(index, hash)`, or `None` for events from block
  * initialization or finalization, which substrate-eth-rpc gives synthetic hashes.
  */
-fn extrinsic(log: &LogMeta) -> Option<(u64, B256)> {
+pub(crate) fn extrinsic(log: &LogMeta) -> Option<(u64, B256)> {
 	let synthetic = |tag: &[u8]| keccak256([log.block_hash.as_slice(), tag].concat());
 	let hash = log.transaction_hash;
 	(hash != synthetic(b"init") && hash != synthetic(b"final"))
@@ -67,7 +67,7 @@ fn extrinsic(log: &LogMeta) -> Option<(u64, B256)> {
 }
 
 /** A little-endian `u128` at `offset`, or `None` if the bytes are too short. */
-fn read_u128(bytes: &[u8], offset: usize) -> Option<u128> {
+pub(crate) fn read_u128(bytes: &[u8], offset: usize) -> Option<u128> {
 	let slice = bytes.get(offset..offset + 16)?;
 	Some(u128::from_le_bytes(slice.try_into().ok()?))
 }

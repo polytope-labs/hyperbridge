@@ -2,6 +2,7 @@ pub mod chains;
 pub mod config;
 pub mod db;
 pub mod errors;
+pub mod explorer_api;
 pub mod failover;
 pub mod handlers;
 pub mod manifest;
@@ -58,16 +59,28 @@ impl Indexer {
 }
 
 /**
- * Connects, migrates, and indexes `selected` chains (all when empty) until shutdown. rindexer
- * finishes every chain's history before any chain goes live, so one process per chain keeps a
- * slow or stuck chain from holding back the others.
+ * Connects, migrates, and indexes `selected` chains (all when empty) until shutdown, or up to
+ * a chain's block in `end_blocks`. rindexer finishes every chain's history before any chain
+ * goes live, so one process per chain keeps a slow or stuck chain from holding back the others.
  */
-pub async fn run(config_path: &Path, run_dir: &Path, selected: &[String]) -> anyhow::Result<()> {
-	let config = Config::load(config_path)?;
+pub async fn run(
+	config_path: &Path,
+	run_dir: &Path,
+	selected: &[String],
+	end_blocks: &[(String, u64)],
+) -> anyhow::Result<()> {
+	let mut config = Config::load(config_path)?;
 	for name in selected {
 		if !config.chains.contains_key(name) {
 			return Err(anyhow!("--chains: {name} is not in {}", config_path.display()));
 		}
+	}
+	for (name, block) in end_blocks {
+		let chain = config
+			.chains
+			.get_mut(name)
+			.ok_or_else(|| anyhow!("--end-blocks: {name} is not in {}", config_path.display()))?;
+		chain.end_block = Some(*block);
 	}
 	let indexed: Vec<&String> = config
 		.chains
@@ -120,7 +133,7 @@ pub async fn run(config_path: &Path, run_dir: &Path, selected: &[String]) -> any
 		.map(|(name, chain)| (name.clone(), chain.rpc_urls[0].clone()))
 		.collect();
 
-	let handlers = handlers::all();
+	let handlers = if config.explorer { handlers::explorer::handlers() } else { handlers::all() };
 	let routes: HashMap<String, Arc<registry::ChainRoutes>> = config
 		.chains
 		.iter()
@@ -195,7 +208,10 @@ pub async fn run(config_path: &Path, run_dir: &Path, selected: &[String]) -> any
 		orderbook: services::prices::Orderbook::from_env(http.clone()),
 		http,
 	});
-	handlers::spawn_tasks(&indexer);
+	// The explorer has no background jobs, and its chains keep no SubQuery metadata.
+	if !indexer.config.explorer {
+		handlers::spawn_tasks(&indexer);
+	}
 	let mut registry = EventCallbackRegistry::new();
 	registry::register_all(
 		&indexer,
@@ -205,7 +221,9 @@ pub async fn run(config_path: &Path, run_dir: &Path, selected: &[String]) -> any
 		&providers,
 		&mut registry,
 	)?;
-	registry::spawn_upkeep(indexer.clone(), &routes);
+	if !indexer.config.explorer {
+		registry::spawn_upkeep(indexer.clone(), &routes);
+	}
 
 	start_rindexer(StartDetails {
 		manifest_path: &manifest_path,
@@ -219,7 +237,12 @@ pub async fn run(config_path: &Path, run_dir: &Path, selected: &[String]) -> any
 		watch: false,
 	})
 	.await
-	.map_err(|e| anyhow!("rindexer: {e:?}"))
+	.map_err(|e| anyhow!("rindexer: {e:?}"))?;
+	// With end blocks nothing goes live, so rindexer returns once history is done.
+	if !end_blocks.is_empty() && !indexer.config.explorer {
+		registry::finish_upkeep(&indexer, &routes).await;
+	}
+	Ok(())
 }
 
 /**

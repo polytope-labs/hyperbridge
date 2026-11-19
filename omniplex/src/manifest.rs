@@ -49,9 +49,9 @@ fn write_private(dir: &Path, name: &str, contents: &str) -> anyhow::Result<PathB
 
 /**
  * Builds the rindexer manifest: one stream per chain over every address its handlers watch,
- * with the chain's start block and reorg-safe distance. rindexer's table creation and reorg
- * rollback are off: handlers write the `app` tables themselves and only see blocks past the
- * safe distance.
+ * with the chain's start block, end block if it has one, and reorg-safe distance. rindexer's
+ * table creation and reorg rollback are off: handlers write the `app` tables themselves and
+ * only see blocks past the safe distance.
  */
 pub fn build(
 	config: &Config,
@@ -87,13 +87,17 @@ pub fn build(
 			if addresses.is_empty() {
 				return None;
 			}
+			let mut details = json!({
+				"network": network,
+				"address": addresses.iter().map(|a| a.to_string()).collect::<Vec<_>>(),
+				"start_block": start_block(chain, cursors.get(network)).to_string(),
+			});
+			if let Some(end_block) = chain.end_block {
+				details["end_block"] = json!(end_block.to_string());
+			}
 			Some(json!({
 				"name": stream_name(network),
-				"details": [{
-					"network": network,
-					"address": addresses.iter().map(|a| a.to_string()).collect::<Vec<_>>(),
-					"start_block": start_block(chain, cursors.get(network)).to_string(),
-				}],
+				"details": [details],
 				"abi": stream_abi.to_string_lossy(),
 				"include_events": [STREAM_EVENT],
 				"index_event_in_order": [STREAM_EVENT],
@@ -131,10 +135,11 @@ mod tests {
 	 * serde_json's `arbitrary_precision`. */
 	#[test]
 	fn every_chain_reads_back_as_rindexer_parses_it() {
-		let handlers = handlers::all();
-		for env in ["mainnet", "testnet"] {
+		for env in ["mainnet", "testnet", "explorer-mainnet", "explorer-testnet"] {
 			let root = Path::new(env!("CARGO_MANIFEST_DIR"));
 			let config = Config::load(&root.join(format!("config/{env}.toml"))).unwrap();
+			let handlers =
+				if config.explorer { handlers::explorer::handlers() } else { handlers::all() };
 			let routes = config
 				.chains
 				.iter()
@@ -161,31 +166,37 @@ mod tests {
 		}
 	}
 
+	/** Writes the manifest that a process indexing `names` would write into `dir`. */
+	fn write_for(
+		config: &Config,
+		dir: &Path,
+		names: &[&str],
+	) -> anyhow::Result<(PathBuf, Manifest)> {
+		let handlers = handlers::all();
+		let routes = names
+			.iter()
+			.map(|name| {
+				let chain = &config.chains[*name];
+				let routes = ChainRoutes::new(chain, &handlers.subscriptions, &handlers.hooks);
+				(name.to_string(), Arc::new(routes))
+			})
+			.collect();
+		let rpc_urls = names
+			.iter()
+			.map(|name| (name.to_string(), "http://127.0.0.1:9".into()))
+			.collect();
+		write(dir, config, &rpc_urls, &BTreeMap::new(), &routes)
+	}
+
 	/** Processes for different chains can share a run dir: each gets its own manifest. */
 	#[test]
 	fn each_set_of_chains_gets_its_own_manifest() {
-		let handlers = handlers::all();
 		let root = Path::new(env!("CARGO_MANIFEST_DIR"));
 		let config = Config::load(&root.join("config/mainnet.toml")).unwrap();
 		let dir =
 			std::env::temp_dir().join(format!("indexer-manifest-sets-{}", std::process::id()));
-		let write_for = |names: &[&str]| {
-			let routes = names
-				.iter()
-				.map(|name| {
-					let chain = &config.chains[*name];
-					let routes = ChainRoutes::new(chain, &handlers.subscriptions, &handlers.hooks);
-					(name.to_string(), Arc::new(routes))
-				})
-				.collect();
-			let rpc_urls = names
-				.iter()
-				.map(|name| (name.to_string(), "http://127.0.0.1:9".into()))
-				.collect();
-			write(&dir, &config, &rpc_urls, &BTreeMap::new(), &routes)
-		};
-		let bsc = write_for(&["bsc-mainnet"]);
-		let others = write_for(&["base-mainnet", "ethereum-mainnet"]);
+		let bsc = write_for(&config, &dir, &["bsc-mainnet"]);
+		let others = write_for(&config, &dir, &["base-mainnet", "ethereum-mainnet"]);
 		let _ = std::fs::remove_dir_all(&dir);
 		let ((bsc_path, bsc), (others_path, others)) = (bsc.unwrap(), others.unwrap());
 		assert_ne!(bsc_path, others_path);
@@ -196,6 +207,30 @@ mod tests {
 		};
 		assert_eq!(names(&bsc), ["bsc-mainnet"]);
 		assert_eq!(names(&others), ["base-mainnet", "ethereum-mainnet"]);
+	}
+
+	/** A chain with an end block stops there, and one without goes live. */
+	#[test]
+	fn an_end_block_stops_the_chain() {
+		let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+		let mut config = Config::load(&root.join("config/mainnet.toml")).unwrap();
+		config.chains.get_mut("bsc-mainnet").unwrap().end_block = Some(70_000_000);
+		let dir = std::env::temp_dir().join(format!("indexer-manifest-end-{}", std::process::id()));
+		let written = write_for(&config, &dir, &["bsc-mainnet", "base-mainnet"]);
+		let _ = std::fs::remove_dir_all(&dir);
+		let (_, manifest) = written.unwrap();
+		let end_block = |network: &str| {
+			manifest
+				.contracts
+				.iter()
+				.flat_map(|c| c.details.iter())
+				.find(|d| d.network == network)
+				.unwrap()
+				.end_block
+				.map(|b| b.to::<u64>())
+		};
+		assert_eq!(end_block("bsc-mainnet"), Some(70_000_000));
+		assert_eq!(end_block("base-mainnet"), None);
 	}
 
 	/** A chain whose cursor is past its start block, as after a SubQuery import, starts at the

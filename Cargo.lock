@@ -15874,6 +15874,7 @@ dependencies = [
  "alloy-chains",
  "anyhow",
  "async-trait",
+ "axum 0.8.9",
  "bigdecimal 0.4.11",
  "blake2 0.10.6",
  "bs58",
@@ -15894,6 +15895,7 @@ dependencies = [
  "tokio",
  "tokio-postgres 0.7.18",
  "toml 0.8.23",
+ "tower-http 0.6.8",
  "tower-service",
  "tracing",
 ]
@@ -30329,6 +30331,7 @@ dependencies = [
  "lru 0.16.3",
  "parity-scale-codec",
  "polkadot-sdk",
+ "scale-info",
  "scale-value",
  "serde",
  "serde_json",

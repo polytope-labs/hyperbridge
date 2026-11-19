@@ -60,11 +60,14 @@ The flags are accepted by both `hyperbridge` and `hyperbridge simnode`.
 | `--eth-rpc-max-block-range` | `500` | Largest `eth_getLogs` span, accepted when `toBlock - fromBlock <= N` |
 | `--eth-rpc-cache-blocks` | `4096` | Decoded blocks kept in the LRU cache |
 | `--eth-rpc-concurrency` | `8` | Blocks read and decoded at once |
+| `--eth-rpc-explorer` | off | Also serve the `explorer` logs, for the node a block explorer indexes |
 
 The methods are served on the node's normal RPC endpoint with no path, for example
 `http://<node>:9944`. Chain identity comes from the chain spec: `eth_chainId` is
 `1_000_000_000 + para_id` (Nexus `1000003367`, Gargantua `1000004009`), the hasher is
-`keccak` and every pallet in the mapping table is exposed. Because the data comes from
+`keccak` and every pallet in the mapping table is exposed. The `explorer` logs decode every
+call in every block and cache their arguments, so a node serves them only with
+`--eth-rpc-explorer`. Because the data comes from
 the local client there are no upstream retries, backoff or rate-limit cooldowns:
 `rpc`, `upstream_retries`, `upstream_backoff_ms` and `rate_limit_cooldown_ms` do not
 apply; `range_deadline_ms` is fixed at 60 s. Request and response bodies are capped
@@ -206,6 +209,26 @@ The `bandwidth` tier `uint8` is `TierOne` = 1, `TierTwo` = 2, `TierThree` = 3,
 Parameter names in `abis/` are camelCase versions of the runtime field names, with
 `bytes` renamed to `byteCount`, `address` to `relayer` and `beneficiary_address` to
 `beneficiary`.
+
+### Explorer logs
+
+The `explorer` key is not a pallet. It gives a block explorer the whole block, whatever the
+pallets, from the same decode as the logs above:
+
+| Signature | Per |
+|---|---|
+| `Block(uint32,bytes32,bytes32,bytes32,uint32,uint32)` | block: spec version, parent hash, state root, extrinsics root, extrinsic and event counts |
+| `Extrinsic(uint32,bool,bool,bytes,string,string,string,uint32)` | extrinsic: index, signed, success, signer, section, method, arguments, event count |
+| `Event(uint32,bool,uint32,string,string,string)` | event: index, whether an extrinsic emitted it and which, section, method, arguments |
+
+Section and method are named as polkadot.js names them (`balances`, `transferKeepAlive`,
+`Transfer`). Arguments are JSON in the shape the Statescan site renders: `[{name, type, value}]`
+for calls and `[{name, typeName, value}]` for events, with values as polkadot.js `toJSON` gives
+them, except that numbers past 2^53 are decimal strings and accounts are hex. The signer is the
+32-byte account of a `MultiAddress::Id`, and empty for an unsigned extrinsic.
+
+These logs take log indices after the block's events, so they never share one with a pallet
+log. An extrinsic that does not decode keeps its log with the call left blank.
 
 ## Storage `eth_call`
 

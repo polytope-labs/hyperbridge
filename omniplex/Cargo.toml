@@ -11,6 +11,7 @@ alloy = { version = "2.0.4", features = ["sol-types", "json-abi", "json-rpc", "p
 alloy-chains = "0.2"
 anyhow = "1"
 async-trait = "0.1"
+axum = "0.8"
 bigdecimal = "0.4"
 blake2 = "0.10"
 bs58 = "0.5"
@@ -29,6 +30,7 @@ serde_json = "1"
 sp-crypto-hashing = "0.1"
 tokio = { version = "1", features = ["full"] }
 tokio-postgres = { version = "0.7", features = ["with-chrono-0_4", "with-serde_json-1"] }
+tower-http = { version = "0.6", features = ["cors"] }
 tower-service = "0.3"
 toml = "0.8"
 tracing = "0.1"

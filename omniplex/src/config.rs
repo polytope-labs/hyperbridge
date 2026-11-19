@@ -9,6 +9,9 @@ use serde::Deserialize;
 #[serde(deny_unknown_fields)]
 pub struct Config {
 	pub environment: Environment,
+	/** Runs the block explorer's handlers instead of the indexer's. */
+	#[serde(default)]
+	pub explorer: bool,
 	pub chains: BTreeMap<String, ChainConfig>,
 }
 
@@ -57,6 +60,10 @@ pub struct ChainConfig {
 	pub op_stack: bool,
 	#[serde(default)]
 	pub contracts: Contracts,
+	/** The last block to index, set by `--end-blocks` for a parity run. rindexer stops the
+	 * chain there instead of going live. */
+	#[serde(skip)]
+	pub end_block: Option<u64>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -103,6 +110,13 @@ impl Config {
 			if chain.kind == ChainKind::Evm && chain.contracts.ethereum_host.is_none() {
 				bail!("chain {name}: EVM chains need contracts.ethereum_host");
 			}
+			if config.explorer && chain.kind == ChainKind::Evm {
+				bail!("chain {name}: the explorer follows Substrate chains only");
+			}
+		}
+		// The explorer's tables hold one chain, so each explorer has a database of its own.
+		if config.explorer && config.chains.len() != 1 {
+			bail!("an explorer config follows exactly one chain");
 		}
 		Ok(config)
 	}

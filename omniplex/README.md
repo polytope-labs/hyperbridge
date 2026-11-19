@@ -12,6 +12,32 @@ omniplex --config omniplex/config/mainnet.toml --chains bsc-mainnet
 The [feature note](../docs/ai/changelog/2026-11-03-rindexer-indexer.md) covers how omniplex runs,
 its environment variables, and every deliberate difference from SubQuery's output.
 
+## Running with Docker
+
+`scripts/docker/omniplex.Dockerfile` packages a release build with the chain configs. Pushing a
+tag `omniplex-v<version>` matching `omniplex/Cargo.toml` publishes it as `polytopelabs/omniplex`.
+
+`docker-compose.yml` runs Postgres, one omniplex process per chain and omnihedron on
+`127.0.0.1:3000`. Put the chains' RPC variables in `omniplex/.env.omniplex` and pick the network
+with its profile:
+
+```
+docker compose -f omniplex/docker-compose.yml --profile testnet up -d
+```
+
+## Block explorer
+
+An explorer config (`config/explorer-testnet.toml` or `config/explorer-mainnet.toml`) indexes
+Gargantua or Nexus from genesis for the Statescan site: every block, extrinsic, event and
+balance transfer into the `explorer` schema, and the balances of each account they touch. It
+reads substrate-eth-rpc's `explorer` logs, so its RPC must be our own archive node with the
+facade built in, started with `--eth-rpc-explorer`. A full history scan through a public RPC
+overloads it.
+
+`omniplex explorer-api` serves those tables on port 7011, as the REST routes and GraphQL queries
+the site calls. Build the site with both its API and its GraphQL endpoint pointed there. The
+compose file runs both under the `explorer-testnet` and `explorer-mainnet` profiles.
+
 ## Cutting over from SubQuery
 
 Omniplex takes over SubQuery's data instead of indexing from scratch. SubQuery keeps serving the
@@ -46,11 +72,12 @@ one. Instead, compare both at the same heights:
 
 1. Read B's heights: `SELECT network, block_number FROM indexer.cursors` on B. They are the
    blocks SubQuery had reached on each chain when copy B was taken.
-2. Run omniplex on A, stopping each chain at its height in B. Omniplex has no option for this
-   yet. Add one that sets `end_block` beside each chain's `start_block` in the contract details
-   `manifest::build` writes. With an end block, rindexer indexes up to that block and doesn't
-   go live. Replaying hours of blocks reads chain state at those blocks, so Ethereum and
-   Arbitrum need archive RPCs.
+2. Run omniplex on A, stopping each chain at its height in B with `--end-blocks`
+   (`INDEXER_END_BLOCKS`), for example `--chains bsc-mainnet --end-blocks bsc-mainnet=70000000`.
+   With an end block, rindexer indexes up to that block and doesn't go live, and the process
+   runs the block hooks and records progress up to it before exiting. Under compose, set
+   `OMNIPLEX_RESTART=no` so the process isn't restarted once it is done. Replaying hours of
+   blocks reads chain state at those blocks, so Ethereum and Arbitrum need archive RPCs.
 3. Wait until rindexer's progress for every chain reaches its height in B. That is
    `last_synced_block` in the chain's `rindexer_internal.omniplex_chain__…` table. Then diff A
    and B table by table, matching rows by `id`.

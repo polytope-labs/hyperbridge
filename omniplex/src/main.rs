@@ -1,20 +1,25 @@
 use std::path::PathBuf;
 
+use anyhow::Context;
 use clap::{Parser, Subcommand};
 
 #[derive(Parser)]
 #[command(name = "omniplex", about = "Indexes Hyperbridge into the tables omnihedron serves")]
 struct Cli {
-	/** Chain config, e.g. config/mainnet.toml. */
+	/** Chain config, e.g. config/mainnet.toml. Every command but `explorer-api` needs one. */
 	#[arg(long, env = "INDEXER_CONFIG")]
-	config: PathBuf,
+	config: Option<PathBuf>,
 	/** Where the generated rindexer manifest is written, in a folder per set of chains. */
 	#[arg(long, env = "INDEXER_RUN_DIR", default_value = "/tmp/omniplex")]
 	run_dir: PathBuf,
-	/** Chains to index, comma-separated; all of the config's when unset. Run one process per
-	 * chain so a slow or stuck chain can't hold back the others. */
+	/// Chains to index, comma-separated; all of the config's when unset. Run one process per
+	/// chain so a slow or stuck chain can't hold back the others.
 	#[arg(long, env = "INDEXER_CHAINS", value_delimiter = ',')]
 	chains: Vec<String>,
+	/// Stops chains at these blocks instead of going live, as `chain=block` pairs separated by
+	/// commas. For checking parity with SubQuery at a copy's heights.
+	#[arg(long, env = "INDEXER_END_BLOCKS", value_delimiter = ',', value_parser = parse_end_block)]
+	end_blocks: Vec<(String, u64)>,
 	#[command(subcommand)]
 	command: Option<Command>,
 }
@@ -27,6 +32,11 @@ enum Command {
 		#[arg(long, value_delimiter = ',')]
 		new_chains: Vec<String>,
 	},
+	/** Serves the block explorer's tables to the Statescan site. */
+	ExplorerApi {
+		#[arg(long, env = "EXPLORER_API_LISTEN", default_value = "0.0.0.0:7011")]
+		listen: std::net::SocketAddr,
+	},
 }
 
 #[tokio::main]
@@ -37,9 +47,17 @@ async fn main() -> anyhow::Result<()> {
 		.map_err(|_| anyhow::anyhow!("a rustls crypto provider was already installed"))?;
 	rindexer::setup_info_logger();
 	let cli = Cli::parse();
+	let config = || cli.config.as_deref().context("--config or INDEXER_CONFIG is required");
 	match cli.command {
-		None => omniplex::run(&cli.config, &cli.run_dir, &cli.chains).await,
-		Some(Command::ImportSubquery { new_chains }) =>
-			omniplex::import_subquery(&cli.config, &new_chains).await,
+		None => omniplex::run(config()?, &cli.run_dir, &cli.chains, &cli.end_blocks).await,
+		Some(Command::ImportSubquery { ref new_chains }) =>
+			omniplex::import_subquery(config()?, new_chains).await,
+		Some(Command::ExplorerApi { listen }) => omniplex::explorer_api::serve(listen).await,
 	}
+}
+
+fn parse_end_block(value: &str) -> Result<(String, u64), String> {
+	let (chain, block) = value.split_once('=').ok_or("expected chain=block")?;
+	let block = block.parse().map_err(|e| format!("{chain}: {e}"))?;
+	Ok((chain.to_string(), block))
 }

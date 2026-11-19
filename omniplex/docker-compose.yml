@@ -1,0 +1,204 @@
+# Omniplex with Postgres and omnihedron, one process per chain. Pick the network with its profile:
+#
+#   docker compose -f omniplex/docker-compose.yml --profile testnet up -d
+#
+# The `explorer-testnet` and `explorer-mainnet` profiles run the block explorer instead: one
+# process reading Gargantua or Nexus from genesis, and the API the Statescan site reads on
+# `127.0.0.1:7011`, for both its REST and its GraphQL endpoint. The explorer's tables hold one
+# chain, so run each network as its own project (`-p`) with its own database.
+#
+# `omniplex/.env.omniplex` (or `OMNIPLEX_ENV_FILE`) holds each chain's RPC URLs, named after the
+# chain (`bsc-mainnet` reads `BSC_MAINNET`), and `<CHAIN>_SUBSTRATE` for a Substrate chain. The
+# feature note in docs/ai/changelog/2026-11-03-rindexer-indexer.md lists every variable.
+
+x-omniplex: &omniplex
+  image: ${OMNIPLEX_IMAGE:-polytopelabs/omniplex:latest}
+  # rindexer exits cleanly on SIGTERM, so `on-failure` would leave it down after a Docker restart.
+  # A parity run, which exits at its end blocks, sets OMNIPLEX_RESTART=no so it doesn't loop.
+  restart: ${OMNIPLEX_RESTART:-unless-stopped}
+  env_file: ${OMNIPLEX_ENV_FILE:-.env.omniplex}
+  environment: &omniplex-env
+    DATABASE_URL: postgres://${DB_USER:-postgres}:${DB_PASS:-postgres}@postgres:5432/${DB_DATABASE:-omniplex}
+  volumes:
+    - omniplex-run:/omniplex/run
+  depends_on:
+    postgres:
+      condition: service_healthy
+
+x-testnet: &testnet
+  <<: *omniplex
+  profiles: [testnet]
+  environment: &testnet-env
+    <<: *omniplex-env
+    INDEXER_CONFIG: /omniplex/config/testnet.toml
+
+x-mainnet: &mainnet
+  <<: *omniplex
+  profiles: [mainnet]
+  environment: &mainnet-env
+    <<: *omniplex-env
+    INDEXER_CONFIG: /omniplex/config/mainnet.toml
+
+services:
+  postgres:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${DB_USER:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASS:-postgres}
+      POSTGRES_DB: ${DB_DATABASE:-omniplex}
+    ports:
+      - 127.0.0.1:${DB_PORT:-5432}:5432
+    volumes:
+      - postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "${DB_USER:-postgres}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  omnihedron:
+    image: ${OMNIHEDRON_IMAGE:-polytopelabs/omnihedron:latest}
+    profiles: [testnet, mainnet]
+    restart: unless-stopped
+    command: ["--name=app", "--playground"]
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USER: ${DB_USER:-postgres}
+      DB_PASS: ${DB_PASS:-postgres}
+      DB_DATABASE: ${DB_DATABASE:-omniplex}
+      OMNIHEDRON_PORT: 3000
+    ports:
+      - 127.0.0.1:${GRAPHQL_PORT:-3000}:3000
+    healthcheck:
+      # The image has bash but no curl or wget.
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/3000 && printf 'GET /health HTTP/1.0\r\n\r\n' >&3 && head -1 <&3 | grep -q ' 200 '"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  omniplex-hyperbridge-gargantua:
+    <<: *testnet
+    environment:
+      <<: *testnet-env
+      INDEXER_CHAINS: hyperbridge-gargantua
+
+  omniplex-polkadex-testnet:
+    <<: *testnet
+    environment:
+      <<: *testnet-env
+      INDEXER_CHAINS: polkadex-testnet
+
+  omniplex-sepolia:
+    <<: *testnet
+    environment:
+      <<: *testnet-env
+      INDEXER_CHAINS: sepolia
+
+  omniplex-arbitrum-sepolia:
+    <<: *testnet
+    environment:
+      <<: *testnet-env
+      INDEXER_CHAINS: arbitrum-sepolia
+
+  omniplex-base-sepolia:
+    <<: *testnet
+    environment:
+      <<: *testnet-env
+      INDEXER_CHAINS: base-sepolia
+
+  omniplex-bsc-chapel:
+    <<: *testnet
+    environment:
+      <<: *testnet-env
+      INDEXER_CHAINS: bsc-chapel
+
+  omniplex-polygon-amoy:
+    <<: *testnet
+    environment:
+      <<: *testnet-env
+      INDEXER_CHAINS: polygon-amoy
+
+  omniplex-polkadot-testnet:
+    <<: *testnet
+    environment:
+      <<: *testnet-env
+      INDEXER_CHAINS: polkadot-testnet
+
+  omniplex-hyperbridge-nexus:
+    <<: *mainnet
+    environment:
+      <<: *mainnet-env
+      INDEXER_CHAINS: hyperbridge-nexus
+
+  omniplex-ethereum-mainnet:
+    <<: *mainnet
+    environment:
+      <<: *mainnet-env
+      INDEXER_CHAINS: ethereum-mainnet
+
+  omniplex-arbitrum-mainnet:
+    <<: *mainnet
+    environment:
+      <<: *mainnet-env
+      INDEXER_CHAINS: arbitrum-mainnet
+
+  omniplex-base-mainnet:
+    <<: *mainnet
+    environment:
+      <<: *mainnet-env
+      INDEXER_CHAINS: base-mainnet
+
+  omniplex-bsc-mainnet:
+    <<: *mainnet
+    environment:
+      <<: *mainnet-env
+      INDEXER_CHAINS: bsc-mainnet
+
+  omniplex-polygon-mainnet:
+    <<: *mainnet
+    environment:
+      <<: *mainnet-env
+      INDEXER_CHAINS: polygon-mainnet
+
+  omniplex-polkadot-hub-mainnet:
+    <<: *mainnet
+    environment:
+      <<: *mainnet-env
+      INDEXER_CHAINS: polkadot-hub-mainnet
+
+  omniplex-gargantua-explorer:
+    <<: *omniplex
+    profiles: [explorer-testnet]
+    environment:
+      <<: *omniplex-env
+      INDEXER_CONFIG: /omniplex/config/explorer-testnet.toml
+
+  omniplex-nexus-explorer:
+    <<: *omniplex
+    profiles: [explorer-mainnet]
+    environment:
+      <<: *omniplex-env
+      INDEXER_CONFIG: /omniplex/config/explorer-mainnet.toml
+
+  explorer-api:
+    image: ${OMNIPLEX_IMAGE:-polytopelabs/omniplex:latest}
+    profiles: [explorer-testnet, explorer-mainnet]
+    restart: unless-stopped
+    command: ["explorer-api"]
+    environment:
+      DATABASE_URL: postgres://${DB_USER:-postgres}:${DB_PASS:-postgres}@postgres:5432/${DB_DATABASE:-omniplex}
+    ports:
+      - 127.0.0.1:${EXPLORER_API_PORT:-7011}:7011
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  postgres:
+  omniplex-run:

@@ -96,7 +96,9 @@ pub struct GetRequestRow<'a> {
 
 /**
  * `GetRequestService.createOrUpdate` with every field given. An existing row, such as the
- * skeleton `GetRequestHandled` writes on Hyperbridge, takes every field except `created_at`.
+ * skeleton `GetRequestHandled` writes on Hyperbridge, takes every field, and keeps the earlier
+ * `created_at`. A request is sent before it is handled, so that is the time it was sent, as in
+ * SubQuery, whichever chain's process gets to it first.
  */
 pub async fn upsert_get_request(
 	db: &Transaction<'_>,
@@ -115,7 +117,8 @@ pub async fn upsert_get_request(
 			   timeout_timestamp = EXCLUDED.timeout_timestamp, fee = EXCLUDED.fee,
 			   block_number = EXCLUDED.block_number, block_hash = EXCLUDED.block_hash,
 			   transaction_hash = EXCLUDED.transaction_hash, block_timestamp = EXCLUDED.block_timestamp,
-			   chain = EXCLUDED.chain
+			   chain = EXCLUDED.chain,
+			   created_at = LEAST(app.get_request_v2s.created_at, EXCLUDED.created_at)
 			 RETURNING (xmax = 0)",
 			&[
 				&row.commitment,

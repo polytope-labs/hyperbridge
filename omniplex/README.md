@@ -73,7 +73,9 @@ one. Instead, compare both at the same heights:
    blocks SubQuery had reached on each chain when copy B was taken.
 2. Run omniplex on A, stopping each chain at its height in B with `--end-blocks`
    (`INDEXER_END_BLOCKS`), for example `--chains bsc-mainnet --end-blocks bsc-mainnet=70000000`.
-   With an end block, rindexer indexes up to that block and doesn't go live. Replaying hours of
+   With an end block, rindexer indexes up to that block and doesn't go live, and the process
+   runs the block hooks and records progress up to it before exiting. Under compose, set
+   `OMNIPLEX_RESTART=no` so the process isn't restarted once it is done. Replaying hours of
    blocks reads chain state at those blocks, so Ethereum and Arbitrum need archive RPCs.
 3. Wait until rindexer's progress for every chain reaches its height in B. That is
    `last_synced_block` in the chain's `rindexer_internal.omniplex_chain__…` table. Then diff A

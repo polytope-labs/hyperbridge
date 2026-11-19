@@ -237,7 +237,12 @@ pub async fn run(
 		watch: false,
 	})
 	.await
-	.map_err(|e| anyhow!("rindexer: {e:?}"))
+	.map_err(|e| anyhow!("rindexer: {e:?}"))?;
+	// With end blocks nothing goes live, so rindexer returns once history is done.
+	if !end_blocks.is_empty() && !indexer.config.explorer {
+		registry::finish_upkeep(&indexer, &routes).await;
+	}
+	Ok(())
 }
 
 /**

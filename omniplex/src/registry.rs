@@ -606,25 +606,49 @@ pub fn spawn_upkeep(indexer: Arc<Indexer>, routes: &HashMap<String, Arc<ChainRou
 			let mut metadata_name = None;
 			loop {
 				interval.tick().await;
-				if !chain_routes.hooks.is_empty() {
-					if let Err(err) = run_idle_hooks(&indexer, &network, &chain_routes).await {
-						tracing::warn!(%network, "idle hooks failed: {err:#}");
-					}
-				}
-				if metadata_name.is_none() {
-					match register_metadata(&indexer, &network).await {
-						Ok(name) => metadata_name = Some(name),
-						Err(err) =>
-							tracing::warn!(%network, "metadata registration failed: {err:#}"),
-					}
-				}
-				let Some(name) = &metadata_name else { continue };
-				if let Err(err) = record_progress(&indexer, &network, name, &chain_routes).await {
-					tracing::warn!(%network, "metadata update failed: {err:#}");
-				}
+				metadata_name = upkeep(&indexer, &network, &chain_routes, metadata_name).await;
 			}
 		});
 	}
+}
+
+/**
+ * One last upkeep per chain, for a process that stops at its end blocks: the timer task ends
+ * with the process, so without this the hooks and the metadata would trail the end block.
+ */
+pub async fn finish_upkeep(indexer: &Indexer, routes: &HashMap<String, Arc<ChainRoutes>>) {
+	for (network, chain_routes) in routes {
+		upkeep(indexer, network, chain_routes, None).await;
+	}
+}
+
+/** Runs the idle hooks and records the chain's progress, returning its metadata table's name
+ * once it is known. */
+async fn upkeep(
+	indexer: &Indexer,
+	network: &str,
+	routes: &ChainRoutes,
+	metadata_name: Option<String>,
+) -> Option<String> {
+	if !routes.hooks.is_empty() {
+		if let Err(err) = run_idle_hooks(indexer, network, routes).await {
+			tracing::warn!(%network, "idle hooks failed: {err:#}");
+		}
+	}
+	let name = match metadata_name {
+		Some(name) => name,
+		None => match register_metadata(indexer, network).await {
+			Ok(name) => name,
+			Err(err) => {
+				tracing::warn!(%network, "metadata registration failed: {err:#}");
+				return None;
+			},
+		},
+	};
+	if let Err(err) = record_progress(indexer, network, &name, routes).await {
+		tracing::warn!(%network, "metadata update failed: {err:#}");
+	}
+	Some(name)
 }
 
 /**

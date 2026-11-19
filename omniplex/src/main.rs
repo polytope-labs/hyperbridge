@@ -1,13 +1,14 @@
 use std::path::PathBuf;
 
+use anyhow::Context;
 use clap::{Parser, Subcommand};
 
 #[derive(Parser)]
 #[command(name = "omniplex", about = "Indexes Hyperbridge into the tables omnihedron serves")]
 struct Cli {
-	/** Chain config, e.g. config/mainnet.toml. */
+	/** Chain config, e.g. config/mainnet.toml. Every command but `explorer-api` needs one. */
 	#[arg(long, env = "INDEXER_CONFIG")]
-	config: PathBuf,
+	config: Option<PathBuf>,
 	/** Where the generated rindexer manifest is written, in a folder per set of chains. */
 	#[arg(long, env = "INDEXER_RUN_DIR", default_value = "/tmp/omniplex")]
 	run_dir: PathBuf,
@@ -46,10 +47,11 @@ async fn main() -> anyhow::Result<()> {
 		.map_err(|_| anyhow::anyhow!("a rustls crypto provider was already installed"))?;
 	rindexer::setup_info_logger();
 	let cli = Cli::parse();
+	let config = || cli.config.as_deref().context("--config or INDEXER_CONFIG is required");
 	match cli.command {
-		None => omniplex::run(&cli.config, &cli.run_dir, &cli.chains, &cli.end_blocks).await,
-		Some(Command::ImportSubquery { new_chains }) =>
-			omniplex::import_subquery(&cli.config, &new_chains).await,
+		None => omniplex::run(config()?, &cli.run_dir, &cli.chains, &cli.end_blocks).await,
+		Some(Command::ImportSubquery { ref new_chains }) =>
+			omniplex::import_subquery(config()?, new_chains).await,
 		Some(Command::ExplorerApi { listen }) => omniplex::explorer_api::serve(listen).await,
 	}
 }

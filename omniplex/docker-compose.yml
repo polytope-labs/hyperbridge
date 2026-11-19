@@ -2,6 +2,10 @@
 #
 #   docker compose -f omniplex/docker-compose.yml --profile testnet up -d
 #
+# The `explorer-testnet` and `explorer-mainnet` profiles run the block explorer instead: one
+# process reading Gargantua or Nexus from genesis, and the API the Statescan site reads on
+# `127.0.0.1:7011`, for both its REST and its GraphQL endpoint.
+#
 # `omniplex/.env.omniplex` (or `OMNIPLEX_ENV_FILE`) holds each chain's RPC URLs, named after the
 # chain (`bsc-mainnet` reads `BSC_MAINNET`), and `<CHAIN>_SUBSTRATE` for a Substrate chain. The
 # feature note in docs/ai/changelog/2026-11-03-rindexer-indexer.md lists every variable.
@@ -164,6 +168,33 @@ services:
     environment:
       <<: *mainnet-env
       INDEXER_CHAINS: polkadot-hub-mainnet
+
+  omniplex-gargantua-explorer:
+    <<: *omniplex
+    profiles: [explorer-testnet]
+    environment:
+      <<: *omniplex-env
+      INDEXER_CONFIG: /omniplex/config/explorer-testnet.toml
+
+  omniplex-nexus-explorer:
+    <<: *omniplex
+    profiles: [explorer-mainnet]
+    environment:
+      <<: *omniplex-env
+      INDEXER_CONFIG: /omniplex/config/explorer-mainnet.toml
+
+  explorer-api:
+    image: ${OMNIPLEX_IMAGE:-polytopelabs/omniplex:latest}
+    profiles: [explorer-testnet, explorer-mainnet]
+    restart: unless-stopped
+    command: ["explorer-api"]
+    environment:
+      DATABASE_URL: postgres://${DB_USER:-postgres}:${DB_PASS:-postgres}@postgres:5432/${DB_DATABASE:-omniplex}
+    ports:
+      - 127.0.0.1:${EXPLORER_API_PORT:-7011}:7011
+    depends_on:
+      postgres:
+        condition: service_healthy
 
 volumes:
   postgres:

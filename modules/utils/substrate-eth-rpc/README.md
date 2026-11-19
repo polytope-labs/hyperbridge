@@ -207,6 +207,26 @@ Parameter names in `abis/` are camelCase versions of the runtime field names, wi
 `bytes` renamed to `byteCount`, `address` to `relayer` and `beneficiary_address` to
 `beneficiary`.
 
+### Explorer logs
+
+The `explorer` key is not a pallet. It gives a block explorer the whole block, whatever the
+pallets, from the same decode as the logs above:
+
+| Signature | Per |
+|---|---|
+| `Block(uint32,bytes32,bytes32,bytes32,uint32,uint32)` | block: spec version, parent hash, state root, extrinsics root, extrinsic and event counts |
+| `Extrinsic(uint32,bool,bool,bytes,string,string,string,uint32)` | extrinsic: index, signed, success, signer, section, method, arguments, event count |
+| `Event(uint32,bool,uint32,string,string,string)` | event: index, whether an extrinsic emitted it and which, section, method, arguments |
+
+Section and method are named as polkadot.js names them (`balances`, `transferKeepAlive`,
+`Transfer`). Arguments are JSON in the shape the Statescan site renders: `[{name, type, value}]`
+for calls and `[{name, typeName, value}]` for events, with values as polkadot.js `toJSON` gives
+them, except that numbers past 2^53 are decimal strings and accounts are hex. The signer is the
+32-byte account of a `MultiAddress::Id`, and empty for an unsigned extrinsic.
+
+These logs take log indices after the block's events, so they never share one with a pallet
+log. An extrinsic that does not decode keeps its log with the call left blank.
+
 ## Storage `eth_call`
 
 The storage target `0x401e375f643e635ef3b498cedbc47931d2474364` implements:

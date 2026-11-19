@@ -1,11 +1,10 @@
-# Omniplex for testnet: one process per chain, Postgres, and omnihedron serving the tables.
+# Omniplex with Postgres and omnihedron, one process per chain. Pick the network with its profile:
 #
-#   docker compose -f omniplex/docker/testnet.yml up -d
+#   docker compose -f omniplex/docker-compose.yml --profile testnet up -d
 #
-# `omniplex/docker/.env.omniplex` (or `OMNIPLEX_ENV_FILE`) holds each chain's RPC URLs, named
-# after the chain (`polkadex-testnet` reads `POLKADEX_TESTNET`), and `<CHAIN>_SUBSTRATE` for a
-# Substrate chain. See
-# docs/ai/changelog/2026-11-03-rindexer-indexer.md for every variable.
+# `omniplex/.env.omniplex` (or `OMNIPLEX_ENV_FILE`) holds each chain's RPC URLs, named after the
+# chain (`bsc-mainnet` reads `BSC_MAINNET`), and `<CHAIN>_SUBSTRATE` for a Substrate chain. The
+# feature note in docs/ai/changelog/2026-11-03-rindexer-indexer.md lists every variable.
 
 x-omniplex: &omniplex
   image: ${OMNIPLEX_IMAGE:-polytopelabs/omniplex:latest}
@@ -13,13 +12,26 @@ x-omniplex: &omniplex
   restart: on-failure
   env_file: ${OMNIPLEX_ENV_FILE:-.env.omniplex}
   environment: &omniplex-env
-    INDEXER_CONFIG: /omniplex/config/testnet.toml
     DATABASE_URL: postgres://${DB_USER:-postgres}:${DB_PASS:-postgres}@postgres:5432/${DB_DATABASE:-omniplex}
   volumes:
     - omniplex-run:/omniplex/run
   depends_on:
     postgres:
       condition: service_healthy
+
+x-testnet: &testnet
+  <<: *omniplex
+  profiles: [testnet]
+  environment: &testnet-env
+    <<: *omniplex-env
+    INDEXER_CONFIG: /omniplex/config/testnet.toml
+
+x-mainnet: &mainnet
+  <<: *omniplex
+  profiles: [mainnet]
+  environment: &mainnet-env
+    <<: *omniplex-env
+    INDEXER_CONFIG: /omniplex/config/mainnet.toml
 
 services:
   postgres:
@@ -64,52 +76,94 @@ services:
         condition: service_healthy
 
   omniplex-hyperbridge-gargantua:
-    <<: *omniplex
+    <<: *testnet
     environment:
-      <<: *omniplex-env
+      <<: *testnet-env
       INDEXER_CHAINS: hyperbridge-gargantua
 
   omniplex-polkadex-testnet:
-    <<: *omniplex
+    <<: *testnet
     environment:
-      <<: *omniplex-env
+      <<: *testnet-env
       INDEXER_CHAINS: polkadex-testnet
 
   omniplex-sepolia:
-    <<: *omniplex
+    <<: *testnet
     environment:
-      <<: *omniplex-env
+      <<: *testnet-env
       INDEXER_CHAINS: sepolia
 
   omniplex-arbitrum-sepolia:
-    <<: *omniplex
+    <<: *testnet
     environment:
-      <<: *omniplex-env
+      <<: *testnet-env
       INDEXER_CHAINS: arbitrum-sepolia
 
   omniplex-base-sepolia:
-    <<: *omniplex
+    <<: *testnet
     environment:
-      <<: *omniplex-env
+      <<: *testnet-env
       INDEXER_CHAINS: base-sepolia
 
   omniplex-bsc-chapel:
-    <<: *omniplex
+    <<: *testnet
     environment:
-      <<: *omniplex-env
+      <<: *testnet-env
       INDEXER_CHAINS: bsc-chapel
 
   omniplex-polygon-amoy:
-    <<: *omniplex
+    <<: *testnet
     environment:
-      <<: *omniplex-env
+      <<: *testnet-env
       INDEXER_CHAINS: polygon-amoy
 
   omniplex-polkadot-testnet:
-    <<: *omniplex
+    <<: *testnet
     environment:
-      <<: *omniplex-env
+      <<: *testnet-env
       INDEXER_CHAINS: polkadot-testnet
+
+  omniplex-hyperbridge-nexus:
+    <<: *mainnet
+    environment:
+      <<: *mainnet-env
+      INDEXER_CHAINS: hyperbridge-nexus
+
+  omniplex-ethereum-mainnet:
+    <<: *mainnet
+    environment:
+      <<: *mainnet-env
+      INDEXER_CHAINS: ethereum-mainnet
+
+  omniplex-arbitrum-mainnet:
+    <<: *mainnet
+    environment:
+      <<: *mainnet-env
+      INDEXER_CHAINS: arbitrum-mainnet
+
+  omniplex-base-mainnet:
+    <<: *mainnet
+    environment:
+      <<: *mainnet-env
+      INDEXER_CHAINS: base-mainnet
+
+  omniplex-bsc-mainnet:
+    <<: *mainnet
+    environment:
+      <<: *mainnet-env
+      INDEXER_CHAINS: bsc-mainnet
+
+  omniplex-polygon-mainnet:
+    <<: *mainnet
+    environment:
+      <<: *mainnet-env
+      INDEXER_CHAINS: polygon-mainnet
+
+  omniplex-polkadot-hub-mainnet:
+    <<: *mainnet
+    environment:
+      <<: *mainnet-env
+      INDEXER_CHAINS: polkadot-hub-mainnet
 
 volumes:
   postgres:

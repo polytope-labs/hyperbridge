@@ -59,9 +59,8 @@ impl Indexer {
 
 /**
  * Connects, migrates, and indexes `selected` chains (all when empty) until shutdown, or up to
- * a chain's block in `end_blocks`. rindexer
- * finishes every chain's history before any chain goes live, so one process per chain keeps a
- * slow or stuck chain from holding back the others.
+ * a chain's block in `end_blocks`. rindexer finishes every chain's history before any chain
+ * goes live, so one process per chain keeps a slow or stuck chain from holding back the others.
  */
 pub async fn run(
 	config_path: &Path,

@@ -34,6 +34,12 @@ jobs:
             - name: Install toolchain
               run: rustup toolchain install
 
+            # rindexer's build script packages its GraphQL server with npm.
+            - name: Set up Node
+              uses: actions/setup-node@v4
+              with:
+                  node-version: 22
+
             - name: Build
               run: |
                   cargo build --release --locked -p omniplex

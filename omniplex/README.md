@@ -17,11 +17,12 @@ its environment variables, and every deliberate difference from SubQuery's outpu
 `scripts/docker/omniplex.Dockerfile` packages a release build with the chain configs. Pushing a
 tag `omniplex-v<version>` matching `omniplex/Cargo.toml` publishes it as `polytopelabs/omniplex`.
 
-`docker/testnet.yml` and `docker/mainnet.yml` run Postgres, one omniplex process per chain and
-omnihedron on `127.0.0.1:3000`. Put the chains' RPC variables in `docker/.env.omniplex`:
+`docker-compose.yml` runs Postgres, one omniplex process per chain and omnihedron on
+`127.0.0.1:3000`. Put the chains' RPC variables in `omniplex/.env.omniplex` and pick the network
+with its profile:
 
 ```
-docker compose -f omniplex/docker/testnet.yml up -d
+docker compose -f omniplex/docker-compose.yml --profile testnet up -d
 ```
 
 ## Cutting over from SubQuery

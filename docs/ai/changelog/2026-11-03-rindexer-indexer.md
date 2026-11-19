@@ -25,8 +25,8 @@ Rust 1.98 and later.
 - `--end-blocks` (or `INDEXER_END_BLOCKS`) takes `chain=block` pairs and stops each named chain
   at its block instead of going live. It exists for the parity run in `omniplex/README.md`.
 - `scripts/docker/omniplex.Dockerfile` is the image, published as `polytopelabs/omniplex` on an
-  `omniplex-v<version>` tag. `omniplex/docker/{testnet,mainnet}.yml` run Postgres, a process per
-  chain and omnihedron.
+  `omniplex-v<version>` tag. `omniplex/docker-compose.yml` runs Postgres, a process per chain
+  and omnihedron, with a `testnet` and a `mainnet` profile.
 - `DATABASE_URL` is the Postgres database. `DATABASE_POOL_SIZE` defaults to twice the number of
   chains the process indexes plus 4, and at least 10. At startup, processes take turns to apply
   the migrations and create rindexer's tables, so they can all start at once on a fresh

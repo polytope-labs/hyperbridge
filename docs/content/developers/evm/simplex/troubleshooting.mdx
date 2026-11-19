@@ -52,8 +52,8 @@ On mainnet, every order Simplex could fill is screened through the orderbook bef
 
 | Skip reason | What it means |
 |---|---|
-| `Screening flagged the order` | Chainalysis flags the order's user or beneficiary. Simplex never bids on it. |
-| `Screening unavailable: NO_ACTIVE_ORDER` | The orderbook screens only for a solver with an active limit order on the book. Post a [limit order](/developers/evm/simplex/limit-orders), and check that heartbeats are not failing. |
+| `Screening flagged the order` | Elliptic flags the order's user or beneficiary. Simplex never bids on it. |
+| `Screening unavailable: NO_ACTIVE_ORDER` | The orderbook screens only for an active solver with an active limit order on the book. Post a [limit order](/developers/evm/simplex/limit-orders), and check that heartbeats are not failing. A new solver also stays inactive until the orderbook's own screening clears its wallet, which happens once the orderbook has read the wallet's balance. A solver the orderbook has suspended stays inactive as well. |
 | `Screening unavailable: PROVIDER_UNAVAILABLE`, `ORDER_NOT_ON_CHAIN`, `REQUEST_FAILED` and similar | Simplex asked four times over about 3.5 seconds and got no verdict. The log line `Could not screen the order; dropping it` carries the orderbook's message. |
 | `Screening unavailable: SCREENING_DISABLED` | The orderbook has screening turned off, which only the testnet orderbook should. Check that `[orderbook] url` points at the mainnet orderbook. |
 
@@ -66,6 +66,9 @@ The form shows the reason. The common ones are:
 - **The wallet cannot pay it out**, for example `The wallet holds 1000 in the wallet and 200 in vaults USDC on EVM-8453, which cannot pay out 1500`. Fund the fill chain, or post a smaller amount.
 - **Below the orderbook's dust floor.** The amount paid out is under the orderbook's minimum for that token.
 - **The pair, token or chain is not served.** The orderbook does not list that token on the fill chain or on one of the accepted source chains.
+- **`SOLVER_FLAGGED`.** The orderbook's screening has banned your wallet for good. The order is refused, and so is every later order or bid from that wallet.
+
+`SOLVER_SUSPENDED` is not a refusal. The orderbook's screening has suspended your wallet until a later screen passes, and it keeps your orders meanwhile. The limit order stays **open** with the code as its last error, and Simplex posts it again on its next reconciliation.
 
 ---
 

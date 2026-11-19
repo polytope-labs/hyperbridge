@@ -2,7 +2,7 @@
 
 Simplex screens every mainnet order through the HyperFX orderbook's `screenOrder` mutation
 (polytope-labs/hyperfx-orderbook#76) before it bids. The orderbook checks the order's user and
-beneficiary against Chainalysis and keeps one verdict per commitment. Simplex drops an order the
+beneficiary against Elliptic and keeps one verdict per commitment. Simplex drops an order the
 verdict flags, and drops one it cannot get a verdict for. Nothing on mainnet is filled unscreened.
 
 ## Which orders
@@ -46,15 +46,35 @@ Every other answer is final. That includes `SCREENING_DISABLED` and `NO_ACTIVE_O
 orderbook screens only for an active solver that holds an active, unexpired order on the book. A
 verdict naming another commitment is also refused.
 
+## The solver's own screening
+
+The orderbook screens the solver too, and a solver it has not cleared cannot ask for a screen:
+
+- A solver is held suspended until its first clean screen. That screen comes once the
+  orderbook's validation cycle has read the solver's balance. Until then every mainnet order is
+  dropped with `NO_ACTIVE_ORDER`.
+- A suspension (`SOLVER_SUSPENDED`) lasts until a screen passes. The orderbook keeps the
+  solver's orders meanwhile, so `LimitOrderService` treats a posting refused with it like a
+  retryable failure: the limit order stays `open`, with no commitment and the code in
+  `lastError`, and reconciliation posts it again.
+- A ban (`SOLVER_FLAGGED`) is final, and a posting refused with it retires the limit order as
+  `rejected`, like any other refusal.
+
 ## Orderbook API surface
 
 - `OrderbookClient.screenOrder`, in `ORDERBOOK_DOCUMENTS`. `ScreeningFailed.code` is aliased to
   `failureCode`, as on the submission results.
-- New codes: `SOLVER_FLAGGED` (`RejectionCode`), `SCREENING_UNAVAILABLE` (`FailureCode`),
-  `NO_ACTIVE_ORDER` (`MessageRejectionCode`), and `SCREENING_FAILURE_CODES`.
-- `src/tests/fixtures/orderbook-schema.graphql` is now the PR's schema.
+- New codes:
+  - `RejectionCode`: `SOLVER_FLAGGED`, `SOLVER_SUSPENDED`.
+  - `FailureCode`: `SCREENING_UNAVAILABLE`.
+  - `MessageRejectionCode`: `NO_ACTIVE_ORDER`, plus the heartbeat-signer codes
+    `SOLVER_NOT_VALIDATED`, `HEARTBEAT_SIGNER_EXPIRED`, `AUTHORIZATION_SUPERSEDED` and
+    `SOLVER_FLAGGED`. Simplex never receives the heartbeat-signer codes, because the solver's own
+    key signs its heartbeats.
+  - `SCREENING_FAILURE_CODES`.
+- `src/tests/fixtures/orderbook-schema.graphql` is the PR's schema at `ef00848`.
 
 ## Deployment order
 
-Simplex drops every mainnet order until the mainnet orderbook serves `screenOrder` with a
-Chainalysis key. Deploy the orderbook first.
+Simplex drops every mainnet order until the mainnet orderbook serves `screenOrder` with
+Elliptic credentials. Deploy the orderbook first.

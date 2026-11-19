@@ -89,13 +89,11 @@ describe("OrderbookClient.screenOrder", () => {
 	}
 
 	function answering(screenOrder: Record<string, unknown>) {
-		return vi
-			.spyOn(globalThis, "fetch")
-			.mockResolvedValue(
-				new Response(JSON.stringify({ data: { screenOrder } }), {
-					headers: { "content-type": "application/json" },
-				}),
-			)
+		return vi.spyOn(globalThis, "fetch").mockResolvedValue(
+			new Response(JSON.stringify({ data: { screenOrder } }), {
+				headers: { "content-type": "application/json" },
+			}),
+		)
 	}
 
 	it("reads a verdict, and sends a null order when none is given", async () => {
@@ -242,7 +240,7 @@ describe("OrderScreener", () => {
 			{ kind: "failed", code: "SCREENING_DISABLED", message: "off", retryable: false },
 		],
 		[
-			"a party Chainalysis cannot screen",
+			"a party Elliptic cannot screen",
 			{ kind: "failed", code: "UNSCREENABLE_PARTY", message: "x", retryable: false },
 		],
 		["a solver with nothing on the book", { kind: "rejected", code: "NO_ACTIVE_ORDER", message: "none" }],

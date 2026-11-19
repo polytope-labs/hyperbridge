@@ -111,6 +111,29 @@ describe("LimitOrderService.create", () => {
 		const { order } = await service.create(REQUEST)
 		expect(order.status).toBe("rejected")
 	})
+
+	it("leaves an order open while screening has the solver suspended, to be posted again", async () => {
+		// A suspension lasts until a screen passes, and the orderbook keeps the solver's orders
+		// meanwhile: retiring the order here would lose it for good over a passing state.
+		const client = fakeClient([{ kind: "rejected", code: "SOLVER_SUSPENDED", message: "suspended" }])
+		const { service, store } = makeService(client)
+		const { order, result } = await service.create(REQUEST)
+
+		expect(result).toMatchObject({ kind: "rejected", code: "SOLVER_SUSPENDED" })
+		expect(client.submitted).toHaveLength(1)
+		expect(order.status).toBe("open")
+		expect(order.commitment).toBeNull()
+		expect(order.lastError).toBe("SOLVER_SUSPENDED: suspended")
+		expect((await store.get(order.id))?.status).toBe("open")
+	})
+
+	it("retires an order once screening has banned the solver", async () => {
+		const client = fakeClient([{ kind: "rejected", code: "SOLVER_FLAGGED", message: "banned" }])
+		const { service } = makeService(client)
+		const { order } = await service.create(REQUEST)
+		expect(order.status).toBe("rejected")
+		expect(order.lastError).toBe("SOLVER_FLAGGED: banned")
+	})
 })
 
 describe("an op the orderbook has already taken", () => {

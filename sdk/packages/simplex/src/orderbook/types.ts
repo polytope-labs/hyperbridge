@@ -186,16 +186,18 @@ export const REJECTION_CODES = [
 	// A bid's alone: it is held to the solver's standing on the book, not to a TTL or a declaration.
 	"NO_LIMIT_ORDER",
 	"TOO_MANY_BIDS",
-	// Chainalysis screening flagged the solver's own address: refuses orders and bids alike.
+	// Screening banned the solver's own address, for good: refuses orders and bids alike.
 	"SOLVER_FLAGGED",
+	// Screening suspended the solver until a screen passes; the orderbook keeps its orders meanwhile.
+	"SOLVER_SUSPENDED",
 ] as const
 
 export type RejectionCode = (typeof REJECTION_CODES)[number]
 
 /**
  * Why the orderbook could not decide an op at all: the database, the submission
- * running out of time, or Chainalysis not answering for the submitting solver.
- * All three are worth another attempt.
+ * running out of time, or the screening provider not answering for the submitting
+ * solver. All three are worth another attempt.
  */
 export const FAILURE_CODES = ["DATABASE_UNAVAILABLE", "TIMEOUT", "SCREENING_UNAVAILABLE"] as const
 
@@ -236,7 +238,10 @@ export type SubmitBidResult =
 	| { kind: "rejected"; code: RejectionCode; message: string }
 	| { kind: "failed"; code: FailureCode | "REQUEST_FAILED"; message: string; retryable: boolean }
 
-/** Why a signed message was refused, shared by `cancelOrder`, `heartbeat` and `screenOrder`. */
+/**
+ * Why a signed message was refused, shared by `cancelOrder`, `heartbeat`, `screenOrder` and
+ * `authorizeHeartbeatSigner`.
+ */
 export const MESSAGE_REJECTION_CODES = [
 	"BAD_SIGNATURE",
 	"SOLVER_MISMATCH",
@@ -245,14 +250,21 @@ export const MESSAGE_REJECTION_CODES = [
 	"UNKNOWN_ORDER",
 	"UNKNOWN_SOLVER",
 	// `screenOrder` alone: the solver is not active, or holds no active, unexpired order on the book.
+	// A solver screening has not cleared yet, or has suspended, is not active.
 	"NO_ACTIVE_ORDER",
+	// Heartbeat signers': a heartbeat from a delegate whose window has closed, and
+	// `authorizeHeartbeatSigner`'s refusals. Simplex sends neither: the solver's own key signs its heartbeats.
+	"SOLVER_NOT_VALIDATED",
+	"HEARTBEAT_SIGNER_EXPIRED",
+	"AUTHORIZATION_SUPERSEDED",
+	"SOLVER_FLAGGED",
 ] as const
 
 export type MessageRejectionCode = (typeof MESSAGE_REJECTION_CODES)[number]
 
 /**
  * Why `screenOrder` could not screen an order. `SCREENING_DISABLED` is a server with no
- * Chainalysis key, which is how the testnet orderbook runs.
+ * Elliptic credentials, which is how the testnet orderbook runs.
  */
 export const SCREENING_FAILURE_CODES = [
 	"SCREENING_DISABLED",
@@ -272,7 +284,7 @@ export type ScreeningFailureCode = (typeof SCREENING_FAILURE_CODES)[number]
 
 /**
  * The orderbook's answer to `screenOrder`. `screened` is the order's verdict, kept by the
- * orderbook for good once any solver first asked; `flagged` when Chainalysis flags its user or a
+ * orderbook for good once any solver first asked; `flagged` when Elliptic flags its user or a
  * beneficiary. A `failed` answer that is `retryable` may succeed if signed again with a new
  * timestamp and sent again.
  */

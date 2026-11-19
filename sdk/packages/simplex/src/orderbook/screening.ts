@@ -32,7 +32,7 @@ const SCREEN_ORDER_TYPES = {
 
 /**
  * What screening an order came to. Only `clear` lets an order through: a `flagged` order's user
- * or beneficiary is flagged by Chainalysis, and an `unavailable` one could not be screened at all.
+ * or beneficiary is flagged by Elliptic, and an `unavailable` one could not be screened at all.
  * `code` is the orderbook's code for why, or `REQUEST_FAILED` when no answer came back.
  */
 export type ScreeningDecision =
@@ -75,7 +75,7 @@ export function encodeOrder(order: Order): HexString | undefined {
 
 /**
  * Screens swappers' orders through the HyperFX orderbook's `screenOrder`, which screens the
- * order's user and beneficiary against Chainalysis and keeps the verdict for good once any solver
+ * order's user and beneficiary against Elliptic and keeps the verdict for good once any solver
  * first asks.
  *
  * Each attempt is a fresh EIP-712 `ScreenOrder` signature, since the orderbook spends one once it

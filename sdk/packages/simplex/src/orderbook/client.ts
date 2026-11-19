@@ -345,7 +345,7 @@ export class OrderbookClient {
 
 	/**
 	 * Asks the orderbook to screen the parties to a swapper's order, its user and beneficiary,
-	 * against Chainalysis. Signed as EIP-712 `ScreenOrder(solver, commitment, timestamp)`, from a
+	 * against Elliptic. Signed as EIP-712 `ScreenOrder(solver, commitment, timestamp)`, from a
 	 * solver holding an active order on the book (`NO_ACTIVE_ORDER`). `order` is
 	 * `abi.encode(order)`, which the orderbook reads only while the indexer has not indexed the
 	 * order. The signature is spent once checked, so any retry is signed again.

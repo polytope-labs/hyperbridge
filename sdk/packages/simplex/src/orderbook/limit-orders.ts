@@ -1227,7 +1227,13 @@ export class LimitOrderService {
 		// its database was away or the request never landed, so the order stays open
 		// with the reason on it and something posts it again later. Marking it
 		// `rejected` would retire an order the operator still wants over one timeout.
-		if (result.kind === "failed" && result.retryable) {
+		// Nor is a suspension: screening refuses a suspended solver's submissions
+		// (`SOLVER_SUSPENDED`) only until a screen passes, and the orderbook keeps its
+		// orders meanwhile. A ban (`SOLVER_FLAGGED`) is final, and is a refusal.
+		const postLater =
+			(result.kind === "failed" && result.retryable) ||
+			(result.kind === "rejected" && result.code === "SOLVER_SUSPENDED")
+		if (postLater) {
 			this.logger.warn({ id: order.id, err: message }, "Could not post the limit order; leaving it to be posted again")
 			// Guarded like the other writes here: a cancel or an expiry that landed while the
 			// post was in flight owns the row, and says nothing is left to post again.

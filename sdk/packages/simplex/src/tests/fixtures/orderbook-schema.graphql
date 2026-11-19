@@ -1,5 +1,7 @@
 scalar Address
 
+union AuthorizeHeartbeatSignerResult = HeartbeatSignerAuthorized | MessageRejected
+
 type BalanceConnection {
 	"""
 	Information to aid in pagination.
@@ -362,7 +364,7 @@ enum FailureCode {
 	DATABASE_UNAVAILABLE
 	TIMEOUT
 	"""
-	Chainalysis did not answer for the solver, after three retries. Nothing was placed.
+	Elliptic did not answer for the solver, after three retries. Nothing was placed.
 	"""
 	SCREENING_UNAVAILABLE
 }
@@ -377,6 +379,18 @@ type HeartbeatAccepted {
 }
 
 union HeartbeatResult = HeartbeatAccepted | MessageRejected
+
+type HeartbeatSignerAuthorized {
+	solver: Solver!
+	"""
+	The signer now authorised, or the zero address when this revoked it.
+	"""
+	signer: Address!
+	"""
+	When the authorisation lapses. Null when this revoked it.
+	"""
+	authorizedUntil: DateTime
+}
 
 """
 A pessimistic quote: one price, from the first level on the route, best first, deep enough to
@@ -437,6 +451,10 @@ enum MessageRejectionCode {
 	UNKNOWN_ORDER
 	UNKNOWN_SOLVER
 	NO_ACTIVE_ORDER
+	SOLVER_NOT_VALIDATED
+	HEARTBEAT_SIGNER_EXPIRED
+	AUTHORIZATION_SUPERSEDED
+	SOLVER_FLAGGED
 }
 
 type Mutation {
@@ -467,7 +485,7 @@ type Mutation {
 	"""
 	cancelOrder(solver: Address!, commitment: Bytes!, timestamp: Int!, signature: Bytes!): CancelOrderResult!
 	"""
-	Screen the parties to a swapper's order against Chainalysis: the user who placed it and each
+	Screen the parties to a swapper's order against Elliptic: the user who placed it and each
 	beneficiary its output is paid to. Answers FLAGGED when any of them is, else UNFLAGGED; no
 	rating is given. Signs EIP-712 ScreenOrder(solver, commitment, timestamp), from an active
 	solver holding an active order on the book (`NO_ACTIVE_ORDER`).
@@ -479,15 +497,25 @@ type Mutation {
 	The parties are read from the hyperbridge indexer. `order`, the swapper's order as
 	`abi.encode(order)`, is read instead while the indexer has not indexed it: it must hash to
 	`commitment`, and the gateway on its source chain must hold escrow for it
-	(`ORDER_NOT_ON_CHAIN`). A Chainalysis call that fails is retried three times; one still
+	(`ORDER_NOT_ON_CHAIN`). A Elliptic call that fails is retried three times; one still
 	failing fails the request (`PROVIDER_UNAVAILABLE`, retryable), and a party that is not an
 	EVM address cannot be screened (`UNSCREENABLE_PARTY`).
 	"""
 	screenOrder(solver: Address!, commitment: Bytes!, timestamp: Int!, signature: Bytes!, order: Bytes): ScreenOrderResult!
 	"""
-	Keep the signer's orders surfaced. Signs EIP-712 Heartbeat(solver, timestamp).
+	Keep the signer's orders surfaced. Signs EIP-712 Heartbeat(solver, timestamp). While
+	screening is on, a solver no Elliptic screen has cleared yet, or one flagged, has its
+	heartbeat recorded but stays SUSPENDED: a solver is screened once the validation cycle has
+	read its balance, and activated by its first clean screen.
 	"""
 	heartbeat(solver: Address!, timestamp: Int!, signature: Bytes!): HeartbeatResult!
+	"""
+	Let `signer` sign the solver's heartbeats for `heartbeatSignerTtlSecs`, so the main key need
+	only sign once per window. Signs EIP-712 AuthorizeHeartbeatSigner(solver, signer,
+	timestamp) with the solver's own key. The zero address revokes the current signer, and an
+	authorisation older than the last one accepted is refused.
+	"""
+	authorizeHeartbeatSigner(solver: Address!, signer: Address!, timestamp: Int!, signature: Bytes!): AuthorizeHeartbeatSignerResult!
 }
 
 type Order {
@@ -617,7 +645,8 @@ type OrderRejected {
 }
 
 """
-Every party to the order, its user and each beneficiary, was screened live.
+Every party to the order, its user and each beneficiary, has been screened: by this request
+if it was the first about the order, and by the first one if not.
 """
 type OrderScreened {
 	commitment: Bytes!
@@ -984,6 +1013,7 @@ enum RejectionCode {
 	NO_LIMIT_ORDER
 	TOO_MANY_BIDS
 	SOLVER_FLAGGED
+	SOLVER_SUSPENDED
 }
 
 """
@@ -1087,15 +1117,17 @@ enum ScreeningFailureCode {
 }
 
 """
-What Chainalysis says about the order's parties, screened for this request.
+What Elliptic said about the order's parties when the order was screened: live on the first
+request about it, and from the stored verdict on every later one.
 """
 enum ScreeningVerdict {
 	"""
-	A party's risk rating is one of the server's flag levels.
+	A party is over the line the server's policy draws: a share of its funds, or a dollar
+	value, tied to sanctions, illicit activity, or a counterparty such as MEXC.
 	"""
 	FLAGGED
 	"""
-	No party's is.
+	No party is.
 	"""
 	UNFLAGGED
 }
@@ -1130,6 +1162,10 @@ type ServerInfo {
 	"""
 	bidTtlSecs: Int!
 	"""
+	How long a heartbeat signer stays authorised before the solver has to authorise it again.
+	"""
+	heartbeatSignerTtlSecs: Int!
+	"""
 	Live bids one solver may hold.
 	"""
 	maxBidsPerSolver: Int!
@@ -1155,7 +1191,7 @@ type ServerInfo {
 	"""
 	eip712DomainVersion: String!
 	"""
-	Whether Chainalysis screening is on: `[screening]` is configured with an API key, so
+	Whether Elliptic screening is on: `[screening]` is configured with an API key and secret, so
 	`screenOrder` answers and every order and bid's solver is screened live.
 	"""
 	screeningEnabled: Boolean!
@@ -1175,6 +1211,14 @@ type Solver {
 	"""
 	heartbeatDueBy: DateTime
 	suspendedAt: DateTime
+	"""
+	The key this solver authorised to sign its heartbeats, if any. It may have lapsed.
+	"""
+	heartbeatSigner: Address
+	"""
+	When the heartbeat signer stops being accepted, unless the solver authorises it again.
+	"""
+	heartbeatSignerAuthorizedUntil: DateTime
 	"""
 	The solver's balance rows, one per token per chain, oldest first, narrowed to a chain or a
 	symbol.

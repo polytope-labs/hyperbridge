@@ -1394,7 +1394,7 @@ export class IntentFiller {
 
 	/**
 	 * Why a mainnet order must be dropped after screening, or null when it may be bid on. A testnet
-	 * order is never screened. A mainnet order is dropped when Chainalysis flags its user or
+	 * order is never screened. A mainnet order is dropped when Elliptic flags its user or
 	 * beneficiary, and when it could not be screened at all, including for want of a screener:
 	 * no mainnet order is bid on unscreened. Never rejects.
 	 */

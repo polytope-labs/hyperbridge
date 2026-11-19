@@ -60,11 +60,14 @@ The flags are accepted by both `hyperbridge` and `hyperbridge simnode`.
 | `--eth-rpc-max-block-range` | `500` | Largest `eth_getLogs` span, accepted when `toBlock - fromBlock <= N` |
 | `--eth-rpc-cache-blocks` | `4096` | Decoded blocks kept in the LRU cache |
 | `--eth-rpc-concurrency` | `8` | Blocks read and decoded at once |
+| `--eth-rpc-explorer` | off | Also serve the `explorer` logs, for the node a block explorer indexes |
 
 The methods are served on the node's normal RPC endpoint with no path, for example
 `http://<node>:9944`. Chain identity comes from the chain spec: `eth_chainId` is
 `1_000_000_000 + para_id` (Nexus `1000003367`, Gargantua `1000004009`), the hasher is
-`keccak` and every pallet in the mapping table is exposed. Because the data comes from
+`keccak` and every pallet in the mapping table is exposed. The `explorer` logs decode every
+call in every block and cache their arguments, so a node serves them only with
+`--eth-rpc-explorer`. Because the data comes from
 the local client there are no upstream retries, backoff or rate-limit cooldowns:
 `rpc`, `upstream_retries`, `upstream_backoff_ms` and `rate_limit_cooldown_ms` do not
 apply; `range_deadline_ms` is fixed at 60 s. Request and response bodies are capped

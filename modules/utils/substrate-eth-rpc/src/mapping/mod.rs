@@ -40,8 +40,15 @@ pub fn all_pallets() -> Vec<PalletSpec> {
 	]
 }
 
+/** Every pallet's key but `explorer`, whose logs decode every call in every block and are
+ * served only where a block explorer asks for them. */
 pub fn all_pallet_keys() -> Vec<String> {
-	all_pallets().into_iter().map(|pallet| pallet.key.to_string()).collect()
+	all_pallets()
+		.into_iter()
+		.map(|pallet| pallet.key)
+		.filter(|key| *key != explorer::KEY)
+		.map(String::from)
+		.collect()
 }
 
 pub fn pallets_for(keys: &[String]) -> Result<Vec<PalletSpec>, MappingError> {
@@ -462,9 +469,11 @@ mod tests {
 	#[test]
 	fn all_pallet_keys_follow_spec_order() {
 		let keys = all_pallet_keys();
-		assert_eq!(keys.len(), 8);
+		assert_eq!(keys.len(), 7);
 		assert_eq!(keys[0], "ismp");
-		assert_eq!(keys, all_pallets().iter().map(|p| p.key.to_string()).collect::<Vec<_>>());
+		assert!(!keys.iter().any(|key| key == explorer::KEY), "explorer logs are opt-in");
+		let pallets = all_pallets().into_iter().filter(|p| p.key != explorer::KEY);
+		assert_eq!(keys, pallets.map(|p| p.key.to_string()).collect::<Vec<_>>());
 	}
 
 	#[test]

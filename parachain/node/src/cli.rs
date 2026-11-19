@@ -101,6 +101,11 @@ pub struct EthRpcParams {
 	pub eth_rpc_cache_blocks: usize,
 	#[arg(long, default_value_t = 8, help = "Blocks read and decoded at once")]
 	pub eth_rpc_concurrency: usize,
+	#[arg(
+		long,
+		help = "Also serve the explorer logs: every block, extrinsic and event with its decoded arguments, which a block explorer indexes"
+	)]
+	pub eth_rpc_explorer: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -110,6 +115,7 @@ pub struct EthRpcConfig {
 	pub max_block_range: u64,
 	pub cache_blocks: usize,
 	pub concurrency: usize,
+	pub explorer: bool,
 }
 
 impl EthRpcParams {
@@ -143,6 +149,7 @@ impl EthRpcParams {
 			max_block_range: self.eth_rpc_max_block_range,
 			cache_blocks: self.eth_rpc_cache_blocks,
 			concurrency: self.eth_rpc_concurrency,
+			explorer: self.eth_rpc_explorer,
 		}
 	}
 }
@@ -242,6 +249,7 @@ mod tests {
 			eth_rpc_max_block_range: 500,
 			eth_rpc_cache_blocks: 4096,
 			eth_rpc_concurrency: 8,
+			eth_rpc_explorer: false,
 		}
 	}
 

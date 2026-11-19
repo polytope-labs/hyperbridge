@@ -31,7 +31,8 @@ An explorer config (`config/explorer-testnet.toml` or `config/explorer-mainnet.t
 Gargantua or Nexus from genesis for the Statescan site: every block, extrinsic, event and
 balance transfer into the `explorer` schema, and the balances of each account they touch. It
 reads substrate-eth-rpc's `explorer` logs, so its RPC must be our own archive node with the
-facade built in. A full history scan through a public RPC overloads it.
+facade built in, started with `--eth-rpc-explorer`. A full history scan through a public RPC
+overloads it.
 
 `omniplex explorer-api` serves those tables on port 7011, as the REST routes and GraphQL queries
 the site calls. Build the site with both its API and its GraphQL endpoint pointed there. The

@@ -15,6 +15,8 @@ import type {
 	PostedOrder,
 	PostedOrderPage,
 	RejectionCode,
+	ScreeningFailureCode,
+	ScreenOrderResult,
 	SolverStatus,
 	SubmitBidResult,
 	SubmitOrderResult,
@@ -157,6 +159,31 @@ const CANCEL_ORDER_MUTATION = `
 	}
 `
 
+const SCREEN_ORDER_MUTATION = `
+	mutation ScreenOrder($solver: Address!, $commitment: Bytes!, $timestamp: Int!, $signature: Bytes!, $order: Bytes) {
+		screenOrder(solver: $solver, commitment: $commitment, timestamp: $timestamp, signature: $signature, order: $order) {
+			__typename
+			... on OrderScreened { commitment verdict }
+			... on MessageRejected { code message }
+			... on ScreeningFailed { failureCode: code message retryable }
+		}
+	}
+`
+
+/** Its own document, not part of `limits`: an orderbook that predates screening refuses the field. */
+const SCREENING_STATUS_QUERY = `
+	query ScreeningStatus {
+		serverInfo { screeningEnabled }
+	}
+`
+
+/**
+ * How long a `screenOrder` request may take. The orderbook gives one screening up to 25 seconds
+ * (indexer, chain and screening provider) and cuts `/graphql` off at 30 with a 503, so waiting a
+ * little past that receives its answer, or its 503, instead of abandoning work it is still doing.
+ */
+export const SCREEN_ORDER_TIMEOUT_MS = 35_000
+
 /**
  * Every document this client sends.
  *
@@ -175,6 +202,8 @@ export const ORDERBOOK_DOCUMENTS = {
 	heartbeatSignerTtl: HEARTBEAT_SIGNER_TTL_QUERY,
 	myOrders: MY_ORDERS_QUERY,
 	cancelOrder: CANCEL_ORDER_MUTATION,
+	screenOrder: SCREEN_ORDER_MUTATION,
+	screeningStatus: SCREENING_STATUS_QUERY,
 } as const
 
 /**
@@ -185,6 +214,18 @@ export const ORDERBOOK_DOCUMENTS = {
  * and retry these; they act on rejections.
  */
 export class OrderbookRequestError extends Error {}
+
+/**
+ * The orderbook answered with GraphQL errors: it read the request and refused it as written, such
+ * as a field or mutation it does not serve. Sending the same request again is refused the same
+ * way. A subclass, so a caller that retries every {@link OrderbookRequestError} still does.
+ */
+export class OrderbookGraphqlError extends OrderbookRequestError {}
+
+/** An error's message, or the value itself as a string. */
+export function describeError(err: unknown): string {
+	return err instanceof Error ? err.message : String(err)
+}
 
 /**
  * The GraphQL endpoint for a configured orderbook URL.
@@ -352,6 +393,67 @@ export class OrderbookClient {
 		throw new OrderbookRequestError(`Unknown cancelOrder result ${cancelOrder.__typename}`)
 	}
 
+	/**
+	 * Asks the orderbook to screen the parties to a swapper's order, its user and beneficiary,
+	 * against Elliptic. Signed as EIP-712 `ScreenOrder(solver, commitment, timestamp)`, from a
+	 * solver holding an active order on the book (`NO_ACTIVE_ORDER`). `order` is
+	 * `abi.encode(order)`, which the orderbook reads when its indexer has no record of the order,
+	 * and in preference to that record when it has one. The signature is spent once checked, so
+	 * any retry is signed again. Waits {@link SCREEN_ORDER_TIMEOUT_MS}, or the configured request
+	 * timeout when that is longer.
+	 */
+	async screenOrder(params: {
+		solver: HexString
+		commitment: HexString
+		timestamp: number
+		signature: HexString
+		order?: HexString
+	}): Promise<ScreenOrderResult> {
+		const { screenOrder } = await this.request<{ screenOrder: RawScreenOrder }>(
+			SCREEN_ORDER_MUTATION,
+			{ ...params, order: params.order ?? null },
+			Math.max(this.requestTimeoutMs, SCREEN_ORDER_TIMEOUT_MS),
+		)
+		switch (screenOrder.__typename) {
+			case "OrderScreened":
+				if (screenOrder.verdict !== "FLAGGED" && screenOrder.verdict !== "UNFLAGGED") {
+					throw new OrderbookRequestError(`Unknown screening verdict ${screenOrder.verdict}`)
+				}
+				return {
+					kind: "screened",
+					commitment: screenOrder.commitment!,
+					flagged: screenOrder.verdict === "FLAGGED",
+				}
+			case "MessageRejected":
+				return {
+					kind: "rejected",
+					code: screenOrder.code as MessageRejectionCode,
+					message: screenOrder.message!,
+				}
+			case "ScreeningFailed":
+				return {
+					kind: "failed",
+					code: screenOrder.failureCode!,
+					message: screenOrder.message!,
+					retryable: screenOrder.retryable ?? false,
+				}
+			default:
+				throw new OrderbookRequestError(`Unknown screenOrder result ${screenOrder.__typename}`)
+		}
+	}
+
+	/**
+	 * Whether the orderbook screens orders: `serverInfo.screeningEnabled`. An orderbook that
+	 * predates screening refuses the field, which throws {@link OrderbookGraphqlError}.
+	 */
+	async screeningEnabled(): Promise<boolean> {
+		const { serverInfo } = await this.request<{ serverInfo: { screeningEnabled: boolean } }>(
+			SCREENING_STATUS_QUERY,
+			{},
+		)
+		return serverInfo.screeningEnabled
+	}
+
 	async heartbeat(params: { solver: HexString; timestamp: number; signature: HexString }): Promise<HeartbeatResult> {
 		const { heartbeat } = await this.request<{ heartbeat: RawHeartbeat }>(HEARTBEAT_MUTATION, params)
 		if (heartbeat.__typename === "HeartbeatAccepted") {
@@ -421,12 +523,16 @@ export class OrderbookClient {
 		}
 	}
 
-	private async request<T>(query: string, variables: Record<string, unknown>): Promise<T> {
-		const body = await this.send<T>(query, variables)
+	private async request<T>(
+		query: string,
+		variables: Record<string, unknown>,
+		timeoutMs: number = this.requestTimeoutMs,
+	): Promise<T> {
+		const body = await this.send<T>(query, variables, timeoutMs)
 		if (body.errors?.length) {
 			const message = body.errors.map((error) => error.message).join("; ")
 			this.logger.warn({ url: this.url, message }, "Orderbook request failed")
-			throw new OrderbookRequestError(message)
+			throw new OrderbookGraphqlError(message)
 		}
 		if (!body.data) throw new OrderbookRequestError("Orderbook returned no data")
 		return body.data
@@ -436,9 +542,10 @@ export class OrderbookClient {
 	private async send<T>(
 		query: string,
 		variables: Record<string, unknown>,
+		timeoutMs: number = this.requestTimeoutMs,
 	): Promise<{ data?: T; errors?: { message: string }[] }> {
 		const controller = new AbortController()
-		const timer = setTimeout(() => controller.abort(), this.requestTimeoutMs)
+		const timer = setTimeout(() => controller.abort(), timeoutMs)
 		let response: Response
 		try {
 			response = await fetch(this.url, {
@@ -448,7 +555,7 @@ export class OrderbookClient {
 				signal: controller.signal,
 			})
 		} catch (err) {
-			throw new OrderbookRequestError(`Could not reach the orderbook at ${this.url}: ${describe(err)}`)
+			throw new OrderbookRequestError(`Could not reach the orderbook at ${this.url}: ${describeError(err)}`)
 		} finally {
 			clearTimeout(timer)
 		}
@@ -460,13 +567,9 @@ export class OrderbookClient {
 		}
 
 		return (await response.json().catch((err) => {
-			throw new OrderbookRequestError(`Orderbook returned a body that is not JSON: ${describe(err)}`)
+			throw new OrderbookRequestError(`Orderbook returned a body that is not JSON: ${describeError(err)}`)
 		})) as { data?: T; errors?: { message: string }[] }
 	}
-}
-
-function describe(err: unknown): string {
-	return err instanceof Error ? err.message : String(err)
 }
 
 interface RawSubmitOrder {
@@ -521,6 +624,20 @@ interface RawCancelOrder {
 	commitment?: HexString
 	code?: string
 	message?: string
+}
+
+interface RawScreenOrder {
+	__typename: string
+	commitment?: HexString
+	verdict?: string
+	code?: string
+	/**
+	 * `ScreeningFailed.code` under an alias. It is a `ScreeningFailureCode` where
+	 * `MessageRejected.code` is a `MessageRejectionCode`, as in {@link RawSubmitOrder.failureCode}.
+	 */
+	failureCode?: ScreeningFailureCode
+	message?: string
+	retryable?: boolean
 }
 
 interface RawLevelOrderPage {

@@ -296,7 +296,8 @@ async function confirmedAfter(confirmedAfterMs: (expiryMs: number) => number) {
 		undefined,
 		new MemoryDataStore().bids,
 	)
-
+	// Mainnet orders are screened before they are bid on; that is order-screening.test.ts's subject.
+	filler.setScreener({ screen: async () => ({ kind: "clear" }) })
 	;(filler as any).handleNewOrder(crossChain, "0xtx", SCANNED_BLOCK)
 	await (filler as any).globalQueue.onIdle()
 	await (filler as any).chainQueues.get(8453)?.onIdle()

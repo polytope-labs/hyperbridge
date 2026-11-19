@@ -2,7 +2,8 @@
 //! answered them from the chain on every view; these read the same tables as the REST routes.
 //! Each answer holds every field those queries select, and `__typename` for Apollo's cache.
 //! `docs` stays null: the site prepends it to an event's arguments and fails when they are
-//! null, as they are for arguments too large to keep.
+//! null, as they are for a call or event that didn't decode. A call's arguments are a list
+//! even then, since the extrinsic page maps over them.
 
 use axum::{extract::State, Json};
 use serde_json::{json, Value};
@@ -23,7 +24,7 @@ const EVENT: &str = "jsonb_build_object('__typename', 'Event', 'args', ev.args, 
 fn extrinsic() -> String {
 	format!(
 		"jsonb_build_object('__typename', 'Extrinsic',
-			'call', jsonb_build_object('__typename', 'Call', 'args', e.args, 'callIndex', NULL,
+			'call', jsonb_build_object('__typename', 'Call', 'args', coalesce(e.args, '[]'), 'callIndex', NULL,
 				'method', e.method, 'section', e.section),
 			'calls', '[]'::jsonb, 'callsCount', 0,
 			'events', (SELECT coalesce(jsonb_agg({EVENT} ORDER BY ev.index), '[]')

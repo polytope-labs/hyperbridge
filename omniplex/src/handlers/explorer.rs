@@ -308,18 +308,21 @@ fn total_issuance_key() -> Vec<u8> {
 	[twox_128(b"Balances"), twox_128(b"TotalIssuance")].concat()
 }
 
-/** Arguments are kept up to this size. Larger ones are proofs, trie nodes or runtime code,
- * which nobody reads on a page and which would make up most of the database. */
-const ARGS_LIMIT: usize = 8 * 1024;
+/** A value larger than this is stored as a note of its size. Those are proofs, trie nodes or
+ * runtime code, which nobody reads on a page and which would make up most of the database. */
+const VALUE_LIMIT: usize = 1024;
 
-/** Call and event arguments as JSON, or `NULL` when they are too large or didn't decode. */
+/** Call and event arguments as JSON, or `NULL` when they didn't decode. Every argument keeps its
+ * name and type, since the site lists them all, and a large value is replaced by its size. */
 fn args(json: &str) -> Option<serde_json::Value> {
-	if json.len() > ARGS_LIMIT {
-		return None;
+	let mut args: serde_json::Value = serde_json::from_str(json).ok()?;
+	for arg in args.as_array_mut()? {
+		let size = arg["value"].to_string().len();
+		if size > VALUE_LIMIT {
+			arg["value"] = format!("{size} bytes, not stored").into();
+		}
 	}
-	serde_json::from_str(json)
-		.ok()
-		.filter(|value: &serde_json::Value| !value.is_null())
+	Some(args)
 }
 
 fn height(log: &LogMeta) -> i64 {
@@ -349,10 +352,15 @@ mod tests {
 	}
 
 	#[test]
-	fn large_arguments_are_left_out() {
-		assert_eq!(args(r#"[{"name":"now"}]"#), Some(serde_json::json!([{ "name": "now" }])));
+	fn large_values_keep_their_argument() {
+		let small = r#"[{"name":"now","type":"Moment","value":1}]"#;
+		assert_eq!(args(small), serde_json::from_str(small).ok());
 		assert_eq!(args("null"), None);
-		assert_eq!(args(&format!(r#"["{}"]"#, "a".repeat(ARGS_LIMIT))), None);
+		let proof =
+			format!(r#"[{{"name":"proof","type":"Bytes","value":"{}"}}]"#, "a".repeat(5000));
+		let stored = args(&proof).unwrap();
+		assert_eq!(stored[0]["name"], "proof");
+		assert_eq!(stored[0]["value"], "5002 bytes, not stored");
 	}
 
 	#[test]

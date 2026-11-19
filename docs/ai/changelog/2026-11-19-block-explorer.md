@@ -27,9 +27,10 @@ The handlers write the `explorer` schema (migration `0003_explorer`):
 - `call_names`, every section and method seen under each runtime, for the site's filters.
 - `status`, the total issuance read after each batch.
 
-Arguments larger than 8 KiB are stored as `NULL`. On Hyperbridge those are relay chain proofs,
-consensus proofs and runtime code, which no page shows and which would otherwise be most of
-the database.
+An argument value larger than 1 KiB is stored as a note of its size, such as
+`"41210 bytes, not stored"`, keeping the argument's name and type. On Hyperbridge those values
+are relay chain proofs, consensus proofs and runtime code, which no page shows and which would
+otherwise be most of the database.
 
 ## API
 

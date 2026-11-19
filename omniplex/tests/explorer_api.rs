@@ -142,6 +142,7 @@ async fn the_site_reads_every_page_it_shows() {
 	assert_eq!(overview["finalizedHeight"], HEIGHT);
 	assert_eq!(overview["signedExtrinsics"], 1);
 	assert_eq!(overview["accounts"], 1);
+	assert_eq!(overview["transfers"], 1, "a table Postgres hasn't analyzed yet is counted");
 
 	let blocks = get(&base, "/latest-blocks").await;
 	assert_eq!(blocks[0]["height"], HEIGHT);

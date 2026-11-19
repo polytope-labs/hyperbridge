@@ -246,8 +246,9 @@ async fn read_overview(api: &Api) -> anyhow::Result<Value> {
 				'finalizedHeight', (SELECT coalesce(max(height), 0) FROM explorer.blocks),
 				'totalIssuance', (SELECT value FROM explorer.status WHERE name = 'totalIssuance'),
 				'signedExtrinsics', (SELECT count(*) FROM explorer.extrinsics WHERE signed),
-				'transfers', (SELECT reltuples::bigint FROM pg_class
-					WHERE oid = 'explorer.transfers'::regclass),
+				'transfers', (SELECT CASE WHEN reltuples < 0
+					THEN (SELECT count(*) FROM explorer.transfers) ELSE reltuples::bigint END
+					FROM pg_class WHERE oid = 'explorer.transfers'::regclass),
 				'accounts', (SELECT count(*) FROM explorer.accounts))",
 			&[],
 		)

@@ -13,8 +13,9 @@
 
 x-omniplex: &omniplex
   image: ${OMNIPLEX_IMAGE:-polytopelabs/omniplex:latest}
-  # A process exits cleanly only when `INDEXER_END_BLOCKS` stops its chain, which must not loop.
-  restart: on-failure
+  # rindexer exits cleanly on SIGTERM, so `on-failure` would leave it down after a Docker restart.
+  # A parity run, which exits at its end blocks, sets OMNIPLEX_RESTART=no so it doesn't loop.
+  restart: ${OMNIPLEX_RESTART:-unless-stopped}
   env_file: ${OMNIPLEX_ENV_FILE:-.env.omniplex}
   environment: &omniplex-env
     DATABASE_URL: postgres://${DB_USER:-postgres}:${DB_PASS:-postgres}@postgres:5432/${DB_DATABASE:-omniplex}

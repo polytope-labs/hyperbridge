@@ -38,20 +38,7 @@ async fn main() -> anyhow::Result<()> {
 	}
 
 	let database_url = env::var("DATABASE_URL").context("DATABASE_URL is not set")?;
-	// The governance backfill runs standalone, the main deployment's multichain schema also needs
-	// the chain's genesis hash to find its metadata
-	let schema = env::var("INDEXER_SCHEMA").unwrap_or_else(|_| "governance".into());
-	let indexer = match env::var("INDEXER_GENESIS_HASH") {
-		Ok(hash) => db::Indexer::Multichain {
-			schema,
-			genesis_hash: hex::decode(hash.trim_start_matches("0x"))
-				.ok()
-				.and_then(|bytes| bytes.try_into().ok())
-				.context("INDEXER_GENESIS_HASH is not a 32 byte hex hash")?,
-		},
-		Err(_) => db::Indexer::Standalone { schema },
-	};
-	let db = db::connect(&database_url, &indexer).await?;
+	let db = db::connect(&database_url).await?;
 
 	// `import <site>` copies the current forum's off-chain content into this one and exits
 	if command == Some("import") {

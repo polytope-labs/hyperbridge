@@ -7,6 +7,15 @@
 # `127.0.0.1:7011`, for both its REST and its GraphQL endpoint. The explorer's tables hold one
 # chain, so run each network as its own project (`-p`) with its own database.
 #
+# The `governance-mainnet` profile runs the governance forum's backend: one process reading Nexus
+# governance from the runtime upgrade that added OpenGov, and the governance API on port 7071
+# (`GOVERNANCE_API_PORT`), which the forum frontend proxies to. Run it as its own project too.
+# Build the API binary on Linux first (`cargo build --release -p governance-api`). Its settings
+# are `ADMINS`, the addresses allowed to moderate the forum, and `CORS_ORIGINS`, the origins
+# browsers may call it from. Copy the current forum's off-chain content into it, safe to repeat:
+#
+#   docker compose -f omniplex/docker-compose.yml run --rm governance-api import <current forum>
+#
 # `omniplex/.env.omniplex` (or `OMNIPLEX_ENV_FILE`) holds each chain's RPC URLs, named after the
 # chain (`bsc-mainnet` reads `BSC_MAINNET`), and `<CHAIN>_SUBSTRATE` for a Substrate chain. The
 # feature note in docs/ai/changelog/2026-11-03-rindexer-indexer.md lists every variable.
@@ -198,6 +207,33 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+
+  omniplex-nexus-governance:
+    <<: *omniplex
+    profiles: [governance-mainnet]
+    environment:
+      <<: *omniplex-env
+      INDEXER_CONFIG: /omniplex/config/governance-mainnet.toml
+
+  governance-api:
+    build:
+      context: ..
+      dockerfile: scripts/docker/governance-api.Dockerfile
+    profiles: [governance-mainnet]
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgres://${DB_USER:-postgres}:${DB_PASS:-postgres}@postgres:5432/${DB_DATABASE:-omniplex}
+      ADMINS: ${ADMINS:-}
+      CORS_ORIGINS: ${CORS_ORIGINS:-}
+      PORT: 7071
+      RUST_LOG: ${RUST_LOG:-info}
+    ports:
+      - ${GOVERNANCE_API_PORT:-7071}:7071
+    depends_on:
+      postgres:
+        condition: service_healthy
+      omniplex-nexus-governance:
+        condition: service_started
 
 volumes:
   postgres:

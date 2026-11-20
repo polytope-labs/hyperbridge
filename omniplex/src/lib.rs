@@ -30,7 +30,7 @@ use rindexer::{
 
 use crate::{
 	chains::Chain,
-	config::{env_key, env_urls, ChainKind, Config},
+	config::{env_key, env_urls, ChainKind, Config, Mode},
 	substrate::SubstrateRpc,
 };
 
@@ -133,7 +133,7 @@ pub async fn run(
 		.map(|(name, chain)| (name.clone(), chain.rpc_urls[0].clone()))
 		.collect();
 
-	let handlers = if config.explorer { handlers::explorer::handlers() } else { handlers::all() };
+	let handlers = handlers::for_mode(config.mode);
 	let routes: HashMap<String, Arc<registry::ChainRoutes>> = config
 		.chains
 		.iter()
@@ -208,8 +208,10 @@ pub async fn run(
 		orderbook: services::prices::Orderbook::from_env(http.clone()),
 		http,
 	});
-	// The explorer has no background jobs, and its chains keep no SubQuery metadata.
-	if !indexer.config.explorer {
+	// Only the indexer has background jobs. The explorer's chains keep no SubQuery metadata,
+	// while the governance API reads how far its chain is indexed from it.
+	let mode = indexer.config.mode;
+	if mode == Mode::Indexer {
 		handlers::spawn_tasks(&indexer);
 	}
 	let mut registry = EventCallbackRegistry::new();
@@ -221,7 +223,7 @@ pub async fn run(
 		&providers,
 		&mut registry,
 	)?;
-	if !indexer.config.explorer {
+	if mode != Mode::Explorer {
 		registry::spawn_upkeep(indexer.clone(), &routes);
 	}
 
@@ -239,7 +241,7 @@ pub async fn run(
 	.await
 	.map_err(|e| anyhow!("rindexer: {e:?}"))?;
 	// With end blocks nothing goes live, so rindexer returns once history is done.
-	if !end_blocks.is_empty() && !indexer.config.explorer {
+	if !end_blocks.is_empty() && mode != Mode::Explorer {
 		registry::finish_upkeep(&indexer, &routes).await;
 	}
 	Ok(())

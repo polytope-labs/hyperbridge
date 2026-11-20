@@ -2,6 +2,7 @@
 
 pub mod abi;
 pub mod explorer;
+pub mod governance;
 pub mod intents;
 pub mod ismp;
 pub mod pallets;
@@ -10,6 +11,7 @@ pub mod solver;
 use std::sync::Arc;
 
 use crate::{
+	config::Mode,
 	registry::{BlockHook, Subscription},
 	Indexer,
 };
@@ -29,6 +31,15 @@ pub fn all() -> Handlers {
 	pallets::register(&mut handlers);
 	solver::register(&mut handlers);
 	handlers
+}
+
+/** The handlers a config of this mode runs. */
+pub fn for_mode(mode: Mode) -> Handlers {
+	match mode {
+		Mode::Indexer => all(),
+		Mode::Explorer => explorer::handlers(),
+		Mode::Governance => governance::handlers(),
+	}
 }
 
 /** Background work that isn't tied to a chain's blocks, e.g. polling an HTTP endpoint. */

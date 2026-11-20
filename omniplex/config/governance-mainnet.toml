@@ -1,0 +1,14 @@
+# Nexus governance for the governance forum, from the runtime upgrade that added OpenGov. Its
+# handlers read storage at every governance event's block, so point `NEXUS_GOVERNANCE` and
+# `NEXUS_GOVERNANCE_SUBSTRATE` at our own archive node, never at a public RPC.
+
+environment = "mainnet"
+mode = "governance"
+
+[chains.nexus-governance]
+kind = "substrate"
+chain_id = 1000003367
+state_machine_id = "POLKADOT-3367"
+start_block = 5986840
+reorg_safe_distance = 0
+max_block_range = 500

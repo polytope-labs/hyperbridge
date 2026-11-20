@@ -1,6 +1,6 @@
 //! The block explorer: every block, extrinsic, event and balance transfer of a Substrate chain,
 //! from substrate-eth-rpc's `explorer` logs, plus the balances of the accounts they touch. An
-//! explorer config (`explorer = true`) runs these handlers and nothing else.
+//! explorer config (`mode = "explorer"`) runs these handlers and nothing else.
 
 use std::{collections::BTreeSet, sync::Arc};
 

@@ -136,15 +136,14 @@ async fn serve(admins: Vec<String>) -> anyhow::Result<String> {
 	tokio::spawn(connection);
 	client
 		.batch_execute(
-			"DROP SCHEMA IF EXISTS forum CASCADE; DROP SCHEMA IF EXISTS governance CASCADE;",
+			"DROP SCHEMA IF EXISTS forum CASCADE; DROP SCHEMA IF EXISTS governance CASCADE;
+			DROP SCHEMA IF EXISTS app CASCADE;",
 		)
 		.await?;
 	client.batch_execute(include_str!("../../tests/governance.sql")).await?;
 
 	let state = AppState {
-		db: Arc::new(
-			db::connect(&url, &db::Indexer::Standalone { schema: "governance".into() }).await?,
-		),
+		db: Arc::new(db::connect(&url).await?),
 		admins: Arc::new(admins),
 		limiter: Arc::new(RateLimiter::default()),
 	};

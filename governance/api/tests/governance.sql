@@ -1,8 +1,10 @@
--- Governance tables as the indexer creates them, with the referenda, motions and votes it indexed
--- from Nexus blocks 12135052 to 12335491, for the API's integration test.
+-- Governance tables as the indexer creates them, and its metadata table, with the referenda,
+-- motions and votes it indexed from Nexus blocks 12135052 to 12335491, for the API's
+-- integration test.
 CREATE SCHEMA governance;
+CREATE SCHEMA app;
 
-CREATE TABLE governance._metadata (
+CREATE TABLE app."_metadata_0x6e65787573000000" (
     key character varying(255) NOT NULL,
     value jsonb,
     "createdAt" timestamp with time zone NOT NULL,
@@ -230,7 +232,7 @@ INSERT INTO governance.governance_votes VALUES
 INSERT INTO governance.governance_whitelisted_calls VALUES
 	('0x3437c169b25cdf20c03e0241c5204151ffc478c4c8b2878f6fffe27052f5f029', 12249554, NULL, 12250202, '{"ok":{"actualWeight":null,"paysFee":"Yes"}}'),
 	('0x774793b5b7b85afd9f10cd6207f363dba366c17357112eb11092253377c4be9c', 12259265, NULL, 12259888, '{"ok":{"actualWeight":{"refTime":10830611064,"proofSize":68016},"paysFee":"Yes"}}');
-INSERT INTO governance._metadata VALUES
+INSERT INTO app."_metadata_0x6e65787573000000" VALUES
 	('genesisHash', '"0x61ea8a51fd4a058ee8c0e86df0a89cc85b8b67a0a66432893d09719050c9f540"', '2026-10-15 19:18:38.92+00', '2026-10-15 19:18:38.92+00'),
 	('chain', '"Hyperbridge (Nexus)"', '2026-10-15 19:18:38.92+00', '2026-10-15 19:18:38.92+00'),
 	('specName', '"nexus"', '2026-10-15 19:18:38.92+00', '2026-10-15 19:18:38.92+00'),

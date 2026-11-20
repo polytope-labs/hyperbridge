@@ -40,9 +40,11 @@ pub fn with_conviction(balance: u128, conviction: i32) -> u128 {
 fn account_vote(vote: &Value) -> Value {
 	let flags = |kind: &str| json!({ "isStandard": kind == "standard", "isSplit": kind == "split", "isSplitAbstain": kind == "splitAbstain" });
 	if let Some(standard) = vote.get("standard") {
-		let byte = standard["vote"]
-			.as_str()
-			.and_then(|hex| u8::from_str_radix(hex.trim_start_matches("0x"), 16).ok())
+		let vote = &standard["vote"];
+		let byte = vote
+			.as_u64()
+			.map(|byte| byte as u8)
+			.or_else(|| u8::from_str_radix(vote.as_str()?.trim_start_matches("0x"), 16).ok())
 			.unwrap_or_default();
 		let mut shaped = flags("standard");
 		shaped["vote"] = json!({
@@ -460,6 +462,8 @@ mod tests {
 		);
 		let nay = account_vote(&json!({ "standard": { "vote": "0x01", "balance": 5 } }));
 		assert_eq!(nay["vote"]["vote"], json!({ "isAye": false, "conviction": 1 }));
+		let numbered = account_vote(&json!({ "standard": { "vote": 0x83, "balance": "10" } }));
+		assert_eq!(numbered["vote"], aye["vote"]);
 		let split = account_vote(&json!({ "split": { "aye": 3, "nay": 4 } }));
 		assert_eq!(
 			(split["isSplit"].clone(), split["vote"].clone()),

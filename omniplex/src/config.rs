@@ -9,10 +9,22 @@ use serde::Deserialize;
 #[serde(deny_unknown_fields)]
 pub struct Config {
 	pub environment: Environment,
-	/** Runs the block explorer's handlers instead of the indexer's. */
 	#[serde(default)]
-	pub explorer: bool,
+	pub mode: Mode,
 	pub chains: BTreeMap<String, ChainConfig>,
+}
+
+/** Which handlers a config runs. */
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Mode {
+	/** The Hyperbridge indexer, whose tables omnihedron serves. */
+	#[default]
+	Indexer,
+	/** A block explorer of one Substrate chain. */
+	Explorer,
+	/** The governance forum's tables, for one Substrate chain. */
+	Governance,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
@@ -110,13 +122,14 @@ impl Config {
 			if chain.kind == ChainKind::Evm && chain.contracts.ethereum_host.is_none() {
 				bail!("chain {name}: EVM chains need contracts.ethereum_host");
 			}
-			if config.explorer && chain.kind == ChainKind::Evm {
-				bail!("chain {name}: the explorer follows Substrate chains only");
+			if config.mode != Mode::Indexer && chain.kind == ChainKind::Evm {
+				bail!("chain {name}: a {:?} config follows Substrate chains only", config.mode);
 			}
 		}
-		// The explorer's tables hold one chain, so each explorer has a database of its own.
-		if config.explorer && config.chains.len() != 1 {
-			bail!("an explorer config follows exactly one chain");
+		// The explorer's and the governance tables hold one chain, so each has a database of
+		// its own.
+		if config.mode != Mode::Indexer && config.chains.len() != 1 {
+			bail!("a {:?} config follows exactly one chain", config.mode);
 		}
 		Ok(config)
 	}

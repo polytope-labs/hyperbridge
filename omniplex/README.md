@@ -38,6 +38,20 @@ overloads it.
 the site calls. Build the site with both its API and its GraphQL endpoint pointed there. The
 compose file runs both under the `explorer-testnet` and `explorer-mainnet` profiles.
 
+## Governance
+
+A governance config (`config/governance-mainnet.toml`) indexes Nexus governance for the
+governance forum, from block 5986840, the runtime upgrade that added OpenGov: referenda with
+their tally history, votes and delegations, technical committee motions, whitelisted calls,
+preimages and treasury spends, into the `governance` schema. It reads substrate-eth-rpc's
+`governance` logs and reads storage at each event's block through the facade's JSON calls, so
+its RPC must be an archive node. Like the explorer, it has a database of its own, and it keeps
+SubQuery's metadata table, from which the governance API reads how far it is indexed.
+
+`governance-api` (in `governance/api`) serves those tables to the forum frontend, together with
+the forum's off-chain content in its own `forum` schema. The compose file runs both under the
+`governance-mainnet` profile.
+
 ## Cutting over from SubQuery
 
 Omniplex takes over SubQuery's data instead of indexing from scratch. SubQuery keeps serving the

@@ -8,11 +8,16 @@
 # chain, so run each network as its own project (`-p`) with its own database.
 #
 # The `governance-mainnet` profile runs the governance forum's backend: one process reading Nexus
-# governance from the runtime upgrade that added OpenGov, and the governance API on port 7071
-# (`GOVERNANCE_API_PORT`), which the forum frontend proxies to. Run it as its own project too.
-# Build the API binary on Linux first (`cargo build --release -p governance-api`). Its settings
-# are `ADMINS`, the addresses allowed to moderate the forum, and `CORS_ORIGINS`, the origins
-# browsers may call it from. Copy the current forum's off-chain content into it, safe to repeat:
+# governance from the runtime upgrade that added OpenGov, and the governance API on
+# `127.0.0.1:7071` (`GOVERNANCE_API_PORT`), which the forum frontend and the TLS reverse proxy in
+# front of it forward to. Run it as its own project too. Build the API binary on Linux first
+# (`cargo build --release -p governance-api`). Its settings are `ADMINS`, the addresses allowed to
+# moderate the forum, `CORS_ORIGINS`, the origins browsers may call it from, `FORUM_DOMAIN`, the
+# domain login messages name, which the API refuses to start without, and `TRUSTED_PROXIES`, the
+# addresses and CIDR ranges whose `X-Forwarded-For` the rate limiter believes. Requests reach the API from the Docker bridge
+# gateway, so the default trusts the bridge ranges and loopback; keep every proxy that forwards to
+# the API in it, and nothing else, or visitors share one rate limit or can pick their own.
+# Copy the current forum's off-chain content into it, safe to repeat:
 #
 #   docker compose -f omniplex/docker-compose.yml run --rm governance-api import <current forum>
 #
@@ -225,10 +230,12 @@ services:
       DATABASE_URL: postgres://${DB_USER:-postgres}:${DB_PASS:-postgres}@postgres:5432/${DB_DATABASE:-omniplex}
       ADMINS: ${ADMINS:-}
       CORS_ORIGINS: ${CORS_ORIGINS:-}
+      FORUM_DOMAIN: ${FORUM_DOMAIN:-}
+      TRUSTED_PROXIES: ${TRUSTED_PROXIES:-127.0.0.0/8,::1,172.16.0.0/12}
       PORT: 7071
       RUST_LOG: ${RUST_LOG:-info}
     ports:
-      - ${GOVERNANCE_API_PORT:-7071}:7071
+      - 127.0.0.1:${GOVERNANCE_API_PORT:-7071}:7071
     depends_on:
       postgres:
         condition: service_healthy

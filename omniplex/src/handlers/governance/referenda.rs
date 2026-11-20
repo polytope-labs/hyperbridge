@@ -28,9 +28,10 @@ pub(super) const METHODS: &[&str] = &[
 	"MetadataCleared",
 ];
 
-/** Deposits are refunded long after a referendum ends, so refunds stay in its history without
- * changing its state. */
-const DEPOSIT_REFUNDS: &[&str] = &["DecisionDepositRefunded", "SubmissionDepositRefunded"];
+/** Events that stay in a referendum's history without changing its state or track. Deposits are
+ * refunded long after a referendum ends, and anyone may clear the metadata of one that has. */
+const NON_STATE_EVENTS: &[&str] =
+	&["DecisionDepositRefunded", "SubmissionDepositRefunded", "MetadataSet", "MetadataCleared"];
 
 const COLUMNS: &[&str] = &[
 	"id",
@@ -243,7 +244,7 @@ pub(super) async fn handle(ev: &Context<'_>) -> anyhow::Result<()> {
 	if ev.method == "Confirmed" {
 		referendum.enactment_task = Some(enactment_task(index));
 	}
-	let changes_state = !DEPOSIT_REFUNDS.contains(&ev.method.as_str());
+	let changes_state = !NON_STATE_EVENTS.contains(&ev.method.as_str());
 	if changes_state {
 		referendum.state = ev.method.clone();
 		referendum.track_info = track_info(ev, referendum.track).await?;
@@ -320,14 +321,23 @@ fn enactment_task(index: i32) -> String {
 	format!("0x{}", hex::encode(name))
 }
 
-/** `Referenda::Tracks` in the runtime of this block, as `[id, info]` pairs. */
-pub(super) async fn tracks(ev: &Context<'_>) -> anyhow::Result<Vec<(i32, Value)>> {
-	let tracks = ev.chain.constant_json("Referenda", "Tracks", ev.block).await?;
-	let pairs = tracks.as_ref().and_then(Value::as_array).cloned().unwrap_or_default();
-	Ok(pairs
-		.into_iter()
-		.filter_map(|mut pair| Some((int(&pair[0])?, pair[1].take())))
-		.collect())
+/** `Referenda::Tracks` in the runtime of this block, as `[id, info]` pairs, read once per
+ * event. */
+pub(super) async fn tracks<'a>(ev: &'a Context<'_>) -> anyhow::Result<&'a [(i32, Value)]> {
+	let tracks = ev
+		.tracks
+		.get_or_try_init(|| async {
+			let tracks = ev.chain.constant_json("Referenda", "Tracks", ev.block).await?;
+			let pairs = tracks.as_ref().and_then(Value::as_array).cloned().unwrap_or_default();
+			anyhow::Ok(
+				pairs
+					.into_iter()
+					.filter_map(|mut pair| Some((int(&pair[0])?, pair[1].take())))
+					.collect(),
+			)
+		})
+		.await?;
+	Ok(tracks)
 }
 
 /** Refreshes the track definitions, which only change with a runtime upgrade. */
@@ -349,10 +359,7 @@ async fn sync_tracks(ev: &Context<'_>) -> anyhow::Result<()> {
 
 async fn track_info(ev: &Context<'_>, track: i32) -> anyhow::Result<Option<String>> {
 	let tracks = tracks(ev).await?;
-	Ok(tracks
-		.into_iter()
-		.find(|(id, _)| *id == track)
-		.map(|(_, info)| info.to_string()))
+	Ok(tracks.iter().find(|(id, _)| *id == track).map(|(_, info)| info.to_string()))
 }
 
 fn proposal_hash(proposal: &Value) -> Option<String> {

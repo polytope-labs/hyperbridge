@@ -27,6 +27,28 @@ pub enum Mode {
 	Governance,
 }
 
+impl Mode {
+	pub const ALL: [Mode; 3] = [Mode::Indexer, Mode::Explorer, Mode::Governance];
+
+	/** The name a config gives the mode. */
+	pub fn name(&self) -> &'static str {
+		match self {
+			Mode::Indexer => "indexer",
+			Mode::Explorer => "explorer",
+			Mode::Governance => "governance",
+		}
+	}
+
+	/** The schema that holds the mode's tables. */
+	pub fn schema(&self) -> &'static str {
+		match self {
+			Mode::Indexer => "app",
+			Mode::Explorer => "explorer",
+			Mode::Governance => "governance",
+		}
+	}
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Environment {

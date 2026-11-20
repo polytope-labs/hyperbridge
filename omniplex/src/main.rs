@@ -26,7 +26,8 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
-	/** Turns a copy of SubQuery's database, at DATABASE_URL, into this indexer's. */
+	/** Turns a copy of SubQuery's database, at DATABASE_URL, into this indexer's. With a
+	 * governance config, the copy is of SubQuery's governance database. */
 	ImportSubquery {
 		/** Chains SubQuery never indexed, comma-separated. They start at their start block. */
 		#[arg(long, value_delimiter = ',')]

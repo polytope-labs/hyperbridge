@@ -32,8 +32,7 @@ CREATE INDEX governance_referendums_proposal_hash
     ON governance.governance_referendums (proposal_hash);
 CREATE INDEX governance_referendums_enactment_task
     ON governance.governance_referendums (enactment_task);
-CREATE INDEX governance_referendums_ongoing ON governance.governance_referendums (index)
-    WHERE NOT is_final;
+CREATE INDEX governance_referendums_index ON governance.governance_referendums (index);
 
 -- Each track's definition, which only a runtime upgrade changes.
 CREATE TABLE governance.governance_tracks (

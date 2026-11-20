@@ -5,6 +5,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use codec::Encode;
+use futures::future::try_join_all;
 use serde_json::Value;
 use tokio_postgres::Row;
 
@@ -32,8 +33,10 @@ pub(super) async fn handle(ev: &Context<'_>) -> anyhow::Result<()> {
 			.extend(active_delegations(ev, &who).await?.into_iter().map(|(_, (_, d))| d.target)),
 		_ => {},
 	}
+	// Only a delegation changes delegations, and it can move votes on any track
+	let delegation = matches!(ev.method.as_str(), "Delegated" | "Undelegated");
 	for account in accounts {
-		sync(ev, &account).await?;
+		sync(ev, &account, delegation).await?;
 	}
 	Ok(())
 }
@@ -112,6 +115,21 @@ struct Casting {
 	delegated_capital: u128,
 }
 
+impl Casting {
+	fn from_json(track: i32, casting: &Value) -> Self {
+		let votes = casting["votes"].as_array().cloned().unwrap_or_default();
+		Self {
+			track,
+			votes: votes
+				.into_iter()
+				.filter_map(|mut pair| Some((int(&pair[0])?, pair[1].take())))
+				.collect(),
+			delegated_votes: amount(&casting["delegations"]["votes"]).unwrap_or_default(),
+			delegated_capital: amount(&casting["delegations"]["capital"]).unwrap_or_default(),
+		}
+	}
+}
+
 #[derive(PartialEq)]
 struct Delegation {
 	target: String,
@@ -119,67 +137,82 @@ struct Delegation {
 	balance: u128,
 }
 
+impl Delegation {
+	fn from_json(delegation: &Value) -> Self {
+		let conviction = delegation["conviction"].as_str().unwrap_or_default();
+		Self {
+			target: delegation["target"].as_str().unwrap_or_default().to_string(),
+			conviction: CONVICTIONS.iter().position(|c| *c == conviction).unwrap_or(0) as i32,
+			balance: amount(&delegation["balance"]).unwrap_or_default(),
+		}
+	}
+}
+
 /**
- * Brings an account's votes and delegations in line with `ConvictionVoting::VotingFor` at this
- * block, then records the tally of every referendum whose votes changed.
+ * Brings an account's votes on ongoing referenda in line with `ConvictionVoting::VotingFor` at
+ * this block, then records the tally of every referendum whose votes changed. A `delegation`
+ * reads every track and brings the account's delegations in line too. Otherwise only the
+ * tracks of ongoing referenda are read, since nothing else on the others can have changed.
  */
-async fn sync(ev: &Context<'_>, account: &str) -> anyhow::Result<()> {
+async fn sync(ev: &Context<'_>, account: &str, delegation: bool) -> anyhow::Result<()> {
 	let Some(id) = account_id(account) else { return Ok(()) };
-	let mut castings = Vec::new();
-	let mut delegating = BTreeMap::new();
-	for (track, _) in referenda::tracks(ev).await? {
+	let ongoing = ev
+		.db
+		.query(
+			"SELECT r.index, r.track, v.id AS vote_id, v.kind, v.aye, v.conviction, v.balance,
+				v.aye_balance, v.nay_balance, v.abstain_balance, v.delegated_votes
+			 FROM governance.governance_referendums r
+			 LEFT JOIN governance.governance_votes v
+				ON v.referendum_index = r.index AND v.account = $1
+			 WHERE NOT r.is_final",
+			&[&account],
+		)
+		.await?;
+	let tracks: BTreeSet<i32> = if delegation {
+		referenda::tracks(ev).await?.iter().map(|(track, _)| *track).collect()
+	} else {
+		ongoing.iter().map(|row| row.get("track")).collect()
+	};
+	let readings = try_join_all(tracks.iter().map(|track| {
 		let key = [
 			key("ConvictionVoting", "VotingFor"),
 			twox_64_concat(&id),
-			twox_64_concat(&(track as u16).encode()),
+			twox_64_concat(&(*track as u16).encode()),
 		]
 		.concat();
-		let Some(voting) = ev.chain.storage_json(&key, ev.block).await? else { continue };
-		if let Some(casting) = voting.get("casting") {
-			let votes = casting["votes"].as_array().cloned().unwrap_or_default();
-			castings.push(Casting {
-				track,
-				votes: votes
-					.into_iter()
-					.filter_map(|mut pair| Some((int(&pair[0])?, pair[1].take())))
-					.collect(),
-				delegated_votes: amount(&casting["delegations"]["votes"]).unwrap_or_default(),
-				delegated_capital: amount(&casting["delegations"]["capital"]).unwrap_or_default(),
-			});
-		}
-		if let Some(delegation) = voting.get("delegating") {
-			let conviction = delegation["conviction"].as_str().unwrap_or_default();
-			delegating.insert(
-				track,
-				Delegation {
-					target: delegation["target"].as_str().unwrap_or_default().to_string(),
-					conviction: CONVICTIONS.iter().position(|c| *c == conviction).unwrap_or(0)
-						as i32,
-					balance: amount(&delegation["balance"]).unwrap_or_default(),
-				},
-			);
-		}
+		async move { ev.chain.storage_json(&key, ev.block).await }
+	}))
+	.await?;
+	let voting: Vec<(i32, Value)> = tracks
+		.into_iter()
+		.zip(readings)
+		.filter_map(|(track, voting)| Some((track, voting?)))
+		.collect();
+	if delegation {
+		let delegating = voting
+			.iter()
+			.filter_map(|(track, voting)| {
+				Some((*track, Delegation::from_json(voting.get("delegating")?)))
+			})
+			.collect();
+		sync_delegations(ev, account, &delegating).await?;
 	}
-	sync_delegations(ev, account, &delegating).await?;
 
+	let castings: Vec<Casting> = voting
+		.iter()
+		.filter_map(|(track, voting)| Some(Casting::from_json(*track, voting.get("casting")?)))
+		.collect();
 	let current: BTreeMap<i32, (&Casting, &Value)> = castings
 		.iter()
 		.flat_map(|casting| casting.votes.iter().map(move |(poll, vote)| (*poll, (casting, vote))))
 		.collect();
-	let ongoing = ev
-		.db
-		.query("SELECT index FROM governance.governance_referendums WHERE NOT is_final", &[])
-		.await?;
 	let mut changed = Vec::new();
-	for row in ongoing {
-		let index: i32 = row.get(0);
+	for row in &ongoing {
+		let index: i32 = row.get("index");
 		let id = format!("{index}-{account}");
-		let existing = ev
-			.db
-			.query_opt("SELECT * FROM governance.governance_votes WHERE id = $1", &[&id])
-			.await?;
+		let existing = row.get::<_, Option<String>>("vote_id").is_some();
 		let Some((casting, vote)) = current.get(&index) else {
-			if existing.is_some() {
+			if existing {
 				ev.db
 					.execute("DELETE FROM governance.governance_votes WHERE id = $1", &[&id])
 					.await?;
@@ -189,12 +222,13 @@ async fn sync(ev: &Context<'_>, account: &str) -> anyhow::Result<()> {
 			continue;
 		};
 		let Some(choice) = Choice::from_json(vote) else { continue };
-		let (vote_changed, delegated_changed) = match &existing {
-			Some(row) => (
+		let (vote_changed, delegated_changed) = if existing {
+			(
 				Choice::from_row(row)? != choice,
 				big(row, "delegated_votes")? != Some(casting.delegated_votes),
-			),
-			None => (true, true),
+			)
+		} else {
+			(true, true)
 		};
 		if !vote_changed && !delegated_changed {
 			continue;
@@ -326,7 +360,7 @@ async fn save_vote_call(
 				removed, block_number, block_hash, extrinsic_index, event_index, \"timestamp\")
 			 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) ON CONFLICT (id) DO NOTHING",
 			&[
-				&format!("{}-{index}", p.id),
+				&format!("{}-{index}-{account}", p.id),
 				&account,
 				&index,
 				&vote.map(Value::to_string),

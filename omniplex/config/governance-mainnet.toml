@@ -1,6 +1,15 @@
 # Nexus governance for the governance forum, from the runtime upgrade that added OpenGov. Its
-# handlers read storage at every governance event's block, so point `NEXUS_GOVERNANCE` and
-# `NEXUS_GOVERNANCE_SUBSTRATE` at our own archive node, never at a public RPC.
+# handlers read storage at every governance event's block, so `NEXUS_GOVERNANCE` and
+# `NEXUS_GOVERNANCE_SUBSTRATE` must be our own archive node, never a public RPC. That node must
+# run a hyperbridge build whose substrate-eth-rpc serves the `governance` logs and the JSON
+# reads (getStorageJson, getConstantJson, decodeCallJson). An older node fails every one of
+# those reads, and indexing makes no progress.
+#
+# At cutover, import a copy of SubQuery's governance database instead of indexing all of
+# history: `DATABASE_URL=<copy> omniplex --config omniplex/config/governance-mainnet.toml
+# import-subquery`. The import keeps each row's current version and continues after the last
+# block SubQuery indexed. The database must be one of its own; its first start claims it for
+# governance, and a start of any other mode's config on it is refused.
 
 environment = "mainnet"
 mode = "governance"

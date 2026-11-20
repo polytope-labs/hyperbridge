@@ -100,6 +100,9 @@ pub async fn run(
 	let cursors = {
 		let mut conn = db.raw_connection().await?;
 		db::apply_migrations(&mut conn).await?;
+		let tx = conn.transaction().await?;
+		db::claim_mode(&tx, config.mode).await?;
+		tx.commit().await?;
 		let cursors = db::cursor_blocks(&conn).await?;
 		let tx = conn.transaction().await?;
 		let mut unsynced = BTreeMap::new();
@@ -249,7 +252,8 @@ pub async fn run(
 
 /**
  * Turns the copy of SubQuery's database at `DATABASE_URL` into this indexer's, so each chain
- * continues after the last block SubQuery indexed. `new_chains` are the chains SubQuery never
+ * continues after the last block SubQuery indexed. A governance config takes a copy of
+ * SubQuery's governance database. `new_chains` are the chains SubQuery never
  * indexed, which start at their start block. A Substrate chain's node, at `<CHAIN>_SUBSTRATE`,
  * gives the name SubQuery's metadata knows it by.
  */

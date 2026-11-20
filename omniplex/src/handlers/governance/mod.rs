@@ -14,6 +14,7 @@ use async_trait::async_trait;
 use chrono::NaiveDateTime;
 use serde_json::{Map, Value};
 use sp_crypto_hashing::{blake2_128, twox_128, twox_64};
+use tokio::sync::OnceCell;
 use tokio_postgres::Transaction;
 
 use crate::{
@@ -75,6 +76,9 @@ pub(crate) struct Context<'a> {
 	pub values: Vec<Value>,
 	pub block: u64,
 	pub position: Position,
+	/** `Referenda::Tracks` and the electorate at this block, read once whoever needs them. */
+	tracks: OnceCell<Vec<(i32, Value)>>,
+	electorate: OnceCell<u128>,
 }
 
 /** Where an event happened, as the event tables key and show it. */
@@ -115,7 +119,17 @@ impl<'a> Context<'a> {
 			event_index: event.index as i32,
 			timestamp: timestamp_ms(now.unwrap_or(log.block_timestamp * 1000)),
 		};
-		Ok(Self { chain, db, method: event.method.clone(), args: named, values, block, position })
+		Ok(Self {
+			chain,
+			db,
+			method: event.method.clone(),
+			args: named,
+			values,
+			block,
+			position,
+			tracks: OnceCell::new(),
+			electorate: OnceCell::new(),
+		})
 	}
 
 	/** A named argument. */
@@ -134,7 +148,15 @@ impl<'a> Context<'a> {
 			let value = self.chain.storage(&key("Balances", entry), self.block).await?;
 			anyhow::Ok(read_u128(&value, 0).unwrap_or_default())
 		};
-		Ok(read("TotalIssuance").await?.saturating_sub(read("InactiveIssuance").await?))
+		let electorate = self
+			.electorate
+			.get_or_try_init(|| async {
+				let (total, inactive) =
+					tokio::try_join!(read("TotalIssuance"), read("InactiveIssuance"))?;
+				anyhow::Ok(total.saturating_sub(inactive))
+			})
+			.await?;
+		Ok(*electorate)
 	}
 }
 

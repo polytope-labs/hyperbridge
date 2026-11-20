@@ -88,13 +88,23 @@ impl Chain {
 		Ok(Bytes::abi_decode(&self.eth_call(input, block).await?)?.to_vec())
 	}
 
-	/** A JSON read, which substrate-eth-rpc answers with an empty string for nothing. */
+	/**
+	 * A JSON read, which substrate-eth-rpc answers with an empty string for nothing. An answer
+	 * that doesn't parse, such as a call nested deeper than serde_json reads, is `None` too:
+	 * it comes from bytes on chain, so reading it again would fail the same way forever.
+	 */
 	async fn json_call(&self, input: Vec<u8>, block: u64) -> anyhow::Result<Option<Value>> {
 		let text = String::abi_decode(&self.eth_call(input, block).await?)?;
 		if text.is_empty() {
 			return Ok(None);
 		}
-		Ok(Some(serde_json::from_str(&text)?))
+		match serde_json::from_str(&text) {
+			Ok(value) => Ok(Some(value)),
+			Err(err) => {
+				tracing::warn!(chain = %self.name, block, "unreadable JSON from storage read: {err}");
+				Ok(None)
+			},
+		}
 	}
 
 	async fn eth_call(&self, input: Vec<u8>, block: u64) -> anyhow::Result<Bytes> {

@@ -2,13 +2,22 @@
 //! numbers too large for a JavaScript number are decimal strings. Accounts are hex for the
 //! block explorer, whose site encodes them as addresses itself, and SS58 for governance.
 
-use scale_info::{form::PortableForm, Field, TypeDef, TypeDefPrimitive};
+use codec::{Compact, Decode};
+use scale_info::{form::PortableForm, Field, PortableRegistry, TypeDef, TypeDefPrimitive};
 use scale_value::{Composite, Primitive, Value, ValueDef};
 use serde_json::{json, Map, Value as Json};
 use sp_crypto_hashing::blake2_512;
 use subxt_core::Metadata;
 
 const MAX_SAFE_INTEGER: u128 = (1 << 53) - 1;
+
+/**
+ * How deep composites, variants, sequences, arrays and tuples may nest in bytes decoded from
+ * outside the chain. Each level adds at most two JSON levels, so the JSON stays well under
+ * serde_json's limit of 128, and a call can nest at most 24 calls (two levels each), fewer
+ * when the innermost call's arguments nest further.
+ */
+pub const MAX_DEPTH: usize = 48;
 
 /** Which key holds a field's type name: `type` for call arguments, `typeName` for events. */
 #[derive(Clone, Copy)]
@@ -89,11 +98,22 @@ impl<'a> Encoder<'a> {
 		})
 	}
 
-	/** SCALE bytes of type `ty` as JSON, or `None` when they don't decode as it. */
+	/**
+	 * SCALE bytes of type `ty` as JSON, or `None` when they aren't exactly one value of it. The
+	 * bytes are checked before anything is allocated for them: they must nest no deeper than
+	 * [`MAX_DEPTH`], and their sequences together may declare no more items than there are
+	 * bytes.
+	 */
 	pub fn decode(&self, ty: u32, bytes: &[u8]) -> Option<Json> {
-		let value =
-			scale_value::scale::decode_as_type(&mut &bytes[..], ty, self.metadata.types()).ok()?;
-		Some(self.value(&value))
+		let types = self.metadata.types();
+		let mut check = Check { types, input: bytes, items: bytes.len() };
+		check.value(ty, 0)?;
+		if !check.input.is_empty() {
+			return None;
+		}
+		let mut input = bytes;
+		let value = scale_value::scale::decode_as_type(&mut input, ty, types).ok()?;
+		input.is_empty().then(|| self.value(&value))
 	}
 
 	pub fn value(&self, value: &Value<u32>) -> Json {
@@ -174,12 +194,99 @@ impl<'a> Encoder<'a> {
 	}
 }
 
+/**
+ * Walks SCALE bytes as a type without allocating. scale_value reserves room for a sequence's
+ * declared length before decoding an item and recurses without a limit, so untrusted bytes
+ * pass this walk first. Each item that takes up input starts at a byte no other item starts
+ * at, so a well formed value never declares more sequence items than it has bytes.
+ */
+struct Check<'a> {
+	types: &'a PortableRegistry,
+	input: &'a [u8],
+	/** How many more sequence items the input may declare. */
+	items: usize,
+}
+
+impl<'a> Check<'a> {
+	fn value(&mut self, ty: u32, depth: usize) -> Option<()> {
+		let types = self.types;
+		let ty = types.resolve(ty)?;
+		let nested = (depth < MAX_DEPTH).then_some(depth + 1);
+		match &ty.type_def {
+			TypeDef::Composite(composite) => {
+				let depth = nested?;
+				composite.fields.iter().try_for_each(|field| self.value(field.ty.id, depth))
+			},
+			TypeDef::Variant(variants) => {
+				let depth = nested?;
+				let index = *self.take(1)?.first()?;
+				let variant = variants.variants.iter().find(|variant| variant.index == index)?;
+				variant.fields.iter().try_for_each(|field| self.value(field.ty.id, depth))
+			},
+			TypeDef::Sequence(sequence) => {
+				let depth = nested?;
+				let len = usize::try_from(Compact::<u64>::decode(&mut self.input).ok()?.0).ok()?;
+				self.items = self.items.checked_sub(len)?;
+				self.items(sequence.type_param.id, len, depth)
+			},
+			TypeDef::Array(array) => self.items(array.type_param.id, array.len as usize, nested?),
+			TypeDef::Tuple(tuple) => {
+				let depth = nested?;
+				tuple.fields.iter().try_for_each(|field| self.value(field.id, depth))
+			},
+			TypeDef::Primitive(TypeDefPrimitive::Str) => {
+				let len = Compact::<u32>::decode(&mut self.input).ok()?.0;
+				self.take(len as usize).map(drop)
+			},
+			TypeDef::Primitive(primitive) => self.take(primitive_size(primitive)?).map(drop),
+			TypeDef::Compact(_) => Compact::<u128>::decode(&mut self.input).ok().map(drop),
+			TypeDef::BitSequence(bits) => {
+				let TypeDef::Primitive(store) = &types.resolve(bits.bit_store_type.id)?.type_def
+				else {
+					return None;
+				};
+				let store = primitive_size(store)?;
+				let len = Compact::<u32>::decode(&mut self.input).ok()?.0 as usize;
+				self.take(len.div_ceil(store * 8) * store).map(drop)
+			},
+		}
+	}
+
+	/** `len` items of type `item`, taking a byte string in one step. */
+	fn items(&mut self, item: u32, len: usize, depth: usize) -> Option<()> {
+		let types = self.types;
+		match types.resolve(item).map(|ty| &ty.type_def) {
+			Some(TypeDef::Primitive(TypeDefPrimitive::U8)) => self.take(len).map(drop),
+			_ => (0..len).try_for_each(|_| self.value(item, depth)),
+		}
+	}
+
+	fn take(&mut self, len: usize) -> Option<&'a [u8]> {
+		let (taken, rest) = self.input.split_at_checked(len)?;
+		self.input = rest;
+		Some(taken)
+	}
+}
+
+/** The encoded size of a fixed width primitive. */
+fn primitive_size(primitive: &TypeDefPrimitive) -> Option<usize> {
+	match primitive {
+		TypeDefPrimitive::Bool | TypeDefPrimitive::U8 | TypeDefPrimitive::I8 => Some(1),
+		TypeDefPrimitive::U16 | TypeDefPrimitive::I16 => Some(2),
+		TypeDefPrimitive::U32 | TypeDefPrimitive::I32 | TypeDefPrimitive::Char => Some(4),
+		TypeDefPrimitive::U64 | TypeDefPrimitive::I64 => Some(8),
+		TypeDefPrimitive::U128 | TypeDefPrimitive::I128 => Some(16),
+		TypeDefPrimitive::U256 | TypeDefPrimitive::I256 => Some(32),
+		TypeDefPrimitive::Str => None,
+	}
+}
+
 /** `System::SS58Prefix`, or the generic Substrate prefix 42 for a runtime without one. */
 fn ss58_prefix(metadata: &Metadata) -> u16 {
 	metadata
 		.pallet_by_name("System")
 		.and_then(|pallet| pallet.constant_by_name("SS58Prefix"))
-		.and_then(|constant| <u16 as codec::Decode>::decode(&mut constant.value()).ok())
+		.and_then(|constant| u16::decode(&mut constant.value()).ok())
 		.unwrap_or(42)
 }
 
@@ -265,7 +372,68 @@ pub fn camel_case(name: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+	use codec::Encode;
+
 	use super::*;
+	use crate::decode::{decode_metadata, testdata::NEXUS};
+
+	fn call_index(metadata: &Metadata, pallet: &str, call: &str) -> [u8; 2] {
+		let pallet = metadata.pallet_by_name(pallet).unwrap();
+		[pallet.index(), pallet.call_variant_by_name(call).unwrap().index]
+	}
+
+	/** `System::remark(remark)` wrapped in `depth` calls of `Utility::as_derivative`. */
+	fn nested_remark(metadata: &Metadata, depth: usize, remark: &[u8]) -> Vec<u8> {
+		let derivative = [&call_index(metadata, "Utility", "as_derivative")[..], &[0, 0]].concat();
+		let remark = [&call_index(metadata, "System", "remark")[..], &remark.encode()].concat();
+		[derivative.repeat(depth), remark].concat()
+	}
+
+	#[test]
+	fn declared_lengths_beyond_the_input_are_rejected_before_allocating() {
+		let metadata = decode_metadata(NEXUS.metadata).unwrap();
+		let encoder = Encoder::ss58(&metadata);
+		let ty = metadata.outer_enums().call_enum_ty();
+		let remark = call_index(&metadata, "System", "remark");
+
+		for len in [1u64 << 34, u64::MAX] {
+			let call = [&remark[..], &codec::Compact(len).encode()].concat();
+			assert_eq!(encoder.decode(ty, &call), None);
+		}
+		let call = nested_remark(&metadata, 0, b"hello");
+		assert_eq!(encoder.decode(ty, &call).unwrap()["args"][0]["value"], "0x68656c6c6f");
+	}
+
+	#[test]
+	fn nesting_is_bounded_and_stays_parseable() {
+		let metadata = decode_metadata(NEXUS.metadata).unwrap();
+		let encoder = Encoder::ss58(&metadata);
+		let ty = metadata.outer_enums().call_enum_ty();
+
+		let deepest = (0..)
+			.take_while(|depth| {
+				encoder.decode(ty, &nested_remark(&metadata, *depth, &[])).is_some()
+			})
+			.last()
+			.unwrap();
+		assert!(deepest >= 20, "only {deepest} nested calls decode");
+		let text = encoder.decode(ty, &nested_remark(&metadata, deepest, &[])).unwrap().to_string();
+		assert!(serde_json::from_str::<Json>(&text).is_ok());
+
+		// Deep enough to overflow the stack if the walk or the decode recursed without a bound.
+		assert_eq!(encoder.decode(ty, &nested_remark(&metadata, 100_000, &[])), None);
+	}
+
+	#[test]
+	fn trailing_bytes_are_rejected() {
+		let metadata = decode_metadata(NEXUS.metadata).unwrap();
+		let encoder = Encoder::ss58(&metadata);
+		let ty = metadata.outer_enums().call_enum_ty();
+
+		let call = nested_remark(&metadata, 1, b"hi");
+		assert!(encoder.decode(ty, &call).is_some());
+		assert_eq!(encoder.decode(ty, &[&call[..], &[0]].concat()), None);
+	}
 
 	#[test]
 	fn names_follow_polkadot_js() {

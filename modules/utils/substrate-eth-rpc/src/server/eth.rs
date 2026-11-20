@@ -156,9 +156,8 @@ impl ChainRpc {
 			.await?;
 
 		// A JSON read answers an empty string for a value that is absent or doesn't decode.
-		let json = |value: Option<serde_json::Value>| {
-			let text = value.map(|value| value.to_string()).unwrap_or_default();
-			Bytes::from(sol_data::String::abi_encode(&text))
+		let json = |text: Option<String>| {
+			Bytes::from(sol_data::String::abi_encode(&text.unwrap_or_default()))
 		};
 		let bytes = |value: Option<Vec<u8>>| {
 			Bytes::from(sol_data::Bytes::abi_encode(&value.unwrap_or_default()))

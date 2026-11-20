@@ -1,5 +1,5 @@
 use std::{
-	collections::{hash_map::Entry, HashMap},
+	collections::{hash_map::Entry, BTreeMap, HashMap},
 	future::Future,
 	sync::{Arc, Mutex},
 	time::{Duration, SystemTime, UNIX_EPOCH},
@@ -15,7 +15,7 @@ use serde_json::Value as Json;
 use sp_crypto_hashing::twox_128;
 use subxt_core::Metadata;
 use tokio::{
-	sync::{Semaphore, SemaphorePermit},
+	sync::{OwnedSemaphorePermit, Semaphore},
 	time::Instant,
 };
 
@@ -33,6 +33,8 @@ use crate::{
 
 const DECODE_CONCURRENCY: usize = 16;
 const MAX_BACKOFF: Duration = Duration::from_secs(5);
+/** The largest call `call_json` decodes, `pallet_preimage`'s largest preimage. */
+pub const MAX_CALL_SIZE: usize = 4 * 1024 * 1024;
 
 #[derive(Debug, thiserror::Error)]
 pub enum BlockError {
@@ -62,6 +64,8 @@ pub enum BlockError {
 	RangeDeadline { from: u64, to: u64, decoded_to: Option<u64> },
 	#[error("toBlock {to} is beyond finalized head {head}")]
 	BeyondHead { to: u64, head: u64 },
+	#[error("call of {len} bytes exceeds max {max}")]
+	CallTooLarge { len: usize, max: usize },
 	#[error("decode task: {0}")]
 	Task(String),
 	#[error(transparent)]
@@ -87,7 +91,8 @@ pub struct BlockService {
 	cache: BlockCache,
 	finalized: FinalizedCache,
 	in_flight: Mutex<HashMap<H256, InFlight>>,
-	upstream: Semaphore,
+	metadata_fetch: Mutex<BTreeMap<u32, Arc<tokio::sync::Mutex<()>>>>,
+	upstream: Arc<Semaphore>,
 	cooldown_until: Mutex<Option<Instant>>,
 	concurrency: usize,
 }
@@ -96,7 +101,7 @@ impl BlockService {
 	pub fn new(rpc: Arc<dyn SubstrateRpc>, chain: ChainConfig) -> Result<Self, BlockError> {
 		let mapper = Arc::new(Mapper::new(pallets_for(&chain.pallets)?));
 		let cache = BlockCache::new(chain.cache_blocks);
-		let upstream = Semaphore::new(chain.upstream_concurrency.max(1));
+		let upstream = Arc::new(Semaphore::new(chain.upstream_concurrency.max(1)));
 		Ok(Self {
 			rpc,
 			chain,
@@ -105,6 +110,7 @@ impl BlockService {
 			cache,
 			finalized: FinalizedCache::default(),
 			in_flight: Mutex::new(HashMap::new()),
+			metadata_fetch: Mutex::new(BTreeMap::new()),
 			upstream,
 			cooldown_until: Mutex::new(None),
 			concurrency: DECODE_CONCURRENCY,
@@ -253,51 +259,88 @@ impl BlockService {
 			.map_err(|e| BlockError::from(e).at(at))
 	}
 
-	/** The value at `key` as of block `at`, decoded as its storage entry's type, as JSON. */
-	pub async fn storage_json(&self, key: &[u8], at: u64) -> Result<Option<Json>, BlockError> {
-		let (hash, metadata) = self.state_metadata(at).await?;
-		let value = self
-			.upstream(&format!("block {at}"), || self.rpc.storage(key, hash))
-			.await
-			.map_err(|e| BlockError::from(e).at(at))?;
-		let ty = storage_type(&metadata, key);
-		Ok(value
-			.zip(ty)
-			.and_then(|(value, ty)| Encoder::ss58(&metadata).decode(ty, &value)))
+	/** The value at `key` as of block `at`, decoded as its storage entry's type, as JSON text. */
+	pub async fn storage_json(&self, key: &[u8], at: u64) -> Result<Option<String>, BlockError> {
+		let (metadata, value) = tokio::try_join!(self.state_metadata(at), self.storage(key, at))?;
+		let Some((value, ty)) = value.zip(storage_type(&metadata, key)) else {
+			return Ok(None);
+		};
+		self.render(metadata, move |encoder| encoder.decode(ty, &value)).await
 	}
 
-	/** A pallet's constant in the runtime of block `at`, as JSON. */
+	/** A pallet's constant in the runtime of block `at`, as JSON text. */
 	pub async fn constant_json(
 		&self,
 		pallet: &str,
 		name: &str,
 		at: u64,
-	) -> Result<Option<Json>, BlockError> {
-		let (_, metadata) = self.state_metadata(at).await?;
-		let constant = metadata.pallet_by_name(pallet).and_then(|p| p.constant_by_name(name));
-		Ok(constant.and_then(|c| Encoder::ss58(&metadata).decode(c.ty(), c.value())))
+	) -> Result<Option<String>, BlockError> {
+		let metadata = self.state_metadata(at).await?;
+		let (pallet, name) = (pallet.to_owned(), name.to_owned());
+		self.render(metadata, move |encoder| {
+			let constant = encoder.metadata.pallet_by_name(&pallet)?.constant_by_name(&name)?;
+			encoder.decode(constant.ty(), constant.value())
+		})
+		.await
 	}
 
-	/** An encoded call decoded with the runtime of block `at`, as JSON, or `None` when the
+	/** An encoded call decoded with the runtime of block `at`, as JSON text, or `None` when the
 	 * bytes aren't one of its calls. */
-	pub async fn call_json(&self, call: &[u8], at: u64) -> Result<Option<Json>, BlockError> {
-		let (_, metadata) = self.state_metadata(at).await?;
-		let ty = metadata.outer_enums().call_enum_ty();
-		Ok(Encoder::ss58(&metadata).decode(ty, call))
+	pub async fn call_json(&self, call: &[u8], at: u64) -> Result<Option<String>, BlockError> {
+		if call.len() > MAX_CALL_SIZE {
+			return Err(BlockError::CallTooLarge { len: call.len(), max: MAX_CALL_SIZE });
+		}
+		let metadata = self.state_metadata(at).await?;
+		let call = call.to_vec();
+		self.render(metadata, move |encoder| {
+			encoder.decode(encoder.metadata.outer_enums().call_enum_ty(), &call)
+		})
+		.await
 	}
 
-	/** Block `at`'s hash and the metadata of the runtime that wrote its state, which is the
-	 * runtime its parent reports, as for its events. */
-	async fn state_metadata(&self, at: u64) -> Result<(H256, Arc<Metadata>), BlockError> {
-		let hash = self.finalized_hash(at).await?;
-		let spec_at = if at == 0 { hash } else { self.finalized_hash(at - 1).await? };
+	/** Runs a JSON decode on the blocking pool under an upstream permit, so that
+	 * `upstream_concurrency` bounds these decodes as it bounds block decodes. The decode owns
+	 * the permit, so a cancelled request still holds it until its decode finishes. */
+	async fn render<F>(
+		&self,
+		metadata: Arc<Metadata>,
+		decode: F,
+	) -> Result<Option<String>, BlockError>
+	where
+		F: FnOnce(&Encoder) -> Option<Json> + Send + 'static,
+	{
+		let permit = self.acquire_upstream().await?;
+		tokio::task::spawn_blocking(move || {
+			let _permit = permit;
+			decode(&Encoder::ss58(&metadata)).map(|json| json.to_string())
+		})
+		.await
+		.map_err(|err| BlockError::Task(err.to_string()))
+	}
+
+	/** The metadata of the runtime that wrote block `at`'s state, which is the runtime its
+	 * parent reports, as for its events. A block in the cache already carries that version. */
+	async fn state_metadata(&self, at: u64) -> Result<Arc<Metadata>, BlockError> {
+		if at > self.finalized_number().await? {
+			return Err(BlockError::NotFound(at));
+		}
 		let label = format!("block {at}");
-		let version = self
-			.upstream(&label, || self.rpc.runtime_version(spec_at))
-			.await
-			.map_err(|e| BlockError::from(e).at(at))?;
-		let metadata = self.metadata(version.spec_version, spec_at, &label).await?;
-		Ok((hash, metadata))
+		let (spec_version, spec_at, _permit) = match self.cache.get_by_number(at) {
+			Some(block) => {
+				let spec_at = if at == 0 { block.hash } else { block.parent_hash };
+				(block.spec_version, spec_at, None)
+			},
+			None => {
+				let permit = self.acquire_upstream().await?;
+				let spec_at = self.canonical_hash(at.saturating_sub(1)).await?;
+				let version = self
+					.upstream(&label, || self.rpc.runtime_version(spec_at))
+					.await
+					.map_err(|e| BlockError::from(e).at(at))?;
+				(version.spec_version, spec_at, Some(permit))
+			},
+		};
+		self.metadata(spec_version, spec_at, &label).await
 	}
 
 	async fn metadata(
@@ -309,8 +352,28 @@ impl BlockService {
 		if let Some(metadata) = self.metadata.get(spec_version) {
 			return Ok(metadata);
 		}
-		let raw = self.upstream(label, || self.rpc.metadata(at)).await?;
-		Ok(self.metadata.insert(spec_version, &raw)?)
+		// Fetches of one runtime take turns, so requests that miss it together fetch it once,
+		// while misses of different runtimes still fetch in parallel.
+		let fetch = self
+			.metadata_fetch
+			.lock()
+			.unwrap_or_else(|e| e.into_inner())
+			.entry(spec_version)
+			.or_default()
+			.clone();
+		let _fetching = fetch.lock().await;
+		if let Some(metadata) = self.metadata.get(spec_version) {
+			return Ok(metadata);
+		}
+		let fetched = match self.upstream(label, || self.rpc.metadata(at)).await {
+			Ok(raw) => self.metadata.insert(spec_version, &raw).map_err(BlockError::from),
+			Err(err) => Err(err.into()),
+		};
+		let mut fetches = self.metadata_fetch.lock().unwrap_or_else(|e| e.into_inner());
+		if fetches.get(&spec_version).is_some_and(|entry| Arc::ptr_eq(entry, &fetch)) {
+			fetches.remove(&spec_version);
+		}
+		fetched
 	}
 
 	fn cached_prefix_end(&self, from: u64, to: u64) -> Option<u64> {
@@ -378,7 +441,7 @@ impl BlockService {
 	}
 
 	async fn decode_block(&self, hash: H256) -> Result<Option<Arc<DecodedBlock>>, BlockError> {
-		let permit = self.acquire_upstream().await;
+		let permit = self.acquire_upstream().await?;
 		let Some(raw) = self.upstream(&format!("block {hash}"), || self.rpc.block(hash)).await?
 		else {
 			return Ok(None);
@@ -425,12 +488,13 @@ impl BlockService {
 
 	// During a rate-limit cooldown every fetch holds two permits, which halves the number of
 	// blocks in flight against the upstream.
-	async fn acquire_upstream(&self) -> SemaphorePermit<'_> {
+	async fn acquire_upstream(&self) -> Result<OwnedSemaphorePermit, BlockError> {
 		let permits = if self.cooling_down() { 2.min(self.chain.upstream_concurrency) } else { 1 };
 		self.upstream
-			.acquire_many(permits as u32)
+			.clone()
+			.acquire_many_owned(permits as u32)
 			.await
-			.expect("upstream semaphore is never closed")
+			.map_err(|err| BlockError::Task(err.to_string()))
 	}
 
 	fn cooling_down(&self) -> bool {
@@ -621,7 +685,7 @@ mod tests {
 
 	use super::*;
 	use crate::{
-		decode::testdata::NEXUS,
+		decode::{decode_metadata, testdata::NEXUS},
 		substrate::{
 			fixture::FixtureRuntimeVersion, BlockHeader, FixtureBlock, FixtureRpc, RuntimeVersion,
 		},
@@ -688,6 +752,9 @@ mod tests {
 	struct Wrapped {
 		inner: Arc<FixtureRpc>,
 		block_calls: AtomicUsize,
+		hash_calls: AtomicUsize,
+		version_calls: AtomicUsize,
+		metadata_calls: AtomicUsize,
 		fork_at: Option<u64>,
 		transient_failures: Mutex<HashMap<u64, u32>>,
 		transient_hits: AtomicUsize,
@@ -704,6 +771,9 @@ mod tests {
 			Self {
 				inner,
 				block_calls: AtomicUsize::new(0),
+				hash_calls: AtomicUsize::new(0),
+				version_calls: AtomicUsize::new(0),
+				metadata_calls: AtomicUsize::new(0),
 				fork_at: None,
 				transient_failures: Mutex::new(HashMap::new()),
 				transient_hits: AtomicUsize::new(0),
@@ -757,6 +827,7 @@ mod tests {
 		}
 
 		async fn block_hash(&self, number: u64) -> Result<Option<H256>, RpcError> {
+			self.hash_calls.fetch_add(1, Ordering::SeqCst);
 			if self.fork_at == Some(number) {
 				return Ok(Some(H256::repeat_byte(0xaa)));
 			}
@@ -796,10 +867,15 @@ mod tests {
 		}
 
 		async fn runtime_version(&self, at: H256) -> Result<RuntimeVersion, RpcError> {
+			self.version_calls.fetch_add(1, Ordering::SeqCst);
+			// Yielding lets concurrent requests overlap, as they would against a real node.
+			tokio::task::yield_now().await;
 			self.inner.runtime_version(at).await
 		}
 
 		async fn metadata(&self, at: H256) -> Result<Vec<u8>, RpcError> {
+			self.metadata_calls.fetch_add(1, Ordering::SeqCst);
+			tokio::task::yield_now().await;
 			self.inner.metadata(at).await
 		}
 	}
@@ -965,6 +1041,59 @@ mod tests {
 			Err(BlockError::NotFound(103))
 		));
 		assert_eq!(service.child_storage(b"child", b"key", 100).await.unwrap(), None);
+	}
+
+	fn remark(metadata: &Metadata) -> Vec<u8> {
+		let system = metadata.pallet_by_name("System").unwrap();
+		let remark = system.call_variant_by_name("remark").unwrap();
+		(system.index(), remark.index, b"hi".to_vec()).encode()
+	}
+
+	#[tokio::test]
+	async fn json_reads_of_a_cached_block_make_no_upstream_calls() {
+		let rpc = Wrapped::new(fixture());
+		let service = new_service(rpc.clone(), 1000);
+		service.block_by_number(100).await.unwrap().unwrap();
+		let calls = |rpc: &Wrapped| {
+			[&rpc.hash_calls, &rpc.version_calls, &rpc.metadata_calls]
+				.map(|calls| calls.load(Ordering::SeqCst))
+		};
+		let before = calls(&rpc);
+
+		let tracks = service.constant_json("Referenda", "Tracks", 100).await.unwrap().unwrap();
+		assert!(tracks.starts_with("[[0,"));
+		let metadata = decode_metadata(METADATA).unwrap();
+		let call = service.call_json(&remark(&metadata), 100).await.unwrap().unwrap();
+		assert!(call.contains(r#""method":"remark""#));
+		let now = service.storage_json(&timestamp_now_key(), 100).await.unwrap();
+		assert_eq!(now.as_deref(), Some(TIMESTAMP_MS.to_string().as_str()));
+		assert_eq!(calls(&rpc), before);
+
+		assert!(matches!(
+			service.constant_json("Referenda", "Tracks", 103).await,
+			Err(BlockError::NotFound(103))
+		));
+	}
+
+	#[tokio::test]
+	async fn json_reads_of_an_uncached_block_fetch_metadata_once() {
+		let rpc = Wrapped::new(fixture());
+		let service = new_service(rpc.clone(), 1000);
+		let reads = (0..8).map(|_| service.constant_json("Referenda", "Tracks", 101));
+		let tracks = futures::future::try_join_all(reads).await.unwrap();
+		assert!(tracks.iter().all(|tracks| tracks.is_some()));
+		assert_eq!(rpc.version_calls.load(Ordering::SeqCst), 8);
+		assert_eq!(rpc.metadata_calls.load(Ordering::SeqCst), 1);
+	}
+
+	#[tokio::test]
+	async fn call_json_rejects_oversized_calls() {
+		let service = new_service(fixture(), 1000);
+		let call = vec![0; MAX_CALL_SIZE + 1];
+		assert!(matches!(
+			service.call_json(&call, 100).await,
+			Err(BlockError::CallTooLarge { len, max: MAX_CALL_SIZE }) if len == MAX_CALL_SIZE + 1
+		));
 	}
 
 	#[tokio::test(start_paused = true)]

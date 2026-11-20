@@ -268,6 +268,25 @@ value at `key` as the type of the storage entry whose pallet and entry prefix it
 decodes the bytes of a call, such as a preimage, as `{callIndex, section, method, args}`. Each
 returns an empty string when there is nothing to decode.
 
+Anyone who reaches the RPC can send these calls, so the bytes are checked before they are
+decoded:
+
+- They must be exactly one value of the type, with no trailing bytes.
+- Composites, variants, sequences, arrays and tuples may nest at most 48 levels deep. Every
+  level adds at most two JSON levels, so the JSON stays under serde_json's limit of 128, and
+  a call can nest at most 24 calls (two levels each), fewer when the innermost call's
+  arguments nest further.
+- All the sequences in a value together may declare no more items than the value has bytes,
+  so a declared length can never reserve more memory than the input backs.
+- `decodeCallJson` takes calls of at most 4 MiB, the largest preimage, and answers a larger
+  one with `-32602 call of <n> bytes exceeds max 4194304`.
+
+Bytes that fail a check answer an empty string, like bytes that don't decode. Decoding runs
+on the blocking pool and holds an `upstream_concurrency` permit, as block decodes do. The
+runtime version comes from the block cache when the block was already fetched by
+`eth_getLogs`, so a JSON read of such a block makes no upstream call beyond the storage read,
+and concurrent reads that need the same uncached metadata fetch it once.
+
 ## Errors
 
 `eth_getLogs` is all or nothing: if any block in the range cannot be fetched or decoded,
@@ -282,6 +301,7 @@ the whole request fails and no partial result is returned.
 | `-32000` | `block hash <h> not found` | `eth_call` at a hash that is not a finalized canonical block |
 | `-32602` | `fromBlock <a> is after toBlock <b>` | Inverted range |
 | `-32602` | `blockHash filter not supported` | `eth_getLogs` with `blockHash` |
+| `-32602` | `call of <n> bytes exceeds max 4194304` | `decodeCallJson` with a call over 4 MiB |
 | `-32602` | parameter errors | Bad `eth_call` target or selector, malformed params |
 
 When a range misses `range_deadline_ms` the hint is `[fromBlock, k]`, where `k` is the

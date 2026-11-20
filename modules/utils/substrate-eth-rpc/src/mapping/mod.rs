@@ -3,6 +3,7 @@ mod bandwidth;
 mod collator_manager;
 mod consensus_incentives;
 pub mod explorer;
+pub mod governance;
 mod intents_coprocessor;
 mod ismp;
 mod relayer;
@@ -37,6 +38,7 @@ pub fn all_pallets() -> Vec<PalletSpec> {
 		bandwidth::spec(),
 		intents_coprocessor::spec(),
 		explorer::spec(),
+		governance::spec(),
 	]
 }
 
@@ -114,7 +116,16 @@ impl Mapper {
 
 	/** Whether the chain serves the `explorer` logs. */
 	pub fn explorer(&self) -> bool {
-		self.specs.iter().any(|spec| spec.key == explorer::KEY)
+		self.serves(explorer::KEY)
+	}
+
+	/** Whether the chain serves the `governance` logs. */
+	pub fn governance(&self) -> bool {
+		self.serves(governance::KEY)
+	}
+
+	fn serves(&self, key: &str) -> bool {
+		self.specs.iter().any(|spec| spec.key == key)
 	}
 
 	pub fn skipped_count(&self) -> u64 {
@@ -418,6 +429,11 @@ mod tests {
 				"Event(uint32,bool,uint32,string,string,string)",
 				"a4da8371a1b2468021f4ec82012d7aa076608b2c4d1b9fc82eed25b77abc6c90",
 			),
+			(
+				"governance",
+				"Event(uint32,bool,uint32,string,string,string)",
+				"a4da8371a1b2468021f4ec82012d7aa076608b2c4d1b9fc82eed25b77abc6c90",
+			),
 		];
 		let actual = all_pallets()
 			.into_iter()
@@ -447,7 +463,8 @@ mod tests {
 				"collatorManager",
 				"bandwidth",
 				"intentsCoprocessor",
-				"explorer"
+				"explorer",
+				"governance"
 			]
 		);
 		let names = pallets.iter().map(|p| p.metadata_name).collect::<Vec<_>>();
@@ -461,6 +478,7 @@ mod tests {
 				"CollatorManager",
 				"Bandwidth",
 				"IntentsCoprocessor",
+				"",
 				""
 			]
 		);
@@ -469,7 +487,7 @@ mod tests {
 	#[test]
 	fn all_pallet_keys_follow_spec_order() {
 		let keys = all_pallet_keys();
-		assert_eq!(keys.len(), 7);
+		assert_eq!(keys.len(), 8);
 		assert_eq!(keys[0], "ismp");
 		assert!(!keys.iter().any(|key| key == explorer::KEY), "explorer logs are opt-in");
 		let pallets = all_pallets().into_iter().filter(|p| p.key != explorer::KEY);

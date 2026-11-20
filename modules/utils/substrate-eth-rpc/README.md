@@ -230,6 +230,15 @@ them, except that numbers past 2^53 are decimal strings and accounts are hex. Th
 These logs take log indices after the block's events, so they never share one with a pallet
 log. An extrinsic that does not decode keeps its log with the call left blank.
 
+### Governance logs
+
+The `governance` key is not a pallet either. It gives a governance forum an `Event` log, the
+same signature as the explorer's, for each event of `Referenda`, `ConvictionVoting`,
+`Scheduler`, `TechnicalCollective`, `Whitelist`, `Preimage` and `Treasury`. Accounts in their
+arguments are SS58 with the chain's own `System::SS58Prefix`, as polkadot.js shows them. A node
+always serves them, since they only add a log per governance event, and a standalone facade
+for chains whose `pallets` include `governance`.
+
 ## Storage `eth_call`
 
 The storage target `0x401e375f643e635ef3b498cedbc47931d2474364` implements:
@@ -238,6 +247,9 @@ The storage target `0x401e375f643e635ef3b498cedbc47931d2474364` implements:
 interface SubstrateStorage {
     function getStorage(bytes key) external view returns (bytes value);
     function getChildStorage(bytes childKey, bytes key) external view returns (bytes value);
+    function getStorageJson(bytes key) external view returns (string value);
+    function getConstantJson(string pallet, string name) external view returns (string value);
+    function decodeCallJson(bytes call) external view returns (string value);
 }
 ```
 
@@ -248,6 +260,13 @@ and `getChildStorage` to `childstate_getStorage`. The block parameter may be a n
 a tag or a block hash. A number above the finalized head is `block <n> not found`; a
 hash that is not a finalized canonical block is `block hash <h> not found`. Any other `to` address returns `-32602 only the storage address is
 callable`; an unknown selector returns `-32602 unknown storage call: ...`.
+
+The JSON calls decode with the metadata of the runtime that wrote the block's state, the one
+its parent reports, and render values as the governance logs do. `getStorageJson` decodes the
+value at `key` as the type of the storage entry whose pallet and entry prefix it starts with,
+`getConstantJson` gives a pallet's constant, such as `Referenda` `Tracks`, and `decodeCallJson`
+decodes the bytes of a call, such as a preimage, as `{callIndex, section, method, args}`. Each
+returns an empty string when there is nothing to decode.
 
 ## Errors
 

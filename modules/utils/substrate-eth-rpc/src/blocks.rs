@@ -11,6 +11,9 @@ use futures::{
 	future::{BoxFuture, Shared},
 	stream, FutureExt, StreamExt, TryStreamExt,
 };
+use serde_json::Value as Json;
+use sp_crypto_hashing::twox_128;
+use subxt_core::Metadata;
 use tokio::{
 	sync::{Semaphore, SemaphorePermit},
 	time::Instant,
@@ -21,7 +24,8 @@ use crate::{
 	cache::{BlockCache, FinalizedCache},
 	config::ChainConfig,
 	decode::{decode_events, extrinsic_hashes, DecodeError, MetadataCache},
-	explorer,
+	explorer, governance,
+	json::Encoder,
 	mapping::{pallets_for, MappedLog, Mapper, MappingError},
 	substrate::{system_events_key, timestamp_now_key, RawBlock, RpcError, SubstrateRpc},
 	types::{DecodedBlock, EthLog, Hasher, Phase, H256},
@@ -249,6 +253,66 @@ impl BlockService {
 			.map_err(|e| BlockError::from(e).at(at))
 	}
 
+	/** The value at `key` as of block `at`, decoded as its storage entry's type, as JSON. */
+	pub async fn storage_json(&self, key: &[u8], at: u64) -> Result<Option<Json>, BlockError> {
+		let (hash, metadata) = self.state_metadata(at).await?;
+		let value = self
+			.upstream(&format!("block {at}"), || self.rpc.storage(key, hash))
+			.await
+			.map_err(|e| BlockError::from(e).at(at))?;
+		let ty = storage_type(&metadata, key);
+		Ok(value
+			.zip(ty)
+			.and_then(|(value, ty)| Encoder::ss58(&metadata).decode(ty, &value)))
+	}
+
+	/** A pallet's constant in the runtime of block `at`, as JSON. */
+	pub async fn constant_json(
+		&self,
+		pallet: &str,
+		name: &str,
+		at: u64,
+	) -> Result<Option<Json>, BlockError> {
+		let (_, metadata) = self.state_metadata(at).await?;
+		let constant = metadata.pallet_by_name(pallet).and_then(|p| p.constant_by_name(name));
+		Ok(constant.and_then(|c| Encoder::ss58(&metadata).decode(c.ty(), c.value())))
+	}
+
+	/** An encoded call decoded with the runtime of block `at`, as JSON, or `None` when the
+	 * bytes aren't one of its calls. */
+	pub async fn call_json(&self, call: &[u8], at: u64) -> Result<Option<Json>, BlockError> {
+		let (_, metadata) = self.state_metadata(at).await?;
+		let ty = metadata.outer_enums().call_enum_ty();
+		Ok(Encoder::ss58(&metadata).decode(ty, call))
+	}
+
+	/** Block `at`'s hash and the metadata of the runtime that wrote its state, which is the
+	 * runtime its parent reports, as for its events. */
+	async fn state_metadata(&self, at: u64) -> Result<(H256, Arc<Metadata>), BlockError> {
+		let hash = self.finalized_hash(at).await?;
+		let spec_at = if at == 0 { hash } else { self.finalized_hash(at - 1).await? };
+		let label = format!("block {at}");
+		let version = self
+			.upstream(&label, || self.rpc.runtime_version(spec_at))
+			.await
+			.map_err(|e| BlockError::from(e).at(at))?;
+		let metadata = self.metadata(version.spec_version, spec_at, &label).await?;
+		Ok((hash, metadata))
+	}
+
+	async fn metadata(
+		&self,
+		spec_version: u32,
+		at: H256,
+		label: &str,
+	) -> Result<Arc<Metadata>, BlockError> {
+		if let Some(metadata) = self.metadata.get(spec_version) {
+			return Ok(metadata);
+		}
+		let raw = self.upstream(label, || self.rpc.metadata(at)).await?;
+		Ok(self.metadata.insert(spec_version, &raw)?)
+	}
+
 	fn cached_prefix_end(&self, from: u64, to: u64) -> Option<u64> {
 		(from..=to)
 			.take_while(|number| self.cache.get_by_number(*number).is_some())
@@ -344,13 +408,7 @@ impl BlockService {
 			None => return Err(BlockError::MissingTimestamp(number)),
 		};
 
-		let metadata = match self.metadata.get(version.spec_version) {
-			Some(metadata) => metadata,
-			None => {
-				let raw_metadata = self.upstream(&at, || self.rpc.metadata(spec_at)).await?;
-				self.metadata.insert(version.spec_version, &raw_metadata)?
-			},
-		};
+		let metadata = self.metadata(version.spec_version, spec_at, &at).await?;
 		// Decoding is CPU work, so it runs on the blocking pool and keeps the permit, which
 		// makes `upstream_concurrency` the bound on parallel decodes too.
 		let mapper = self.mapper.clone();
@@ -421,6 +479,22 @@ impl BlockService {
 	}
 }
 
+/** The value type of the storage entry `key` belongs to, found by its pallet and entry
+ * prefix. */
+pub(crate) fn storage_type(metadata: &Metadata, key: &[u8]) -> Option<u32> {
+	metadata.pallets().find_map(|pallet| {
+		let storage = pallet.storage()?;
+		let prefix = twox_128(storage.prefix().as_bytes());
+		if key.get(..16)? != prefix {
+			return None;
+		}
+		storage.entries().iter().find_map(|entry| {
+			(key.get(16..32)? == twox_128(entry.name().as_bytes()))
+				.then(|| entry.entry_type().value_ty())
+		})
+	})
+}
+
 fn build_block(
 	mapper: &Mapper,
 	hasher: Hasher,
@@ -469,12 +543,17 @@ fn build_block(
 			logs.push(log(mapped, &event.phase, event.event_index as u64)?);
 		}
 	}
-	// Explorer logs come after every event's index, so they never share one with a pallet log.
+	// Explorer and governance logs come after every event's index, so they never share one
+	// with a pallet log.
+	let mut extra = Vec::new();
 	if mapper.explorer() {
-		let explorer = explorer::logs(metadata, &raw, spec_version, &events);
-		for (offset, (mapped, phase)) in explorer.into_iter().enumerate() {
-			logs.push(log(mapped, &phase, (events.len() + offset) as u64)?);
-		}
+		extra.extend(explorer::logs(metadata, &raw, spec_version, &events));
+	}
+	if mapper.governance() {
+		extra.extend(governance::logs(metadata, &events));
+	}
+	for (offset, (mapped, phase)) in extra.into_iter().enumerate() {
+		logs.push(log(mapped, &phase, (events.len() + offset) as u64)?);
 	}
 
 	let logs_bloom = block_bloom(&logs);

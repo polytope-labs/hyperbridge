@@ -30368,6 +30368,7 @@ dependencies = [
  "alloy-sol-types 1.5.7",
  "anyhow",
  "async-trait",
+ "bs58",
  "clap",
  "futures",
  "ismp",

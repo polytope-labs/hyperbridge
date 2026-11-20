@@ -2,8 +2,6 @@
 //! decode the pallet logs come from. A block whose extrinsics fail to decode still gets its
 //! logs, with the calls left blank, so an explorer never stalls the other logs of a block.
 
-mod args;
-
 use alloy_dyn_abi::DynSolValue;
 use alloy_primitives::U256;
 use subxt_core::{blocks::Extrinsics, config::SubstrateConfig, Metadata};
@@ -11,11 +9,11 @@ use tracing::warn;
 
 use crate::{
 	abi::encode_values,
+	json::{camel_case, Encoder, TypeKey},
 	mapping::{explorer, MappedLog},
 	substrate::RawBlock,
 	types::{pallet_address, DecodedEvent, Phase},
 };
-use args::{camel_case, TypeKey};
 
 /** A decoded call, or blank when the extrinsic couldn't be decoded. */
 #[derive(Default)]
@@ -49,7 +47,8 @@ pub fn logs(
 		data: encode_values(values),
 	};
 
-	let calls = calls(metadata, raw);
+	let encoder = Encoder::hex(metadata);
+	let calls = calls(&encoder, raw);
 	let in_extrinsic = |index: usize| {
 		events.iter().filter(move |e| e.phase == Phase::ApplyExtrinsic(index as u32))
 	};
@@ -81,21 +80,9 @@ pub fn logs(
 		];
 		(log("Extrinsic", values), Phase::ApplyExtrinsic(index as u32))
 	});
-	let events = events.iter().map(|event| {
-		let extrinsic = match event.phase {
-			Phase::ApplyExtrinsic(index) => Some(index),
-			_ => None,
-		};
-		let values = vec![
-			uint(event.event_index),
-			DynSolValue::Bool(extrinsic.is_some()),
-			uint(extrinsic.unwrap_or_default()),
-			DynSolValue::String(camel_case(&event.pallet)),
-			DynSolValue::String(event.variant.clone()),
-			DynSolValue::String(event_args(metadata, event).to_string()),
-		];
-		(log("Event", values), event.phase.clone())
-	});
+	let events = events
+		.iter()
+		.map(|event| (log("Event", event_values(&encoder, event)), event.phase.clone()));
 
 	std::iter::once((block, Phase::Initialization))
 		.chain(extrinsics)
@@ -103,11 +90,11 @@ pub fn logs(
 		.collect()
 }
 
-fn calls(metadata: &Metadata, raw: &RawBlock) -> Vec<Call> {
+fn calls(encoder: &Encoder, raw: &RawBlock) -> Vec<Call> {
 	let blank = || raw.extrinsics.iter().map(|_| Call::default()).collect();
 	let extrinsics = match Extrinsics::<SubstrateConfig>::decode_from(
 		raw.extrinsics.clone(),
-		metadata.clone(),
+		encoder.metadata.clone(),
 	) {
 		Ok(extrinsics) => extrinsics,
 		Err(error) => {
@@ -126,7 +113,7 @@ fn calls(metadata: &Metadata, raw: &RawBlock) -> Vec<Call> {
 				Ok((pallet, variant, values)) => (
 					camel_case(&pallet),
 					camel_case(&variant.name),
-					args::args(metadata, &variant.fields, &values, TypeKey::Call),
+					encoder.args(&variant.fields, &values, TypeKey::Call),
 				),
 				Err(error) => {
 					warn!(block = raw.number, index = extrinsic.index(), %error, "explorer: call did not decode");
@@ -144,12 +131,29 @@ fn calls(metadata: &Metadata, raw: &RawBlock) -> Vec<Call> {
 		.collect()
 }
 
-fn event_args(metadata: &Metadata, event: &DecodedEvent) -> serde_json::Value {
-	metadata
+/** The fields of an `Event` log, which the governance logs share. */
+pub(crate) fn event_values(encoder: &Encoder, event: &DecodedEvent) -> Vec<DynSolValue> {
+	let extrinsic = match event.phase {
+		Phase::ApplyExtrinsic(index) => Some(index),
+		_ => None,
+	};
+	vec![
+		uint(event.event_index),
+		DynSolValue::Bool(extrinsic.is_some()),
+		uint(extrinsic.unwrap_or_default()),
+		DynSolValue::String(camel_case(&event.pallet)),
+		DynSolValue::String(event.variant.clone()),
+		DynSolValue::String(event_args(encoder, event).to_string()),
+	]
+}
+
+fn event_args(encoder: &Encoder, event: &DecodedEvent) -> serde_json::Value {
+	encoder
+		.metadata
 		.pallet_by_name(&event.pallet)
 		.and_then(|pallet| pallet.event_variants())
 		.and_then(|variants| variants.iter().find(|v| v.name == event.variant))
-		.map(|variant| args::args(metadata, &variant.fields, &event.fields, TypeKey::Event))
+		.map(|variant| encoder.args(&variant.fields, &event.fields, TypeKey::Event))
 		.unwrap_or(serde_json::Value::Null)
 }
 

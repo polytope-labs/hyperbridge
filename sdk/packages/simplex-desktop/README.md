@@ -54,12 +54,18 @@ then save and acknowledge the replacement recovery code. Changes take effect on 
 recovery preserves the config and does not restart an already protected solver. Authorization expires
 after ten minutes. Cancelling before confirmation preserves existing credentials. A password reset
 removes the current passkey; replacing a passkey preserves an existing password fallback.
-Without a working sign-in or recovery method, the app does not delete or reset the profile.
+Without a working sign-in or recovery method, the app does not delete or reset the profile: remove the
+user-data directory by hand to start again.
 Old metadata backups and their corresponding password/recovery code may still decrypt the config;
 a restored older backup also still accepts the passkey it recorded, so replacement does not revoke it.
 
 Passkeys require secure OS storage. Mac native passkeys also require Apple signing, a provisioning
 profile, and the configured associated domain; Windows requires browser platform WebAuthn support.
+Storage availability checks return unavailable after five seconds, so a stalled OS check does not
+indefinitely hide password login. Password-protected configuration remains encrypted; OS-backed
+passkeys and background resume require a completed availability check. The locked login screen
+refreshes unavailable storage every two seconds, pausing during authentication, so a slow successful
+check can restore passkey access without restarting the app.
 If the device prompt is unavailable or cancelled, retry or choose another sign-in method. A request expires
 after two minutes and can also be cancelled from Simplex. Linux passkey integration is not
 implemented.
@@ -104,11 +110,16 @@ The tray and application menus deliberately provide two separate exit commands:
 
 The app polls the private socket every three seconds. Its tray icon, native menu, tooltip, and window
 title distinguish setup, running, paused, stopping, stopped, and unreachable states. It requires two
-consecutive failed probes before declaring a running solver unreachable. A transport failure raises
-an operating-system notification; clean socket removal is shown as stopped without calling it a
-crash, because it may be a deliberate dashboard stop. Restart is operator-controlled and remains
+consecutive failed probes before declaring a running solver unreachable. Interrupted responses fail
+within a bounded deadline so later polls continue. Unexpected disappearance raises an operating-system
+notification, including Windows named-pipe removal. Accepted desktop dashboard and native-menu stop
+requests, and an observed stopping state, suppress that notification. Restart is operator-controlled and remains
 disabled while graceful shutdown drains in-flight work, so the shell cannot start a second filler on
 the same signer.
+
+If the dashboard renderer crashes, Electron reloads it once without restarting the solver. Another
+renderer crash in that window offers **Reload dashboard** or **Later**. **Show Simplex** also retries
+a crashed dashboard. Recovery is disabled while quitting or installing an update.
 
 While the solver is actively filling and Electron remains open, its `powerSaveBlocker` prevents app
 suspension. The native menu says whether sleep prevention is on. Pausing or stopping the solver
@@ -135,17 +146,44 @@ key storage, filling waits for an interactive unlock after a reboot or update. m
 Electron's login-item API; Linux uses the equivalent per-user XDG autostart entry. Development runs
 do not register the Electron development binary.
 
-Native menus also provide About, Open Data Directory, Open Current Log, update checks, and a
+Native menus also provide About, Open Data Directory, Open Current Log, the update check and install, and a
 stable/beta channel selector while preserving the platform Edit and Window roles and their keyboard
 shortcuts. Update controls are available only in an installed build; development launches never
 contact the release feed.
 
-Simplex does not upload crash reports. Solver diagnostics remain in rotating NDJSON launch logs under
-`<userData>/logs`; five launches are retained, and **Open Current Log** opens the newest one. This
-avoids a remote crash-reporting path that could accidentally capture config contents or key material.
+Solver activity remains in NDJSON launch logs under `<userData>/logs`; five launches are retained,
+and **Open Current Log** opens the newest one. Scrubbed desktop errors and solver fatal errors are
+written separately under `<userData>/diagnostics`, accessible through **Open Data Directory**.
+Each source retains five files of up to 1 MiB. Local diagnostics work without a Sentry DSN and with
+`SIMPLEX_ERROR_REPORTING=off`. Builds with a DSN may also send scrubbed error events as described in
+[Sentry error reporting](../../../docs/ai/changelog/2026-10-14-simplex-sentry-error-reporting.md).
+No native memory dumps are collected.
 
-Desktop removal leaves Electron's user-data directory in place. Neither this shell nor its installer
-contract deletes operator databases, logs, or configuration.
+**Reset Configuration…**, in the tray and application menus, returns Simplex to its first launch.
+It asks for confirmation, stops the solver and waits for it to exit, turns off launch at login, and
+relaunches. The relaunched app deletes every file in the user-data directory but its
+`simplex-profile` file before it opens it:
+`filler-config.toml` with the solver wallet's key, `desktop-vault.json`, the databases, paired
+devices, logs and the update channel. The reset needs an unlocked session, like **Stop solver**, and
+is unavailable while an update is stopping the solver or installing. Afterwards the funds in the
+solver wallet can be reached only with a backup of its key.
+
+The databases hold the bid records. A bid's deposit on Hyperbridge is reclaimed by retracting the
+bid, and the solver retracts from those records. The confirmation says how many bids still hold a
+deposit, or that it could not check because the solver is not running. After you confirm, Simplex
+pauses the solver and counts again, and asks once more if the count rose or can no longer be read. Reset once that count is
+zero and no BRIDGE top-up is in progress, unless those deposits are to be given up.
+
+The reset removes only the user-data directory, and the confirmation names it. It runs only in a
+directory Simplex set up for itself: the app's default one, or one that was empty when
+`--user-data-dir` first pointed at it. Simplex marks such a directory with an empty
+`simplex-profile` file. It refuses the home directory and any directory above it. Three things
+outside that directory stay: a passkey created for the old profile, which can be removed in the system's
+password manager; the update download cache; and the key the operating system's keychain holds for
+Simplex's encrypted storage.
+
+Desktop removal leaves Electron's user-data directory in place. Apart from **Reset Configuration**,
+neither this shell nor its installer contract deletes operator databases, logs, or configuration.
 Operators may remove that directory manually only after confirming no reclaimable deposits or records
 are needed. The Windows NSIS uninstaller explicitly disables app-data deletion; macOS and Linux
 removal likewise leave the per-user data directory untouched.
@@ -224,16 +262,17 @@ without a separate trusted network boundary.
 ## Runtime resources
 
 The staging script follows Node's binary-verification procedure: it verifies the signed
-`SHASUMS256.txt.asc` with the pinned release key, verifies the selected Node 24.19.0 archive checksum,
+`SHASUMS256.txt.asc` with the pinned release key, verifies the selected Node 24.22.1 archive checksum,
 and installs only `node` or `node.exe`. `darwin-universal` verifies both macOS slices independently
 before merging them with `lipo`.
 
-The desktop process requires the three solver resources plus the status variants derived from the
+The desktop process requires the runtime resources plus the status variants derived from the
 PWA logo, and fails before creating a window if any is missing:
 
 - `resources/node/<platform>-<arch>/node` in development, or `node.exe` on Windows;
 - `@hyperbridge/simplex/dist/bin/simplex.js`;
 - `@hyperbridge/simplex/dist/ui/index.html`.
+- `dist/solver-diagnostics.js` in development, or `desktop/solver-diagnostics.mjs` in packaged resources.
 - `resources/tray/<state>.png` in development, with 18px macOS `Template` and 36px `Template@2x`
   variants; packaged builds place them under `desktop/tray` in Electron resources.
 
@@ -394,32 +433,47 @@ release directory. Absolute URLs, foreign hosts, path traversal, query strings, 
 rejected. SHA-512 still protects download integrity, but is not treated as publisher authentication
 because the checksum and artifact list come from the same release metadata.
 
-After download, the app waits until `/api/status` reports no active evaluation, queued fill, active
-fill, bid retraction, or portfolio rebalancing work. A running solver must also have no queued
-evaluations; a paused solver may discard those not-yet-started evaluations through its existing
-graceful-stop behavior. The app then asks the solver to stop gracefully and waits for both its private
-socket and operating-system process to disappear before invoking the installer. A solver that does
-not drain is never killed: the update remains staged and is retried. After 24 hours the app notifies
-the operator to pause new fills and create a safe window.
+A downloaded update is never installed by itself. When the download finishes, the dashboard shows
+an **Update to \<version\>** button at the bottom of its sidebar, and the update item in the tray and
+application menus becomes **Install Update \<version\>**. Nothing more happens until the operator
+uses one of them. The app does not check the feed again while a downloaded update waits. A newer
+release is found after the waiting one is installed, or the next time the app starts.
 
-A previous-version solver that does not yet report its PID can still be attached and restarted
-gracefully, using release of the private socket as the exit proof. Automatic installation remains
-staged until the app is supervising a PID-reporting solver, so updater safety is never weakened.
+The install asks the solver to stop gracefully, so it finishes its in-flight fills as it does for
+**Stop solver**. The app then waits for both the private socket and the operating-system process to
+disappear before it invokes the installer. That wait has no deadline, because a stop cannot be taken
+back, and the solver is never killed. The dashboard shows an updating screen in place of its pages
+while the install runs, and it says to quit and reopen Simplex if the install never finishes. While
+the install runs, nothing can start a solver: both restart menu items are disabled, and so are the
+reset and the channel selector.
 
-A staged update is also left untouched while the operator has intentionally stopped the solver. On
-relaunch, Electron rechecks the feed so its updater instance revalidates the cached artifact before
-stopping anything. If the installer reports an error after the updater stopped the solver, the app
-clears the attempted marker, restarts that solver using its retained protected key, and leaves the
-update available for a later retry. On successful relaunch, the OS-protected copy resumes the solver
-and the update receipt check runs even while the dashboard remains locked. Without a usable restart
-key, updater activity waits for an interactive unlock so it cannot stop a solver it cannot restart.
+The install does not start, and the update stays downloaded, when the solver is stopped, starting,
+stopping or unreachable, when it does not report its PID, when a reset is in progress, or when the
+stop request fails and the solver is not stopping. The dashboard or a dialog says why. A stopped solver must be restarted first,
+and the menu item is disabled until then. A previous-version solver that does not yet report its PID
+can still be attached and restarted gracefully with **Restart with bundled solver**, using release
+of the private socket as the exit proof.
+
+If the installer fails after the solver was stopped, the app clears the install record and restarts
+that solver using its retained protected key. The reason shows in the dashboard or a dialog, or as a
+notification when the failure comes after the installer was started, as it does on macOS. The
+download is offered again after the next check, which **Update Error — Retry** in the menu runs at
+once. On successful relaunch, the OS-protected copy resumes the solver and the install is checked
+even while the dashboard remains locked.
+
+The app can only recover while it is still open. On Windows it quits as soon as it has tried to
+start the installer, so it cannot recover from an installer that fails. An installer that cannot be
+started, a declined elevation prompt or a failed installer leaves Simplex closed, usually with the
+solver stopped, until Simplex is opened again. That launch starts the solver as usual. If the
+install record is still there, it reports that the update was not installed. It then offers the
+update again after its update check.
 
 Before installing, the app records the old and target versions in `desktop-updates.json` under
-Electron user data. The relaunched app clears that receipt only after a healthy setup or operator
+Electron user data. The relaunched app clears that record, and reports it once if the check fails. The check passes only after a healthy setup or operator
 solver reports the same version as the desktop app. A background solver boot failure is reported
 and leaves the app at the unlock screen. A version mismatch remains visible in the native menu
 and blocks both onboarding and the dashboard from driving the mismatched solver. Changing update
-channels ignores a download that was started on the previous channel.
+channels discards an update downloaded on the previous channel and ignores one still downloading.
 
 Update artifacts use electron-updater's SHA-512 metadata checks after the platform trust gate passes.
 macOS updates require a valid application signature and Windows NSIS updates require a configured

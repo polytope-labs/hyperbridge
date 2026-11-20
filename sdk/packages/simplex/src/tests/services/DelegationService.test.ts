@@ -40,7 +40,7 @@ interface SendBundlerRpc {
 }
 
 interface DelegationServicePrivates {
-	setupDelegationViaBundler: (chain: string) => Promise<boolean>
+	setupDelegationViaBundler: (chain: string) => Promise<"delegated" | "unavailable" | "pending" | "failed">
 	/** The shared sender now owns the bundler RPC; the test patches it to surface send errors. */
 	userOpSender: SendBundlerRpc
 }
@@ -52,9 +52,9 @@ function build(bundlerUrl: string) {
 	const clientManager = new ChainClientManager(configService, signer)
 	const service = new DelegationService(clientManager, configService, signer)
 
-	// `setupDelegationViaBundler` catches bundler errors and returns false so the caller
-	// can fall back to the direct-tx path. For test diagnostics we surface the underlying
-	// `eth_sendUserOperation` error instead — a bare `false` would hide why it failed.
+	// `setupDelegationViaBundler` reports an outcome so the caller can decide whether to
+	// fall back to the direct-tx path. For test diagnostics we surface the underlying
+	// `eth_sendUserOperation` error instead — a bare outcome would hide why it failed.
 	let capturedError: Error | null = null
 	const privates = service as unknown as DelegationServicePrivates
 	const sender = privates.userOpSender
@@ -75,11 +75,11 @@ function build(bundlerUrl: string) {
 		configService,
 		clientManager,
 		runBundlerDelegation: async () => {
-			const success = await privates.setupDelegationViaBundler(BASE_MAINNET)
-			if (!success && capturedError) {
+			const outcome = await privates.setupDelegationViaBundler(BASE_MAINNET)
+			if (outcome !== "delegated" && capturedError) {
 				throw capturedError
 			}
-			return success
+			return outcome
 		},
 	}
 }
@@ -105,7 +105,7 @@ describe.skipIf(skipSuite)("DelegationService — Base mainnet EIP-7702 bundler 
 	it("delegates via Hyperbridge's bundler with the Simplex paymaster", async () => {
 		const ctx = build(hyperbridgeBundlerUrl(BASE_CHAIN_ID)!)
 		await logPreconditions("hyperbridge", ctx)
-		const success = await ctx.runBundlerDelegation()
-		expect(success).toBe(true)
+		const outcome = await ctx.runBundlerDelegation()
+		expect(outcome).toBe("delegated")
 	}, 120_000)
 })

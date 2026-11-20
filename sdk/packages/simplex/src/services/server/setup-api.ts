@@ -6,7 +6,7 @@ import { assertConfirmationCoverage, validateConfig, type FillerConfigFile } fro
 import { AssetRegistry, registrySymbols, USD_STABLE_SYMBOLS } from "@/config/asset-registry"
 import { fetchChainId, FillerConfigService, validateRpcUrls } from "@/services/FillerConfigService"
 import type { ChainFunding } from "@/services/chain-funding"
-import { readChainFunding } from "@/services/read-chain-funding"
+import { readChainFundingFromUnverifiedRpcs } from "@/services/read-chain-funding"
 import { normaliseSecretPhrase, secretPhraseSigner, SignerType, validateSignerConfig } from "@/services/wallet"
 import { deriveSubstrateKeyPair, generateSubstrateKey } from "@/services/substrate-key"
 import { ERC20_ABI } from "@/config/abis/ERC20"
@@ -95,6 +95,7 @@ export async function handleSetupRequest(
 			usdStables: [...USD_STABLE_SYMBOLS],
 			maxConcurrentOrders: DEFAULT_MAX_CONCURRENT_ORDERS,
 			configPath: setup.configPath,
+			...(server.configEncrypted ? { configEncrypted: true as const } : {}),
 			knownTokens,
 			knownVaults,
 		}
@@ -283,8 +284,10 @@ async function substrateKey(body: Record<string, unknown>) {
 /** Reads one chain's funding through the wizard's RPCs, before any filler exists. */
 async function defaultReadFunding(chainId: number, rpcUrls: string[], wallet: Hex): Promise<ChainFunding> {
 	const configService = new FillerConfigService([{ chainId, rpcUrls }])
-	const client = createPublicClient({ transport: fallback(rpcUrls.map((url) => http(url))) })
-	return readChainFunding(client, configService, wallet, `EVM-${chainId}`)
+	return readChainFundingFromUnverifiedRpcs(rpcUrls, chainId, configService, wallet, {
+		probeChainId: fetchChainId,
+		connect: (urls) => createPublicClient({ transport: fallback(urls.map((url) => http(url))) }),
+	})
 }
 
 /** Whether the wallet can fill on a chain the wizard offers: its fee token, setup gas and delegation. */

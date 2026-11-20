@@ -196,6 +196,36 @@ describe("OrderScanner chain-id resolution", () => {
 	})
 })
 
+describe("OrderScanner startup probes", () => {
+	it("probes the chains together rather than one after another", async () => {
+		realProbe = true
+		let inFlight = 0
+		let mostInFlight = 0
+		vi.stubGlobal("fetch", async (url: string) => {
+			inFlight += 1
+			mostInFlight = Math.max(mostInFlight, inFlight)
+			await new Promise((resolve) => setTimeout(resolve, 20))
+			inFlight -= 1
+			const chainId = url === "https://base.example" ? "0x2105" : "0xa4b1"
+			return new Response(JSON.stringify({ jsonrpc: "2.0", id: 1, result: chainId }))
+		})
+		try {
+			const scanner = await OrderScanner.create({
+				chains: [
+					{ rpcUrls: ["https://base.example"], gateway: "0xAA" },
+					{ rpcUrls: ["https://arb.example"], gateway: "0xBB" },
+				],
+			})
+			expect(scanner.chains()).toEqual([8453, 42161])
+			expect(mostInFlight).toBe(2)
+			await scanner.close()
+		} finally {
+			realProbe = false
+			vi.unstubAllGlobals()
+		}
+	})
+})
+
 describe("OrderScanner failure cleanup", () => {
 	/**
 	 * A rejected `create` never hands the caller a scanner, so anything it started

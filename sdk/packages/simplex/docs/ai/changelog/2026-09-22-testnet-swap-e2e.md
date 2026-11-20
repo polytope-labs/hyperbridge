@@ -25,6 +25,8 @@ not exceed the order's size. A tally that cannot be read is logged and does not 
 | `multi-leg-levels` | both pairs, solver 1's levels only |
 | `multi-leg-same-input` | two 5.5 USDC → cNGN legs against a level that takes 10 |
 | `onchain-limit` | 0.5 USDC for cNGN on BSC Chapel, then the checks of the on-chain limit |
+| `orderbook-only-bid` | the same swap, with solver 1 running with no Hyperbridge key |
+| `orderbook-only-swapper` | the same swap, with the swapper's SDK given no `IntentsCoprocessor` |
 | `onchain-limit-refusal` | the same swap, with the best bid's limit order left one unit short of what it pays |
 
 `multi-leg` and `multi-leg-levels` put two pairs in one order, which #1311 forbids (`mixedPairs`).
@@ -58,6 +60,21 @@ exactly what it approved. The runner then reads from the chain that:
 Both scenarios fail whatever their outcome when a solver's account on the fill chain is not
 delegated to an implementation with `spent`, and the reason names what the account delegates to.
 
+`orderbook-only-bid` (`check: "orderbook"`, `noKey: 0`) covers a solver bidding with no Hyperbridge
+account. Before its book is posted, the runner restarts solver 1 on a config with no
+`substratePrivateKey` or `hyperbridgeWsUrl` (the data directory and EVM key stay), so simplex posts
+its bid to the orderbook alone, while solvers 2 and 3 bid through Hyperbridge as usual. The swap
+worker points the SDK at the orderbook under test (`withOrderbook`), and whenever bids arrive reads
+`intents_getBidsForOrder` and the orderbook's `bids(commitment)` to record which solvers each venue
+serves (`result.venues`, also a column of the summary). The scenario passes when the order is
+filled, solver 1's address is among the orderbook's bids and not among Hyperbridge's, and a fill is
+solver 1's. Solver 1 is restarted on its own key before the next scenario, whatever the outcome.
+
+`orderbook-only-swapper` (`check: "orderbook-read"`, `noCoprocessor: true`) covers the other side:
+the swap worker creates the SDK's `IntentGateway` with no `IntentsCoprocessor`, so it reads bids from
+the orderbook alone. It passes when the order is filled and the orderbook served at least one bid.
+The worker still connects its own coprocessor for the venue reads.
+
 Pass scenario names as arguments, or through `E2E_SCENARIOS` (comma-separated, spaces allowed),
 to run a subset. Without names, every scenario except the `mixedPairs` ones runs.
 
@@ -67,7 +84,7 @@ The orderbook refuses a limit order paying out under 10 USDC or 15000 cNGN
 
 Swap sizes are the scenarios' own business, and most take a fraction of one limit order: 0.5 USDC,
 0.4 USDC, 2000 cNGN. Only the ladder scenarios are larger, because reaching a second level means
-swapping more than the first level's 10 USDC. A default run spends 24.4 USDC on BSC Chapel and
+swapping more than the first level's 10 USDC. A default run spends 25.4 USDC on BSC Chapel and
 20000 cNGN on Polygon Amoy.
 
 ## Wallets

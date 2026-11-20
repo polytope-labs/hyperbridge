@@ -13,7 +13,9 @@ use ismp::{
 };
 use sp_core::{H160, U256};
 use std::{collections::HashMap, sync::Arc};
-use tesseract_primitives::{config::RelayerConfig, Cost, Hasher, IsmpProvider, Query};
+use tesseract_primitives::{
+	config::RelayerConfig, Cost, Hasher, IsmpProvider, Query, SimulationFailure,
+};
 use tokio_stream::StreamExt;
 
 #[derive(Debug)]
@@ -195,7 +197,12 @@ pub async fn translate_events_to_messages(
 		)
 		.await?;
 
-		unprofitable.extend(post_request_queries_to_push_with_option.retriable_messages);
+		unprofitable.extend(
+			post_request_queries_to_push_with_option
+				.retriable_messages
+				.into_iter()
+				.map(|retriable| retriable.message),
+		);
 
 		let post_request_to_push: Vec<PostRequest> = post_requests
 			.into_iter()
@@ -266,7 +273,9 @@ pub async fn translate_events_to_messages(
 			)
 			.await?;
 
-			unprofitable.extend(profitability.retriable_messages);
+			unprofitable.extend(
+				profitability.retriable_messages.into_iter().map(|retriable| retriable.message),
+			);
 
 			let profitable = responses
 				.into_iter()
@@ -431,7 +440,15 @@ pub fn chunk_size(state_machine: StateMachine) -> usize {
 #[derive(Default)]
 pub struct ProfitabilityResult {
 	pub queries: Vec<Option<Query>>,
-	pub retriable_messages: Vec<Message>,
+	pub retriable_messages: Vec<RetriableMessage>,
+}
+
+/// A message the sink would not take this pass, with the simulation that said so.
+pub struct RetriableMessage {
+	pub message: Message,
+	/// The failed simulation behind the decision, when one ran. `None` when the
+	/// message was skipped without simulating it, e.g. by the fee gate.
+	pub failure: Option<SimulationFailure>,
 }
 
 pub async fn return_successful_queries(
@@ -478,7 +495,24 @@ pub async fn return_successful_queries(
 				let client_map = client_map.clone();
 				async move {
 					if !est.successful_execution && !deliver_failed {
-						tracing::info!(target: crate::LOG_TARGET, "Skipping Failed tx");
+						tracing::info!(
+							target: crate::LOG_TARGET,
+							failure = ?est.failure,
+							"Skipping Failed tx",
+						);
+						// The host will not accept this message however often it is
+						// retried, so it is dropped instead of parked.
+						if is_permanent_rejection(est.failure.as_ref()) {
+							if let Some(SimulationFailure::HostRejected { reason, .. }) = &est.failure {
+								tracing::warn!(
+									target: crate::LOG_TARGET,
+									%reason,
+									"destination host permanently rejected the message, dropping it",
+								);
+							}
+							return Ok((None, None))
+						}
+
 						let receipt = match &msg {
 							Message::Request(_) => {
 								sink.query_request_receipt(query.commitment).await?
@@ -491,7 +525,10 @@ pub async fn return_successful_queries(
 
 						// Anything the sink has not seen yet is worth another attempt later.
 						if !was_delivered(&receipt) && coprocessor != sink.state_machine_id().state_id {
-							return Ok((None, Some(msg)))
+							return Ok((None, Some(RetriableMessage {
+								message: msg,
+								failure: est.failure.clone(),
+							})))
 						} else {
 							return Ok((None, None))
 						}
@@ -529,7 +566,7 @@ pub async fn return_successful_queries(
 
 						if fee_metadata < fee_with_profit {
 							tracing::info!(target: crate::LOG_TARGET, "Skipping unprofitable tx. Expected ${fee_with_profit}, user provided ${fee_metadata}");
-							(None, Some(msg))
+							(None, Some(RetriableMessage { message: msg, failure: None }))
 						} else {
 							tracing::trace!(
 								target: crate::LOG_TARGET, "Pushing tx to {:?} with cost ${fee_with_profit} and profit: ${}",
@@ -560,6 +597,11 @@ pub async fn return_successful_queries(
 	}
 
 	Ok(ProfitabilityResult { queries: queries_to_be_relayed, retriable_messages })
+}
+
+/// Whether a failed simulation says the host will never take this message.
+fn is_permanent_rejection(failure: Option<&SimulationFailure>) -> bool {
+	matches!(failure, Some(SimulationFailure::HostRejected { permanent: true, .. }))
 }
 
 /// Whether a commitment has already been delivered. Hosts record the address of
@@ -618,6 +660,23 @@ mod tests {
 	/// addresses; a pallet id shows the same code path for a substrate target.
 	const LISTED: &[u8] = &[0xAB; 20];
 	const CONTRACT: &[u8] = &[0xCD; 20];
+
+	#[test]
+	fn only_permanent_host_rejections_are_dropped() {
+		assert!(!is_permanent_rejection(None));
+		assert!(!is_permanent_rejection(Some(&SimulationFailure::OutOfGas)));
+		assert!(!is_permanent_rejection(Some(&SimulationFailure::ModuleReverted {
+			reason: "boom".into()
+		})));
+		assert!(!is_permanent_rejection(Some(&SimulationFailure::HostRejected {
+			reason: "ChallengePeriodNotElapsed".into(),
+			permanent: false,
+		})));
+		assert!(is_permanent_rejection(Some(&SimulationFailure::HostRejected {
+			reason: "MessageTimedOut".into(),
+			permanent: true,
+		})));
+	}
 
 	#[test]
 	fn retry_modules_names_nothing_when_unset_or_empty() {

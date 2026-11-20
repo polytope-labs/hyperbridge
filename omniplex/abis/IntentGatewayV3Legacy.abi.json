@@ -1,0 +1,111 @@
+[
+	{
+		"type": "event",
+		"name": "OrderPlaced",
+		"inputs": [
+			{
+				"name": "user",
+				"type": "bytes32",
+				"indexed": false,
+				"internalType": "bytes32"
+			},
+			{
+				"name": "source",
+				"type": "string",
+				"indexed": false,
+				"internalType": "string"
+			},
+			{
+				"name": "destination",
+				"type": "string",
+				"indexed": false,
+				"internalType": "string"
+			},
+			{
+				"name": "deadline",
+				"type": "uint256",
+				"indexed": false,
+				"internalType": "uint256"
+			},
+			{
+				"name": "nonce",
+				"type": "uint256",
+				"indexed": false,
+				"internalType": "uint256"
+			},
+			{
+				"name": "fees",
+				"type": "uint256",
+				"indexed": false,
+				"internalType": "uint256"
+			},
+			{
+				"name": "session",
+				"type": "address",
+				"indexed": false,
+				"internalType": "address"
+			},
+			{
+				"name": "beneficiary",
+				"type": "bytes32",
+				"indexed": false,
+				"internalType": "bytes32"
+			},
+			{
+				"name": "predispatch",
+				"type": "tuple[]",
+				"indexed": false,
+				"internalType": "struct TokenInfo[]",
+				"components": [
+					{
+						"name": "token",
+						"type": "bytes32",
+						"internalType": "bytes32"
+					},
+					{
+						"name": "amount",
+						"type": "uint256",
+						"internalType": "uint256"
+					}
+				]
+			},
+			{
+				"name": "inputs",
+				"type": "tuple[]",
+				"indexed": false,
+				"internalType": "struct TokenInfo[]",
+				"components": [
+					{
+						"name": "token",
+						"type": "bytes32",
+						"internalType": "bytes32"
+					},
+					{
+						"name": "amount",
+						"type": "uint256",
+						"internalType": "uint256"
+					}
+				]
+			},
+			{
+				"name": "outputs",
+				"type": "tuple[]",
+				"indexed": false,
+				"internalType": "struct TokenInfo[]",
+				"components": [
+					{
+						"name": "token",
+						"type": "bytes32",
+						"internalType": "bytes32"
+					},
+					{
+						"name": "amount",
+						"type": "uint256",
+						"internalType": "uint256"
+					}
+				]
+			}
+		],
+		"anonymous": false
+	}
+]

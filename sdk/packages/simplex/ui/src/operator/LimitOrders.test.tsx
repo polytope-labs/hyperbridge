@@ -20,7 +20,6 @@ function order(overrides: Partial<LimitOrder> = {}): LimitOrder {
 		price: (1545n * ONE).toString(),
 		size: (1_545_000n * ONE).toString(),
 		remaining: (1_545_000n * ONE).toString(),
-		reserved: "0",
 		acceptedSources: ["EVM-8453"],
 		ttlSecs: 900,
 		expiresAt: null,
@@ -218,5 +217,27 @@ describe("a closed order's second line", () => {
 		await render()
 		await click(button(element, "Cancelled"))
 		expect(line(rows()[0])?.textContent).toBe(`refused ${when} · TTL_TOO_SHORT: minimum is 900`)
+	})
+})
+
+describe("the Max amount", () => {
+	it("leaves out what an order paying the fee token must keep for the fill fees", async () => {
+		const usdc = { ...held("USDC", 10_000), limitOrderFeeReserve: 10 }
+		await act(async () =>
+			root.render(
+				<LimitOrders
+					chains={[8453]}
+					chainLabels={{ "8453": "Base" }}
+					balances={{ ...balances, chains: [{ chainId: 8453, assets: [usdc, held("cNGN", 20_000_000)] }] }}
+				/>,
+			),
+		)
+		await flush()
+		await click(element.querySelector<HTMLElement>(".limit-order-new-button")!)
+		const form = document.querySelector<HTMLElement>('[role="dialog"]')!
+		await click(button(form, "Sell USDC"))
+		await click(button(form, "Max"))
+
+		expect(form.querySelector<HTMLInputElement>('input[aria-label^="Amount in"]')!.value).toBe("9,990")
 	})
 })

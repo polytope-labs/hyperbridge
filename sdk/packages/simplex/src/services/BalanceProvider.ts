@@ -2,6 +2,7 @@ import { EventEmitter } from "node:events"
 import { formatUnits } from "viem"
 import type { IntentsCoprocessor } from "@hyperbridge/sdk"
 import { nativeTokenSymbol } from "@/cli/init/chains"
+import { LIMIT_ORDER_FEE_RESERVE_TOKENS } from "@/config/defaults"
 import { ERC20_ABI } from "@/config/abis/ERC20"
 import type { VaultBalancePosition } from "@/funding/types"
 import type { ChainClientManager } from "./ChainClientManager"
@@ -45,12 +46,17 @@ export interface AssetBalanceRow {
 	walletReserve: number
 	/** Total solver-owned underlying represented by vault shares. */
 	vaultPosition: number
-	/** Vault assets that can be withdrawn now, after pending-fill reservations. */
+	/** Vault assets that can be withdrawn now: the vault's `maxWithdraw(solver)`. */
 	vaultAvailable: number
 	/** Wallet plus vault position. Null when any required source was unavailable. */
 	total: number | null
 	/** Spendable wallet above reserve plus currently withdrawable vault assets. */
 	available: number | null
+	/**
+	 * Set on the chain's fee token: what a limit order paying it out must leave unpromised, for the
+	 * fill's dispatch fee. Not taken off `available`, which the fill itself can spend.
+	 */
+	limitOrderFeeReserve?: number
 	vaults: VaultBalanceRow[]
 	status: AssetBalanceStatus
 }
@@ -105,6 +111,8 @@ export interface BalanceProviderOptions {
 	substratePrivateKey?: string
 	refreshIntervalMs?: number
 	vaultBalances?: VaultBalanceSource
+	/** The fee token of a chain's host, which marks the asset a limit order holds some of back. */
+	feeToken?: (chain: string) => Promise<string>
 }
 
 /**
@@ -252,6 +260,15 @@ export class BalanceProvider extends EventEmitter {
 			issues.push({ chainId, source: "native", message: errorMessage(err) })
 		}
 
+		// Best-effort, like the fill status: without it the row only lacks its limit order reserve.
+		const feeToken = await this.options
+			.feeToken?.(chain)
+			.then((address) => address.toLowerCase())
+			.catch((err) => {
+				this.logger.debug({ err, chainId }, "Could not read the chain's fee token")
+				return undefined
+			})
+
 		const definitions = new Map<string, TokenDefinition>()
 		this.addConfiguredStable(definitions, chainId, "USDC", () => ({
 			address: this.options.configService.getUsdcAsset(chain),
@@ -351,6 +368,9 @@ export class BalanceProvider extends EventEmitter {
 					total: wallet !== null && vaultDataAvailable ? wallet + vaultPosition : null,
 					available:
 						wallet !== null && vaultDataAvailable ? Math.max(wallet - walletReserve, 0) + vaultAvailable : null,
+					...(definition.address.toLowerCase() === feeToken
+						? { limitOrderFeeReserve: Number(LIMIT_ORDER_FEE_RESERVE_TOKENS) }
+						: {}),
 					vaults: positions.map((position) => ({
 						address: position.vault,
 						position: Number.parseFloat(formatUnits(position.positionAssets, position.decimals)),
@@ -397,33 +417,44 @@ export class BalanceProvider extends EventEmitter {
 		}
 	}
 
+	private hyperbridgeAccount?: { coprocessor: IntentsCoprocessor; address: string }
+
+	/**
+	 * Re-reads the filler's BRIDGE balance on Hyperbridge, outside the once-a-minute interval:
+	 * a BRIDGE top-up calls it the moment its delivery lands, so the dashboard's reload shows
+	 * the new balance. A failed read leaves the last snapshot in place. No-op while tracking
+	 * is not initialized (no Hyperbridge key).
+	 */
+	async refreshHyperbridgeBalance(): Promise<void> {
+		const hyperbridge = this.hyperbridgeAccount
+		if (!hyperbridge) return
+		try {
+			// Queried over HTTP, so a websocket outage does not stall the balance read; a failed
+			// request leaves the last snapshot in place and the next tick picks it up.
+			const api = await hyperbridge.coprocessor.queryApi()
+			const account = (await api.query.system.account(hyperbridge.address)) as any
+			const decimals = (api.registry.chainDecimals as number[])[0] ?? 12
+
+			const free = Number.parseFloat(formatUnits(BigInt(account.data.free.toString()), decimals))
+			const reserved = Number.parseFloat(formatUnits(BigInt(account.data.reserved.toString()), decimals))
+
+			this.snapshot = { ...this.snapshot, hyperbridge: { address: hyperbridge.address, free, reserved } }
+		} catch (err) {
+			this.logger.warn({ err }, "Failed to fetch Hyperbridge balance")
+		}
+	}
+
 	private async trackHyperbridgeBalance(): Promise<void> {
 		const coprocessor = await this.options.hyperbridge!
 		const keypair = await deriveSubstrateKeyPair(this.options.substratePrivateKey!)
 		const address = keypair.address
+		this.hyperbridgeAccount = { coprocessor, address }
 
-		const fetchBalance = async () => {
-			try {
-				// Queried over HTTP, so a websocket outage does not stall the balance read; a failed
-				// request leaves the last snapshot in place and the next tick picks it up.
-				const api = await coprocessor.queryApi()
-				const account = (await api.query.system.account(address)) as any
-				const decimals = (api.registry.chainDecimals as number[])[0] ?? 12
-
-				const free = Number.parseFloat(formatUnits(BigInt(account.data.free.toString()), decimals))
-				const reserved = Number.parseFloat(formatUnits(BigInt(account.data.reserved.toString()), decimals))
-
-				this.snapshot = { ...this.snapshot, hyperbridge: { address, free, reserved } }
-			} catch (err) {
-				this.logger.warn({ err }, "Failed to fetch Hyperbridge balance")
-			}
-		}
-
-		await fetchBalance()
+		await this.refreshHyperbridgeBalance()
 		// stop() may have run while the awaits above were in flight; a timer
 		// installed now would outlive the provider.
 		if (this.stopped) return
-		this.hyperbridgeInterval = setInterval(fetchBalance, this.intervalMs)
+		this.hyperbridgeInterval = setInterval(() => void this.refreshHyperbridgeBalance(), this.intervalMs)
 		this.logger.info({ address }, "Hyperbridge balance tracking initialized")
 	}
 }

@@ -89,8 +89,13 @@ export interface FillerTomlConfig {
 		queue?: QueueConfig
 		logging?: string
 		watchOnly?: boolean | Record<string, boolean>
-		substratePrivateKey: string
-		hyperbridgeWsUrl: string
+		/**
+		 * The Hyperbridge account that signs bid extrinsics and holds BRIDGE for their deposits.
+		 * Optional: without it the solver bids on the HyperFX orderbook alone.
+		 */
+		substratePrivateKey?: string
+		/** The Hyperbridge WebSocket endpoint bids go to. Required when a key is set. */
+		hyperbridgeWsUrl?: string
 		/**
 		 * Hyperbridge indexer GraphQL endpoint, used to backfill order details on
 		 * activity rows recorded before they were captured. Defaults per network
@@ -117,16 +122,14 @@ export interface FillerTomlConfig {
 			maxFeePerGasBumpPercent?: number
 		}
 		/**
-		 * Overfill protection knobs. Defaults: maxOverfillBps=500, maxConsecutiveClamps=3.
-		 * `maxOverfillBps` is warn-only: FXFiller logs a limit order whose offer exceeds
-		 * the swapper's ask by more than this, and clamps nothing. `maxConsecutiveClamps`
-		 * is accepted but dormant: the clamp that fed it was for Uniswap V4 venue pricing,
-		 * which is gone, so FXFiller never halts.
+		 * Removed. `[simplex.overfillProtection]` was dropped when the overfill clamp
+		 * and the self-halt were taken out. It is no longer read: boot warns when a
+		 * config still carries it, and `simplex init` drops it. Not rejected, because
+		 * `simplex init` wrote the section uncommented for existing operators, and
+		 * refusing it would crash-loop their Docker deployments. Typed `unknown` so
+		 * whatever an old file holds still parses.
 		 */
-		overfillProtection?: {
-			maxOverfillBps?: number
-			maxConsecutiveClamps?: number
-		}
+		overfillProtection?: unknown
 		/**
 		 * How long a signed bid stays executable, in seconds. Defaults to 300 (5 minutes).
 		 *
@@ -149,6 +152,18 @@ export interface FillerTomlConfig {
 		 * order nothing can put a dollar figure on is treated as below it.
 		 */
 		minOrderSizeUsd?: number
+		/**
+		 * The smallest payout, in USD, a partial fill may bid. Defaults to 20.
+		 *
+		 * A partial fill collects none of the order's fees, and is deliberately exempt from
+		 * the fee check and the profit floor: its gas is paid by the margin in the limit
+		 * order that prices it. That leaves it with no size floor of its own, so a
+		 * near-exhausted limit order, or a wallet just above its gas reserve, used to bid
+		 * dust on every matching order — each bid paying fill gas and the relayer fee.
+		 * Bids worth less than this are skipped. Set to 0 to bid whatever can be filled.
+		 * Full fills are unaffected.
+		 */
+		minPartialFillUsd?: number
 		/**
 		 * Remote access: an outbound SSH tunnel to a rendezvous relay so a phone's
 		 * SSH client can reach the local web UI. Off unless `enabled = true`; the
@@ -189,6 +204,11 @@ export interface OrderbookConfig {
 	/** How often to reconcile local limit orders against the orderbook, in seconds. */
 	reconcileIntervalSecs?: number
 	requestTimeoutMs?: number
+	/**
+	 * Whether heartbeats are signed by a key held in memory that the signer authorises
+	 * every couple of hours, rather than by the signer itself every tick. Defaults to true.
+	 */
+	delegateHeartbeats?: boolean
 }
 
 /**
@@ -263,6 +283,50 @@ export function validateVaultToml(
 }
 
 /**
+ * The one check every way of setting rebalancing goes through: the TOML at boot, the library's
+ * `RebalanceController.set`, and the UI's PUT. With no `triggerPercentage` rebalancing is switched
+ * off (boot starts the service only when one is set), so base balances alone are inert and are not
+ * checked. Otherwise the threshold is `base × (1 − p)`: a trigger of 0 fires whenever a balance is
+ * at or below its base, 1 fires only at a zero balance, above 1 never fires, and NaN fails every
+ * comparison, so each would run away with rebalancing or quietly disable it. A string that parses
+ * to a finite number (`"0.5"`) is judged by the same rule, since the service coerces it. A negative or
+ * unparseable base would turn the threshold negative or NaN the same way. A base of `0` or `"0"` is
+ * finite and not negative, so it passes (`FillerConfigService.getBaseBalance` skips a bare 0 as not
+ * configured). Base balances are parsed with `parseFloat`, as `getBaseBalance` reads them.
+ */
+export function validateRebalancingConfig(rebalancing: RebalancingConfig): void {
+	const trigger: unknown = rebalancing.triggerPercentage
+	if (trigger === undefined) return
+	// A quoted number boots: the threshold is `base * (1 - p)`, which coerces a string, so it is
+	// judged by what it parses to.
+	const parsed = typeof trigger === "string" ? Number(trigger) : trigger
+	if (typeof parsed !== "number" || !Number.isFinite(parsed) || parsed <= 0 || parsed >= 1) {
+		throw new Error(
+			`rebalancing.triggerPercentage must be a number between 0 and 1 (exclusive); got ${describeValue(trigger)}`,
+		)
+	}
+	for (const asset of ["USDC", "USDT"] as const) {
+		for (const [chainId, amount] of Object.entries(rebalancing.baseBalances?.[asset] ?? {}) as [string, unknown][]) {
+			// A base balance is written as a string; parseFloat also takes a bare TOML number.
+			const parsed =
+				typeof amount === "string" || typeof amount === "number" ? Number.parseFloat(String(amount)) : Number.NaN
+			if (!Number.isFinite(parsed) || parsed < 0) {
+				throw new Error(
+					`rebalancing.baseBalances.${asset} for chain ${chainId} must be a number >= 0; got ${describeValue(amount)}`,
+				)
+			}
+		}
+	}
+}
+
+/** A config value as an error message should show it: its type when it is not a number. */
+function describeValue(value: unknown): string {
+	if (typeof value === "number") return String(value)
+	if (typeof value === "string") return `the string ${JSON.stringify(value)}`
+	return value === null ? "null" : typeof value
+}
+
+/**
  * Checked at the gate rather than at first use: a misconfigured orderbook means
  * every limit order the operator creates is refused, and a
  * TTL under the orderbook's own floor is refused one order at a time with a
@@ -283,6 +347,12 @@ function validateOrderbookConfig(orderbook: OrderbookConfig): void {
 			throw new Error(`orderbook.${name} must be an integer >= ${minimum}; got ${value}`)
 		}
 	}
+	// A quoted "false" would otherwise leave delegation on without a word.
+	if (orderbook.delegateHeartbeats !== undefined && typeof orderbook.delegateHeartbeats !== "boolean") {
+		throw new Error(
+			`orderbook.delegateHeartbeats must be true or false; got ${describeValue(orderbook.delegateHeartbeats)}`,
+		)
+	}
 }
 
 export function validateConfig(config: FillerTomlConfig, cliWatchOnly = false): void {
@@ -298,12 +368,9 @@ export function validateConfig(config: FillerTomlConfig, cliWatchOnly = false): 
 	// (otherwise the flag's own config would still trip the checks it exempts).
 	const allChainsWatchOnly = cliWatchOnly || config.simplex?.watchOnly === true
 
-	if (!config.simplex?.substratePrivateKey) {
-		throw new Error("simplex.substratePrivateKey is required")
-	}
-
-	if (!config.simplex?.hyperbridgeWsUrl) {
-		throw new Error("simplex.hyperbridgeWsUrl is required")
+	// A solver without a Hyperbridge key bids on the orderbook alone; with one it needs somewhere to send bids.
+	if (config.simplex?.substratePrivateKey && !config.simplex.hyperbridgeWsUrl) {
+		throw new Error("simplex.hyperbridgeWsUrl is required when simplex.substratePrivateKey is set")
 	}
 
 	if (!config.chains || config.chains.length === 0) {
@@ -345,6 +412,13 @@ export function validateConfig(config: FillerTomlConfig, cliWatchOnly = false): 
 		}
 	}
 
+	const minPartialFill = config.simplex.minPartialFillUsd
+	if (minPartialFill !== undefined) {
+		if (!Number.isFinite(minPartialFill) || minPartialFill < 0) {
+			throw new Error(`simplex.minPartialFillUsd must be a number >= 0 (USD); got ${minPartialFill}`)
+		}
+	}
+
 	// Validate allowlist addresses (when present)
 	if (config.allowlist) {
 		for (const user of config.allowlist.users ?? []) {
@@ -366,6 +440,10 @@ export function validateConfig(config: FillerTomlConfig, cliWatchOnly = false): 
 
 	if (config.vault?.vaults?.length) {
 		validateVaultToml(config.vault.vaults)
+	}
+
+	if (config.rebalancing) {
+		validateRebalancingConfig(config.rebalancing)
 	}
 
 	// Simplex prices from the operator's limit orders and those live on the

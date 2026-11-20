@@ -1,17 +1,24 @@
 import { FXFiller } from "@/strategies/fx"
 import { AssetRegistry } from "@/config/asset-registry"
-import { bytes20ToBytes32, type HexString, type Order, type TokenInfo } from "@hyperbridge/sdk"
-import { describe, it, expect } from "vitest"
+import {
+	bytes20ToBytes32,
+	SUPPORTED_INTENTS_VERSION,
+	type HexString,
+	type Order,
+	type TokenInfo,
+} from "@hyperbridge/sdk"
+import { describe, it, expect, vi } from "vitest"
 import { parseUnits } from "viem"
 import type { LimitOrderStore } from "@/data/types"
+import type { FundingVenue } from "@/funding/types"
 import { budgetIdFor, toRaw } from "@/orderbook/amounts"
-import { limitOrderStore } from "../helpers/limit-orders"
+import { drawDown, limitOrderStore } from "../helpers/limit-orders"
 
 // Pins the fill amount `calculateProfitability` caches — the figure
 // `prepareBidUserOp` signs into the bid verbatim — against the matched limit
 // order.
 //
-// The payout is `min(offer, remaining − reserved)` and then whatever the wallet
+// The payout is `min(offer, remaining)` and then whatever the wallet
 // can actually cover, so these drive the evaluation with mocked chain access and
 // assert the cached output for each of those three outcomes in turn.
 
@@ -19,6 +26,7 @@ const CHAIN = "EVM-97"
 const STABLE = "0x1111111111111111111111111111111111111111" as HexString
 const EXOTIC = "0x2222222222222222222222222222222222222222" as HexString
 const SOLVER = "0x3333333333333333333333333333333333333333" as HexString
+const GATEWAY = "0x4444444444444444444444444444444444444444" as HexString
 
 // 100 in; the order asks for 149,000 EXOTIC (rate 1490, below the limit order's
 // 1500), so what the operator offers strictly exceeds the ask.
@@ -31,10 +39,12 @@ const configService = {
 	getUsdtAsset: () => "0x0000000000000000000000000000000000000000" as HexString,
 	getDaiAsset: () => "0x0000000000000000000000000000000000000000" as HexString,
 	getCNgnAsset: () => undefined,
-	getMaxOverfillBps: () => 500n,
-	getMaxConsecutiveClamps: () => 3,
 	// No paymaster configured → paymasterReserveForToken contributes nothing.
 	getSimplexPaymasterAddress: () => undefined,
+	// The partial-fill floor is a separate concern with its own suite; these
+	// payout-mechanics cases must bid whatever their small payouts size.
+	getMinPartialFillUsd: () => 0,
+	getIntentGatewayAddress: () => GATEWAY,
 } as any
 
 /**
@@ -95,13 +105,17 @@ function makeEvalContractService(
 	}
 }
 
-/** Public client stub: balances by lowercase token address, everything else static. */
-function makeClientManager(balances: Record<string, bigint>): any {
+/**
+ * Public client stub: balances by lowercase token address, everything else static. Every
+ * gateway reports `gatewayRelease` from `version()`, the current release unless a case says.
+ */
+function makeClientManager(balances: Record<string, bigint>, gatewayRelease = SUPPORTED_INTENTS_VERSION): any {
 	const client = {
 		chain: { blockTime: 2000 },
 		getBlock: async () => ({ number: 100n, timestamp: 1_000_000n }),
 		getBalance: async () => 0n,
-		readContract: async ({ address }: { address: string }) => balances[address.toLowerCase()] ?? 0n,
+		readContract: async ({ address, functionName }: { address: string; functionName: string }) =>
+			functionName === "version" && address === GATEWAY ? gatewayRelease : (balances[address.toLowerCase()] ?? 0n),
 	}
 	return { getPublicClient: () => client }
 }
@@ -117,6 +131,10 @@ async function makeFiller(options: {
 	limitOrders?: LimitOrderStore
 	/** Collects the strategy's log lines, for the cases that assert why it passed. */
 	logged?: { message: string; fields: Record<string, unknown> }[]
+	/** Funding venues the payout may withdraw a shortfall from. */
+	fundingVenues?: FundingVenue[]
+	/** The release every gateway reports. */
+	gatewayRelease?: bigint
 }): Promise<FXFiller> {
 	const record = (fields: Record<string, unknown>, message: string) => options.logged?.push({ message, fields })
 	const logger = { trace: record, debug: record, info: record, warn: record, error: record, fatal: record }
@@ -125,7 +143,7 @@ async function makeFiller(options: {
 	return new FXFiller(
 		signer,
 		options.logged ? { ...configService, loggers: { get: () => logger } } : configService,
-		makeClientManager(options.balances),
+		makeClientManager(options.balances, options.gatewayRelease),
 		options.contractService,
 		registry,
 		{
@@ -143,8 +161,30 @@ async function makeFiller(options: {
 						id: order.id,
 					})),
 				)),
+			fundingVenues: options.fundingVenues,
 		},
 	)
+}
+
+/**
+ * A vault venue that, like `VaultFundingPlanner`, releases at most its `maxWithdraw` less what the
+ * caller's evaluation has already planned, and keeps nothing between calls. Records each plan.
+ */
+function fakeVault(maxWithdraw: bigint) {
+	const planned: { needed: bigint; alreadyPlanned: bigint; credited: bigint }[] = []
+	const venue: FundingVenue = {
+		name: "Vault",
+		initialise: async () => {},
+		refresh: async () => {},
+		walletReserveForToken: () => 0n,
+		planWithdrawalForToken: async (_chain, _solver, _token, needed, _deadline, alreadyPlanned = 0n) => {
+			const left = maxWithdraw > alreadyPlanned ? maxWithdraw - alreadyPlanned : 0n
+			const credited = needed < left ? needed : left
+			planned.push({ needed, alreadyPlanned, credited })
+			return credited > 0n ? { calls: [{ target: SOLVER, value: 0n, data: "0x01" as HexString }], credited } : { calls: [], credited: 0n }
+		},
+	}
+	return { venue, planned }
 }
 
 /** USDC→EXOTIC, same-chain unless a source is given. Partial-fill eligible: no calldata. */
@@ -289,6 +329,28 @@ describe("FXFiller limit order payout", () => {
 
 		expect(contractService.outputs.get("payout-cross")![0].amount).toBe(parseUnits("60000", 18))
 		expect(contractService.partials.get("payout-cross")).toBe(true)
+	})
+
+	it("skips a cross-chain under-fill when the source gateway runs an older release", async () => {
+		// The under-fill is settled on the source by `RedeemEscrowPartial`; a release that does
+		// not handle it would leave the escrow unreleased after the payout went out.
+		const contractService = makeEvalContractService()
+		const logged: { message: string; fields: Record<string, unknown> }[] = []
+		const filler = await makeFiller({
+			contractService,
+			balances: { [EXOTIC.toLowerCase()]: parseUnits("1000000", 18) },
+			offering: "60000",
+			gatewayRelease: SUPPORTED_INTENTS_VERSION - 1n,
+			logged,
+		})
+
+		await filler.calculateProfitability(makeOrder("payout-cross-old", "EVM-1"))
+
+		expect(contractService.outputs.get("payout-cross-old")).toBeUndefined()
+		expect(contractService.plans.get("payout-cross-old") ?? []).toHaveLength(0)
+		expect(logged.map((line) => line.message)).toContain(
+			"Skipping a cross-chain partial fill: the source gateway's release could not be confirmed",
+		)
 	})
 
 	it("still fills fully when the wallet holds less than the offer but more than the ask", async () => {
@@ -469,6 +531,75 @@ describe("FXFiller limit order budget", () => {
 		})
 	})
 
+	describe("vault liquidity within one evaluation", () => {
+		/** Two limit orders, an empty wallet, and a vault that can release 200,000 EXOTIC. */
+		async function vaultBacked() {
+			const contractService = makeEvalContractService()
+			const vault = fakeVault(parseUnits("200000", 18))
+			const filler = await makeFiller({
+				contractService,
+				balances: {},
+				book: [
+					{ id: FIRST, price: "1600", size: "400000" },
+					{ id: SECOND, price: "1500", size: "900000" },
+				],
+				fundingVenues: [vault.venue],
+			})
+			return { contractService, vault, filler }
+		}
+
+		it("plans the second candidate from what the first left of maxWithdraw", async () => {
+			const { contractService, vault, filler } = await vaultBacked()
+
+			await filler.calculateProfitability(makeOrder("vault-once"))
+
+			const plans = contractService.plans.get("vault-once") as Plan[]
+			// The better order takes 160,000 from the vault; the next is cut to the 40,000 left.
+			expect(plans.map((plan) => [plan.limitOrderId, plan.payout])).toEqual([
+				[FIRST, parseUnits("160000", 18)],
+				[SECOND, parseUnits("40000", 18)],
+			])
+			expect(vault.planned.map((plan) => plan.alreadyPlanned)).toEqual([0n, parseUnits("160000", 18)])
+			const total = vault.planned.reduce((sum, plan) => sum + plan.credited, 0n)
+			expect(total).toBe(parseUnits("200000", 18))
+		})
+
+		it("starts the next evaluation from the full maxWithdraw again", async () => {
+			const { vault, filler } = await vaultBacked()
+
+			await filler.calculateProfitability(makeOrder("vault-first"))
+			await filler.calculateProfitability(makeOrder("vault-second"))
+
+			expect(vault.planned.map((plan) => plan.alreadyPlanned)).toEqual([
+				0n,
+				parseUnits("160000", 18),
+				0n,
+				parseUnits("160000", 18),
+			])
+		})
+
+		it("does not count a candidate refused after planning", async () => {
+			// A cross-chain fill must leave the fee token to dispatch the escrow release. The
+			// wallet holds none, so both candidates are refused after each planned its vault
+			// draw, and the second sees nothing planned before it.
+			const { contractService, vault, filler } = await vaultBacked()
+			const refuse = vi.spyOn(contractService, "estimateGasFillPost").mockResolvedValue({
+				totalCostInSourceFeeToken: 0n,
+				relayerFeeInSourceFeeToken: 0n,
+				dispatchFee: parseUnits("1", 18),
+			})
+
+			await filler.calculateProfitability(makeOrder("vault-refused", "EVM-1"))
+
+			expect(refuse).toHaveBeenCalled()
+			expect(contractService.plans.get("vault-refused")).toBeUndefined()
+			expect(vault.planned.map((plan) => [plan.alreadyPlanned, plan.credited])).toEqual([
+				[0n, parseUnits("160000", 18)],
+				[0n, parseUnits("150000", 18)],
+			])
+		})
+	})
+
 	it("gives each bid the budget of the limit order that priced it", async () => {
 		const contractService = makeEvalContractService()
 		const filler = await makeFiller({
@@ -495,7 +626,7 @@ describe("FXFiller limit order budget", () => {
 		const limitOrders = await limitOrderStore([
 			{ id: FIRST, base: "USDC", quote: "EXOTIC", side: "BID", fillChain: CHAIN, price: "1500", size: "200000" },
 		])
-		await limitOrders.drawDown(FIRST, parseUnits("140000", 18).toString())
+		await drawDown(limitOrders, FIRST, parseUnits("140000", 18))
 		const contractService = makeEvalContractService()
 		const filler = await makeFiller({
 			contractService,
@@ -590,7 +721,7 @@ describe("FXFiller limit order budget", () => {
 
 			paid += plans[0].fillerOutputs[0].amount
 			expect(paid).toBeLessThanOrEqual(cap)
-			await limitOrders.drawDown(FIRST, plans[0].payout.toString())
+			await drawDown(limitOrders, FIRST, plans[0].payout)
 		}
 
 		expect(fills).toBeGreaterThan(1)
@@ -610,7 +741,7 @@ describe("FXFiller limit order budget", () => {
 			const limitOrders = await limitOrderStore([
 				{ id: FIRST, base: "USDC", quote: "EXOTIC", side: "BID", fillChain: CHAIN, price: "1500", size: "1000" },
 			])
-			await limitOrders.drawDown(FIRST, parseUnits("500", 18).toString())
+			await drawDown(limitOrders, FIRST, parseUnits("500", 18))
 			return limitOrders
 		}
 
@@ -645,6 +776,27 @@ describe("FXFiller limit order budget", () => {
 			expect(plans![0].payout).toBe(parseUnits("300", 18))
 			// The budget the bid carries is the order's, whatever the bid was cut to.
 			expect(plans![0].budget).toEqual({ budgetId: budgetIdFor(FIRST), cap: CAP, token: EXOTIC })
+		})
+
+		it("lets two evaluations at once each bid the order's whole room on chain", async () => {
+			// Nothing is held between evaluations: the chain is the only budget. Both bids
+			// go out for the 300 the tally leaves, and whichever executes second is refused
+			// by the order's budget on chain. That reverted fill is the accepted cost.
+			const contractService = makeEvalContractService(SIX, () => parseUnits("700", 6))
+			const filler = await makeFiller({ contractService, balances: plenty, limitOrders: await halfDrawn() })
+
+			await Promise.all(
+				["room-twice-a", "room-twice-b"].map((id) =>
+					filler.calculateProfitability(sixDecimalOrder(id, parseUnits("1", 18), parseUnits("290", 6))),
+				),
+			)
+
+			for (const id of ["room-twice-a", "room-twice-b"]) {
+				const plans = contractService.plans.get(id) as Plan[]
+				expect(plans).toHaveLength(1)
+				expect(plans[0].payout).toBe(parseUnits("300", 18))
+				expect(plans[0].fillerOutputs[0].amount).toBe(parseUnits("300", 6))
+			}
 		})
 
 		it("builds no bid, and says why, when the chain has no room left", async () => {

@@ -299,6 +299,9 @@ function payOutAsset(balances: BalanceSnapshot | undefined, chain: string, symbo
 /**
  * The token held across the fill chains, beside the amount. Undefined before balances arrive;
  * null when any chain's read failed, since a total quietly missing one would understate it.
+ *
+ * On a chain where the token pays the fill fees, what a limit order must leave unpromised for
+ * them is not counted: the solver refuses an order that would promise it.
  */
 function consolidated(
 	balances: BalanceSnapshot | undefined,
@@ -308,9 +311,9 @@ function consolidated(
 	if (!balances || !symbol || chains.length === 0) return undefined
 	let total = 0
 	for (const chain of chains) {
-		const available = payOutAsset(balances, chain, symbol)?.available
-		if (available === null) return null
-		total += available ?? 0
+		const asset = payOutAsset(balances, chain, symbol)
+		if (asset?.available === null) return null
+		total += Math.max((asset?.available ?? 0) - (asset?.limitOrderFeeReserve ?? 0), 0)
 	}
 	return total
 }

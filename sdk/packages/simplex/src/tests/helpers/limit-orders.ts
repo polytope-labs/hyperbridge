@@ -3,7 +3,11 @@ import { MemoryDataStore } from "@/data/memory"
 import type { LimitOrderSide, LimitOrderStore } from "@/data/types"
 import { ORDERBOOK_SCALE } from "@/orderbook/amounts"
 import { LimitOrderService, type CreateLimitOrderRequest, type VaultHoldings } from "@/orderbook/limit-orders"
+import type { LimitOrder } from "@/data/types"
+import type { DelegationService } from "@/services/DelegationService"
+import type { Signer } from "@/services/wallet"
 import type {
+	AuthorizeHeartbeatSignerResult,
 	CancelOrderResult,
 	HeartbeatResult,
 	OrderbookLimits,
@@ -67,7 +71,15 @@ const CNGN = "0x2222222222222222222222222222222222222222" as HexString
 const SOLVER = "0x3333333333333333333333333333333333333333" as HexString
 const ONE = ORDERBOOK_SCALE
 
-export const ORDERBOOK_FIXTURES = { CHAIN, USDC, CNGN, SOLVER, ONE }
+const HEARTBEAT_KEY = "0x5555555555555555555555555555555555555555" as HexString
+
+export const ORDERBOOK_FIXTURES = { CHAIN, USDC, CNGN, SOLVER, ONE, HEARTBEAT_KEY }
+
+/** An in-memory heartbeat key whose signature reads apart from the main key's `0xsig`. */
+export const heartbeatKey = {
+	address: HEARTBEAT_KEY,
+	signTypedData: async () => "0xbeat" as HexString,
+} as unknown as Signer
 
 export const LIMITS: OrderbookLimits = {
 	serverInfo: {
@@ -111,12 +123,21 @@ export function postedOrder(overrides: Partial<PostedOrder> = {}): PostedOrder {
 export function fakeClient(results: SubmitOrderResult[], cancels: CancelOrderResult[] = []) {
 	const submitted: HexString[] = []
 	const heartbeats: number[] = []
+	/** The signature on each heartbeat, which tells the heartbeat key's from the main key's. */
+	const heartbeatSignatures: HexString[] = []
+	/** The heartbeat key each authorisation was for. */
+	const authorizations: HexString[] = []
 	return {
 		submitted,
 		heartbeats,
+		heartbeatSignatures,
+		authorizations,
 		/** Entries the orderbook holds for this solver, for reconciliation to walk. */
 		entries: [] as PostedOrder[],
 		heartbeatResults: [] as HeartbeatResult[],
+		authorizationResults: [] as AuthorizeHeartbeatSignerResult[],
+		/** False for an orderbook that predates heartbeat keys. */
+		heartbeatSignersSupported: true,
 		limits: async () => LIMITS,
 		orderAt: async function (_solver: HexString, commitment: HexString) {
 			return this.entries.find((entry) => entry.commitment === commitment) ?? null
@@ -127,8 +148,9 @@ export function fakeClient(results: SubmitOrderResult[], cancels: CancelOrderRes
 		},
 		cancelOrder: async (_params: { solver: HexString; commitment: HexString; timestamp: number; signature: HexString }) =>
 			cancels.shift() ?? ({ kind: "cancelled", commitment: "0xabc" as HexString } as CancelOrderResult),
-		heartbeat: async function (params: { timestamp: number }): Promise<HeartbeatResult> {
+		heartbeat: async function (params: { timestamp: number; signature: HexString }): Promise<HeartbeatResult> {
 			heartbeats.push(params.timestamp)
+			heartbeatSignatures.push(params.signature)
 			return (
 				this.heartbeatResults.shift() ?? {
 					kind: "accepted",
@@ -137,6 +159,21 @@ export function fakeClient(results: SubmitOrderResult[], cancels: CancelOrderRes
 					heartbeatDueBy: "2026-09-16T12:00:00.000Z",
 				}
 			)
+		},
+		authorizeHeartbeatSigner: async function (params: {
+			signer: HexString
+		}): Promise<AuthorizeHeartbeatSignerResult> {
+			authorizations.push(params.signer)
+			return (
+				this.authorizationResults.shift() ?? {
+					kind: "authorized",
+					signer: params.signer,
+					authorizedUntil: new Date(Date.now() + 7200_000).toISOString(),
+				}
+			)
+		},
+		heartbeatSignerTtlSecs: async function (): Promise<number | null> {
+			return this.heartbeatSignersSupported ? 7200 : null
 		},
 		myOrders: async function (): Promise<PostedOrderPage> {
 			return { orders: this.entries, status: "ACTIVE" }
@@ -157,15 +194,25 @@ export function limitOrderService(
 	startingNonce: () => bigint = () => 0n,
 	/** The configured vaults' holdings, when the case has any. */
 	vaultBalances?: VaultHoldings,
+	/** The delegation check `create` runs before storing an order, when the case cares. */
+	delegationService?: DelegationService,
+	/** Whether a chain is watch-only, when the case cares. */
+	isWatchOnly?: (chain: string) => boolean,
+	/** The in-memory key heartbeats are signed with once authorised, when the case has one. */
+	heartbeatSigner?: Signer,
 ) {
 	const contractService = {
 		getTokenDecimals: async (token: string) => (token === USDC ? 6 : 18),
+		// No tally to read: a repost posts the size the store holds. A test that has one overrides it.
+		limitOrderSpent: async (): Promise<bigint | null> => null,
 		// Creation checks the wallet can pay out what an order promises.
 		getTokenBalance: async (_chain: string, token: HexString) => {
 			const decimals = token === USDC ? 6n : 18n
 			const whole = balances[token] ?? 1_000_000_000n
 			return whole * 10n ** decimals
 		},
+		// USDC pays the fill fees on the fill chain, so an order paying it out leaves some unpromised.
+		getFeeTokenWithDecimals: async () => ({ address: USDC, decimals: 6 }),
 		// The op is opaque to the service; the nonce is echoed so a repost is visible.
 		prepareLimitOrderUserOp: async ({ orderNonce }: { orderNonce: bigint }) => ({
 			commitment: "0xabc" as HexString,
@@ -191,10 +238,12 @@ export function limitOrderService(
 		assetRegistry as any,
 		signer as any,
 		900,
-		undefined,
+		delegationService,
 		undefined,
 		startingNonce,
 		vaultBalances,
+		isWatchOnly,
+		heartbeatSigner,
 	)
 	return { service, store }
 }
@@ -207,4 +256,34 @@ export const CREATE_REQUEST: CreateLimitOrderRequest = {
 	tokenOut: "CNGN",
 	amountOut: "1500000",
 	acceptedSources: ["EVM-1"],
+}
+
+/**
+ * Works an order down by `amount` of output, floored at zero, whatever its status: the way a
+ * settled fill used to. The stores no longer have a draw-down (an order follows its on-chain
+ * tally through `clampRemaining`, which only lowers an `open` or `resizing` order), so this
+ * reaches into the in-memory store the tests use.
+ */
+export async function drawDown(store: LimitOrderStore, id: string, amount: bigint | string): Promise<LimitOrder | null> {
+	const order = await store.get(id)
+	if (!order) return null
+	const left = BigInt(order.remaining) - BigInt(amount)
+	// A test-only reach into the in-memory store.
+	return (store as any).patch(id, { remaining: (left > 0n ? left : 0n).toString() })
+}
+
+/**
+ * What the lifecycle tests drive a fill with: the order is worked down by `delivered`, then the
+ * service resizes it. Production does the lowering from the order's on-chain tally instead
+ * (`LimitOrderService.syncToChain`), so this lives with the tests.
+ */
+export async function settleFill(
+	service: LimitOrderService,
+	id: string,
+	delivered: bigint,
+): Promise<LimitOrder | null> {
+	// The store is the service's own.
+	const store = (service as any).store as LimitOrderStore
+	const remaining = await drawDown(store, id, delivered)
+	return remaining ? service.resize(remaining, delivered) : null
 }

@@ -1,5 +1,7 @@
 scalar Address
 
+union AuthorizeHeartbeatSignerResult = HeartbeatSignerAuthorized | MessageRejected
+
 type BalanceConnection {
 	"""
 	Information to aid in pagination.
@@ -98,6 +100,96 @@ enum BarInterval {
 	D1
 }
 
+type Bid {
+	solver: Solver!
+	"""
+	The swapper's order this bid fills: `keccak256(abi.encode(order))`.
+	"""
+	commitment: Bytes!
+	"""
+	Which of the order's legs the bid quotes, from 0: `order.inputs[leg]` for
+	`order.output.assets[leg]`. The bid declines the order's other legs; a solver fills each
+	leg with a bid of its own. Most orders carry one leg.
+	"""
+	leg: Int!
+	book: Book!
+	"""
+	The side of the book the bid is on: BID where the solver buys the base, ASK where it sells
+	it.
+	"""
+	side: Side!
+	"""
+	The order's destination, where the bid executes and `tokenOut` is delivered.
+	"""
+	fillChain: String!
+	"""
+	The order's source, where the swapper's `tokenIn` is escrowed.
+	"""
+	sourceChain: String!
+	"""
+	What the solver takes: the swapper's `tokenIn`.
+	"""
+	tokenIn: String!
+	"""
+	What the solver pays out: the swapper's `tokenOut`.
+	"""
+	tokenOut: String!
+	"""
+	The rate the bid signed, quote per 1 base (1e18), before the protocol fee: `amountOut` over
+	`amountIn`, rounded against the swapper. Reported as signed, not held to the solver's limit
+	orders.
+	"""
+	price: BigInt!
+	"""
+	The input the bid takes of the leg (1e18 `tokenIn`): `options.inputs[leg].amount`.
+	"""
+	amountIn: BigInt!
+	"""
+	What the solver pays for that take (1e18 `tokenOut`), before the protocol fee:
+	`options.outputs[leg].amount`.
+	"""
+	amountOut: BigInt!
+	receivedAt: DateTime!
+	"""
+	When the server stops serving the bid: `receivedAt` plus `serverInfo.bidTtlSecs`. The op's
+	own `validUntil` is a block number on `fillChain`, which the gateway checks and this server
+	does not.
+	"""
+	expiresAt: DateTime!
+	"""
+	The signed UserOp, SCALE-encoded as it was submitted: what the swapper executes.
+	"""
+	userOp: Bytes!
+}
+
+"""
+The bid was stored, and is served until its TTL is up.
+"""
+type BidAccepted {
+	bid: Bid!
+}
+
+type BidRejected {
+	code: RejectionCode!
+	message: String!
+}
+
+"""
+The server could not decide the bid: the database, or the submission running out of time.
+"""
+type BidSubmissionFailed {
+	code: FailureCode!
+	message: String!
+	retryable: Boolean!
+}
+
+"""
+The op was accepted before and its bid is still live, so nothing changed.
+"""
+type BidUnchanged {
+	bid: Bid!
+}
+
 scalar BigInt
 
 type Book {
@@ -130,8 +222,8 @@ type Book {
 	levels(side: Side!, fillChain: String, sourceChain: String): [PriceLevel!]!
 	"""
 	True liquidity behind the side's surfaced orders matching fillChain and sourceChain: per
-	distinct (solver, fill chain), its largest validated order among them, summed (1e18, in the
-	token the side pays out). Unvalidated orders add nothing. `sourceChain` matches as in
+	distinct (solver, fill chain), what its balance backs of its validated orders among them,
+	their sum as far as the balance covers it, summed (1e18, in the token the side pays out). Unvalidated orders add nothing. `sourceChain` matches as in
 	`levels`: orders whose own declaration lists it.
 	"""
 	availableLiquidity(side: Side!, fillChain: String, sourceChain: String): BigInt!
@@ -212,11 +304,13 @@ type BookHistoryPoint {
 	"""
 	askDepthQuote: BigInt!
 	"""
-	True: each (solver, fill chain)'s largest validated surfaced bid, summed, in quote (1e18).
+	True: what each (solver, fill chain)'s balance backs of its validated surfaced bids, summed,
+	in quote (1e18).
 	"""
 	bidLiquidity: BigInt!
 	"""
-	True: each (solver, fill chain)'s largest validated surfaced ask, summed, in base (1e18).
+	True: what each (solver, fill chain)'s balance backs of its validated surfaced asks, summed,
+	in base (1e18).
 	"""
 	askLiquidity: BigInt!
 	bidOrders: Int!
@@ -269,6 +363,10 @@ scalar DateTime
 enum FailureCode {
 	DATABASE_UNAVAILABLE
 	TIMEOUT
+	"""
+	Elliptic did not answer for the solver, after three retries. Nothing was placed.
+	"""
+	SCREENING_UNAVAILABLE
 }
 
 type HeartbeatAccepted {
@@ -281,6 +379,18 @@ type HeartbeatAccepted {
 }
 
 union HeartbeatResult = HeartbeatAccepted | MessageRejected
+
+type HeartbeatSignerAuthorized {
+	solver: Solver!
+	"""
+	The signer now authorised, or the zero address when this revoked it.
+	"""
+	signer: Address!
+	"""
+	When the authorisation lapses. Null when this revoked it.
+	"""
+	authorizedUntil: DateTime
+}
 
 """
 A pessimistic quote: one price, from the first level on the route, best first, deep enough to
@@ -298,23 +408,26 @@ type LevelQuote {
 	amountIn: BigInt!
 	"""
 	The tokenOut the swapper receives at `rate` (1e18), after destinationChain's protocol fee,
-	floored to a whole raw unit there; 0 when not fillable.
+	floored to a whole raw unit there. When not fillable, what the whole amountIn would receive
+	at the worst level's price, which the route cannot deliver.
 	"""
 	amountOut: BigInt!
 	"""
 	The worst single-order price in the level that fills it, quote per 1 base (1e18), before
 	the protocol fee: every order in the level, or on the route when no one level can, fills at
-	it. Null when the route's orders together cannot fill the trade.
+	it. When not fillable, the route's worst single-order price. Null only when no order serves
+	the route.
 	"""
 	rate: BigInt
 	"""
-	The price bucket of that level: the route's worst level when no one level fills it. Null
-	when not fillable.
+	The price bucket of that level: the route's worst level when no one level fills it, or when
+	not fillable. Null only when no order serves the route.
 	"""
 	priceBucket: BigInt
 	"""
-	destinationChain's protocol fee, in basis points: the least slippage from `rate` the swapper
-	should allow for. `amountOut` already has it taken off.
+	The least slippage the swapper should allow for, in basis points: destinationChain's protocol
+	fee plus how far `rate` sits from the route's best price, against the swapper, rounded up.
+	`amountOut` already has the fee taken off.
 	"""
 	slippageBps: Int!
 	fillable: Boolean!
@@ -337,6 +450,11 @@ enum MessageRejectionCode {
 	SIGNATURE_REUSED
 	UNKNOWN_ORDER
 	UNKNOWN_SOLVER
+	NO_ACTIVE_ORDER
+	SOLVER_NOT_VALIDATED
+	HEARTBEAT_SIGNER_EXPIRED
+	AUTHORIZATION_SUPERSEDED
+	SOLVER_FLAGGED
 }
 
 type Mutation {
@@ -350,13 +468,54 @@ type Mutation {
 	"""
 	submitOrders(userOps: [Bytes!]!): [SubmitOrderResult!]!
 	"""
+	Post a bid on one leg of a swapper's order: the signed, executable fillOrder UserOp the
+	solver would have sent to the coprocessor, SCALE-encoded. It is verified as an order is,
+	except that it need not be phantom, carries no TTL and declares nothing. It quotes exactly
+	one of the order's legs, a positive take and quote, and declines the rest with zeros; a
+	solver fills the other legs with bids of their own. Its rate is `outputs[leg].amount` over
+	`inputs[leg].amount`, reported as signed. It is accepted only from a solver that is active
+	and holds an active limit order on that leg's book filling on the order's destination
+	chain (`NO_LIMIT_ORDER`); a solver may post any number of bids on one order. It is served under the order's commitment for
+	`serverInfo.bidTtlSecs`, then deleted; re-sending it meanwhile is `BidUnchanged`, and
+	afterwards posts it afresh. Counts one op against the request's batch budget.
+	"""
+	submitBid(userOp: Bytes!): SubmitBidResult!
+	"""
 	Cancel one of the signer's orders. Signs EIP-712 CancelOrder(solver, commitment, timestamp).
 	"""
 	cancelOrder(solver: Address!, commitment: Bytes!, timestamp: Int!, signature: Bytes!): CancelOrderResult!
 	"""
-	Keep the signer's orders surfaced. Signs EIP-712 Heartbeat(solver, timestamp).
+	Screen the parties to a swapper's order against Elliptic: the user who placed it and each
+	beneficiary its output is paid to. Answers FLAGGED when any of them is, else UNFLAGGED; no
+	rating is given. Signs EIP-712 ScreenOrder(solver, commitment, timestamp), from an active
+	solver holding an active order on the book (`NO_ACTIVE_ORDER`).
+	
+	An order is screened once, on the first request about it, and its verdict kept for good:
+	every later request about it, from any solver, is answered from that verdict, and the order
+	is never screened again.
+	
+	The parties are read from the hyperbridge indexer. `order`, the swapper's order as
+	`abi.encode(order)`, is read instead while the indexer has not indexed it: it must hash to
+	`commitment`, and the gateway on its source chain must hold escrow for it
+	(`ORDER_NOT_ON_CHAIN`). A Elliptic call that fails is retried three times; one still
+	failing fails the request (`PROVIDER_UNAVAILABLE`, retryable), and a party that is not an
+	EVM address cannot be screened (`UNSCREENABLE_PARTY`).
+	"""
+	screenOrder(solver: Address!, commitment: Bytes!, timestamp: Int!, signature: Bytes!, order: Bytes): ScreenOrderResult!
+	"""
+	Keep the signer's orders surfaced. Signs EIP-712 Heartbeat(solver, timestamp). While
+	screening is on, a solver no Elliptic screen has cleared yet, or one flagged, has its
+	heartbeat recorded but stays SUSPENDED: a solver is screened once the validation cycle has
+	read its balance, and activated by its first clean screen.
 	"""
 	heartbeat(solver: Address!, timestamp: Int!, signature: Bytes!): HeartbeatResult!
+	"""
+	Let `signer` sign the solver's heartbeats for `heartbeatSignerTtlSecs`, so the main key need
+	only sign once per window. Signs EIP-712 AuthorizeHeartbeatSigner(solver, signer,
+	timestamp) with the solver's own key. The zero address revokes the current signer, and an
+	authorisation older than the last one accepted is refused.
+	"""
+	authorizeHeartbeatSigner(solver: Address!, signer: Address!, timestamp: Int!, signature: Bytes!): AuthorizeHeartbeatSignerResult!
 }
 
 type Order {
@@ -485,6 +644,15 @@ type OrderRejected {
 	message: String!
 }
 
+"""
+Every party to the order, its user and each beneficiary, has been screened: by this request
+if it was the first about the order, and by the first one if not.
+"""
+type OrderScreened {
+	commitment: Bytes!
+	verdict: ScreeningVerdict!
+}
+
 enum OrderStatus {
 	ACTIVE
 	SUSPENDED
@@ -591,8 +759,11 @@ type Query {
 	"""
 	The optimistic quote for an input amount (1e18): the route's orders, best price first, each
 	taking what it can of the trade at its own price, on either route kind. Each fill says the
-	tokenIn it takes and the tokenOut it delivers after destinationChain's protocol fee, which
-	`slippageBps` reports; there is no total output.
+	tokenIn it takes and the tokenOut it delivers after destinationChain's protocol fee; there is
+	no total output. `slippageBps` is the fee plus the fills' average price's distance from the
+	route's best price. When best first falls short but `quotePessimistic` fills the trade, this
+	fills it too, from that quote's level at its price: a solver's cap spent on its better,
+	smaller orders never leaves a trade its larger order could take unfillable.
 	"""
 	quote(route: RouteInput!, amountIn: BigInt!): SwapQuote!
 	"""
@@ -601,7 +772,8 @@ type Query {
 	single-order price, at which every order in it fills. Levels better than it do not add to
 	its depth. When no one level can, but the route's levels together can, it serves the route's
 	worst price; it is unfillable only when they together cannot. `amountOut` has
-	destinationChain's protocol fee taken off, and `slippageBps` reports it.
+	destinationChain's protocol fee taken off. `slippageBps` is the fee plus the rate's distance
+	from the route's best price.
 	"""
 	quotePessimistic(route: RouteInput!, amountIn: BigInt!): LevelQuote!
 	"""
@@ -620,6 +792,15 @@ type Query {
 	The order `solver` holds under `commitment`.
 	"""
 	order(solver: Address!, commitment: Bytes!): Order
+	"""
+	The live bids on the swapper's order under `commitment`, leg by leg and, within a leg, best
+	for the swapper first: the highest price where the solvers buy the base (a BID side), the
+	lowest where they sell it (an ASK side), and the oldest among equals. Each bid quotes one
+	leg; `leg` keeps that leg's alone, and `solver` one solver's. Every bid is from a solver
+	with an active limit order at that price; whether the order is still open on chain is the
+	swapper's to check.
+	"""
+	bids(commitment: Bytes!, leg: Int, solver: Address): [Bid!]!
 	"""
 	Solver balances, oldest row first, with the totals per chain and symbol of every row the
 	filter covers.
@@ -665,8 +846,8 @@ type QuoteFill {
 	"""
 	advertisedSize: BigInt!
 	"""
-	The order's own price, quote per 1 base (1e18), before the protocol fee: what this fill
-	settles at.
+	What this fill settles at, quote per 1 base (1e18), before the protocol fee: the order's own
+	price, or the pessimistic quote's level price when the quote falls back to that level.
 	"""
 	orderRate: BigInt!
 	"""
@@ -777,7 +958,8 @@ type RateEntry {
 	"""
 	depthOut: BigInt!
 	"""
-	True: each distinct solver's largest validated order in the level, in tokenOut (1e18).
+	True: what each distinct solver's balance backs of its validated orders in the level, their
+	sum as far as the balance covers it, summed across solvers, in tokenOut (1e18).
 	"""
 	backingLiquidity: BigInt!
 	"""
@@ -808,7 +990,8 @@ enum RateSeries {
 
 """
 Everything ingest can decide without a chain read. Delegation and liquidity are absent: the
-validation cycle settles both on a stored order.
+validation cycle settles both on a stored order. The last two are a bid's alone: a bid is held
+to the solver's standing on the book rather than to a TTL or a declaration.
 """
 enum RejectionCode {
 	MALFORMED_USER_OP
@@ -827,6 +1010,10 @@ enum RejectionCode {
 	ORDER_EXISTS
 	TOO_MANY_ORDERS
 	MIN_ORDER_SIZE
+	NO_LIMIT_ORDER
+	TOO_MANY_BIDS
+	SOLVER_FLAGGED
+	SOLVER_SUSPENDED
 }
 
 """
@@ -890,17 +1077,59 @@ type RouteLiquidity {
 	"""
 	depthOut: BigInt!
 	"""
-	True: each distinct serving solver's largest validated serving order, in tokenOut on the
+	True: what each distinct serving solver's balance backs of its validated serving orders,
+	their sum as far as the balance covers it, summed across solvers, in tokenOut on the
 	destination (1e18).
 	"""
 	availableLiquidity: BigInt!
 	"""
-	The largest amountIn the route's orders could take together, each at its own price, as
-	`quote` fills them (1e18 tokenIn, whole raw units).
+	The largest amountIn `quote` could fill (1e18 tokenIn, whole raw units).
 	"""
 	maxFillableIn: BigInt!
 	orderCount: Int!
 	solverCount: Int!
+}
+
+union ScreenOrderResult = OrderScreened | MessageRejected | ScreeningFailed
+
+"""
+The order could not be screened. A retryable failure may succeed if the request is signed
+again with a new timestamp and sent again.
+"""
+type ScreeningFailed {
+	code: ScreeningFailureCode!
+	message: String!
+	retryable: Boolean!
+}
+
+enum ScreeningFailureCode {
+	SCREENING_DISABLED
+	MALFORMED_ORDER
+	ORDER_MISMATCH
+	ORDER_NOT_INDEXED
+	INDEXER_UNAVAILABLE
+	UNSUPPORTED_CHAIN
+	ORDER_NOT_ON_CHAIN
+	CHAIN_UNAVAILABLE
+	UNSCREENABLE_PARTY
+	PROVIDER_UNAVAILABLE
+	DATABASE_UNAVAILABLE
+}
+
+"""
+What Elliptic said about the order's parties when the order was screened: live on the first
+request about it, and from the stored verdict on every later one.
+"""
+enum ScreeningVerdict {
+	"""
+	A party is over the line the server's policy draws: a share of its funds, or a dollar
+	value, tied to sanctions, illicit activity, or a counterparty such as MEXC.
+	"""
+	FLAGGED
+	"""
+	No party is.
+	"""
+	UNFLAGGED
 }
 
 """
@@ -924,10 +1153,22 @@ type ServerInfo {
 	"""
 	signatureSkewSecs: Int!
 	"""
-	Most UserOps one request may place, counted across all its `submitOrder` and
-	`submitOrders` fields.
+	Most UserOps one request may place, counted across all its `submitOrder`, `submitOrders`
+	and `submitBid` fields.
 	"""
 	maxBatchSize: Int!
+	"""
+	How long a bid on a swapper's order is served, in seconds from receipt.
+	"""
+	bidTtlSecs: Int!
+	"""
+	How long a heartbeat signer stays authorised before the solver has to authorise it again.
+	"""
+	heartbeatSignerTtlSecs: Int!
+	"""
+	Live bids one solver may hold.
+	"""
+	maxBidsPerSolver: Int!
 	"""
 	Tokens with a dust floor: an order paying out less than this is rejected.
 	"""
@@ -942,13 +1183,18 @@ type ServerInfo {
 	"""
 	chains: [String!]!
 	"""
-	EIP-712 domain name for `CancelOrder` and `Heartbeat` messages.
+	EIP-712 domain name for `CancelOrder`, `Heartbeat` and `ScreenOrder` messages.
 	"""
 	eip712DomainName: String!
 	"""
-	EIP-712 domain version for `CancelOrder` and `Heartbeat` messages.
+	EIP-712 domain version for `CancelOrder`, `Heartbeat` and `ScreenOrder` messages.
 	"""
 	eip712DomainVersion: String!
+	"""
+	Whether Elliptic screening is on: `[screening]` is configured with an API key and secret, so
+	`screenOrder` answers and every order and bid's solver is screened live.
+	"""
+	screeningEnabled: Boolean!
 }
 
 enum Side {
@@ -965,6 +1211,14 @@ type Solver {
 	"""
 	heartbeatDueBy: DateTime
 	suspendedAt: DateTime
+	"""
+	The key this solver authorised to sign its heartbeats, if any. It may have lapsed.
+	"""
+	heartbeatSigner: Address
+	"""
+	When the heartbeat signer stops being accepted, unless the solver authorises it again.
+	"""
+	heartbeatSignerAuthorizedUntil: DateTime
 	"""
 	The solver's balance rows, one per token per chain, oldest first, narrowed to a chain or a
 	symbol.
@@ -999,9 +1253,10 @@ type SolverBalance {
 	"""
 	total: BigInt!
 	"""
-	True liquidity (1e18): the largest validated output among all the solver's live orders
-	paying this token on this chain; 0 when it has no validated order. What it has offered to
-	deliver; no more than `total` as of the last refresh.
+	True liquidity (1e18): what `total` backs of the solver's validated live orders paying this
+	token on this chain, their summed sizes when it covers them all and `total` when it does
+	not; 0 when it has no validated order. What it has offered to deliver, as of the last
+	refresh.
 	"""
 	liquidity: BigInt!
 	"""
@@ -1038,6 +1293,8 @@ enum SolverStatus {
 	SUSPENDED
 }
 
+union SubmitBidResult = BidAccepted | BidUnchanged | BidRejected | BidSubmissionFailed
+
 union SubmitOrderResult = OrderAccepted | OrderUnchanged | OrderRejected | OrderSubmissionFailed
 
 """
@@ -1055,18 +1312,23 @@ type SwapQuote {
 	"""
 	amountIn: BigInt!
 	"""
-	destinationChain's protocol fee, in basis points: the least slippage from each fill's
-	orderRate the swapper should allow for. Every fill's amountOut already has it taken off.
+	The least slippage the swapper should allow for, in basis points: destinationChain's protocol
+	fee plus how far the fills' average price (weighted by the base each trades) sits from the
+	route's best price, against the swapper, rounded up. Every fill's amountOut already has the
+	fee taken off.
 	"""
 	slippageBps: Int!
 	fillable: Boolean!
 	"""
-	The largest amountIn the route's orders could take together, each at its own price (1e18
-	tokenIn, whole raw units).
+	The largest amountIn this quote could fill (1e18 tokenIn, whole raw units): the route's
+	orders together, each at its own price, or the pessimistic quote's level at its price,
+	whichever is more.
 	"""
 	maxFillableIn: BigInt!
 	"""
-	The orders used, best price first; empty when not fillable.
+	The orders used, best price first. When not fillable, one fill from the route's worst level
+	instead: the whole amountIn at the worst order's price, which the route cannot deliver.
+	Empty only when no order serves the route.
 	"""
 	fills: [QuoteFill!]!
 }

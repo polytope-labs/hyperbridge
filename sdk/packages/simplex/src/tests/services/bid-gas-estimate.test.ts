@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest"
-import type { HexString, Order } from "@hyperbridge/sdk"
+import type { EstimateFillOrderParams, HexString, Order } from "@hyperbridge/sdk"
 import { ContractInteractionService } from "@/services/ContractInteractionService"
 import { privateKeySigner } from "@/services/wallet"
 
@@ -28,25 +28,45 @@ function service(estimateFillOrder: ReturnType<typeof vi.fn>): ContractInteracti
 	return contract
 }
 
+const ESTIMATE = {
+	totalGasInFeeToken: 10n,
+	relayerFeeInSourceFeeToken: 0n,
+	fillOptions: { relayerFee: 0n },
+	callGasLimit: 1_000_000n,
+	verificationGasLimit: 100_000n,
+	preVerificationGas: 50_000n,
+	maxFeePerGas: 1n,
+	maxPriorityFeePerGas: 1n,
+	totalGasCostWei: 1n,
+}
+
 describe("the gas estimate a bid is signed from", () => {
 	it("requires the bundler's own estimate", async () => {
-		const estimateFillOrder = vi.fn().mockResolvedValue({
-			totalGasInFeeToken: 10n,
-			relayerFeeInSourceFeeToken: 0n,
-			fillOptions: { relayerFee: 0n },
-			callGasLimit: 1_000_000n,
-			verificationGasLimit: 100_000n,
-			preVerificationGas: 50_000n,
-			maxFeePerGas: 1n,
-			maxPriorityFeePerGas: 1n,
-			totalGasCostWei: 1n,
-		})
+		const estimateFillOrder = vi.fn().mockResolvedValue(ESTIMATE)
 		const contract = service(estimateFillOrder)
 
 		await contract.estimateGasFillPost(order)
 
 		expect(estimateFillOrder.mock.calls[0][0]).toMatchObject({ order, requireBundlerEstimate: true })
 		expect(contract.cacheService.getGasEstimate(order.id!)?.callGasLimit).toBe(1_000_000n)
+	})
+
+	it("logs each retry of a transiently failed bundler estimate as a warning", async () => {
+		const error = new Error("Bundler error: internal error: rpc provider error")
+		const estimateFillOrder = vi.fn(async ({ onBundlerRetry }: EstimateFillOrderParams) => {
+			onBundlerRetry?.({ attempt: 1, maxAttempts: 3, delayMs: 250, error })
+			return ESTIMATE
+		})
+		const contract = service(estimateFillOrder)
+		// The service's logger is private.
+		const warn = vi.spyOn((contract as any).logger, "warn")
+
+		await contract.estimateGasFillPost(order)
+
+		expect(warn).toHaveBeenCalledWith(
+			{ orderId: order.id, attempt: 1, maxAttempts: 3, delayMs: 250, err: error },
+			"Bundler gas estimate failed transiently, retrying",
+		)
 	})
 
 	it("leaves nothing to bid with when the bundler estimate fails", async () => {

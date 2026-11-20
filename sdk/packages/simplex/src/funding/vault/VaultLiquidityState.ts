@@ -5,14 +5,6 @@ import type { ChainClientManager } from "@/services/ChainClientManager"
 import { type Logger, moduleLogger } from "@/services/Logger"
 import type { HexString } from "@hyperbridge/sdk"
 import { parseUnits } from "viem"
-/**
- * Backstop expiry for a reservation whose bid never executes (lost auction,
- * abandoned) — without it, `remaining` would drift to 0 and disable sourcing.
- * Won bids release immediately via position-decrease reconciliation in
- * {@link refresh}, so this only needs to exceed plan→execute latency (auction
- * window + settlement); expiring too early risks an oversubscribed withdraw.
- */
-const RESERVATION_TTL_MS = 60_000
 
 /**
  * Long-lived vault (ERC-4626) liquidity state for one destination chain.
@@ -23,7 +15,14 @@ const RESERVATION_TTL_MS = 60_000
  * (e.g. Aave utilization for stataTokens). Planning within it avoids a
  * `withdraw` that would revert and roll back the entire ERC-7821 fill batch.
  *
- * Concurrent access is serialised by the planner's per-chain mutex.
+ * Nothing is held back locally for withdrawals that are planned but not yet
+ * executed: the chain is the only record of what is left. Two bids planned
+ * back to back can each draw up to `maxWithdraw`, and whichever executes
+ * second finds the vault short, reverts its fill batch on chain and costs its
+ * gas. That cost is accepted in exchange for having no local reservation that
+ * could drift from the vault.
+ *
+ * Refreshes are serialised by the planner's per-chain mutex.
  */
 export class VaultLiquidityState {
 	private readonly logger: Logger
@@ -31,15 +30,6 @@ export class VaultLiquidityState {
 	/** Keyed by underlying asset address, lowercased. */
 	private vaults = new Map<string, HydratedVault>()
 	private hydrated = false
-	/**
-	 * Per-asset reservations for planned-but-unexecuted withdrawals, lowercased
-	 * key. Each reservation auto-expires after {@link RESERVATION_TTL_MS} so a
-	 * lost bid's reservation cannot accumulate and starve `remaining`.
-	 */
-	private reservations = new Map<string, { amount: bigint; expiresAt: number }[]>()
-	/** Last observed position in asset terms, used to release reservations once
-	 * their withdrawal actually executes on-chain (the position drops). */
-	private lastPositionAssets = new Map<string, bigint>()
 
 	constructor(
 		private readonly chain: string,
@@ -110,7 +100,6 @@ export class VaultLiquidityState {
 				positionAssets: 0n,
 				maxWithdrawable: 0n,
 				maxDeposit: 0n,
-				remaining: 0n,
 			})
 		}
 
@@ -135,16 +124,12 @@ export class VaultLiquidityState {
 
 	/**
 	 * Refreshes live balances for every vault: the solver's position in asset
-	 * terms and the vault's withdraw cap. Reconciles the per-asset `consumed`
-	 * counter against any position decrease since the last refresh so executed
-	 * withdrawals free up their reservation.
+	 * terms, the vault's withdraw cap and its deposit cap.
 	 */
 	async refresh(): Promise<void> {
 		const client = this.clientManager.getPublicClient(this.chain)
 
 		for (const v of this.vaults.values()) {
-			const key = v.asset.toLowerCase()
-
 			const shares = (await client.readContract({
 				address: v.vault,
 				abi: ERC20_ABI,
@@ -173,23 +158,9 @@ export class VaultLiquidityState {
 				}) as Promise<bigint>,
 			])
 
-			// A drop in the on-chain position means a planned withdrawal has
-			// executed — release that much reservation immediately (oldest first)
-			// so the freed liquidity is available to the next fill without waiting
-			// for the TTL. The TTL only backstops bids that never execute.
-			const prevPosition = this.lastPositionAssets.get(key) ?? positionAssets
-			const decrease = prevPosition > positionAssets ? prevPosition - positionAssets : 0n
-			this.releaseReserved(key, decrease)
-			this.lastPositionAssets.set(key, positionAssets)
-
-			// Subtract only live reservations; expired ones (e.g. from lost bids)
-			// are pruned so they can never permanently shrink `remaining`.
-			const reserved = this.reservedFor(key)
-
 			v.positionAssets = positionAssets
 			v.maxWithdrawable = maxWithdrawable
 			v.maxDeposit = maxDeposit
-			v.remaining = maxWithdrawable > reserved ? maxWithdrawable - reserved : 0n
 
 			this.logger.debug(
 				{
@@ -199,8 +170,6 @@ export class VaultLiquidityState {
 					positionAssets: positionAssets.toString(),
 					maxWithdrawable: maxWithdrawable.toString(),
 					maxDeposit: maxDeposit.toString(),
-					reserved: reserved.toString(),
-					remaining: v.remaining.toString(),
 				},
 				"Vault refreshed",
 			)
@@ -224,68 +193,13 @@ export class VaultLiquidityState {
 		return this.vaults.get(tokenLower.toLowerCase())
 	}
 
-	/** Sourceable amount of `asset` after pending-fill reservations. */
-	remaining(asset: string): bigint {
-		return this.vaults.get(asset.toLowerCase())?.remaining ?? 0n
+	/** What the vault let the solver withdraw of `asset` at the last refresh: `maxWithdraw(solver)`. */
+	withdrawable(asset: string): bigint {
+		return this.vaults.get(asset.toLowerCase())?.maxWithdrawable ?? 0n
 	}
 
 	/** Wallet floor (`minBalance`) for `asset` the fill must never spend below. 0 if not configured. */
 	reserveFor(asset: string): bigint {
 		return this.vaults.get(asset.toLowerCase())?.minBalanceScaled ?? 0n
-	}
-
-	consume(asset: string, amount: bigint): void {
-		const key = asset.toLowerCase()
-		const list = this.reservations.get(key) ?? []
-		list.push({ amount, expiresAt: Date.now() + RESERVATION_TTL_MS })
-		this.reservations.set(key, list)
-
-		const v = this.vaults.get(key)
-		if (v) {
-			v.remaining = v.remaining > amount ? v.remaining - amount : 0n
-		}
-	}
-
-	/**
-	 * Removes up to `amount` of reservations (oldest first) to reflect a realised
-	 * on-chain position decrease — i.e. a planned withdrawal that has executed.
-	 */
-	private releaseReserved(key: string, amount: bigint): void {
-		if (amount <= 0n) return
-		const list = this.reservations.get(key)
-		if (!list || list.length === 0) return
-
-		// Drop expired entries first so the FIFO shift only ever consumes a live
-		// reservation — otherwise a realised position drop could cancel an
-		// already-expired head and leave the live one counted for up to a TTL.
-		const now = Date.now()
-		const live = list.filter((r) => r.expiresAt > now)
-		if (live.length !== list.length) this.reservations.set(key, live)
-		if (live.length === 0) return
-
-		let toRelease = amount
-		while (toRelease > 0n && live.length > 0) {
-			const head = live[0]
-			if (head.amount <= toRelease) {
-				toRelease -= head.amount
-				live.shift()
-			} else {
-				head.amount -= toRelease
-				toRelease = 0n
-			}
-		}
-		this.reservations.set(key, live)
-	}
-
-	/** Sum of unexpired reservations for `key`, pruning expired ones in place. */
-	private reservedFor(key: string): bigint {
-		const list = this.reservations.get(key)
-		if (!list || list.length === 0) return 0n
-
-		const now = Date.now()
-		const live = list.filter((r) => r.expiresAt > now)
-		if (live.length !== list.length) this.reservations.set(key, live)
-
-		return live.reduce((sum, r) => sum + r.amount, 0n)
 	}
 }

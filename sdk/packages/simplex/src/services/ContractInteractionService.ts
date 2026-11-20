@@ -20,6 +20,7 @@ import {
 	readLegPartialFill,
 	encodePhantomBidDeclaration,
 	bytes20ToBytes32,
+	type BundlerRetryEvent,
 } from "@hyperbridge/sdk"
 import { ERC20_ABI } from "@/config/abis/ERC20"
 import { SOLVER_ACCOUNT_ABI } from "@/config/abis/SolverAccount"
@@ -53,6 +54,43 @@ const FUNDING_GAS_PER_CALL = 400_000n
  */
 const DEBIT_ORDER_GAS = 60_000n
 
+/**
+ * Call gas allowed per ERC20 the batch approves to the gateway. The bundler's estimate is of a
+ * lone `fillOrder` (`estimateGasFillPost` passes no prepends; `FUNDING_GAS_PER_CALL` covers
+ * those), so the approvals are not in it. Each token costs three
+ * `approve` calls: the reset ahead of the set (about 5-10k, a write of zero over zero or over a
+ * leftover), the set from zero (about 22k for the write and 2k for the cold slot), and the reset
+ * after the fill (about 5k). A call into the token, through a proxy for the stablecoins, adds a
+ * few thousand to each. Together about 40k, rounded up.
+ */
+const APPROVAL_GAS_PER_TOKEN = 45_000n
+
+/**
+ * What the batch approves to the gateway, per ERC20 (lowercased address): each output's amount,
+ * summed over the legs paying the same token, plus the dispatch fee in the fee token. Native
+ * outputs need no approval, and a token owed nothing is left out. `feeToken` is undefined for a
+ * same-chain fill, which dispatches nothing.
+ *
+ * The batch's approvals and the call gas allowed for them both come from this, so they agree.
+ */
+function approvalAmounts(outputs: TokenInfo[], feeToken: string | undefined, dispatchFee: bigint): Map<string, bigint> {
+	const amounts = new Map<string, bigint>()
+	for (const output of outputs) {
+		const addr = bytes32ToBytes20(output.token)
+		if (addr === ADDRESS_ZERO) continue
+		const key = addr.toLowerCase()
+		amounts.set(key, (amounts.get(key) ?? 0n) + output.amount)
+	}
+	if (feeToken) {
+		const key = feeToken.toLowerCase()
+		amounts.set(key, (amounts.get(key) ?? 0n) + dispatchFee)
+	}
+	for (const [key, amount] of amounts) {
+		if (amount === 0n) amounts.delete(key)
+	}
+	return amounts
+}
+
 /** What a bid's batch needs to settle its limit order's budget. */
 export interface BudgetSettlement {
 	budget: LimitOrderBudget
@@ -83,7 +121,19 @@ const LIMIT_ORDER_PRE_VERIFICATION_GAS = 50_000n
  * The asymmetry decides the direction: overshooting costs a marginally staler quote,
  * undershooting silently throws away bids that were about to be won.
  */
-const BID_DISCOVERY_PAD_SECONDS = 30
+export const BID_DISCOVERY_PAD_SECONDS = 30
+
+/**
+ * Added on top of the bid's own validity when sizing its Permit2 deadline — the permit deadline is
+ * a timestamp (the destination head's, plus `bidValiditySeconds + BID_DISCOVERY_PAD_SECONDS + this`),
+ * while the bid's on-chain `validUntil` is block-based and can run longer in wall-clock time when
+ * blocks are slow, so whichever is earlier binds. Anchored to the chain, the deadline does not
+ * depend on this host's clock; the skew covers the head's age by the time the permit is signed, the
+ * latency from submission to inclusion, and the buffer bundlers apply when rejecting an op whose
+ * `validUntil` is too close to now (rundler's time-range buffer is roughly 30–60s): the placer
+ * bundles our bid later than we sign it, so a shorter skew left no margin at the end of the window.
+ */
+export const BID_PERMIT_SKEW_SECONDS = 120
 
 /**
  * How many blocks back a chain's block time is measured over. Block timestamps are whole
@@ -94,6 +144,15 @@ const BLOCK_TIME_SAMPLE_BLOCKS = 1_000n
 
 /** Assumed when a chain declares no block time and its blocks cannot be read. */
 const FALLBACK_BLOCK_TIME_SECONDS = 2
+
+/**
+ * The floor for a block-time measurement, on every chain. A measurement is not judged against the
+ * chain's declared figure: real speed-ups run far past any fixed fraction of it (Base makes a block
+ * every 0.2s against viem's 2s), and discarding one ends every bid on that chain early. So a sample
+ * is held only to this flat floor, which catches an impossible sample and nothing else; a
+ * measurement below it is replaced by the declared figure, then the fallback.
+ */
+const MIN_PLAUSIBLE_BLOCK_TIME_SECONDS = 0.1
 
 export class ContractInteractionService {
 	private configService: FillerConfigService
@@ -123,7 +182,7 @@ export class ContractInteractionService {
 
 	/**
 	 * The endpoint SDK helpers should use for `chain`: the first configured RPC,
-	 * matching the one viem's `fallback` transport tries first.
+	 * the one the wallet client sends to first.
 	 */
 	private primaryRpcUrl(chain: string): string {
 		const [rpcUrl] = this.configService.getRpcUrls(chain)
@@ -146,11 +205,11 @@ export class ContractInteractionService {
 		}
 
 		// Read the endpoint from the config, NOT from `publicClient.transport.url`:
-		// a multi-URL chain is built on a viem `fallback` transport, whose `url`
-		// is undefined. Passing that through leaves the SDK's EvmChain with no
-		// RPC, so viem silently substitutes the chain's built-in public default
-		// (e.g. polygon.drpc.org for Polygon) and the operator's endpoints are
-		// bypassed entirely on this path.
+		// a multi-URL chain is built on a transport that has no `url`. Passing
+		// that through leaves the SDK's EvmChain with no RPC, so viem silently
+		// substitutes the chain's built-in public default (e.g. polygon.drpc.org
+		// for Polygon) and the operator's endpoints are bypassed entirely on this
+		// path.
 		const sourceEvmChain = EvmChain.fromParams({
 			chainId: getChainId(source)!,
 			host: this.configService.getHostAddress(source),
@@ -243,8 +302,9 @@ export class ContractInteractionService {
 
 		const client = this.clientManager.getPublicClient(chain)
 
+		let decimals: number
 		try {
-			const decimals = await retryPromise(
+			decimals = await retryPromise(
 				() =>
 					client.readContract({
 						address: bytes20Address as HexString,
@@ -257,16 +317,12 @@ export class ContractInteractionService {
 					logMessage: "Failed to get token decimals",
 				},
 			)
-
-			this.cacheService.setTokenDecimals(chain, bytes20Address as HexString, decimals)
-			return decimals
 		} catch (error) {
 			// The on-chain read is authoritative, but when it fails the SDK's per-chain asset
 			// table already carries the curated value for every supported token — so fall back
 			// to that rather than guessing. Guessing is what makes this dangerous: `decimals`
-			// scales `policyMaxOutput` by `10 ** decimals`, so assuming 18 for a 6-decimal token
-			// inflates the computed payout by 10^12, and the payout is no longer clamped to the
-			// user's requested output.
+			// scales every amount in the token's own units, so assuming 18 for a 6-decimal token
+			// inflates the computed payout by 10^12.
 			//
 			// Deliberately not cached: the registry is a safety net, not the source of truth, so
 			// a transient RPC failure must not pin this value for the lifetime of the process.
@@ -280,12 +336,12 @@ export class ContractInteractionService {
 				return configured
 			}
 
-			// Hard error rather than a guess. `decimals` scales `policyMaxOutput` by
-			// `10 ** decimals`, so a wrong value does not degrade the fill — it changes
+			// Hard error rather than a guess. `decimals` scales every amount in the
+			// token's own units, so a wrong value does not degrade the fill — it changes
 			// its size by orders of magnitude. Every caller on the fill path treats a
-			// throw as "skip this order" (`IntentFiller.evaluateOrder` is wrapped in a
-			// try/catch, as is the USD-sizing path), which is the outcome we want when
-			// the value is unknowable.
+			// throw as "skip this order" (`IntentFiller.evaluateOrder` runs the strategy's
+			// `calculateProfitability` in a try/catch, as does the USD-sizing path), which
+			// is the outcome we want when the value is unknowable.
 			this.logger.error(
 				{ err: error, chain, token: bytes20Address },
 				"Could not determine token decimals from RPC or configuration",
@@ -295,6 +351,32 @@ export class ContractInteractionService {
 					`the on-chain decimals() read failed and the token is not in the asset registry`,
 			)
 		}
+
+		// Cross-check the read against the curated registry. The read goes through the plain
+		// public client, not the event monitor's quorum, so the first endpoint to answer wins:
+		// one endpoint reporting 18 for a 6-decimal token inflates every amount scaled by it by
+		// 10^12. The registry was verified on-chain when the token was curated, so where it knows
+		// the token its disagreement is a hard error rather than something to price — callers on
+		// the fill path treat a throw as "skip this order". A token the registry does not know,
+		// such as a custom `[assets]` entry (which names addresses, not decimals), is not
+		// cross-checked: it takes the chain's answer, and nothing bounds a bid scaled by a wrong
+		// one except the wallet balance and the funding venues.
+		//
+		// Deliberately not cached on a mismatch: the next call re-reads and re-checks. A value
+		// that reaches the cache was checked here, and `setTokenDecimals` has no other caller.
+		const configured = this.configService.getAssetDecimalsByAddress(chain, bytes20Address as HexString)
+		if (configured !== undefined && configured !== decimals) {
+			this.logger.error(
+				{ chain, token: bytes20Address, reported: decimals, registry: configured },
+				"Token decimals from the RPC disagree with the asset registry",
+			)
+			throw new Error(
+				`Token ${bytes20Address} on ${chain} reports ${decimals} decimals but the asset registry says ${configured}; refusing to price it`,
+			)
+		}
+
+		this.cacheService.setTokenDecimals(chain, bytes20Address as HexString, decimals)
+		return decimals
 	}
 
 	/**
@@ -335,6 +417,7 @@ export class ContractInteractionService {
 				// No bid without the bundler's own figures: an op signed with the SDK's
 				// fixed fallback limits does not execute, so a failed estimate skips the order.
 				requireBundlerEstimate: true,
+				onBundlerRetry: this.logBundlerRetry(order),
 			})
 
 			this.logger.info({ orderId: order.id }, "Caching gas estimate")
@@ -368,6 +451,18 @@ export class ContractInteractionService {
 	}
 
 	/**
+	 * Logs a bundler gas estimate for `order` that failed transiently and is sent again
+	 * (the SDK retries a network failure, a JSON-RPC internal error, or an HTTP 408, 429 or 5xx).
+	 */
+	private logBundlerRetry(order: Order): (retry: BundlerRetryEvent) => void {
+		return ({ attempt, maxAttempts, delayMs, error }) =>
+			this.logger.warn(
+				{ orderId: order.id, attempt, maxAttempts, delayMs, err: error },
+				"Bundler gas estimate failed transiently, retrying",
+			)
+	}
+
+	/**
 	 * The call gas a bid needs: the shared estimate plus room for the funding calls
 	 * this bid prepends and for settling its limit order's budget.
 	 *
@@ -376,12 +471,33 @@ export class ContractInteractionService {
 	 * allowance for its modifyLiquidities + take. They differ between the bids on one
 	 * order, since each draws on its own limit order and so on its own funding, which
 	 * is why this is worked out per bid rather than baked into the cached estimate.
-	 * The estimate is of a lone fillOrder, so the budget call is not in it either.
+	 * The estimate is of a lone fillOrder, so the budget call is not in it either, nor are
+	 * the approvals: each token the batch approves adds `APPROVAL_GAS_PER_TOKEN`.
 	 */
-	private callGasLimitFor(order: Order, baseCallGasLimit: bigint, budget?: LimitOrderBudget | null): bigint {
+	private callGasLimitFor(
+		order: Order,
+		baseCallGasLimit: bigint,
+		approvedTokens: number,
+		budget?: LimitOrderBudget | null,
+	): bigint {
 		const funding = order.id ? this.cacheService.getFundingPrepends(order.id) : null
 		const fundingGas = FUNDING_GAS_PER_CALL * BigInt(funding?.calls?.length ?? 0)
-		return baseCallGasLimit + fundingGas + (settles(budget) ? DEBIT_ORDER_GAS : 0n)
+		const approvalGas = APPROVAL_GAS_PER_TOKEN * BigInt(approvedTokens)
+		return baseCallGasLimit + fundingGas + approvalGas + (settles(budget) ? DEBIT_ORDER_GAS : 0n)
+	}
+
+	/**
+	 * What the batch approves to the gateway for `order`, per token, and the fee token's key
+	 * when the fill dispatches. The fee token is read from the destination host.
+	 */
+	private async approvalsFor(
+		order: Order,
+		outputs: TokenInfo[],
+		dispatchFee: bigint,
+	): Promise<{ amounts: Map<string, bigint>; feeKey?: string }> {
+		if (order.source === order.destination) return { amounts: approvalAmounts(outputs, undefined, dispatchFee) }
+		const feeKey = (await this.getFeeTokenWithDecimals(order.destination)).address.toLowerCase()
+		return { amounts: approvalAmounts(outputs, feeKey, dispatchFee), feeKey }
 	}
 
 	/**
@@ -598,14 +714,21 @@ export class ContractInteractionService {
 	 * Null rather than a throw: an account whose implementation keeps no tally answers
 	 * with a revert or with no data, and the caller carries on without the figure either
 	 * way. Not retried, since that answer does not change on a second ask.
+	 *
+	 * Read at `blockNumber` when given, otherwise at the latest block. A load-balanced
+	 * endpoint can lag the one that saw a fill, so a read at `latest` right after the
+	 * fill can return the tally from before it. The tally only grows, so a read at the
+	 * fill's own block already includes that fill. An endpoint that has not reached the
+	 * block answers with an error, which is null here: no figure, rather than a stale one.
 	 */
-	async limitOrderSpent(chain: string, budgetId: HexString): Promise<bigint | null> {
+	async limitOrderSpent(chain: string, budgetId: HexString, blockNumber?: bigint): Promise<bigint | null> {
 		try {
 			return await this.clientManager.getPublicClient(chain).readContract({
 				address: this.solverAccountAddress,
 				abi: SOLVER_ACCOUNT_ABI,
 				functionName: "spent",
 				args: [budgetId],
+				...(blockNumber !== undefined ? { blockNumber } : {}),
 			})
 		} catch (err) {
 			this.logger.warn({ err, chain, budgetId }, "Could not read the limit order's tally from the solver account")
@@ -784,9 +907,6 @@ export class ContractInteractionService {
 		// outputs are the read that fails, and the bid is dropped rather than sent unbudgeted.
 		const budget = this.cacheService.getBidBudget(order.id!)
 
-		// The funding calls are this bid's own, set by the caller for each bid on the order.
-		const callGasLimit = this.callGasLimitFor(order, cachedEstimate.callGasLimit, budget)
-
 		// Use cached filler outputs (calculated based on bps) for competitive bidding
 		const cachedFillerOutputs = this.cacheService.getFillerOutputs(order.id!)
 		const cachedFillerInputs = this.cacheService.getFillerInputs(order.id!)
@@ -796,6 +916,10 @@ export class ContractInteractionService {
 		}
 
 		const sdkHelper = await this.getIntentGateway(order.source, order.destination)
+
+		// One read of the destination head serves both clocks the bid runs on: its number
+		// bounds `validUntil`, and its timestamp anchors the Permit2 deadline below.
+		const head = await this.clientManager.getPublicClient(order.destination).getBlock({ blockTag: "latest" })
 
 		const fillOptions: FillOptions = {
 			relayerFee: cachedEstimate.dispatchFee,
@@ -807,19 +931,24 @@ export class ContractInteractionService {
 			nativeDispatchFee: 0n,
 			// Caps how long this quote stands. Without it the placer holds a free option:
 			// they choose the moment of execution and we are committed to the old price.
-			validUntil: await this.bidValidUntilBlock(order.destination),
+			validUntil: await this.bidValidUntilBlock(order.destination, head.number),
 			outputs: cachedFillerOutputs,
 			// One take per leg, paired with its output; the gateway settles the pair as our rate.
 			inputs: cachedFillerInputs,
 		}
 
-		// dispatchWithFeeToken pulls relayerFee in fee token from the solver.
-		const dispatchFeeTokenAmount = fillOptions.relayerFee
+		// The funding calls are this bid's own, set by the caller for each bid on the order. The
+		// approvals are counted from the same amounts the batch below is built from.
+		const { amounts: approvals } = await this.approvalsFor(order, cachedFillerOutputs, fillOptions.relayerFee)
+		const callGasLimit = this.callGasLimitFor(order, cachedEstimate.callGasLimit, approvals.size, budget)
+
+		// dispatchWithFeeToken pulls relayerFee in the fee token from the solver. That is all the
+		// gateway takes in it: the fill's gas is paid through the paymaster's Permit2 pull, and
+		// the cached gas estimate is in the source chain's fee-token decimals besides.
 		const callData = await this.buildApprovalAndFillCalldata(
 			order,
 			cachedFillerOutputs,
 			fillOptions,
-			cachedEstimate.totalCostInSourceFeeToken + dispatchFeeTokenAmount,
 			budget ? { budget, solverAccount: solverAccountAddress } : undefined,
 		)
 
@@ -843,6 +972,20 @@ export class ContractInteractionService {
 			walletClient: this.clientManager.getWalletClient(order.destination),
 			signer: this.signer,
 			configService: this.configService,
+			// The paymaster reports the Permit2 deadline as the op's `validUntil`, and the default
+			// hour outlives a bid's validity: a bid selected late still validated, then `fillOrder`
+			// reverted `FillExpired` and the solver paid the gas. Sizing the permit to the bid's window
+			// lets the EntryPoint drop an op far past it at validation, for free. That is a bound on
+			// the tail, not a guarantee: an op landing between the bid's block-based `validUntil` and
+			// this deadline (up to BID_PERMIT_SKEW_SECONDS later) still reverts `FillExpired`, at the
+			// solver's cost. Closing it needs `SolverAccount` to return a block-number `validUntil`.
+			// The deadline is anchored to the chain's head timestamp, not this host's clock: the
+			// EntryPoint judges it against the chain, and a host running behind it would shorten
+			// every bid's window until the skew allowance was gone and each op failed validation.
+			// Sends, sweeps and delegation keep the hour default.
+			permitDeadline:
+				head.timestamp +
+				BigInt(Math.ceil(this.configService.getBidValiditySeconds() + BID_DISCOVERY_PAD_SECONDS + BID_PERMIT_SKEW_SECONDS)),
 			prefund: {
 				baseGas:
 					callGasLimit + cachedEstimate.verificationGasLimit + cachedEstimate.preVerificationGas,
@@ -874,11 +1017,23 @@ export class ContractInteractionService {
 		// the bundler to admit it, not to bundle it. Priced on this op, at the bundle's price.
 		let preVerificationGas = cachedEstimate.preVerificationGas
 		try {
-			preVerificationGas = await sdkHelper.estimateBidPreVerificationGas(bidGas)
+			preVerificationGas = await sdkHelper.estimateBidPreVerificationGas(bidGas, this.logBundlerRetry(order))
 		} catch (err) {
 			this.logger.warn(
 				{ orderId: order.id, err, preVerificationGas: preVerificationGas.toString() },
 				"Could not estimate the bid's preVerificationGas; using the fill estimate's",
+			)
+		}
+
+		// Checked on the limits the op is signed with: the re-estimated preVerificationGas is
+		// the prefund the EntryPoint will actually charge, and on an L2 it is the larger one.
+		if (pmResult.type === "none") {
+			await this.assertUnsponsoredBidFunded(
+				order.destination,
+				entryPointAddress,
+				solverAccountAddress,
+				(callGasLimit + cachedEstimate.verificationGasLimit + preVerificationGas) * cachedEstimate.maxFeePerGas,
+				pmResult.reason,
 			)
 		}
 
@@ -909,6 +1064,49 @@ export class ContractInteractionService {
 	}
 
 	/**
+	 * Throws unless an op with no paymaster can pay its own prefund. The EntryPoint takes it from
+	 * the account's deposit and asks the account for the rest out of its native balance, so
+	 * between them they must cover `required`. Nothing funds a deposit on a chain with a
+	 * paymaster configured, so when selection comes back empty there a solver holding little
+	 * native would place a bid, pay Hyperbridge's bid fee for it, and fail validation (AA21)
+	 * when it is selected. Reads that fail let the bid through, as the paymaster deposit gate
+	 * does: a transient RPC error must not cost a bid, and the worst case is that failure.
+	 */
+	private async assertUnsponsoredBidFunded(
+		chain: string,
+		entryPoint: HexString,
+		account: HexString,
+		required: bigint,
+		reason: string | undefined,
+	): Promise<void> {
+		const client = this.clientManager.getPublicClient(chain)
+		let deposit: bigint
+		let native: bigint
+		try {
+			;[deposit, native] = await Promise.all([
+				client.readContract({
+					address: entryPoint,
+					abi: ENTRYPOINT_ABI,
+					functionName: "balanceOf",
+					args: [account],
+				}) as Promise<bigint>,
+				client.getBalance({ address: account }),
+			])
+		} catch (err) {
+			this.logger.warn(
+				{ chain, err },
+				"Could not read the account's EntryPoint deposit or native balance; bidding without a paymaster anyway",
+			)
+			return
+		}
+		if (deposit + native >= required) return
+		throw new Error(
+			`No paymaster for this bid (${reason ?? "none selected"}) and the account cannot pay its gas on ${chain}: ` +
+				`EntryPoint deposit ${formatEther(deposit)} + native ${formatEther(native)} < ${formatEther(required)} required`,
+		)
+	}
+
+	/**
 	 * Last block on the destination chain at which a bid signed now may still execute.
 	 *
 	 * A bid is a firm quote the order placer takes up whenever they like, and nothing else
@@ -923,29 +1121,37 @@ export class ContractInteractionService {
 	 * deliberately rounded up, since erring long costs a slightly stale quote while erring
 	 * short silently drops winnable bids.
 	 */
-	private async bidValidUntilBlock(chain: string): Promise<bigint> {
+	private async bidValidUntilBlock(chain: string, head?: bigint): Promise<bigint> {
 		const client = this.clientManager.getPublicClient(chain)
-		const [currentBlock, blockTimeSec] = await Promise.all([client.getBlockNumber(), this.blockTimeSeconds(chain)])
+		// A caller that already read the head passes its number, so the bid is bounded and
+		// its permit anchored to one block rather than two reads that could straddle one.
+		const [currentBlock, blockTimeSec] = await Promise.all([
+			head ?? client.getBlockNumber(),
+			this.blockTimeSeconds(chain),
+		])
 		// Converted once, so the rounding happens in one place rather than twice.
 		const windowSec = this.configService.getBidValiditySeconds() + BID_DISCOVERY_PAD_SECONDS
 		return currentBlock + BigInt(Math.ceil(windowSec / blockTimeSec))
 	}
 
 	/**
-	 * Seconds per block on `chain`. Measured once, when simplex starts ({@link initCache}), and
-	 * kept until it stops. A chain with no measurement yet, because it was added later or its
-	 * blocks could not be read at startup, is measured at its first bid.
+	 * Seconds per block on `chain`. Measured on every configured chain when simplex starts
+	 * ({@link initCache}), and kept until it stops. A chain with no measurement yet, because it
+	 * was added later or its blocks could not be read at startup, is measured at its first use.
 	 *
-	 * The nominal `Chain.blockTime` cannot be relied on alone: it goes stale when a chain
-	 * speeds up (BSC makes a block every 0.45s against a declared 0.75s) and some chains
-	 * declare none. Converting at a slower block time than the chain's ends a bid early, so
-	 * the faster of the measured and the declared figure is used, and a stalled or idle
-	 * stretch in the sample never shortens a bid.
+	 * The measurement is what simplex converts at, however far it is from the nominal
+	 * `Chain.blockTime`: that figure goes stale when a chain speeds up (Base makes a block every
+	 * 0.2s against viem's 2s, BSC every 0.45s against 0.75s) and some chains declare none.
+	 * Converting at a slower block time than the chain's ends a bid early — on Base, at a tenth of
+	 * its window. The declared figure is used only when it is faster, so a stalled or idle stretch
+	 * in the sample never shortens a bid. A measurement below the flat floor
+	 * {@link MIN_PLAUSIBLE_BLOCK_TIME_SECONDS} is impossible and is discarded for the declared
+	 * figure, then {@link FALLBACK_BLOCK_TIME_SECONDS}.
 	 *
 	 * Blocks that cannot be read fall back to the declared figure, then to
 	 * {@link FALLBACK_BLOCK_TIME_SECONDS}. That answer is not kept.
 	 */
-	private blockTimeSeconds(chain: string): Promise<number> {
+	blockTimeSeconds(chain: string): Promise<number> {
 		const known = this.blockTimes.get(chain)
 		if (known) return known
 
@@ -954,7 +1160,19 @@ export class ContractInteractionService {
 		const declaredMs = client.chain?.blockTime
 		const declared = declaredMs ? declaredMs / 1000 : undefined
 		const seconds = this.measureBlockTimeSeconds(client)
-			.then((measured) => (declared ? Math.min(measured, declared) : measured))
+			.then((measured) => {
+				if (measured < MIN_PLAUSIBLE_BLOCK_TIME_SECONDS) {
+					const used = declared ?? FALLBACK_BLOCK_TIME_SECONDS
+					this.logger.warn(
+						{ chain, measured, declared, seconds: used },
+						"Discarding an implausibly fast block-time measurement",
+					)
+					return used
+				}
+				const used = declared ? Math.min(measured, declared) : measured
+				this.logger.info({ chain, measured, declared, seconds: used }, "Measured the block time")
+				return used
+			})
 			.catch((err) => {
 				this.blockTimes.delete(chain)
 				const fallback = declared ?? FALLBACK_BLOCK_TIME_SECONDS
@@ -1096,6 +1314,13 @@ export class ContractInteractionService {
 	 * Builds ERC-7821 batch calldata that approves exactly what this bid can pay
 	 * before the fillOrder call, all within a single UserOp payload.
 	 *
+	 * The gateway is approved for exactly what this fill pays: the outputs in each
+	 * ERC20, plus the dispatch fee (`dispatchFee`) in the fee token on a cross-chain
+	 * fill. Nothing else goes in an approval: the fill's gas is paid through the
+	 * paymaster's Permit2 pull. The batch ends by setting every allowance it set back
+	 * to zero, so none stands once it completes. The gateway is an upgradeable proxy
+	 * and a standing allowance is exposure to a future implementation.
+	 *
 	 * The approvals are unconditional. One solver can hold several bids on one
 	 * order, at different levels of its book, and they execute one after another:
 	 * an approval skipped because the allowance covered this bid when it was signed
@@ -1111,40 +1336,31 @@ export class ContractInteractionService {
 	 * A bid priced by a limit order ends with `debitOrder`, which takes the budget's id
 	 * as its `orderId`, works out what the fill paid from what is left of the allowance
 	 * and reverts the whole batch if the order's payouts would pass its size. It has to
-	 * come last, after the gateway has drawn on the allowance.
+	 * come after the gateway has drawn on the allowance, and the zero-resets after it,
+	 * since it reads the allowance that is left. It clears the budget token's allowance
+	 * itself, so the resets skip that token.
 	 */
 	public async buildApprovalAndFillCalldata(
 		order: Order,
 		fillerOutputs: TokenInfo[],
 		fillOptions: FillOptions,
-		requiredFeeTokenAmount: bigint,
 		settlement?: BudgetSettlement,
 	): Promise<HexString> {
 		const chain = order.destination
 		const intentGatewayV2Address = this.configService.getIntentGatewayAddress(chain)
 
-		// Aggregate required amounts per ERC20 token
-		const perTokenRequired = new Map<string, bigint>()
-		for (const output of fillerOutputs) {
-			const addr = bytes32ToBytes20(output.token)
-			if (addr === ADDRESS_ZERO) continue
-			const key = addr.toLowerCase()
-			perTokenRequired.set(key, (perTokenRequired.get(key) ?? 0n) + output.amount)
-		}
-
-		let feeKey: string | undefined
-		if (order.source !== order.destination) {
-			const feeToken = await this.getFeeTokenWithDecimals(chain)
-			feeKey = feeToken.address.toLowerCase()
-			perTokenRequired.set(feeKey, (perTokenRequired.get(feeKey) ?? 0n) + requiredFeeTokenAmount)
-		}
+		// The outputs per ERC20 token, plus the fill's own dispatch fee in the fee token
+		const { amounts: perTokenRequired, feeKey } = await this.approvalsFor(
+			order,
+			fillerOutputs,
+			fillOptions.relayerFee,
+		)
 
 		const fundingPrepends = order.id ? this.cacheService.getFundingPrepends(order.id) : null
 		const prependCalls = fundingPrepends?.calls ?? []
 
 		const calls: ERC7821Call[] = [...prependCalls]
 		for (const [tokenAddress, required] of perTokenRequired) {
-			if (required === 0n) continue
 			for (const amount of [0n, required]) {
 				calls.push({
 					target: tokenAddress as HexString,
@@ -1178,10 +1394,9 @@ export class ContractInteractionService {
 					`Bid on order ${order.id} approves nothing in ${budget.token}, the token budget ${budget.budgetId} is measured in`,
 				)
 			}
-			// Of what was folded into the approval for the fee token, the gateway draws only
-			// the dispatch fee; the rest stays in the allowance. It draws it whatever
-			// `nativeDispatchFee` says: the batch sends no native value for the dispatch,
-			// so the gateway takes the fee in the fee token.
+			// Of the fee token's approval, the gateway draws the dispatch fee on top of the
+			// outputs. It draws it whatever `nativeDispatchFee` says: the batch sends no
+			// native value for the dispatch, so the gateway takes the fee in the fee token.
 			const fee = feeKey === budgetToken ? fillOptions.relayerFee : 0n
 			calls.push({
 				target: solverAccount,
@@ -1190,6 +1405,23 @@ export class ContractInteractionService {
 					abi: SOLVER_ACCOUNT_ABI,
 					functionName: "debitOrder",
 					args: [budget.budgetId, budget.cap, budgetToken, approved, fee],
+				}) as HexString,
+			})
+		}
+
+		// Last of all, after `fillOrder` and after `debitOrder` (which reads the allowance
+		// that is left): nothing stands once the batch completes. `debitOrder` clears the
+		// budget token's allowance itself, so that token is left out when the batch settles.
+		const clearedByBudget = settlement && settles(settlement.budget) ? settlement.budget.token.toLowerCase() : undefined
+		for (const tokenAddress of perTokenRequired.keys()) {
+			if (tokenAddress === clearedByBudget) continue
+			calls.push({
+				target: tokenAddress as HexString,
+				value: 0n,
+				data: encodeFunctionData({
+					abi: ERC20_ABI,
+					functionName: "approve",
+					args: [intentGatewayV2Address, 0n],
 				}) as HexString,
 			})
 		}

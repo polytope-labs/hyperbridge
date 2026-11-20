@@ -1296,6 +1296,21 @@ export interface SubmitBidOptions {
 }
 
 /**
+ * A bundler gas estimate that failed transiently (a network failure, a JSON-RPC internal
+ * error, or an HTTP 408, 429 or 5xx) and is about to be sent again.
+ */
+export interface BundlerRetryEvent {
+	/** The attempt that failed, counted from 1. */
+	attempt: number
+	/** Attempts made at most, the first included. */
+	maxAttempts: number
+	/** Wait before the next attempt, in milliseconds. */
+	delayMs: number
+	/** The failed attempt's error. */
+	error: Error
+}
+
+/**
  * The fields of a bid UserOperation that decide its `preVerificationGas`: everything the
  * solver signs except the signature and the `preVerificationGas` itself.
  */
@@ -1343,6 +1358,11 @@ export interface EstimateFillOrderParams {
 	 * Default: false
 	 */
 	requireBundlerEstimate?: boolean
+	/**
+	 * Called before each retry of a transiently failed bundler estimate.
+	 * Default: a `console.warn`
+	 */
+	onBundlerRetry?: (event: BundlerRetryEvent) => void
 }
 
 export interface FillOrderEstimate {
@@ -1461,7 +1481,10 @@ export interface BidStorageEntry {
  * Matches the Rust struct: Bid<AccountId> { filler: AccountId, user_op: Vec<u8> }
  */
 export interface FillerBid {
-	/** The filler's Substrate account ID (SS58 encoded) */
+	/**
+	 * The filler's Substrate account ID (SS58 encoded) for a bid read from Hyperbridge. The HyperFX
+	 * orderbook does not know it, so a bid read from there carries the solver's address instead.
+	 */
 	filler: string
 	/**
 	 * Which of the filler's bids on the order this is. A filler offering several prices bids once
@@ -1470,8 +1493,14 @@ export interface FillerBid {
 	bid: HexString
 	/** The decoded PackedUserOperation */
 	userOp: PackedUserOperation
-	/** The deposit amount stored on-chain (in plancks) */
+	/** The deposit amount stored on-chain (in plancks); 0 for a bid read from the orderbook. */
 	deposit: bigint
+	/**
+	 * Where the bid was read from. Absent means Hyperbridge: a solver posts to both when it holds
+	 * BRIDGE for the deposit and to the orderbook alone when it does not, and the executor merges the
+	 * two by bid identifier.
+	 */
+	venue?: "hyperbridge" | "orderbook"
 }
 
 /**
@@ -1515,11 +1544,11 @@ export interface Bid {
 	/** Raw UserOperation for advanced consumers (custom batching, paymaster flows). */
 	readonly userOp: PackedUserOperation
 	/**
-	 * Runs the bid's `fillOrder` as an `eth_call`, with the gateway's solver
-	 * selection turned off, so a bid can be pre-checked before it is shown to a
-	 * user or submitted.
+	 * Runs the bid's UserOperation through the bundler's
+	 * `eth_estimateUserOperationGas`, with the gateway's solver selection turned
+	 * off, so a bid can be pre-checked before it is shown to a user or submitted.
 	 *
-	 * @throws If the bid cannot execute on the destination, or the simulation reverts.
+	 * @throws If the bid cannot execute on the destination, or the bundler rejects it.
 	 */
 	simulate(): Promise<void>
 	/**

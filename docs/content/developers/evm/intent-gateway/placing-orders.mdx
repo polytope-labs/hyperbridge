@@ -140,10 +140,12 @@ An order placed without a graffiti (the SDK defaults to a zero `bytes32`) is una
 
 Keep the `EvmChain` instances, the gateway, and the wallet client — every later step uses them.
 
+The gateway reads solver bids from the HyperFX orderbook. Pass an `IntentsCoprocessor` as the third argument of `IntentGateway.create` to read the bids solvers post to Hyperbridge as well; the two are merged.
+
 <Tabs items={['Same-chain', 'Cross-chain']}>
 <Tab value="Same-chain">
 ```typescript title="same-chain-setup.ts" lineNumbers
-import { EvmChain, IntentGateway, IntentsCoprocessor, createQueryClient } from "@hyperbridge/sdk"
+import { EvmChain, IntentGateway, createQueryClient } from "@hyperbridge/sdk"
 import { createWalletClient, http } from "viem"
 import { privateKeyToAccount } from "viem/accounts"
 
@@ -154,9 +156,8 @@ const chain = await EvmChain.create(RPC_URL)
 const sourceChain = chain
 const destChain = chain
 
-const coprocessor = await IntentsCoprocessor.connect("wss://nexus.rpc.polytope.technology")
 const queryClient = createQueryClient({ url: "https://nexus.indexer.polytope.technology" })
-const gateway = (await IntentGateway.create(sourceChain, destChain, coprocessor)).withQueryClient(queryClient)
+const gateway = (await IntentGateway.create(sourceChain, destChain)).withQueryClient(queryClient)
 
 const account = privateKeyToAccount("0xYOUR_PRIVATE_KEY")
 const walletClient = createWalletClient({ account, transport: http(RPC_URL) })
@@ -164,7 +165,7 @@ const walletClient = createWalletClient({ account, transport: http(RPC_URL) })
 </Tab>
 <Tab value="Cross-chain">
 ```typescript title="cross-chain-setup.ts" lineNumbers
-import { EvmChain, IntentGateway, IntentsCoprocessor, createQueryClient } from "@hyperbridge/sdk"
+import { EvmChain, IntentGateway, createQueryClient } from "@hyperbridge/sdk"
 import { createWalletClient, http } from "viem"
 import { privateKeyToAccount } from "viem/accounts"
 
@@ -176,9 +177,8 @@ const DEST_RPC_URL = "https://arb-mainnet.g.alchemy.com/v2/YOUR_KEY"
 const sourceChain = await EvmChain.create(SOURCE_RPC_URL)
 const destChain = await EvmChain.create(DEST_RPC_URL)
 
-const coprocessor = await IntentsCoprocessor.connect("wss://nexus.rpc.polytope.technology")
 const queryClient = createQueryClient({ url: "https://nexus.indexer.polytope.technology" })
-const gateway = (await IntentGateway.create(sourceChain, destChain, coprocessor)).withQueryClient(queryClient)
+const gateway = (await IntentGateway.create(sourceChain, destChain)).withQueryClient(queryClient)
 
 const account = privateKeyToAccount("0xYOUR_PRIVATE_KEY")
 const walletClient = createWalletClient({ account, transport: http(SOURCE_RPC_URL) })

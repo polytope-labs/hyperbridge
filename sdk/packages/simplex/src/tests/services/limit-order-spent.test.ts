@@ -25,21 +25,24 @@ interface Call {
 }
 
 /** A viem client over a node that answers every `eth_call` with `answer`. */
-function node(answer: () => Promise<HexString>): { client: PublicClient; calls: Call[] } {
+function node(answer: () => Promise<HexString>): { client: PublicClient; calls: Call[]; blocks: unknown[] } {
 	const calls: Call[] = []
+	// The block each call was made at: the second `eth_call` parameter.
+	const blocks: unknown[] = []
 	const client = createPublicClient({
 		transport: custom(
 			{
-				request: async ({ method, params }: { method: string; params: [Call] }) => {
+				request: async ({ method, params }: { method: string; params: [Call, unknown] }) => {
 					if (method !== "eth_call") throw new Error(`unexpected ${method}`)
 					calls.push(params[0])
+					blocks.push(params[1])
 					return answer()
 				},
 			},
 			{ retryCount: 0 },
 		),
 	})
-	return { client, calls }
+	return { client, calls, blocks }
 }
 
 function service(getPublicClient: (chain: string) => PublicClient): ContractInteractionService {
@@ -67,6 +70,26 @@ describe("reading a limit order's tally", () => {
 		expect(calls).toHaveLength(1)
 		expect(calls[0].to.toLowerCase()).toBe(SOLVER.toLowerCase())
 		expect(calls[0].data).toBe(`${SPENT}${BUDGET_ID.slice(2)}`)
+	})
+
+	it("reads the latest block, or the block it is given", async () => {
+		// A load-balanced endpoint can lag the one that saw a fill, so a fill's settlement
+		// pins the read to the fill's block: the tally only grows, and that block includes it.
+		const { client, blocks } = node(async () => uint(250_500_000n))
+		const contract = service(() => client)
+
+		await contract.limitOrderSpent(CHAIN, BUDGET_ID)
+		await contract.limitOrderSpent(CHAIN, BUDGET_ID, 12_345n)
+
+		expect(blocks).toEqual(["latest", "0x3039"])
+	})
+
+	it("is unknown when the endpoint has not reached the block", async () => {
+		const { client } = node(async () => {
+			throw new Error("header not found")
+		})
+
+		expect(await service(() => client).limitOrderSpent(CHAIN, BUDGET_ID, 12_345n)).toBeNull()
 	})
 
 	it("reads a tally of zero as zero, not as unknown", async () => {

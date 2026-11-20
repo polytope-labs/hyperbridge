@@ -9,7 +9,7 @@ import { pipeline } from "node:stream/promises"
 import * as openpgp from "openpgp"
 import * as tar from "tar"
 
-export const NODE_VERSION = "24.19.0"
+export const NODE_VERSION = "24.22.1"
 export const NODE_BASE_URL = `https://nodejs.org/dist/v${NODE_VERSION}`
 export const NODE_RELEASE_KEY_FINGERPRINT = "5BE8A3F6C8A5C01D106C0AD820B1A390B168D356"
 export const TARGETS = ["darwin-arm64", "darwin-x64", "darwin-universal", "linux-arm64", "linux-x64", "win32-x64"]

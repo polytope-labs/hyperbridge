@@ -1,6 +1,6 @@
 {
 	"name": "@hyperbridge/simplex",
-	"version": "0.18.1",
+	"version": "0.20.1",
 	"license": "Apache-2.0",
 	"description": "Automated intent filler for the Hyperbridge IntentGateway — run it as a binary or embed it as a library",
 	"main": "dist/index.js",
@@ -61,7 +61,7 @@
 		"prepublishOnly": "npm run build",
 		"test": "pnpm run codegen && vitest --watch=false --maxConcurrency=1",
 		"test:data": "pnpm run codegen && vitest --watch=false --maxConcurrency=1 src/tests/data",
-		"test:unit": "pnpm run codegen && vitest --watch=false --maxConcurrency=1 src/tests/cli src/tests/error-reporting.test.ts src/tests/logger.test.ts src/tests/pairs.test.ts ui/src",
+		"test:unit": "pnpm run codegen && vitest --watch=false --maxConcurrency=1 src/tests/cli src/tests/core/bid-loop-cache-expiry.test.ts src/tests/error-reporting.test.ts src/tests/logger.test.ts src/tests/pairs.test.ts ui/src",
 		"test:filler": "pnpm run codegen && vitest --watch=false --maxConcurrency=1 --testTimeout=1000000 src/tests/strategies/fx.payout.test.ts src/tests/quorum-public-client.test.ts",
 		"test:stable-testnet": "pnpm run codegen && vitest --watch=false --maxConcurrency=1 --testTimeout=1000000 src/tests/strategies/stable.testnet.test.ts",
 		"test:fx": "pnpm run codegen && vitest --watch=false --maxConcurrency=1 --testTimeout=1000000 src/tests/strategies/fx.mainnet.test.ts",
@@ -114,7 +114,7 @@
 		"access": "public"
 	},
 	"engines": {
-		"node": ">=22.16.0"
+		"node": "^22.23.4 || ^24.22.1 || >=26.12.1"
 	},
 	"dependencies": {
 		"@base-ui/react": "^1.8.0",

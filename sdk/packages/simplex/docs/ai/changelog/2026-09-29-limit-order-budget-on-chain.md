@@ -26,15 +26,16 @@ same cache entry as the filler outputs, so it is replaced and expires with them.
 ## The call
 
 `buildApprovalAndFillCalldata` appends
-`debitOrder(budgetId, cap, token, approved, fee)` (`SOLVER_ACCOUNT_ABI`) as the last call of the
-bid's ERC-7821 batch, after the funding calls, the approvals and `fillOrder`. Its target is the
-solver account itself.
+`debitOrder(budgetId, cap, token, approved, fee)` (`SOLVER_ACCOUNT_ABI`) to the bid's ERC-7821
+batch, after the funding calls, the approvals and `fillOrder`. It is the last call for the budget
+token, and only the trailing zero-resets of other approved tokens (see
+`2026-10-17-gateway-approval-is-exact.md`) follow it. Its target is the solver account itself.
 
 - `approved` is exactly what the batch approves to the gateway for `token`.
 - `fee` is `fillOptions.relayerFee` when the order is cross-chain and the fee token is `token`.
   Otherwise it is zero. The batch sends no native value for the dispatch, so the gateway takes the
-  fee in the fee token. The approval for the fee token also covers the estimated gas cost, which
-  the gateway does not pull and which is not counted as paid out.
+  fee in the fee token. The approval for the fee token covers the outputs and this fee only, so
+  `approved` less `fee` is what the fill paid out.
 - The account counts `approved`, less the allowance the gateway has left, less `fee`, and then
   clears the allowance.
 

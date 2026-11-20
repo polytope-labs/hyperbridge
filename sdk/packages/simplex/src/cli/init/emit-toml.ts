@@ -52,11 +52,16 @@ export function emitFillerToml(config: FillerConfigFile, options: EmitOptions = 
 		push("# Watch-only mode: monitor orders without filling. Boolean (global) or per-chain map.")
 		push(kv("watchOnly", config.simplex.watchOnly))
 	}
-	push("# Substrate account (hex seed or mnemonic) that signs bid extrinsics on Hyperbridge.")
-	push("# It must hold BRIDGE tokens for fees; fees are claimed back automatically after fills.")
-	push(kv("substratePrivateKey", config.simplex.substratePrivateKey))
-	push("# Hyperbridge WebSocket endpoint used to submit solver bids.")
-	push(kv("hyperbridgeWsUrl", config.simplex.hyperbridgeWsUrl))
+	if (config.simplex.substratePrivateKey !== undefined) {
+		push("# Substrate account (hex seed or mnemonic) that signs bid extrinsics on Hyperbridge.")
+		push("# It must hold BRIDGE tokens for deposits and fees; fees are claimed back after fills.")
+		push("# Without it, bids go to the HyperFX orderbook alone.")
+		push(kv("substratePrivateKey", config.simplex.substratePrivateKey))
+	}
+	if (config.simplex.hyperbridgeWsUrl !== undefined) {
+		push("# Hyperbridge WebSocket endpoint used to submit solver bids.")
+		push(kv("hyperbridgeWsUrl", config.simplex.hyperbridgeWsUrl))
+	}
 	if (config.simplex.indexerUrl) push(kv("indexerUrl", config.simplex.indexerUrl))
 	if (config.simplex.blockScanIntervalSeconds !== undefined) {
 		push("# Seconds between block scans per chain. Default 3, minimum 0.1.")
@@ -69,6 +74,10 @@ export function emitFillerToml(config: FillerConfigFile, options: EmitOptions = 
 	if (config.simplex.minOrderSizeUsd !== undefined) {
 		push("# Order size in USD below which an order's fees must cover gas. Default 20.")
 		push(kv("minOrderSizeUsd", config.simplex.minOrderSizeUsd))
+	}
+	if (config.simplex.minPartialFillUsd !== undefined) {
+		push("# Smallest payout in USD a partial fill may bid. Default 20; 0 disables the floor.")
+		push(kv("minPartialFillUsd", config.simplex.minPartialFillUsd))
 	}
 	push()
 
@@ -108,22 +117,6 @@ export function emitFillerToml(config: FillerConfigFile, options: EmitOptions = 
 		push()
 	}
 
-	if (config.simplex.overfillProtection) {
-		push("# Bounds per-leg loss when internal pricing is wrong (bug, stale cache, manipulated venue).")
-		push("[simplex.overfillProtection]")
-		for (const [key, value] of Object.entries(config.simplex.overfillProtection)) {
-			if (value !== undefined) push(kv(key, value))
-		}
-		push()
-	} else {
-		push("# Overfill protection defaults apply: output clamped at 5% above the user-requested")
-		push("# amount, halt after 3 consecutive clamped orders.")
-		push("# [simplex.overfillProtection]")
-		push("# maxOverfillBps = 500")
-		push("# maxConsecutiveClamps = 3")
-		push()
-	}
-
 	// Simplex prices every fill from the operator's limit orders, and those live on
 	// the orderbook, so the section is written whether or not an order exists yet.
 	push("# The orderbook simplex posts the operator's limit orders to.")
@@ -134,6 +127,9 @@ export function emitFillerToml(config: FillerConfigFile, options: EmitOptions = 
 		push(kv("reconcileIntervalSecs", config.orderbook.reconcileIntervalSecs))
 	}
 	if (config.orderbook?.requestTimeoutMs !== undefined) push(kv("requestTimeoutMs", config.orderbook.requestTimeoutMs))
+	if (config.orderbook?.delegateHeartbeats !== undefined) {
+		push(kv("delegateHeartbeats", config.orderbook.delegateHeartbeats))
+	}
 	push()
 
 	if (config.rebalancing) {

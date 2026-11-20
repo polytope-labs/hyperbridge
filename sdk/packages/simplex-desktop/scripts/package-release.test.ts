@@ -177,6 +177,7 @@ describe("desktop package and release layout", () => {
 		})
 		const required = [
 			"runtime/node",
+			"desktop/solver-diagnostics.mjs",
 			"simplex/package.json",
 			"simplex/dist/bin/simplex.js",
 			"simplex/dist/bin/simplex.js.map",

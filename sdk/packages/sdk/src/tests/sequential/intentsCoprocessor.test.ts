@@ -2,8 +2,13 @@ import "log-timestamp"
 import { IntentsCoprocessor, encodeUserOpScale } from "@/chains/intentsCoprocessor"
 import { SubstrateChain } from "@/chains/substrate"
 import type { HexString, PackedUserOperation } from "@/types"
-import { keccak256, toHex } from "viem"
+import { keccak256, parseUnits, toHex } from "viem"
 import fixtureData from "@/tests/fixtures/intent-gateway-v2.json"
+import { requireFunded } from "./funding"
+
+// placeBid reserves Gargantua's storage deposit (0.1 BRIDGE by default), and placing and retracting pay fees; whole tokens.
+const MIN_BIDDER_BALANCE = "1"
+const UNFUNDED_NOTE = "No bid was placed: the bidder is unfunded or its funding check failed"
 
 describe.sequential("IntentsCoprocessor", () => {
 	let hyperbridge: SubstrateChain
@@ -26,6 +31,9 @@ describe.sequential("IntentsCoprocessor", () => {
 		signature: "0x" as HexString,
 	}
 	const encodedUserOp = encodeUserOp(testUserOp)
+
+	// Set while the bidder's funding is unchecked or short, so the tests that read or retract the bid skip with it.
+	let unfunded = true
 
 	// The default 10s hook timeout races websocket jitter on the public
 	// Hyperbridge endpoint; give the connection a real window. 60s still lost
@@ -52,8 +60,26 @@ describe.sequential("IntentsCoprocessor", () => {
 		console.log("Disconnected")
 	}, 60_000)
 
-	it("should submit a bid with realistic userOp", async () => {
+	it("should submit a bid with realistic userOp", async (ctx) => {
 		const keyPair = coprocessor.getKeyPair()
+		const api = hyperbridge.api
+		if (!api) throw new Error("Not connected to Hyperbridge")
+		const decimals = api.registry.chainDecimals[0]
+		await requireFunded(ctx, keyPair.address, [
+			{
+				chain: "Hyperbridge Gargantua",
+				symbol: api.registry.chainTokens[0],
+				decimals,
+				min: parseUnits(MIN_BIDDER_BALANCE, decimals),
+				read: async () => {
+					const account = (await api.query.system.account(keyPair.address)).toJSON() as {
+						data: { free: number | string }
+					}
+					return BigInt(account.data.free)
+				},
+			},
+		])
+		unfunded = false
 		console.log("KeyPair address:", keyPair.address)
 		console.log("Submitting bid with commitment:", testCommitment)
 		console.log("UserOp sender:", testUserOp.sender)
@@ -74,7 +100,8 @@ describe.sequential("IntentsCoprocessor", () => {
 		expect(result.success).toBe(true)
 	}, 300_000)
 
-	it("should get bid storage entries", async () => {
+	it("should get bid storage entries", async (ctx) => {
+		ctx.skip(unfunded, UNFUNDED_NOTE)
 		console.log("Getting bid storage entries for commitment:", testCommitment)
 
 		const entries = await coprocessor.getBidStorageEntries(testCommitment)
@@ -90,7 +117,8 @@ describe.sequential("IntentsCoprocessor", () => {
 		expect(entries.length).toBeGreaterThan(0)
 	}, 300_000)
 
-	it("should get full bids for order with decoded userOp", async () => {
+	it("should get full bids for order with decoded userOp", async (ctx) => {
+		ctx.skip(unfunded, UNFUNDED_NOTE)
 		console.log("Getting full bids for commitment:", testCommitment)
 
 		const bids = await coprocessor.getBidsForOrder(testCommitment)
@@ -112,7 +140,8 @@ describe.sequential("IntentsCoprocessor", () => {
 		expect(ourBid?.userOp.nonce).toBe(testUserOp.nonce)
 	}, 300_000)
 
-	it("should retract a bid", async () => {
+	it("should retract a bid", async (ctx) => {
+		ctx.skip(unfunded, UNFUNDED_NOTE)
 		console.log("Retracting bid with commitment:", testCommitment)
 
 		const result = await coprocessor.retractBid(testCommitment, BID)
@@ -129,7 +158,8 @@ describe.sequential("IntentsCoprocessor", () => {
 		expect(result.success).toBe(true)
 	}, 300_000)
 
-	it("should have no bids after retraction", async () => {
+	it("should have no bids after retraction", async (ctx) => {
+		ctx.skip(unfunded, UNFUNDED_NOTE)
 		console.log("Verifying bid was retracted for commitment:", testCommitment)
 
 		const entries = await coprocessor.getBidStorageEntries(testCommitment)

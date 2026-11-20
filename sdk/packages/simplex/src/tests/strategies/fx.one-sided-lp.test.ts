@@ -21,8 +21,8 @@ const configService = {
 	getUsdtAsset: () => "0x0000000000000000000000000000000000000000" as HexString,
 	getDaiAsset: () => "0x0000000000000000000000000000000000000000" as HexString,
 	getCNgnAsset: () => undefined,
-	getMaxOverfillBps: () => 500n,
-	getMaxConsecutiveClamps: () => 3,
+	// One-sided pricing predates the partial-fill floor; disable it here.
+	getMinPartialFillUsd: () => 0,
 } as any
 
 // Mirrors how simplex.ts shares one contractService (and its classification cache)

@@ -24,7 +24,6 @@ function limitOrder(overrides: Partial<LimitOrder> = {}): LimitOrder {
 		price: (1500n * ONE).toString(),
 		size: (3_000_000n * ONE).toString(),
 		remaining: (3_000_000n * ONE).toString(),
-		reserved: "0",
 		acceptedSources: ["EVM-1"],
 		ttlSecs: 900,
 		expiresAt: null,
@@ -253,15 +252,6 @@ describe("matchLimitOrder", () => {
 			const match = matchLimitOrder([order], incoming(), resolve)
 			expect(match?.offer).toBe(1_500_000n * ONE)
 			expect(match?.payout).toBe(1_450_000n * ONE)
-		})
-
-		it("does not count other bids' holds against what is left", () => {
-			// A pending bid must not stop the next one going out.
-			const order = limitOrder({
-				remaining: (1_500_000n * ONE).toString(),
-				reserved: (1_500_000n * ONE).toString(),
-			})
-			expect(matchLimitOrder([order], incoming(), resolve)?.payout).toBe(1_500_000n * ONE)
 		})
 
 		it("still matches on the offer, so a short order is a decision for the caller", () => {

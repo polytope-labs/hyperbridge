@@ -419,7 +419,7 @@ async function corrected({ api, log }, order, spent) {
 		const got = await api(order.port, "GET", `/api/limit-orders/${order.id}`).catch(() => undefined)
 		const shown = got?.ok ? got.json.order : undefined
 		if (shown) {
-			const available = toRaw(BigInt(shown.remaining) - BigInt(shown.reserved), order.decimals)
+			const available = toRaw(BigInt(shown.remaining), order.decimals)
 			last = `${shown.status} with ${show(order, available)} available`
 			if (!["open", "resizing"].includes(shown.status) || available <= room) {
 				log(`${label(order)}: ${order.solver} has it ${last}, within the ${show(order, room)} left on chain`)

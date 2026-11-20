@@ -96,12 +96,24 @@ function clockOf(at: string): string {
 /**
  * The order's latest bid as two explorer links: up for the bid extrinsic, down
  * for its retraction. Re-bids after a retraction replace earlier ones. A failed
- * bid has no extrinsic to link, so it shows as text with the error on hover.
+ * bid has no extrinsic to link, so it shows as text with the error on hover. A
+ * bid the orderbook holds that Hyperbridge did not take (no BRIDGE for the
+ * deposit, or a refusal) has nothing to link either, and says where it is.
  */
 function BidLinks(props: { bid: BidDto | undefined; explorer: string }) {
 	const { bid, explorer } = props
 	if (!bid) return <Empty />
 	if (!bid.success) {
+		if (bid.onOrderbook) {
+			return (
+				<span
+					className="history-bids"
+					title={bid.error ? `Posted to the orderbook; Hyperbridge: ${bid.error}` : "Posted to the orderbook only"}
+				>
+					<strong>Orderbook</strong>
+				</span>
+			)
+		}
 		return (
 			<span className="history-bids" title={bid.error ?? undefined}>
 				<strong>Failed</strong>

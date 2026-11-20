@@ -14,7 +14,6 @@ import type {
 	LimitOrderFillInsert,
 	LimitOrderFillRecord,
 	LimitOrderFilter,
-	LimitOrderHold,
 	LimitOrderInsert,
 	LimitOrderPosting,
 	LimitOrderStatus,
@@ -52,6 +51,11 @@ function reclaimable(row: StoredBid): boolean {
 	return row.success || row.pending
 }
 
+/** A bid some venue took: Hyperbridge, or the orderbook. */
+function placed(row: StoredBid): boolean {
+	return row.success || row.onOrderbook
+}
+
 function capLimit(limit: number): number {
 	return Math.min(Math.max(limit, 1), MAX_LIMIT)
 }
@@ -75,7 +79,8 @@ class MemoryBidStore implements BidStore {
 			retractedAt: null,
 			retractExtrinsicHash: null,
 			dead: false,
-			reservations: bid.reservations ?? [],
+			onOrderbook: bid.onOrderbook === true,
+			pricedBy: bid.pricedBy ?? null,
 		})
 		if (this.rows.length > MAX_ROWS) {
 			// Only ever drop rows with nothing left to reclaim. A successful or pending
@@ -108,10 +113,16 @@ class MemoryBidStore implements BidStore {
 			.map((row) => ({ ...row }))
 	}
 
-	async markRetracted(commitment: string, retractExtrinsicHash: string | null): Promise<boolean> {
+	async markRetracted(
+		commitment: string,
+		retractExtrinsicHash: string | null,
+		rows?: readonly number[],
+	): Promise<boolean> {
+		const only = rows ? new Set(rows) : undefined
 		let changed = false
 		for (const row of this.rows) {
 			if (row.commitment !== commitment || row.retracted) continue
+			if (only && !only.has(row.id)) continue
 			row.retracted = true
 			row.retractedAt = sqliteDatetime(new Date())
 			row.retractExtrinsicHash = retractExtrinsicHash
@@ -120,32 +131,20 @@ class MemoryBidStore implements BidStore {
 		return changed
 	}
 
-	async claimReservation(commitment: string, bid?: string): Promise<LimitOrderHold[]> {
-		// Bids on one incoming order share a commitment and differ by identifier, so a
-		// claim names the bid. Without one, every outstanding hold on the commitment
-		// comes back, which is what a filled or dead order needs.
-		const claimed: LimitOrderHold[] = []
-		for (const row of this.rows) {
-			if (row.commitment !== commitment || row.reservations.length === 0) continue
-			if (bid !== undefined && row.bid !== bid) continue
-			claimed.push(...row.reservations)
-			row.reservations = []
-		}
-		return claimed
-	}
-
 	async byLimitOrder(limitOrderId: string, limit = 100): Promise<StoredBid[]> {
 		return this.rows
-			.filter((row) => row.reservations.some((hold) => hold.limitOrderId === limitOrderId))
+			.filter((row) => row.pricedBy?.limitOrderId === limitOrderId)
 			.slice(-capLimit(limit))
 			.reverse()
 			.map((row) => ({ ...row }))
 	}
 
-	async markDead(commitment: string): Promise<boolean> {
+	async markDead(commitment: string, rows?: readonly number[]): Promise<boolean> {
+		const only = rows ? new Set(rows) : undefined
 		let changed = false
 		for (const row of this.rows) {
 			if (row.commitment !== commitment || row.retracted || row.dead) continue
+			if (only && !only.has(row.id)) continue
 			row.dead = true
 			changed = true
 		}
@@ -169,7 +168,7 @@ class MemoryBidStore implements BidStore {
 
 	async failed(limit = 100): Promise<StoredBid[]> {
 		return this.rows
-			.filter((row) => !row.success)
+			.filter((row) => !placed(row))
 			.slice(-capLimit(limit))
 			.reverse()
 			.map((row) => ({ ...row }))
@@ -187,8 +186,8 @@ class MemoryBidStore implements BidStore {
 	async stats(): Promise<BidStats> {
 		return {
 			total: this.rows.length,
-			successful: this.rows.filter((row) => row.success).length,
-			failed: this.rows.filter((row) => !row.success).length,
+			successful: this.rows.filter(placed).length,
+			failed: this.rows.filter((row) => !placed(row)).length,
 			retracted: this.rows.filter((row) => row.retracted).length,
 			pendingRetraction: this.rows.filter((row) => reclaimable(row) && !row.retracted).length,
 		}
@@ -357,6 +356,7 @@ class MemoryLimitOrderStore implements LimitOrderStore {
 			amount: fill.amount,
 			amountIn: fill.amountIn ?? null,
 			transactionHash: fill.transactionHash ?? null,
+			logIndex: fill.logIndex ?? null,
 			filledAt: sqliteDatetime(new Date()),
 		})
 	}
@@ -385,7 +385,6 @@ class MemoryLimitOrderStore implements LimitOrderStore {
 			...order,
 			acceptedSources: [...order.acceptedSources],
 			remaining: order.size,
-			reserved: "0",
 			expiresAt: order.expiresAt ?? null,
 			status: "open",
 			commitment: null,
@@ -439,54 +438,14 @@ class MemoryLimitOrderStore implements LimitOrderStore {
 		return this.patch(id, { status, lastError }, only)
 	}
 
-	async reserve(id: string, amount: string): Promise<boolean> {
+	async clampRemaining(id: string, room: string, only?: readonly LimitOrderStatus[]): Promise<LimitOrder | null> {
 		const order = this.orders.get(id)
-		if (!order || order.status !== "open") return false
-		if (BigInt(amount) > BigInt(order.remaining)) return false
-		const reserved = BigInt(order.reserved) + BigInt(amount)
-		this.patch(id, { reserved: reserved.toString() })
-		return true
-	}
-
-	async drawDown(id: string, amount: string): Promise<LimitOrder | null> {
-		const order = this.orders.get(id)
-		if (!order) return null
-		const remaining = BigInt(order.remaining) - BigInt(amount)
-		return this.patch(id, { remaining: (remaining > 0n ? remaining : 0n).toString() })
-	}
-
-	async clampRemaining(id: string, room: string): Promise<LimitOrder | null> {
-		const order = this.orders.get(id)
-		if (!order || order.status !== "open") return null
-		const sum = BigInt(room) + BigInt(order.reserved)
-		const target = sum > 0n ? sum : 0n
+		// `open` and `resizing` (a repost holds the row in the latter); `only` narrows them.
+		if (!order || (order.status !== "open" && order.status !== "resizing")) return null
+		if (only && only.length > 0 && !only.includes(order.status)) return null
+		const target = BigInt(room) > 0n ? BigInt(room) : 0n
 		if (target >= BigInt(order.remaining)) return null
 		return this.patch(id, { remaining: target.toString() })
-	}
-
-	async release(id: string, amount: string): Promise<void> {
-		const order = this.orders.get(id)
-		if (!order) return
-		const reserved = BigInt(order.reserved) - BigInt(amount)
-		this.patch(id, { reserved: (reserved > 0n ? reserved : 0n).toString() })
-	}
-
-	/**
-	 * Snapshot and restore, since this store is what `Simplex.start` uses when a
-	 * consumer configures no persistence. A settlement that half-landed here would
-	 * leave an order advertising output it has already paid, which is the same
-	 * money either backend is protecting.
-	 */
-	async transaction<T>(settle: () => Promise<T>): Promise<T> {
-		const snapshot = new Map([...this.orders].map(([id, order]) => [id, { ...order }]))
-		const fillCount = this.fillRows.length
-		try {
-			return await settle()
-		} catch (err) {
-			this.orders = snapshot
-			this.fillRows = this.fillRows.slice(0, fillCount)
-			throw err
-		}
 	}
 
 	private patch(id: string, fields: Partial<LimitOrder>, only?: readonly LimitOrderStatus[]): LimitOrder | null {

@@ -1,0 +1,124 @@
+# Chains the testnet indexer follows. RPC URLs come from env vars named after each chain:
+# `bsc-mainnet` reads BSC_MAINNET. Substrate chains are read through substrate-eth-rpc.
+
+environment = "testnet"
+
+[chains.hyperbridge-gargantua]
+kind = "substrate"
+chain_id = 1000004009  # substrate-eth-rpc eth_chain_id
+state_machine_id = "KUSAMA-4009"
+start_block = 8731862
+reorg_safe_distance = 0
+max_block_range = 500
+
+[chains.polkadex-testnet]
+kind = "substrate"
+chain_id = 2000000004  # substrate-eth-rpc eth_chain_id
+state_machine_id = "SUBSTRATE-PDEX"
+start_block = 13063
+reorg_safe_distance = 0
+max_block_range = 500
+
+[chains.sepolia]
+kind = "evm"
+chain_id = 11155111
+state_machine_id = "EVM-11155111"
+start_block = 11172836
+reorg_safe_distance = 3
+
+[chains.sepolia.contracts]
+native_usd_feed = "0x694AA1769357215DE4FAC081bf1f309aDC325306"
+ethereum_host = "0x9AA003594d59C62EE17A73A569Fd7B1DbdBd71E1"
+handler_v2 = "0x53184b424971d4b5944fdf6f52f18c3fcc4d0925"
+erc6160ext20 = "0xBe97E73126d66188d72FBf99029126d0340a7f18"
+
+[chains.arbitrum-sepolia]
+kind = "evm"
+chain_id = 421614
+state_machine_id = "EVM-421614"
+start_block = 282668428
+reorg_safe_distance = 0
+
+[chains.arbitrum-sepolia.contracts]
+native_usd_feed = "0xd30e2101a97dcbAeBCBC04F14C3f624E67A35165"
+ethereum_host = "0x9AA003594d59C62EE17A73A569Fd7B1DbdBd71E1"
+handler_v2 = "0x53184b424971d4b5944fdf6f52f18c3fcc4d0925"
+erc6160ext20 = "0xBe97E73126d66188d72FBf99029126d0340a7f18"
+
+[chains.base-sepolia]
+kind = "evm"
+chain_id = 84532
+state_machine_id = "EVM-84532"
+start_block = 43528263
+reorg_safe_distance = 0
+
+[chains.base-sepolia.contracts]
+native_usd_feed = "0x4aDC67696bA383F43DD60A9e78F2C97Fbbfc7cb1"
+ethereum_host = "0x9AA003594d59C62EE17A73A569Fd7B1DbdBd71E1"
+handler_v2 = "0x53184b424971d4b5944fdf6f52f18c3fcc4d0925"
+erc6160ext20 = "0xBe97E73126d66188d72FBf99029126d0340a7f18"
+
+[chains.bsc-chapel]
+kind = "evm"
+chain_id = 97
+state_machine_id = "EVM-97"
+start_block = 116402530
+reorg_safe_distance = 4
+
+[chains.bsc-chapel.contracts]
+native_usd_feed = "0x2514895c72f50D8bd4B4F9b1110F0D6bD2c97526"
+ethereum_host = "0x9AA003594d59C62EE17A73A569Fd7B1DbdBd71E1"
+handler_v2 = "0x53184b424971d4b5944fdf6f52f18c3fcc4d0925"
+erc6160ext20 = "0xBe97E73126d66188d72FBf99029126d0340a7f18"
+intent_gateway_v3 = "0x6CF42FA9BecbC5b6a26884964956b113530f7cFA"
+solver_accounts = ["0x153DB990FE3b761B54ad71D0f1A0987dF11740DB", "0xf98E484858F59C30e31D2695ac18F92bc7C7b799", "0x7484C6Ff790b898bf7e6960Ffc82f63330445Dc2"]
+
+[chains.bsc-chapel.contracts.yield_vaults."0xa801da100bf16d07f668f4a49e1f71fc54d05177"]
+description = "USDC — listed so the LP balance sweep tracks the raw ERC-20 balance"
+vaults = []
+
+[chains.bsc-chapel.contracts.yield_vaults."0xc043f483373072f7f27420d6e7d7ad269c018e18"]
+description = "USDT — listed so the LP balance sweep tracks the raw ERC-20 balance"
+vaults = []
+
+[chains.bsc-chapel.contracts.yield_vaults."0x2bbbd701cfc25d37f18127e51df0933566d5778a"]
+description = "hyperCNGN (hCNGN) — testnet cNGN stand-in for the FX filler; listed so the LP balance sweep tracks the raw ERC-20 balance"
+vaults = []
+
+[chains.polygon-amoy]
+kind = "evm"
+chain_id = 80002
+state_machine_id = "EVM-80002"
+start_block = 41062183
+reorg_safe_distance = 4
+
+[chains.polygon-amoy.contracts]
+ethereum_host = "0x9AA003594d59C62EE17A73A569Fd7B1DbdBd71E1"
+handler_v2 = "0x53184b424971d4b5944fdf6f52f18c3fcc4d0925"
+erc6160ext20 = "0xBe97E73126d66188d72FBf99029126d0340a7f18"
+intent_gateway_v3 = "0x6CF42FA9BecbC5b6a26884964956b113530f7cFA"
+solver_accounts = ["0x153DB990FE3b761B54ad71D0f1A0987dF11740DB", "0xf98E484858F59C30e31D2695ac18F92bc7C7b799", "0x7484C6Ff790b898bf7e6960Ffc82f63330445Dc2"]
+
+[chains.polygon-amoy.contracts.yield_vaults."0xbe97e73126d66188d72fbf99029126d0340a7f18"]
+description = "USDC — listed so the LP balance sweep tracks the raw ERC-20 balance"
+vaults = []
+
+[chains.polygon-amoy.contracts.yield_vaults."0xe4ff5d2ae65c10f530c000215029919961e8a758"]
+description = "hyperCNGN (hCNGN) — testnet cNGN stand-in for the FX filler; listed so the LP balance sweep tracks the raw ERC-20 balance"
+vaults = []
+
+[chains.polkadot-testnet]
+kind = "evm"
+chain_id = 420420417
+state_machine_id = "EVM-420420417"
+start_block = 10576374
+reorg_safe_distance = 24
+
+[chains.polkadot-testnet.contracts]
+ethereum_host = "0x9AA003594d59C62EE17A73A569Fd7B1DbdBd71E1"
+handler_v2 = "0x53184b424971d4b5944fdf6f52f18c3fcc4d0925"
+erc6160ext20 = "0xBe97E73126d66188d72FBf99029126d0340a7f18"
+
+[chains.polkadot-testnet.contracts.yield_vaults."0x0dc440cf87830f0af564eb8b62b454b7e0c68a4b"]
+description = "USDC — listed so the LP balance sweep tracks the raw ERC-20 balance"
+vaults = []

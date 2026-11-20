@@ -12,6 +12,10 @@ via-ir = true
 # implementation and its delegatecall modules agree slot for slot.
 extra_output = ["storageLayout"]
 fs_permissions = [{ access = "read-write", path = "./"}]
+# Foundry 1.8 runs each top-level test call as its own transaction by default. The solver
+# selection tests call validateUserOp and execute separately, but rely on the transient-storage
+# selection surviving between them, as it does inside one EntryPoint handleOps transaction.
+isolate = false
 
 [profile.ci]
 

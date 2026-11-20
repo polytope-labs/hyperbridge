@@ -14,7 +14,7 @@
 // limitations under the License.
 
 use alloc::vec::Vec;
-use alloy_primitives::{B256, FixedBytes};
+use alloy_primitives::{FixedBytes, B256};
 use alloy_rlp::Decodable;
 use alloy_rlp_derive::{RlpDecodable, RlpEncodable};
 use anyhow::anyhow;
@@ -77,6 +77,11 @@ pub struct ExtraData {
 	pub agg_signature: [u8; 96],
 	pub vote_data: VoteData,
 	pub vote_address_set: u64,
+	/// The Parlia `TurnLength` carried in every epoch (checkpoint) header's `extra_data`
+	/// since the BOHR fork (a single byte). It is `1` on pre-BOHR headers and on non-epoch
+	/// headers that carry no validator section. It governs where the real chain rotates its
+	/// validator set — see [`rotation_block`].
+	pub turn_length: u8,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -123,6 +128,8 @@ pub fn parse_extra<H: Keccak256, C: Config>(
 			target_hash: Default::default(),
 		},
 		vote_address_set: 0,
+		// Default for pre-BOHR headers and headers without a validator section.
+		turn_length: 1,
 	};
 
 	if data.len() < EXTRA_VANITY_LENGTH + EXTRA_SEAL_LENGTH {
@@ -179,7 +186,11 @@ pub fn parse_extra<H: Keccak256, C: Config>(
 			data = if header.timestamp >= C::BOHR_FORK_TIMESTAMP {
 				// In Bohr fork there is an extra byte for turn
 				// https://github.com/bnb-chain/bsc/blob/26a4d4fda656cc78436c1931aaea5dc3ed33eeeb/consensus/parlia/parlia.go#L383
-				let index = validator_bytes_total_length - VALIDATOR_NUMBER_SIZE + TURN_LENGTH_SIZE;
+				let turn_index = validator_bytes_total_length - VALIDATOR_NUMBER_SIZE;
+				// The turn byte sits immediately after the validator entries. It is stored raw;
+				// `rotation_block` applies the single `>= 1` clamp Parlia requires.
+				extra.turn_length = remaining_data[turn_index];
+				let index = turn_index + TURN_LENGTH_SIZE;
 				&remaining_data[index..]
 			} else {
 				let index = validator_bytes_total_length - VALIDATOR_NUMBER_SIZE;
@@ -205,4 +216,55 @@ pub fn parse_extra<H: Keccak256, C: Config>(
 
 pub fn compute_epoch(number: u64, epoch_length: u64) -> u64 {
 	number / epoch_length
+}
+
+/// The absolute block height at which the validator set elected at `epoch_boundary`
+/// actually takes over on the real chain.
+///
+/// Parlia switches the active set at `number % epochLength == minerHistoryCheckLen()`,
+/// where `minerHistoryCheckLen() = (len(validators)/2 + 1) * TurnLength - 1`
+/// (bnb-chain/bsc `consensus/parlia/snapshot.go`). Pre-BOHR headers carry no turn byte,
+/// so `turn_length == 1` and the offset collapses to the historical `len/2` rule.
+///
+/// `validator_count` is the size of the set signing across the rotation (the outgoing set),
+/// and `turn_length` is read from the epoch header's `extra_data` ([`parse_extra`]).
+pub fn rotation_block(epoch_boundary: u64, validator_count: u64, turn_length: u64) -> u64 {
+	let turn_length = turn_length.max(1);
+	epoch_boundary + (validator_count / 2 + 1) * turn_length - 1
+}
+
+/// Whether a finalized `source_header` at `source_number` should promote the staged validator
+/// set whose on-chain activation height is `rotation_block`.
+///
+/// Parlia verifies a vote for target `T` against the snapshot at `T - 1`, and the snapshot
+/// switches sets when block `rotation_block` is applied. With the adjacency check in
+/// `verify_bsc_header` the finalized source is `T - 1`, so the incoming set signs a finalized
+/// source exactly when `source_number >= rotation_block`. Promotion is additionally restricted to
+/// the epoch where that set activates (`source_epoch == rotation_epoch`), so a stale set can't be
+/// promoted by an update submitted epochs later. `source_number` is covered by the BLS-signed
+/// `vote_data`, so a compromised outgoing set can never satisfy this past its own rotation block.
+///
+/// Both the on-chain client and the relayer's local state mirror gate on this predicate, so they
+/// must stay in agreement.
+pub fn should_promote_validators(
+	source_number: u64,
+	rotation_block: u64,
+	epoch_length: u64,
+) -> bool {
+	compute_epoch(source_number, epoch_length) == compute_epoch(rotation_block, epoch_length) &&
+		source_number >= rotation_block
+}
+
+/// Whether a freshly staged validator set, activating at `rotation_block`, belongs to the epoch
+/// immediately after the one the client currently holds (`current_epoch`).
+///
+/// The honest rotation always stages the set of `current_epoch + 1`. Any other activation epoch
+/// means the ancestry pointed at the current (or a past) epoch's own set, which can never
+/// legitimately promote and would otherwise strand the client.
+pub fn staged_set_activates_next_epoch(
+	rotation_block: u64,
+	current_epoch: u64,
+	epoch_length: u64,
+) -> bool {
+	compute_epoch(rotation_block, epoch_length) == current_epoch + 1
 }

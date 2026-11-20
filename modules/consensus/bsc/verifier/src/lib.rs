@@ -22,7 +22,7 @@ use alloc::vec::Vec;
 use bls_utils::aggregate_public_keys;
 use geth_primitives::{CodecHeader, Header};
 use ismp::messaging::Keccak256;
-use primitives::{compute_epoch, parse_extra, BscClientUpdate, Config, VALIDATOR_BIT_SET_SIZE};
+use primitives::{compute_epoch, parse_extra, rotation_block, BscClientUpdate, Config};
 use sp_core::H256;
 use ssz::Decode;
 use ssz_types::BitVector;
@@ -111,6 +111,14 @@ pub fn verify_bsc_header<H: Keccak256, C: Config>(
 		Err(Error::NonConsecutiveFinalization)?
 	}
 
+	// NOTE: we deliberately do not bind `attested_header.number` to the vote's `target_number`.
+	// Since Fermi (BEP-590) a Parlia vote may justify any of the attesting header's last
+	// `kAncestorGenerationDepth` (3) ancestors, not only its direct parent, so the attesting
+	// header does not always sit at `target_number + 1` (e.g. mainnet block 132941639 votes for
+	// target 132941637). The unsigned `attested_header.number` is instead never trusted for the
+	// validator-set promotion decision: the client gates promotion on the BLS-signed
+	// `source_header.number` (see `ismp-bsc::verify_consensus`), which needs no such binding.
+
 	let participants: Vec<BlsPublicKey> = current_validators
 		.iter()
 		.zip(validators_bit_set.iter())
@@ -167,6 +175,7 @@ pub fn verify_bsc_header<H: Keccak256, C: Config>(
             let epoch_header = update.epoch_header_ancestry[0].clone();
             let epoch_header_extra_data = parse_extra::<H, C>(&epoch_header)
                 .map_err(|_| Error::ParseEpochExtraData)?;
+            let turn_length = epoch_header_extra_data.turn_length as u64;
             let validators = epoch_header_extra_data
                 .validators
                 .into_iter()
@@ -176,8 +185,14 @@ pub fn verify_bsc_header<H: Keccak256, C: Config>(
             if !validators.is_empty() {
                 Some(NextValidators {
                     validators,
-                    rotation_block: epoch_header.number.low_u64() +
-                        (current_validators.len() as u64 / 2),
+                    // The real chain rotates `minerHistoryCheckLen()` blocks into the epoch,
+                    // which depends on the BOHR `TurnLength`. The pre-BOHR `len/2` rule opens
+                    // the promotion window ~80 blocks early and stalls finality each epoch.
+                    rotation_block: rotation_block(
+                        epoch_header.number.low_u64(),
+                        current_validators.len() as u64,
+                        turn_length,
+                    ),
                 })
             } else {
                 Err(Error::MissingValidatorSet)?
@@ -186,6 +201,7 @@ pub fn verify_bsc_header<H: Keccak256, C: Config>(
         } else if update.source_header.number.low_u64() % epoch_length == 0 {
             let epoch_header_extra_data = parse_extra::<H, C>(&update.source_header)
                 .map_err(|_| Error::ParseEpochExtraData)?;
+            let turn_length = epoch_header_extra_data.turn_length as u64;
             let validators = epoch_header_extra_data
                 .validators
                 .into_iter()
@@ -195,8 +211,11 @@ pub fn verify_bsc_header<H: Keccak256, C: Config>(
             if !validators.is_empty() {
                 Some(NextValidators {
                     validators,
-                    rotation_block: update.source_header.number.low_u64() +
-                        (current_validators.len() as u64 / 2),
+                    rotation_block: rotation_block(
+                        update.source_header.number.low_u64(),
+                        current_validators.len() as u64,
+                        turn_length,
+                    ),
                 })
             } else {
                 Err(Error::MissingValidatorSet)?
@@ -251,7 +270,10 @@ mod tests {
 	use alloy_rlp::Encodable;
 	use geth_primitives::CodecHeader;
 	use primitive_types::{H160, H256, U256};
-	use primitives::{Testnet, VoteAttestationData, VoteData};
+	use primitives::{
+		should_promote_validators, staged_set_activates_next_epoch, Testnet, VoteAttestationData,
+		VoteData,
+	};
 
 	/// `sp_io::hashing::keccak_256` host wired into the `Keccak256` trait.
 	struct TestHost;
@@ -418,6 +440,187 @@ mod tests {
 
 		let err = verify_bsc_header::<TestHost, Testnet>(&validators, update, 1000)
 			.expect_err("non-adjacent vote must be rejected");
-		assert!(format!("{err}").contains("not the direct child"), "unexpected error: {err:?}");
+		assert!(
+			format!("{err}").contains("not the direct child of the source header"),
+			"unexpected error: {err:?}"
+		);
+	}
+
+	/// Build an attested header at `number` whose vote attestation carries the given
+	/// `vote_data` fields (so `parse_extra` yields exactly this `vote_data`).
+	fn attested_header_with_vote(
+		number: u64,
+		vote_address_set: u64,
+		source_number: u64,
+		source_hash: B256,
+		target_number: u64,
+		target_hash: B256,
+	) -> CodecHeader {
+		let attestation = VoteAttestationData {
+			vote_address_set,
+			agg_signature: FixedBytes::<96>::from([0u8; 96]),
+			data: VoteData { source_number, source_hash, target_number, target_hash },
+			extra: Bytes::new(),
+		};
+		let mut attestation_rlp = Vec::new();
+		attestation.encode(&mut attestation_rlp);
+		assert_eq!(attestation_rlp[0], 0xf8);
+
+		let mut extra_data = Vec::with_capacity(32 + attestation_rlp.len() + 65);
+		extra_data.extend_from_slice(&[0u8; 32]);
+		extra_data.extend_from_slice(&attestation_rlp);
+		extra_data.extend_from_slice(&[0u8; 65]);
+
+		let mut header = plain_header(number, H256::zero());
+		header.extra_data = extra_data;
+		header
+	}
+
+	/// Set up an adjacent, hash-bound source/target pair plus an attested header whose
+	/// `number` the caller controls, so the handling of the attested header number can be
+	/// exercised on its own.
+	fn adjacent_update_with_attested_number(attested_number: u64) -> BscClientUpdate {
+		let mask: u64 = (1u64 << 21) - 1;
+		let source_header = plain_header(10, H256::repeat_byte(0x11));
+		let source_hash = Header::from(&source_header).hash::<TestHost>();
+		let target_header = plain_header(11, H256::from(source_hash.0));
+		let target_hash = Header::from(&target_header).hash::<TestHost>();
+		let attested_header = attested_header_with_vote(
+			attested_number,
+			mask,
+			10,
+			B256::from(source_hash.0),
+			11,
+			B256::from(target_hash.0),
+		);
+		BscClientUpdate {
+			source_header,
+			target_header,
+			attested_header,
+			epoch_header_ancestry: Default::default(),
+		}
+	}
+
+	/// Since Fermi (BEP-590) the attesting header need not sit at `target_number + 1` — a vote
+	/// may justify any of the header's last 3 ancestors. The verifier must therefore accept an
+	/// attested header whose `number` is further above the signed target (here `target + 3`),
+	/// reaching the signature stage rather than rejecting on the header number. The source/target
+	/// pair stays adjacent and hash-bound, which is what finalization actually requires.
+	#[test]
+	fn accepts_attested_header_above_target_fermi() {
+		let validators = dummy_validators(21);
+		// source #10, target #11 (adjacent); attested #14 is target + 3, a valid Fermi vote
+		// carrier that the old `attested == target + 1` binding would have rejected.
+		let update = adjacent_update_with_attested_number(14);
+		let err = verify_bsc_header::<TestHost, Testnet>(&validators, update, 1000)
+			.expect_err("dummy aggregate signature fails downstream");
+		let msg = format!("{err}");
+		assert!(
+			!msg.contains("direct child"),
+			"attested header number must not be gated against the target; got: {msg}"
+		);
+	}
+
+	/// `rotation_block` must track the BOHR `TurnLength`, matching Parlia's
+	/// `minerHistoryCheckLen() = (len/2 + 1) * TurnLength - 1`, and collapse to the historical
+	/// `len/2` rule pre-BOHR (`TurnLength == 1`). (HYPERBR-2776)
+	#[test]
+	fn rotation_block_tracks_turn_length() {
+		// Pre-BOHR default.
+		assert_eq!(rotation_block(5_000_000, 21, 1), 5_000_010);
+		// BOHR mainnet shape: 21 validators, turn length 8 → +87.
+		assert_eq!(rotation_block(5_000_000, 21, 8), 5_000_087);
+		// A zero turn length is clamped to 1 rather than underflowing.
+		assert_eq!(rotation_block(5_000_000, 21, 0), 5_000_010);
+	}
+
+	/// `parse_extra` must read the BOHR turn byte that sits immediately after the validator
+	/// entries, not merely skip it. (HYPERBR-2776)
+	#[test]
+	fn parse_extra_reads_bohr_turn_length() {
+		let turn: u8 = 8;
+		let validator_num: u8 = 1;
+		let mut extra_data = Vec::new();
+		extra_data.extend_from_slice(&[0u8; 32]); // vanity
+		extra_data.push(validator_num);
+		extra_data.extend_from_slice(&[7u8; 20 + 48]); // one validator entry (address + bls key)
+		extra_data.push(turn); // BOHR turn byte
+		extra_data.extend_from_slice(&[0u8; 65]); // seal
+
+		let mut header = plain_header(0, H256::zero());
+		header.extra_data = extra_data;
+		header.timestamp = Testnet::BOHR_FORK_TIMESTAMP; // post-BOHR
+
+		let parsed = parse_extra::<TestHost, Testnet>(&header).expect("header parses");
+		assert_eq!(parsed.turn_length, 8, "turn byte value must be captured");
+		assert_eq!(parsed.validators.len(), 1);
+	}
+
+	/// Pre-BOHR headers carry no turn byte; `turn_length` defaults to 1 so `rotation_block`
+	/// reproduces the historical behaviour. (HYPERBR-2776)
+	#[test]
+	fn parse_extra_defaults_turn_length_pre_bohr() {
+		let validator_num: u8 = 1;
+		let mut extra_data = Vec::new();
+		extra_data.extend_from_slice(&[0u8; 32]);
+		extra_data.push(validator_num);
+		extra_data.extend_from_slice(&[7u8; 20 + 48]);
+		extra_data.extend_from_slice(&[0u8; 65]);
+
+		let mut header = plain_header(0, H256::zero());
+		header.extra_data = extra_data;
+		header.timestamp = Testnet::BOHR_FORK_TIMESTAMP - 1; // pre-BOHR
+
+		let parsed = parse_extra::<TestHost, Testnet>(&header).expect("header parses");
+		assert_eq!(parsed.turn_length, 1);
+	}
+
+	/// The promotion gate (shared by the on-chain client and the relayer mirror) fires exactly
+	/// when the signed source reaches `rotation_block` within the activation epoch, and never for
+	/// a source below it or in a different epoch.
+	#[test]
+	fn should_promote_validators_gate() {
+		let epoch_length = 200u64;
+		// Epoch 5 boundary at 1000; 21 validators, turn length 8 → rotation at 1087.
+		let rotation = rotation_block(1000, 21, 8);
+		assert_eq!(rotation, 1087);
+
+		// Source below the rotation block (outgoing set still signing) → no promotion.
+		assert!(!should_promote_validators(1086, rotation, epoch_length));
+		// Source exactly at the rotation block → promote.
+		assert!(should_promote_validators(1087, rotation, epoch_length));
+		// Source past the rotation block, same epoch → promote.
+		assert!(should_promote_validators(1150, rotation, epoch_length));
+		// Source at/after the rotation height but in a later epoch (a stale `next_validators`
+		// replayed an epoch on) → no promotion.
+		assert!(!should_promote_validators(1287, rotation, epoch_length));
+		// Source in an earlier epoch → no promotion.
+		assert!(!should_promote_validators(900, rotation, epoch_length));
+	}
+
+	/// The staging guard accepts a set that activates in `current_epoch + 1` and rejects a set
+	/// whose activation epoch is the current one (or any other), which can never promote.
+	#[test]
+	fn staged_set_activates_next_epoch_guard() {
+		let epoch_length = 200u64;
+		let current_epoch = 5u64;
+		// Set staged while in epoch 5 that activates in epoch 6 (rotation in [1200, 1399]).
+		assert!(staged_set_activates_next_epoch(
+			rotation_block(1200, 21, 8),
+			current_epoch,
+			epoch_length
+		));
+		// Set whose activation epoch is the current epoch 5 (rotation in [1000, 1199]) → rejected.
+		assert!(!staged_set_activates_next_epoch(
+			rotation_block(1000, 21, 8),
+			current_epoch,
+			epoch_length
+		));
+		// Set two epochs ahead → rejected.
+		assert!(!staged_set_activates_next_epoch(
+			rotation_block(1400, 21, 8),
+			current_epoch,
+			epoch_length
+		));
 	}
 }

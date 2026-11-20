@@ -1,4 +1,5 @@
 import { GraphQLClient } from "graphql-request"
+import type { HexString } from "@/types"
 import { TESTNET_CHAINS } from "@/utils"
 
 /** The HyperFX orderbook deployments, one per network. */
@@ -131,6 +132,41 @@ export interface OrderbookLevelQuote {
 	maxFillableIn: bigint
 }
 
+/**
+ * A solver's bid on a swapper's order, as the orderbook serves it under the order's commitment.
+ * Amounts and the rate are at 1e18; `userOp` is the signed fill UserOp, SCALE-encoded as the
+ * solver submitted it, which is what the swapper executes.
+ */
+export interface OrderbookBid {
+	/** The solver account the bid is from. */
+	solver: HexString
+	/** The swapper's order this bid fills: `keccak256(abi.encode(order))`. */
+	commitment: HexString
+	/** Which of the order's legs the bid quotes, from 0. A solver fills each leg with a bid of its own. */
+	leg: number
+	book: OrderbookBook
+	/** BID where the solver buys the book's base, ASK where it sells it. */
+	side: OrderbookSide
+	/** The order's destination, where the bid executes and `tokenOut` is delivered. */
+	fillChain: string
+	/** The order's source, where the swapper's `tokenIn` is escrowed. */
+	sourceChain: string
+	tokenIn: string
+	tokenOut: string
+	/** The rate the bid signed, quote per 1 base, before the protocol fee. */
+	price: bigint
+	/** The input the bid takes of the leg, in `tokenIn`. */
+	amountIn: bigint
+	/** What the solver pays for that take, in `tokenOut`, before the protocol fee. */
+	amountOut: bigint
+	/** ISO-8601, when the orderbook received the bid. */
+	receivedAt: string
+	/** ISO-8601, when the orderbook stops serving it. The op's own `validUntil` is a block on `fillChain`. */
+	expiresAt: string
+	/** The signed UserOp, SCALE-encoded. */
+	userOp: HexString
+}
+
 /** The best bid and ask a route can reach, with the book that orients them. */
 export interface OrderbookTopOfBook {
 	book: OrderbookBook
@@ -180,12 +216,22 @@ query QuotePessimistic($route: RouteInput!, $amountIn: BigInt!) {
   }
 }`
 
+const BIDS_QUERY = `
+query Bids($commitment: Bytes!, $leg: Int, $solver: Address) {
+  bids(commitment: $commitment, leg: $leg, solver: $solver) {
+    solver { address }
+    commitment leg book { id base quote } side fillChain sourceChain tokenIn tokenOut
+    price amountIn amountOut receivedAt expiresAt userOp
+  }
+}`
+
 /** Every document the client sends, so they can be checked against the orderbook's published schema. */
 export const ORDERBOOK_QUERIES = {
 	topOfBook: TOP_OF_BOOK_QUERY,
 	routeLiquidity: ROUTE_LIQUIDITY_QUERY,
 	quote: QUOTE_QUERY,
 	quotePessimistic: QUOTE_PESSIMISTIC_QUERY,
+	bids: BIDS_QUERY,
 } as const
 
 /**
@@ -297,6 +343,38 @@ export class HyperFxOrderbook {
 		}
 	}
 
+	/**
+	 * The live bids on the swapper's order under `commitment`, leg by leg and, within a leg,
+	 * best for the swapper first. Every bid is from a solver holding an active limit order at
+	 * its price on the orderbook; whether that order still stands on chain is the swapper's to
+	 * check, and so is the op's own `validUntil`. `leg` keeps one leg's bids, `solver` one
+	 * solver's.
+	 */
+	async bids(commitment: HexString, filter: { leg?: number; solver?: HexString } = {}): Promise<OrderbookBid[]> {
+		const { bids } = await this.request<{ bids: RawBid[] }>(BIDS_QUERY, {
+			commitment,
+			leg: filter.leg ?? null,
+			solver: filter.solver ?? null,
+		})
+		return bids.map((bid) => ({
+			solver: bid.solver.address,
+			commitment: bid.commitment,
+			leg: bid.leg,
+			book: bid.book,
+			side: bid.side,
+			fillChain: bid.fillChain,
+			sourceChain: bid.sourceChain,
+			tokenIn: bid.tokenIn,
+			tokenOut: bid.tokenOut,
+			price: BigInt(bid.price),
+			amountIn: BigInt(bid.amountIn),
+			amountOut: BigInt(bid.amountOut),
+			receivedAt: bid.receivedAt,
+			expiresAt: bid.expiresAt,
+			userOp: bid.userOp,
+		}))
+	}
+
 	private async request<T>(query: string, variables: Record<string, unknown>): Promise<T> {
 		try {
 			return await this.client.request<T>(query, variables)
@@ -377,6 +455,24 @@ interface RawSwapQuote {
 	fillable: boolean
 	maxFillableIn: string
 	fills: { advertisedSize: string; orderRate: string; amountIn: string; amountOut: string }[]
+}
+
+interface RawBid {
+	solver: { address: HexString }
+	commitment: HexString
+	leg: number
+	book: OrderbookBook
+	side: OrderbookSide
+	fillChain: string
+	sourceChain: string
+	tokenIn: string
+	tokenOut: string
+	price: string
+	amountIn: string
+	amountOut: string
+	receivedAt: string
+	expiresAt: string
+	userOp: HexString
 }
 
 interface RawLevelQuote {

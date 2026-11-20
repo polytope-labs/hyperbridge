@@ -154,7 +154,6 @@ status(): SimplexStatus
 | Field | Type | Description |
 |------|------|-------------|
 | `paused` | `boolean` | |
-| `halted` | `boolean` | Same as `isHalted()` |
 | `address` | `HexString` | The solver's EVM account; same value as `simplex.address` |
 | `startedAt` | `number` | Epoch ms |
 | `uptimeSec` | `number` | |
@@ -187,17 +186,6 @@ bidStats(): Promise<BidStats>
 
 **Returns:** `{ total, successful, failed, retracted, pendingRetraction }`. Watch
 `pendingRetraction` — those are deposits still locked in the solver-selection pallet.
-
-### isHalted() / resetHalt()
-
-Whether a strategy has halted itself, and a reset for it. A halted solver refuses every order until
-`resetHalt()`. With pricing on limit orders nothing currently trips the halt, so `isHalted()` stays
-`false` in practice.
-
-```typescript lineNumbers
-isHalted(): boolean
-resetHalt(): void
-```
 
 ### setAllowlist(allowlist)
 
@@ -232,7 +220,7 @@ on<E extends keyof SimplexEvents>(
 
 | Event | Payload |
 |------|---------|
-| `order:detected` | `{ order: Order; transactionHash: string }` |
+| `order:detected` | `{ order: Order; transactionHash: string; blockHash: string }` |
 | `order:skipped` | `{ orderId: string; reason: string }` |
 | `order:filled` | `{ orderId: string; txHash?: HexString; chainId?: number; volumeUsd?: number; profitUsd?: number }` |
 | `order:executed` | `{ orderId: string; success: boolean; strategy?: string; commitment?: HexString; txHash?: HexString; error?: string }` |
@@ -396,8 +384,7 @@ use on their own chains.
 | `fillChain` | `string` | State machine id the order fills on |
 | `price` | `string` | Quote per 1 base, as signed |
 | `size` | `string` | Output offered when the order was created |
-| `remaining` | `string` | Output not yet delivered |
-| `reserved` | `string` | Output held by bids that have neither filled nor been retracted |
+| `remaining` | `string` | Output not yet delivered, lowered to what the order's on-chain budget has left |
 | `acceptedSources` | `string[]` | Never empty |
 | `ttlSecs` | `number` | |
 | `expiresAt` | `string \| null` | When the order and its posting lapse |
@@ -411,7 +398,7 @@ use on their own chains.
 `LimitOrderFill`: `id`, `limitOrderId`, `commitment` (the swap it settled), `bid`, `amount` (what
 it drew the order down by, 1e18 in the payout token), `amountIn` (what it took in, 1e18 in the
 token the order takes in, or `null` for a fill recorded before it was kept), `transactionHash`,
-`filledAt`.
+`logIndex` (which log of that transaction, or `null` when unknown), `filledAt`.
 
 ### Over HTTP
 
@@ -742,9 +729,9 @@ expiredUnretracted(maxAgeMs: number): Promise<StoredBid[]>
 markRetracted(
     commitment: string,
     retractExtrinsicHash: string | null,
+    rows?: readonly number[],
 ): Promise<boolean>
-markDead(commitment: string): Promise<boolean>
-claimReservation(commitment: string, bid?: string): Promise<LimitOrderHold[]>
+markDead(commitment: string, rows?: readonly number[]): Promise<boolean>
 byLimitOrder(limitOrderId: string, limit?: number): Promise<StoredBid[]>
 recent(limit?: number): Promise<StoredBid[]>
 failed(limit?: number): Promise<StoredBid[]>
@@ -766,14 +753,19 @@ failed attempt retries on the next sweep rather than waiting out the TTL.
 retraction, so "no bid" means there is nothing left to reclaim and no hash is available. Both mark
 methods resolve `false` when nothing matched, which callers treat as success rather than an error.
 
+`rows` is a list of `StoredBid.id`s. With it, `markRetracted` and `markDead` act on those bids only;
+without it, on every unretracted bid on the commitment; an empty list matches nothing. A store must
+honour `rows`. A store that ignores it closes or flags every bid on the commitment, so retracting
+one limit order's bid retracts another's.
+
 `StoredBid`: `id`, `commitment`, `bid`, `extrinsicHash`, `blockHash`, `success`, `pending`, `error`,
-`createdAt`, `retracted`, `retractedAt`, `retractExtrinsicHash`, `dead`, `reservations`.
+`createdAt`, `retracted`, `retractedAt`, `retractExtrinsicHash`, `dead`, `pricedBy`.
 
 Several bids can share a commitment — the solver sends one bid per matching limit order — so `bid`
-(the identifier Hyperbridge files it under) tells them apart. `reservations` lists the
-`{ limitOrderId, amount }` holds a bid took against limit orders; `claimReservation` hands them over
-exactly once when the bid settles, for one named bid or every outstanding hold on the commitment.
-`byLimitOrder` reads back the bids that drew on an order.
+(the identifier Hyperbridge files it under) tells them apart. `pricedBy` (`BidPricing`:
+`{ limitOrderId, payout, take?, takeDecimals? }`, or `null`) names the limit order that priced the
+bid and what the bid signed against it. It is written once when the bid is stored and never changed;
+nothing is held against the order. `byLimitOrder` reads back the bids an order priced.
 
 `pending` marks a submission that timed out with its extrinsic still in Hyperbridge's pool. It is
 neither success nor failure: the extrinsic may yet land and reserve a deposit, so a pending row
@@ -830,13 +822,10 @@ open(): Promise<LimitOrder[]>
 setPosting(id: string, posting: LimitOrderPosting, only?: LimitOrderStatus[]): Promise<LimitOrder | null>
 setStatus(id: string, status: LimitOrderStatus, lastError?: string | null, only?: LimitOrderStatus[]):
     Promise<LimitOrder | null>
-reserve(id: string, amount: string): Promise<boolean>
-release(id: string, amount: string): Promise<void>
-drawDown(id: string, amount: string): Promise<LimitOrder | null>
+clampRemaining(id: string, room: string, only?: LimitOrderStatus[]): Promise<LimitOrder | null>
 recordFill(fill: LimitOrderFillInsert): Promise<void>
 fills(limitOrderId: string, limit?: number): Promise<LimitOrderFill[]>
 fillHistory(): Promise<LimitOrderFillRecord[]>
-transaction<T>(settle: () => Promise<T>): Promise<T>
 ```
 
 `fillHistory` returns every fill of every order, oldest first, each with its order's `book`, `base`,
@@ -858,18 +847,25 @@ recovered from the chain. `InventorySnapshot` is `id`, `takenAt` (SQLite-style U
 nothing else.
 
 <Callout type="warn">
-    Correctness-critical, like `BidStore`. `remaining` and `reserved` are inventory: they are what
-    stop two chains paying out the same liability twice, so a store that loses writes overcommits
-    real money.
+    The limit order's budget on chain, not this store, is what refuses a fill past the order's size.
+    `remaining` follows that budget: it sizes the next bid and the orderbook posting, so a store that
+    loses writes advertises output the chain will refuse until the next tally pass corrects it.
 </Callout>
 
 `open()` is what the matcher prices against. `setPosting` and `setStatus` take an optional `only`
 list and write only while the row still holds one of those statuses, answering `null` otherwise, so
-a slow orderbook answer cannot undo a cancel or expiry that landed first. `reserve` adds a hold
-only while the order is `open` and `remaining` covers that one hold. `drawDown` works the order down
-by delivered output, floored at zero. `transaction` runs a fill's settlement — claim the bid's
-holds, draw the order down, record the fill — as one unit where the backend can; the bundled SQLite
-store keeps limit orders in the same database as bids for that reason.
+a slow orderbook answer cannot undo a cancel or expiry that landed first. `clampRemaining` lowers an
+`open` or `resizing` order's `remaining` to the room its on-chain budget leaves and never raises it,
+answering `null` for an order in any other status or one the room does not lower. Settlement and
+the tally pass use it.
+
+`clampRemaining` takes the same optional `only` list, which narrows the statuses it may act on and
+never widens them. The filler passes `["open"]` when a fill's sync or the tally pass lowers an order,
+since both go on to repost it and a row a repost already holds is left to that repost. It passes
+`["resizing"]` when a repost lowers the row it holds before posting. A store must therefore accept
+both statuses: one that refuses `resizing` re-advertises the pre-fill size. It must also apply the
+status check and the write as one step, so a row that moved on after the caller read it is left as
+it is.
 
 ### Implementations
 
@@ -882,8 +878,8 @@ store keeps limit orders in the same database as bids for that reason.
 directory written by the binary is picked up unchanged. Limit orders and operator state ride in
 `bids.db` beside the bids, and implements `patch`; a `runtime-state.json` from an earlier version is imported once
 and then removed. It is built on Node's
-built-in `node:sqlite`, so there is no native module to install or compile — which is why the
-package requires Node 22.16 or newer.
+built-in `node:sqlite`, so there is no native module to install or compile. The package requires
+Node 22.23.4+, 24.22.1+ or 26.12.1+.
 
 **Example — a custom backend:**
 
@@ -958,6 +954,14 @@ gap. It throws on a chain the scanner does not have.
 | `onError` | `(error, chainId)` — informational; the scanner retries and never advances its cursor past an unread range |
 
 `Subscription` is `{ close(): void; readonly dropped: number }`.
+
+<Callout type="warn">
+    `ScannedOrder.blockHash` matters to a custom scanner. A cross-chain order is only filled while a
+    quorum of source endpoints still places its `OrderPlaced` transaction in that block, so an empty
+    `blockHash` makes the solver skip every cross-chain order that waits for confirmations
+    (`Placement block unknown`). Fill it
+    with the hash of the block the log was read from.
+</Callout>
 
 <Callout type="warn">
     Delivery is at-least-once and per-chain FIFO. A scanner that resumes from a cursor after a

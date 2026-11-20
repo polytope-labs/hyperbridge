@@ -11,7 +11,14 @@ vi.mock("@/protocols/intents/fillOrderCodec", async (importOriginal) => ({
 	assertGatewayRelease: vi.fn(async () => {}),
 }))
 
+// Retries wait through `sleep`; here it returns at once.
+vi.mock("@/utils", async (importOriginal) => ({
+	...(await importOriginal<typeof import("@/utils")>()),
+	sleep: vi.fn(async () => {}),
+}))
+
 const { GasEstimator } = await import("@/protocols/intents/GasEstimator")
+const { BundlerRpcError } = await import("@/protocols/intents/bundlerRetry")
 
 // The rundler priority fee is fetched outside the mocked bundler calls; this bundler serves none.
 beforeEach(() => {
@@ -44,8 +51,12 @@ const ORDER: Order = {
 	output: { beneficiary: USER, assets: [{ token: TOKEN, amount: 990n }], call: "0x" },
 }
 
+/**
+ * An estimator whose bundler calls go to `bundler.single`, or, with `null`, through
+ * `CryptoUtils.sendBundler` to the stubbed `fetch`.
+ */
 function estimatorWith(
-	bundler: { single: ReturnType<typeof vi.fn> },
+	bundler: { single: ReturnType<typeof vi.fn> } | null,
 	{
 		gateway = { address: GATEWAY, typehash: SELECT_SOLVER_TYPEHASH },
 		entryPoint = ENTRY_POINT,
@@ -70,10 +81,12 @@ function estimatorWith(
 		bundlerUrl: "https://bundler.example",
 		feeTokenCache: new Map(),
 	} as unknown as IntentGatewayContext
-	const crypto = {
-		encodeERC7821Execute: () => "0x" as HexString,
-		sendBundler: bundler.single,
-	} as unknown as CryptoUtils
+	const crypto = bundler
+		? ({
+				encodeERC7821Execute: () => "0x" as HexString,
+				sendBundler: bundler.single,
+			} as unknown as CryptoUtils)
+		: new CryptoUtils(ctx)
 
 	const estimator = new GasEstimator(ctx, crypto)
 	// Storage-slot discovery traces calls on a live node.
@@ -134,6 +147,81 @@ describe("GasEstimator.estimateFillOrder when the bundler fails to estimate", ()
 			"Bundler gas estimation failed: No EntryPoint configured for EVM-97",
 		)
 		expect(bundler.single).not.toHaveBeenCalled()
+	})
+})
+
+describe("GasEstimator.estimateFillOrder when the bundler fails transiently", () => {
+	// What rundler answers when its upstream RPC drops a request.
+	const RPC_PROVIDER_ERROR = { error: { code: -32603, message: "internal error: rpc provider error" } }
+	const ESTIMATE = {
+		result: { callGasLimit: "0x186a0", verificationGasLimit: "0x186a0", preVerificationGas: "0x186a0" },
+	}
+
+	/**
+	 * Stubs a bundler that answers the n-th `eth_estimateUserOperationGas` with the n-th
+	 * reply (the last one thereafter) and serves no rundler fee method. Returns the replies sent.
+	 */
+	function bundlerAnswering(...replies: Record<string, unknown>[]) {
+		const sent: Record<string, unknown>[] = []
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async (_url: string, init: { body: string }) => {
+				const { method } = JSON.parse(init.body) as { method: string }
+				let reply: Record<string, unknown> = { error: { code: -32601, message: "Method not found" } }
+				if (method === "eth_estimateUserOperationGas") {
+					reply = replies[Math.min(sent.length, replies.length - 1)]
+					sent.push(reply)
+				}
+				return { status: 200, json: async () => ({ jsonrpc: "2.0", id: 1, ...reply }) }
+			}),
+		)
+		return sent
+	}
+
+	it("estimates from the attempt after rundler's rpc provider error", async () => {
+		const sent = bundlerAnswering(RPC_PROVIDER_ERROR, ESTIMATE)
+		const onBundlerRetry = vi.fn()
+
+		const estimate = await estimatorWith(null).estimateFillOrder({
+			order: ORDER,
+			requireBundlerEstimate: true,
+			onBundlerRetry,
+		})
+
+		expect(estimate.callGasLimit).toBe(160_000n)
+		expect(sent).toEqual([RPC_PROVIDER_ERROR, ESTIMATE])
+		expect(onBundlerRetry).toHaveBeenCalledOnce()
+		expect(onBundlerRetry.mock.calls[0][0]).toMatchObject({ attempt: 1, maxAttempts: 3, delayMs: 250 })
+		expect(onBundlerRetry.mock.calls[0][0].error.message).toBe("Bundler error: internal error: rpc provider error")
+	})
+
+	it("throws the bundler's error after three attempts that all fail transiently", async () => {
+		const sent = bundlerAnswering(RPC_PROVIDER_ERROR)
+		const onBundlerRetry = vi.fn()
+
+		const failure = estimatorWith(null).estimateFillOrder({
+			order: ORDER,
+			requireBundlerEstimate: true,
+			onBundlerRetry,
+		})
+
+		await expect(failure).rejects.toThrow(
+			"Bundler gas estimation failed: Bundler error: internal error: rpc provider error",
+		)
+		await expect(failure.catch((e: Error) => e.cause)).resolves.toBeInstanceOf(BundlerRpcError)
+		expect(sent).toHaveLength(3)
+		expect(onBundlerRetry).toHaveBeenCalledTimes(2)
+	})
+
+	it("does not ask again after a validation revert", async () => {
+		const sent = bundlerAnswering({ error: { code: -32500, message: "validation reverted: AA23 reverted" } })
+		const onBundlerRetry = vi.fn()
+
+		await expect(
+			estimatorWith(null).estimateFillOrder({ order: ORDER, requireBundlerEstimate: true, onBundlerRetry }),
+		).rejects.toThrow("Bundler gas estimation failed: Bundler error: validation reverted: AA23 reverted")
+		expect(sent).toHaveLength(1)
+		expect(onBundlerRetry).not.toHaveBeenCalled()
 	})
 })
 

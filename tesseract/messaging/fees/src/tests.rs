@@ -1,7 +1,8 @@
-use crate::TransactionPayment;
+use crate::{ParkedMessage, RetryState, TransactionPayment};
 use ismp::{
+	consensus::{StateMachineHeight, StateMachineId},
 	host::StateMachine,
-	messaging::hash_request,
+	messaging::{hash_request, Message, Proof, RequestMessage},
 	router::{PostRequest, Request},
 };
 use std::sync::Arc;
@@ -375,6 +376,258 @@ async fn outbound_rotation_claims_upsert_is_idempotent() {
 		.unwrap();
 	assert_eq!(rows.len(), 1, "upsert with the same key must not duplicate");
 	assert_eq!(rows[0].rotation_height, 900, "upsert must not overwrite");
+
+	cleanup_db(&path);
+}
+
+// ─── Parked message retry bookkeeping ───────────────────────────────
+
+/// Parking writes the retry columns and reading them back keeps the message,
+/// its state and the row id.
+#[tokio::test]
+async fn unprofitable_messages_round_trip_retry_state() {
+	let path = temp_db_path("unprofitable_state");
+	let tx_payment = TransactionPayment::initialize(&path).await.unwrap();
+
+	let message = |nonce: u64| {
+		let post = PostRequest {
+			source: StateMachine::Evm(97),
+			dest: StateMachine::Evm(8002),
+			nonce,
+			from: vec![1],
+			to: vec![2],
+			timeout_timestamp: 0,
+			body: vec![],
+		};
+		Message::Request(RequestMessage {
+			requests: vec![post],
+			proof: Proof {
+				height: StateMachineHeight {
+					id: StateMachineId {
+						state_id: StateMachine::Evm(97),
+						consensus_state_id: *b"BEEF",
+					},
+					height: 1,
+				},
+				proof: vec![],
+			},
+			signer: vec![],
+		})
+	};
+
+	let first =
+		RetryState { attempts: 3, created_at: 1_700_000_000, next_attempt_at: 1_700_000_600 };
+	let second =
+		RetryState { attempts: 0, created_at: 1_700_000_100, next_attempt_at: 1_700_000_400 };
+	tx_payment
+		.store_unprofitable_messages(
+			vec![
+				ParkedMessage { message: message(1), state: first, id: None },
+				ParkedMessage { message: message(2), state: second, id: None },
+			],
+			StateMachine::Evm(8002),
+		)
+		.await
+		.unwrap();
+
+	let parked = tx_payment.unprofitable_messages(&StateMachine::Evm(8002)).await.unwrap();
+	assert_eq!(parked.len(), 2);
+	let by_nonce = |nonce: u64| {
+		parked
+			.iter()
+			.find(|parked| match &parked.message {
+				Message::Request(request) => request.requests[0].nonce == nonce,
+				_ => false,
+			})
+			.expect("parked message")
+	};
+	assert_eq!(by_nonce(1).state, first);
+	assert_eq!(by_nonce(2).state, second);
+	assert!(parked.iter().all(|parked| parked.id.is_some()));
+
+	cleanup_db(&path);
+}
+
+/// Updating a parked row rewrites its message and state in place, keeping the row id.
+#[tokio::test]
+async fn unprofitable_messages_update_in_place() {
+	let path = temp_db_path("unprofitable_update");
+	let tx_payment = TransactionPayment::initialize(&path).await.unwrap();
+
+	let message = |nonce: u64| {
+		let post = PostRequest {
+			source: StateMachine::Evm(97),
+			dest: StateMachine::Evm(8002),
+			nonce,
+			from: vec![1],
+			to: vec![2],
+			timeout_timestamp: 0,
+			body: vec![],
+		};
+		Message::Request(RequestMessage {
+			requests: vec![post],
+			proof: Proof {
+				height: StateMachineHeight {
+					id: StateMachineId {
+						state_id: StateMachine::Evm(97),
+						consensus_state_id: *b"BEEF",
+					},
+					height: 1,
+				},
+				proof: vec![],
+			},
+			signer: vec![],
+		})
+	};
+
+	let first =
+		RetryState { attempts: 0, created_at: 1_700_000_000, next_attempt_at: 1_700_000_600 };
+	tx_payment
+		.store_unprofitable_messages(
+			vec![ParkedMessage { message: message(1), state: first, id: None }],
+			StateMachine::Evm(8002),
+		)
+		.await
+		.unwrap();
+
+	let parked = tx_payment.unprofitable_messages(&StateMachine::Evm(8002)).await.unwrap();
+	assert_eq!(parked.len(), 1);
+	let id = parked[0].id.unwrap();
+
+	let updated =
+		RetryState { attempts: 4, created_at: 1_700_000_100, next_attempt_at: 1_700_001_000 };
+	tx_payment
+		.update_unprofitable_message(
+			id,
+			ParkedMessage { message: message(2), state: updated, id: Some(id) },
+		)
+		.await
+		.unwrap();
+
+	let parked = tx_payment.unprofitable_messages(&StateMachine::Evm(8002)).await.unwrap();
+	assert_eq!(parked.len(), 1);
+	assert_eq!(parked[0].id, Some(id));
+	assert_eq!(parked[0].state, updated);
+	match &parked[0].message {
+		Message::Request(request) => assert_eq!(request.requests[0].nonce, 2),
+		other => panic!("expected the updated request, got {other:?}"),
+	}
+
+	cleanup_db(&path);
+}
+
+// ─── Pipeline checkpoints ───────────────────────────────────────────
+
+/// A pipeline that has never saved a checkpoint has none.
+#[tokio::test]
+async fn processed_height_missing_row_is_none() {
+	let path = temp_db_path("processed_missing");
+	let tx_payment = TransactionPayment::initialize(&path).await.unwrap();
+
+	assert_eq!(tx_payment.processed_height("SUBSTRATE-PDEX", "KUSAMA-4009").await.unwrap(), None);
+
+	cleanup_db(&path);
+}
+
+/// Storing a checkpoint and reading it back returns the same height.
+#[tokio::test]
+async fn processed_height_round_trips() {
+	let path = temp_db_path("processed_round_trip");
+	let tx_payment = TransactionPayment::initialize(&path).await.unwrap();
+
+	tx_payment
+		.store_processed_height("SUBSTRATE-PDEX", "KUSAMA-4009", 29_265)
+		.await
+		.unwrap();
+
+	assert_eq!(
+		tx_payment.processed_height("SUBSTRATE-PDEX", "KUSAMA-4009").await.unwrap(),
+		Some(29_265)
+	);
+
+	cleanup_db(&path);
+}
+
+/// Storing the same key again overwrites the height in place.
+#[tokio::test]
+async fn processed_height_overwrites() {
+	let path = temp_db_path("processed_overwrite");
+	let tx_payment = TransactionPayment::initialize(&path).await.unwrap();
+
+	tx_payment.store_processed_height("EVM-97", "outbound", 100).await.unwrap();
+	tx_payment.store_processed_height("EVM-97", "outbound", 250).await.unwrap();
+
+	assert_eq!(tx_payment.processed_height("EVM-97", "outbound").await.unwrap(), Some(250));
+
+	cleanup_db(&path);
+}
+
+/// Different `(source, dest)` pairs keep their own heights.
+#[tokio::test]
+async fn processed_heights_are_independent_per_pair() {
+	let path = temp_db_path("processed_pairs");
+	let tx_payment = TransactionPayment::initialize(&path).await.unwrap();
+
+	tx_payment
+		.store_processed_height("SUBSTRATE-PDEX", "KUSAMA-4009", 100)
+		.await
+		.unwrap();
+	tx_payment.store_processed_height("EVM-97", "KUSAMA-4009", 200).await.unwrap();
+	tx_payment
+		.store_processed_height("SUBSTRATE-PDEX", "outbound", 300)
+		.await
+		.unwrap();
+	tx_payment.store_processed_height("EVM-97", "outbound", 400).await.unwrap();
+	tx_payment.store_processed_height("EVM-97", "outbound", 450).await.unwrap();
+
+	assert_eq!(
+		tx_payment.processed_height("SUBSTRATE-PDEX", "KUSAMA-4009").await.unwrap(),
+		Some(100)
+	);
+	assert_eq!(tx_payment.processed_height("EVM-97", "KUSAMA-4009").await.unwrap(), Some(200));
+	assert_eq!(tx_payment.processed_height("SUBSTRATE-PDEX", "outbound").await.unwrap(), Some(300));
+	assert_eq!(tx_payment.processed_height("EVM-97", "outbound").await.unwrap(), Some(450));
+
+	cleanup_db(&path);
+}
+
+/// Reopening the database surfaces the checkpoint written before the previous handle was
+/// dropped, which is what a relayer restart relies on.
+#[tokio::test]
+async fn processed_height_survives_reopen() {
+	let path = temp_db_path("processed_reopen");
+
+	{
+		let tx_payment = TransactionPayment::initialize(&path).await.unwrap();
+		tx_payment
+			.store_processed_height("KUSAMA-4009", "outbound", 29_313)
+			.await
+			.unwrap();
+	}
+
+	let tx_payment = TransactionPayment::initialize(&path).await.unwrap();
+	assert_eq!(tx_payment.processed_height("KUSAMA-4009", "outbound").await.unwrap(), Some(29_313));
+
+	cleanup_db(&path);
+}
+
+/// A release build applies migrations instead of pushing the schema; this checks the migration
+/// SQL creates the table the typed client expects.
+#[tokio::test]
+async fn release_migrations_create_the_processed_heights_table() {
+	let path = temp_db_path("processed_migrate");
+	let client = crate::db::new_client_with_url(&format!("file:{path}")).await.unwrap();
+	client._migrate_deploy().await.unwrap();
+	let tx_payment = TransactionPayment { db: Arc::new(client) };
+
+	tx_payment
+		.store_processed_height("SUBSTRATE-PDEX", "KUSAMA-4009", 29_265)
+		.await
+		.unwrap();
+	assert_eq!(
+		tx_payment.processed_height("SUBSTRATE-PDEX", "KUSAMA-4009").await.unwrap(),
+		Some(29_265)
+	);
 
 	cleanup_db(&path);
 }

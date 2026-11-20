@@ -3,13 +3,16 @@ import type { HexString } from "@hyperbridge/sdk"
 import { OrderbookRequestError } from "@/orderbook/client"
 import { initialOrderNonce, LimitOrderValidationError, type CreateLimitOrderRequest } from "@/orderbook/limit-orders"
 import type { CancelOrderResult } from "@/orderbook/types"
+import type { DelegationService } from "@/services/DelegationService"
 import {
 	CREATE_REQUEST as REQUEST,
 	LIMITS,
 	fakeClient,
 	limitOrderService as makeService,
 	ORDERBOOK_FIXTURES,
+	drawDown,
 	postedOrder,
+	settleFill,
 } from "../helpers/limit-orders"
 
 const { ONE, CHAIN } = ORDERBOOK_FIXTURES
@@ -107,6 +110,29 @@ describe("LimitOrderService.create", () => {
 		const { service } = makeService(client)
 		const { order } = await service.create(REQUEST)
 		expect(order.status).toBe("rejected")
+	})
+
+	it("leaves an order open while screening has the solver suspended, to be posted again", async () => {
+		// A suspension lasts until a screen passes, and the orderbook keeps the solver's orders
+		// meanwhile: retiring the order here would lose it for good over a passing state.
+		const client = fakeClient([{ kind: "rejected", code: "SOLVER_SUSPENDED", message: "suspended" }])
+		const { service, store } = makeService(client)
+		const { order, result } = await service.create(REQUEST)
+
+		expect(result).toMatchObject({ kind: "rejected", code: "SOLVER_SUSPENDED" })
+		expect(client.submitted).toHaveLength(1)
+		expect(order.status).toBe("open")
+		expect(order.commitment).toBeNull()
+		expect(order.lastError).toBe("SOLVER_SUSPENDED: suspended")
+		expect((await store.get(order.id))?.status).toBe("open")
+	})
+
+	it("retires an order once screening has banned the solver", async () => {
+		const client = fakeClient([{ kind: "rejected", code: "SOLVER_FLAGGED", message: "banned" }])
+		const { service } = makeService(client)
+		const { order } = await service.create(REQUEST)
+		expect(order.status).toBe("rejected")
+		expect(order.lastError).toBe("SOLVER_FLAGGED: banned")
 	})
 })
 
@@ -326,6 +352,46 @@ describe("what the wallet can actually pay", () => {
 		})
 	})
 
+	/**
+	 * A cross-chain fill pays its dispatch fee in the fill chain's fee token, out of the same
+	 * wallet. An order that promised all of it was matched for swaps the filler then skipped.
+	 */
+	describe("paying out the fee token", () => {
+		const PAYS_USDC = { ...REQUEST, tokenIn: "CNGN", amountIn: "1500000", tokenOut: "USDC", amountOut: "1000" }
+
+		it("leaves 10 of it out of the book", async () => {
+			const { service } = makeService(fakeClient([]), undefined, { [ORDERBOOK_FIXTURES.USDC]: 1_005n })
+
+			await expect(service.create(PAYS_USDC)).rejects.toThrow(
+				/USDC pays the fill fees on EVM-8453, so 10 of it stays out of the book: the wallet holds 1005, which can pay out at most 995/,
+			)
+		})
+
+		it("takes an order that leaves the 10 over", async () => {
+			const { service } = makeService(
+				fakeClient([{ kind: "accepted", order: postedOrder(), surfaced: true }]),
+				undefined,
+				{ [ORDERBOOK_FIXTURES.USDC]: 1_010n },
+			)
+
+			const { order } = await service.create(PAYS_USDC)
+
+			expect(order.size).toBe((1_000n * ONE).toString())
+		})
+
+		it("holds nothing back of a token that is not the fee token", async () => {
+			const { service } = makeService(
+				fakeClient([{ kind: "accepted", order: postedOrder(), surfaced: true }]),
+				undefined,
+				{ [ORDERBOOK_FIXTURES.CNGN]: 1_500_000n },
+			)
+
+			const { order } = await service.create({ ...REQUEST, amountOut: "1500000" })
+
+			expect(order.size).toBe((1_500_000n * ONE).toString())
+		})
+	})
+
 	it("lets several orders rest on the same balance", async () => {
 		// One balance backs every order resting on it, which is what quoting both
 		// sides of a book is. The orderbook says the same: it advertises each entry
@@ -398,7 +464,7 @@ describe("a same-asset limit order", () => {
 		const { service } = makeService(client)
 		const created = await service.create(SAME)
 
-		const settled = await service.settleFill(created.order.id, 500n * ONE)
+		const settled = await settleFill(service, created.order.id, 500n * ONE)
 		expect(settled?.status).toBe("open")
 		expect(settled?.remaining).toBe((499n * ONE).toString())
 		expect(client.submitted).toEqual([])
@@ -412,15 +478,98 @@ describe("a same-asset limit order", () => {
 		expect(await service.reconcile()).toEqual({ cancelled: 0, reposted: 0, underFunded: 0 })
 		expect(client.submitted).toEqual([])
 	})
+
+	it("is refused when the solver is not delegated, because it still prices bids", async () => {
+		// It is never posted, but it still prices swaps here and a bid from an undelegated
+		// EOA cannot execute — so it needs the same delegation check a posted order gets.
+		const { service } = makeService(fakeClient([]), undefined, {}, undefined, undefined, {
+			setupDelegation: async () => false,
+		} as unknown as DelegationService)
+
+		await expect(service.create(SAME)).rejects.toThrow(/not 7702-delegated on EVM-8453/)
+	})
+
+	it("is stored once the solver is delegated", async () => {
+		const client = fakeClient([])
+		const { service } = makeService(client, undefined, {}, undefined, undefined, {
+			setupDelegation: async () => true,
+		} as unknown as DelegationService)
+
+		const { result } = await service.create(SAME)
+
+		expect(result.kind).toBe("unposted")
+		expect(client.submitted).toEqual([])
+	})
 })
 
-describe("LimitOrderService.settleFill", () => {
+describe("LimitOrderService.create under watch-only", () => {
+	const watchOnly = () => true
+	/** A same-asset order, which needs the delegation check only because it prices bids. */
+	const SAME: CreateLimitOrderRequest = { ...REQUEST, tokenOut: "USDC", amountIn: "1000", amountOut: "999" }
+
+	it("never delegates, and stores a same-asset order once the solver is already delegated", async () => {
+		const client = fakeClient([])
+		const setupDelegation = vi.fn(async () => true)
+		const { service } = makeService(
+			client,
+			undefined,
+			{},
+			undefined,
+			undefined,
+			{ isDelegated: async () => true, setupDelegation } as unknown as DelegationService,
+			watchOnly,
+		)
+
+		const { result } = await service.create(SAME)
+
+		expect(result.kind).toBe("unposted")
+		expect(setupDelegation).not.toHaveBeenCalled()
+	})
+
+	it("refuses with the watch-only wording, and never delegates, when the solver is not delegated", async () => {
+		const setupDelegation = vi.fn(async () => true)
+		const { service, store } = makeService(
+			fakeClient([]),
+			undefined,
+			{},
+			undefined,
+			undefined,
+			{ isDelegated: async () => false, setupDelegation } as unknown as DelegationService,
+			watchOnly,
+		)
+
+		await expect(service.create(SAME)).rejects.toThrow(/EVM-8453 is watch-only and the solver is not 7702-delegated/)
+		await expect(service.create(REQUEST)).rejects.toThrow(/watch-only/)
+
+		expect(setupDelegation).not.toHaveBeenCalled()
+		expect(await store.list()).toEqual([])
+	})
+
+	it("still delegates on a chain that is not watch-only", async () => {
+		const setupDelegation = vi.fn(async () => true)
+		const { service } = makeService(
+			fakeClient([]),
+			undefined,
+			{},
+			undefined,
+			undefined,
+			{ isDelegated: async () => false, setupDelegation } as unknown as DelegationService,
+			(chain) => chain !== "EVM-8453",
+		)
+
+		await service.create(SAME)
+
+		expect(setupDelegation).toHaveBeenCalledOnce()
+	})
+})
+
+describe("LimitOrderService.resize after a fill", () => {
 	/** Take in 1,000 USDC, pay out 1,500,000 cNGN, then see 500,000 cNGN go out. */
 	const fill = async (delivered: bigint, cancels: CancelOrderResult[] = []) => {
 		const client = fakeClient([], cancels)
 		const { service, store } = makeService(client)
 		const created = await service.create(REQUEST)
-		const settled = await service.settleFill(created.order.id, delivered)
+		const settled = await settleFill(service, created.order.id, delivered)
 		return { client, store, settled: settled!, id: created.order.id }
 	}
 
@@ -434,10 +583,10 @@ describe("LimitOrderService.settleFill", () => {
 		service.listen((event) => events.push(`${event.kind}:${event.order.remaining}`))
 		const created = await service.create(REQUEST)
 
-		await service.settleFill(created.order.id, 500_000n * ONE)
+		await settleFill(service, created.order.id, 500_000n * ONE)
 		expect(events).toEqual([`resized:${(1_000_000n * ONE).toString()}`])
 
-		await service.settleFill(created.order.id, 999_999n * ONE)
+		await settleFill(service, created.order.id, 999_999n * ONE)
 		expect(events[1]).toMatch(/^filled:/)
 	})
 
@@ -476,7 +625,7 @@ describe("LimitOrderService.settleFill", () => {
 		}
 		const { service } = makeService(client)
 		const created = await service.create(REQUEST)
-		await service.settleFill(created.order.id, 500_000n * ONE)
+		await settleFill(service, created.order.id, 500_000n * ONE)
 
 		expect(order).toEqual(["submit", "cancel", "submit"])
 	})
@@ -491,7 +640,7 @@ describe("LimitOrderService.settleFill", () => {
 
 	it("does nothing for an order it does not know", async () => {
 		const { service } = makeService(fakeClient([]))
-		expect(await service.settleFill("missing", ONE)).toBeNull()
+		expect(await settleFill(service, "missing", ONE)).toBeNull()
 	})
 
 	it("floors the draw-down at zero when a fill delivered more than was left", async () => {
@@ -510,8 +659,8 @@ describe("LimitOrderService.settleFill", () => {
 			const created = await service.create(REQUEST)
 			await store.setStatus(created.order.id, status)
 
-			expect(await service.settleFill(created.order.id, 500_000n * ONE)).toBeNull()
-			expect(await service.settleFill(created.order.id, 999_999n * ONE)).toBeNull()
+			expect(await settleFill(service, created.order.id, 500_000n * ONE)).toBeNull()
+			expect(await settleFill(service, created.order.id, 999_999n * ONE)).toBeNull()
 			expect((await store.get(created.order.id))?.status).toBe(status)
 			expect(client.submitted).toEqual(["0x00"])
 			expect(events).toEqual([])
@@ -548,7 +697,7 @@ describe("LimitOrderService.reconcileTallies", () => {
 	/** An order for 1,000 USDC that the store believes has 500 left. */
 	const halfDrawn = async (ctx: ReturnType<typeof withTally>) => {
 		const { order } = await ctx.service.create(PAYS_USDC)
-		await ctx.store.drawDown(order.id, (500n * ONE).toString())
+		await drawDown(ctx.store, order.id, 500n * ONE)
 		return order.id
 	}
 
@@ -576,7 +725,6 @@ describe("LimitOrderService.reconcileTallies", () => {
 				after: (300n * ONE).toString(),
 				spent: (700n * USDC_UNIT).toString(),
 				cap: (1000n * USDC_UNIT).toString(),
-				reserved: "0",
 			},
 			expect.any(String),
 		)
@@ -639,9 +787,9 @@ describe("LimitOrderService.reconcileTallies", () => {
 		// Whichever order the pass reaches first fails its store write.
 		const clamp = ctx.store.clampRemaining.bind(ctx.store)
 		let calls = 0
-		ctx.store.clampRemaining = async (id, room) => {
+		ctx.store.clampRemaining = async (id, room, only) => {
 			if (++calls === 1) throw new Error("database is locked")
-			return clamp(id, room)
+			return clamp(id, room, only)
 		}
 
 		expect(await ctx.service.reconcileTallies()).toBe(1)
@@ -727,6 +875,50 @@ describe("LimitOrderService.reconcileTallies", () => {
 		expect(ctx.client.submitted).toEqual(["0x00", "0x01"])
 		expect(events).toEqual(["resized:0"])
 		expect(ctx.warn).toHaveBeenCalledTimes(1)
+	})
+
+	describe("syncToChain", () => {
+		it("lowers one order to its tally and reposts it, leaving the others for the pass", async () => {
+			const ctx = withTally(700n * USDC_UNIT)
+			const [id, other] = [await halfDrawn(ctx), await halfDrawn(ctx)]
+			const info = vi.spyOn((ctx.service as any).logger, "info")
+
+			expect(await ctx.service.syncToChain(id)).toBe(true)
+
+			expect((await ctx.store.get(id))?.remaining).toBe((300n * ONE).toString())
+			expect((await ctx.store.get(other))?.remaining).toBe((500n * ONE).toString())
+			expect(ctx.client.submitted).toEqual(["0x00", "0x00", "0x01"])
+			// The ordinary path after a fill, so not a warning.
+			expect(ctx.warn).not.toHaveBeenCalled()
+			expect(info).toHaveBeenCalledWith(expect.objectContaining({ id, after: (300n * ONE).toString() }), expect.any(String))
+		})
+
+		it("answers false when the tally leaves the order where it is", async () => {
+			const ctx = withTally(500n * USDC_UNIT)
+			const id = await halfDrawn(ctx)
+
+			expect(await ctx.service.syncToChain(id)).toBe(false)
+			expect((await ctx.store.get(id))?.remaining).toBe((500n * ONE).toString())
+		})
+
+		it("answers false for an order that is not open, without reading the chain", async () => {
+			const ctx = withTally(700n * USDC_UNIT)
+			const id = await halfDrawn(ctx)
+			await ctx.store.setStatus(id, "resizing")
+
+			expect(await ctx.service.syncToChain(id)).toBe(false)
+			expect(await ctx.service.syncToChain("missing")).toBe(false)
+			expect(ctx.spent).not.toHaveBeenCalled()
+		})
+
+		it("throws when the tally cannot be read, for its caller to decide", async () => {
+			const ctx = withTally(0n)
+			const id = await halfDrawn(ctx)
+			ctx.spent.mockRejectedValueOnce(new Error("rpc down"))
+
+			await expect(ctx.service.syncToChain(id)).rejects.toThrow("rpc down")
+			expect((await ctx.store.get(id))?.remaining).toBe((500n * ONE).toString())
+		})
 	})
 })
 

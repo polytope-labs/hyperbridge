@@ -6,7 +6,9 @@ import { CryptoUtils } from "./CryptoUtils"
 import type { IntentGatewayContext } from "./types"
 import { ABI as IntentGatewayV2ABI } from "@/abis/IntentGatewayV2"
 import { ENTRY_POINT_V08 } from "@/configs/chain"
+import { decodeUserOpScale } from "@/chains/intentsCoprocessor"
 import { readLegPartialFill } from "./escrowReads"
+import type { HyperFxOrderbook, OrderbookBid } from "./orderbook/client"
 
 const USED_USEROPS_STORAGE_KEY = (commitment: HexString) => `used-userops:${commitment.toLowerCase()}`
 
@@ -22,7 +24,7 @@ function remainingAfter(targets: TokenInfo[], filled: TokenInfo[]): TokenInfo[] 
  * Drives the post-placement execution lifecycle of an intent order.
  *
  * After an order is placed on the source chain, `OrderExecutor` polls the
- * Hyperbridge coprocessor for solver bids, selects the best bid, submits
+ * Hyperbridge coprocessor and the HyperFX orderbook for solver bids, selects the best bid, submits
  * the corresponding ERC-4337 UserOperation via the bundler, and tracks
  * partial fills until the order is fully satisfied or its on-chain block
  * deadline is reached. Cross-chain fills are confirmed from the destination
@@ -37,9 +39,14 @@ function remainingAfter(targets: TokenInfo[], filled: TokenInfo[]): TokenInfo[] 
  * `usedUserOpsStorage` so that the executor can resume safely after a crash.
  */
 export class OrderExecutor {
+	/**
+	 * @param orderbook - The HyperFX orderbook bids are read from beside the coprocessor. A getter,
+	 *   so the gateway can point it elsewhere after construction.
+	 */
 	constructor(
 		private readonly ctx: IntentGatewayContext,
 		private readonly bidManager: BidManager,
+		private readonly orderbook: () => HyperFxOrderbook,
 	) {}
 
 	/**
@@ -150,23 +157,53 @@ export class OrderExecutor {
 	}
 
 	/**
-	 * Fetches bids from the coprocessor for a given order commitment.
-	 * If a preferred solver is configured and the solver lock has not expired,
-	 * only bids from that solver are returned.
+	 * The bids on an order, from Hyperbridge and from the HyperFX orderbook together.
+	 *
+	 * A solver posts its bid to both when it holds BRIDGE for the Hyperbridge deposit and to the
+	 * orderbook alone when it does not, so neither source is the whole picture. The two are read
+	 * side by side and merged by the op's userOpHash, which is the op itself whatever identifier
+	 * a solver filed it under on Hyperbridge; the Hyperbridge copy wins a tie since it carries the
+	 * deposit. One source failing is not the read failing: its bids are left out this round and
+	 * the other's are returned; only both failing throws. An orderbook bid whose op does not
+	 * decode is left out on its own, not with the rest of the orderbook's.
+	 *
+	 * If a preferred solver is configured and the solver lock has not expired, only bids from
+	 * that solver are returned.
 	 */
 	private async fetchBids(params: {
 		commitment: HexString
 		solver?: { address: HexString; timeoutMs: number }
 		solverLockStartTime: number
+		/** The userOpHash of a bid's op, as `executeOrder` keys bids. */
+		userOpHashKey: (userOp: FillerBid["userOp"]) => string
 	}): Promise<FillerBid[]> {
-		const { commitment, solver, solverLockStartTime } = params
+		const { commitment, solver, solverLockStartTime, userOpHashKey } = params
 
+		const reads: Promise<FillerBid[]>[] = []
 		const intentsCoprocessor = this.ctx.intentsCoprocessor
-		if (!intentsCoprocessor) {
-			throw new Error("IntentsCoprocessor required for order execution")
+		if (intentsCoprocessor) reads.push(intentsCoprocessor.getBidsForOrder(commitment))
+		reads.push(this.orderbook().bids(commitment).then((bids) => bids.flatMap(fillerBidsOf)))
+
+		const settled = await Promise.allSettled(reads)
+		const failures = settled.filter((result): result is PromiseRejectedResult => result.status === "rejected")
+		if (failures.length === settled.length) {
+			throw new AggregateError(
+				failures.map((failure) => failure.reason),
+				`Could not read the bids on ${commitment} from any source`,
+			)
 		}
 
-		const fetchedBids = await intentsCoprocessor.getBidsForOrder(commitment)
+		const merged = new Map<string, FillerBid>()
+		for (const result of settled) {
+			if (result.status !== "fulfilled") continue
+			for (const bid of result.value) {
+				const key = userOpHashKey(bid.userOp)
+				const held = merged.get(key)
+				// Hyperbridge's copy carries the deposit; the orderbook's is the same op without it.
+				if (!held || (held.venue === "orderbook" && bid.venue !== "orderbook")) merged.set(key, bid)
+			}
+		}
+		const fetchedBids = [...merged.values()]
 
 		if (solver) {
 			const { address, timeoutMs } = solver
@@ -290,11 +327,6 @@ export class OrderExecutor {
 		const { order, sessionPrivateKey, auctionTimeMs, pollIntervalMs = DEFAULT_POLL_INTERVAL, solver } = options
 
 		const commitment = order.id as HexString
-
-		if (!this.ctx.intentsCoprocessor) {
-			yield { status: "FAILED", error: "IntentsCoprocessor required for order execution" }
-			return
-		}
 
 		if (!this.ctx.bundlerUrl) {
 			yield { status: "FAILED", error: "Bundler URL not configured" }
@@ -437,7 +469,7 @@ export class OrderExecutor {
 			const auctionSeenBids = new Set<string>()
 			while (Date.now() < auctionEnd) {
 				try {
-					const bids = await this.fetchBids({ commitment, solver, solverLockStartTime })
+					const bids = await this.fetchBids({ commitment, solver, solverLockStartTime, userOpHashKey })
 					const newBids = bids.filter(
 						(bid) => isFreshBid(bid) && !auctionSeenBids.has(userOpHashKey(bid.userOp)),
 					)
@@ -467,7 +499,7 @@ export class OrderExecutor {
 					))
 					freshBids = final
 						? []
-						: (await this.fetchBids({ commitment, solver, solverLockStartTime })).filter(isFreshBid)
+						: (await this.fetchBids({ commitment, solver, solverLockStartTime, userOpHashKey })).filter(isFreshBid)
 				} catch {
 					await sleep(pollIntervalMs)
 					continue
@@ -547,4 +579,19 @@ export class OrderExecutor {
 function servesOpenLeg(bid: Bid, remainingAssets: TokenInfo[]): boolean {
 	if (bid.outputs.length !== remainingAssets.length) return true
 	return bid.outputs.some((output, leg) => output.amount > 0n && remainingAssets[leg].amount > 0n)
+}
+
+/**
+ * An orderbook bid in the shape Hyperbridge's bids take, so the two merge, or nothing when its op
+ * does not decode. The orderbook holds no deposit and does not know the solver's Substrate account,
+ * so `filler` is the solver's address.
+ */
+function fillerBidsOf(bid: OrderbookBid): FillerBid[] {
+	try {
+		const userOp = decodeUserOpScale(bid.userOp)
+		return [{ filler: bid.solver, bid: CryptoUtils.bidId(userOp.callData), userOp, deposit: 0n, venue: "orderbook" }]
+	} catch (err) {
+		console.warn(`[OrderExecutor] Skipping an orderbook bid from ${bid.solver} whose op does not decode:`, err)
+		return []
+	}
 }

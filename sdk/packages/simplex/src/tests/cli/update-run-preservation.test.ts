@@ -34,7 +34,6 @@ describe("CLI wizard update run", () => {
 			queue: { maxRechecks: 10, recheckDelayMs: 30000 },
 			blockScanIntervalSeconds: 5,
 			gasFeeBump: { maxPriorityFeePerGasBumpPercent: 12, maxFeePerGasBumpPercent: 15 },
-			overfillProtection: { maxOverfillBps: 300, maxConsecutiveClamps: 2 },
 		},
 		chains: [{ rpcUrls: ["https://eth.example/rpc"] }],
 		binance: { apiKey: "bk", apiSecret: "bs", timeout: 9000 },
@@ -82,7 +81,6 @@ describe("CLI wizard update run", () => {
 		state.maxConcurrentOrders = config.simplex.maxConcurrentOrders ?? state.maxConcurrentOrders
 		state.logging = config.simplex.logging
 		state.gasFeeBump = config.simplex.gasFeeBump
-		state.overfillProtection = config.simplex.overfillProtection
 		state.allowlist = config.allowlist
 		return assembleConfig(state)
 	}
@@ -103,6 +101,18 @@ describe("CLI wizard update run", () => {
 		expect(assembled.simplex.watchOnly).toEqual({ "56": true })
 		expect(assembled.simplex.logging).toBe("warn")
 		expect(assembled.simplex.gasFeeBump).toEqual(existing.simplex.gasFeeBump)
+	})
+
+	it("drops a leftover [simplex.overfillProtection]", () => {
+		// Ignored at boot, and not emitted: carried through, it would trip the
+		// round-trip gate, so the update run removes it from the file.
+		const assembled = simulateUpdateRun({
+			...existing,
+			simplex: { ...existing.simplex, overfillProtection: { maxOverfillBps: 500, maxConsecutiveClamps: 3 } },
+		})
+
+		expect(assembled.simplex.overfillProtection).toBeUndefined()
+		expect(emitFillerToml(assembled)).not.toContain("overfillProtection")
 	})
 
 	it("drops a leftover [[pairs]] and writes the wizard-managed assets and policies", () => {

@@ -245,6 +245,31 @@ The orderbook prices an exact input on a route two ways. Both take the same argu
 
 Both only take an input amount. To price an exact output, compute the input from `routeLiquidity.bestRate` and quote it. If the quote falls short, keep the fills better than its worst price, re-price the rest of the output at the worst fill's `amountIn` to `amountOut` ratio, and quote again. The SDK's `quoteIntent` does this for you, with either quote.
 
+## Bids on an order
+
+Solvers answer a swapper's order with signed fill UserOps. A solver posts each bid to Hyperbridge, which takes a BRIDGE deposit for it, and to the orderbook, which takes none; a solver holding no BRIDGE posts to the orderbook alone. `bids` serves the live bids on an order under its commitment, leg by leg and, within a leg, best for the swapper first. The orderbook accepts a bid only from a solver holding an active limit order at that price on the leg's book, and serves it for `serverInfo.bidTtlSecs`.
+
+```graphql
+{
+  bids(commitment: "0x6a6f…") {
+    solver { address }
+    leg
+    side
+    fillChain
+    sourceChain
+    tokenIn
+    tokenOut
+    price
+    amountIn
+    amountOut
+    expiresAt
+    userOp
+  }
+}
+```
+
+`userOp` is the signed UserOp, SCALE-encoded as the solver submitted it: what the swapper executes. `price` is the rate the bid signed, quote per 1 base, before the protocol fee. The op's own `validUntil` is a block number on `fillChain`, which the gateway checks and the orderbook does not. The SDK's `IntentGateway.executeOrder` reads bids from Hyperbridge and from here, merged by bid identifier.
+
 ## Price history
 
 Each validation cycle records the book's top of book, depth and liquidity, on each fill chain and across chains. Recorded history is kept for 30 days.

@@ -15,3 +15,11 @@ export const RETIRED_ORDERBOOK_URLS: readonly string[] = ["https://orderbook.hyp
 
 /** How often to reconcile local limit orders against the orderbook's copy. */
 export const DEFAULT_RECONCILE_INTERVAL_SECS = 300
+
+/**
+ * Whole tokens a limit order that pays out the fill chain's fee token leaves out of the book.
+ * A cross-chain fill pays the escrow-release dispatch fee in that token from the same wallet, so
+ * an order sized to the whole balance leaves nothing to pay it with and every fill of it is
+ * skipped. Fee tokens are dollar stablecoins, so this is $10.
+ */
+export const LIMIT_ORDER_FEE_RESERVE_TOKENS = 10n

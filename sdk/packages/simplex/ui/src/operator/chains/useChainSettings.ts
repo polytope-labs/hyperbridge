@@ -103,7 +103,7 @@ export function useChainSettings() {
 		if (
 			!enabled &&
 			chain.running &&
-			!window.confirm(`Stop filling on ${chain.meta.label}? It keeps trading until you restart the filler.`)
+			!window.confirm(`Stop filling on ${chain.meta.label}? It keeps trading until you restart the solver.`)
 		) {
 			return
 		}

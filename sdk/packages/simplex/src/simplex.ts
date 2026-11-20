@@ -4,7 +4,7 @@ import type { HexString, Order } from "@hyperbridge/sdk"
 import { bootFiller, type FillerRuntime } from "@/core/boot"
 import { formatChainKey } from "@/config/interpolated-curve"
 import type { AssetDefinition } from "@/config/asset-registry"
-import { assertConfirmationCoverage, type VaultToml } from "@/config/filler-toml"
+import { assertConfirmationCoverage, validateRebalancingConfig, type VaultToml } from "@/config/filler-toml"
 import type { ChainConfirmationPolicy, FillerTomlConfig, RebalancingConfig } from "@/config/filler-toml"
 import { resolveChainConfigs, validateRpcUrls, type AllowlistConfig } from "@/services/FillerConfigService"
 import { assertBundlersServeEntryPoint } from "@/services/bundler-preflight"
@@ -115,7 +115,11 @@ export interface SimplexOptions {
 
 /** Events a running filler emits. */
 export interface SimplexEvents {
-	"order:detected": { order: Order; transactionHash: string }
+	/**
+	 * `blockHash` is the block the scanner read the placement from; a cross-chain
+	 * order is only filled while a quorum still places its transaction there.
+	 */
+	"order:detected": { order: Order; transactionHash: string; blockHash: string }
 	"order:skipped": { orderId: string; reason: string }
 	"order:filled": {
 		orderId: string
@@ -197,7 +201,6 @@ export interface ChainInput {
 
 export interface SimplexStatus {
 	paused: boolean
-	halted: boolean
 	/** The solver's EVM account — the same value as `simplex.address`. */
 	address: HexString
 	startedAt: number
@@ -242,7 +245,7 @@ export class LimitOrderController {
 	}
 
 	/**
-	 * One limit order with its fills and the bids still drawing on it, newest first.
+	 * One limit order with its fills and the bids it priced, newest first.
 	 *
 	 * What makes `remaining` explicable: a size that shrank is the sum of the fills
 	 * behind it, and the operator can see which ones. Fills are recorded when they
@@ -347,6 +350,10 @@ export class LimitOrderController {
 
 	async cancel(id: string): Promise<CancelledLimitOrder> {
 		const cancelled = await this.service.cancel(id)
+		// The cancel withdraws the price from the book, but bids it already priced would
+		// still pay out at it. Retracting them never fails the cancel: errors are logged,
+		// and the stale-bid sweep is the backstop.
+		await this.runtime.intentFiller.retractBidsForLimitOrder(id)
 		this.emit("limit-order:cancelled", { order: cancelled.order })
 		return cancelled
 	}
@@ -459,6 +466,17 @@ export class ChainController {
 				)
 			}
 
+			// A watch-only run must not start filling on a chain added later either: the
+			// override (or a global TOML `watchOnly = true`) is what the operator asked
+			// for, and letting an explicit `watchOnly: false` through would put a chain to
+			// work mid-observe.
+			if (this.runtime.globalWatchOnly && chain.watchOnly === false) {
+				throw new Error(
+					`Chain ${chainId} cannot be added as filling: this solver runs watch-only ` +
+						"(--watch-only or simplex.watchOnly = true). Restart without it to fill.",
+				)
+			}
+
 			// A filler the operator put in watch-only must not start filling on a chain
 			// added later, and a signerless observer never fills at all.
 			// `chain.watchOnly` still wins when given explicitly (checked above).
@@ -500,7 +518,11 @@ export class ChainController {
 			this.runtime.resolvedChains.push(resolved)
 			config.chains = [...config.chains, { rpcUrls: chain.rpcUrls }]
 			if (Object.keys(confirmationPolicies).length > 0) config.confirmationPolicies = confirmationPolicies
-			this.syncWatchOnlyToConfig()
+			// Persist only what the operator asked for. `watchOnly` above also folds in the
+			// global override, which is transient: writing that would mark the chain
+			// watch-only for a later override-free run. Signerless stays, because such a boot
+			// needs every chain watch-only.
+			this.syncWatchOnlyToConfig({ chainId, watchOnly: chain.watchOnly ?? this.runtime.signerless })
 
 			await this.persist()
 			return this.list().find((row) => row.chainId === chainId)!
@@ -532,7 +554,7 @@ export class ChainController {
 			this.runtime.chainClientManager.invalidate(chainKey)
 			this.runtime.resolvedChains.splice(index, 1)
 			config.chains = config.chains.filter((_, i) => i !== index)
-			this.syncWatchOnlyToConfig()
+			this.syncWatchOnlyToConfig({ chainId, watchOnly: false })
 
 			await this.persist()
 		})
@@ -590,12 +612,25 @@ export class ChainController {
 					"Watch-only cannot be disabled: this solver was started without a signer. Restart with `signer` to fill.",
 				)
 			}
+			// A global watch-only (`--watch-only` or a TOML `simplex.watchOnly = true`) is the
+			// operator's decision for the whole run; clearing one chain's flag here would let
+			// it fill mid-observe.
+			if (!watchOnly && this.runtime.globalWatchOnly) {
+				throw new Error(
+					"Watch-only cannot be disabled: this solver runs watch-only (--watch-only or " +
+						"simplex.watchOnly = true). Restart without it to fill.",
+				)
+			}
 			if (!watchOnly) {
 				const chain = this.runtime.resolvedChains.find((resolved) => resolved.chainId === chainId)
 				if (chain) await assertBundlersServeEntryPoint([chain], this.runtime.configService)
 			}
+			// A chain that was watch-only at boot was never delegated or marked, so
+			// opening it must find out now. Marked before the flag flips, so no order
+			// slips through in between.
+			if (!watchOnly) await this.runtime.intentFiller.guardDelegation(chainId)
 			this.runtime.intentFiller.setWatchOnly(chainId, watchOnly)
-			this.syncWatchOnlyToConfig()
+			this.syncWatchOnlyToConfig({ chainId, watchOnly })
 			await this.persist()
 		})
 	}
@@ -610,6 +645,15 @@ export class ChainController {
 			if (this.runtime.signerless) {
 				throw new Error(
 					"Fills cannot be enabled: this solver was started without a signer. Restart with `signer` to fill.",
+				)
+			}
+			// A watch-only run (`--watch-only` or a TOML `simplex.watchOnly = true`) delegates
+			// nothing: enabling fills here would clear the chain's in-memory flag and bid from
+			// an undelegated account.
+			if (this.runtime.globalWatchOnly) {
+				throw new Error(
+					"Fills cannot be enabled: this solver runs watch-only (--watch-only or " +
+						"simplex.watchOnly = true). Restart without it to fill.",
 				)
 			}
 			const chain = this.runtime.resolvedChains.find((resolved) => resolved.chainId === chainId)
@@ -630,21 +674,41 @@ export class ChainController {
 			await this.runtime.intentFiller.enableFills(chainId)
 			if (this.runtime.intentFiller.getWatchOnly()[chainId]) {
 				this.runtime.intentFiller.setWatchOnly(chainId, false)
-				this.syncWatchOnlyToConfig()
+				this.syncWatchOnlyToConfig({ chainId, watchOnly: false })
 				await this.persist()
 			}
 		})
 	}
 
-	/** A global boolean is left alone — expanding it per chain changes how the config validates. */
-	private syncWatchOnlyToConfig(): void {
+	/**
+	 * Writes watch-only edits back into the config. A global boolean is left alone —
+	 * expanding it per chain changes how the config validates.
+	 *
+	 * `changed` is the chain just added, removed or toggled, and its new value. It only
+	 * matters under the `--watch-only` override: there the in-memory snapshot marks every
+	 * chain, and writing it back would make one run permanent for every later run.
+	 * Instead only the edited chain is applied — its key deleted when it stops being
+	 * watch-only, kept as an explicit flag otherwise — so the override itself never lands
+	 * in the file and a later override-free run sees what it would have anyway.
+	 */
+	private syncWatchOnlyToConfig(changed?: { chainId: number; watchOnly: boolean }): void {
 		// Only a standing global `true` stays global; an explicit `false` expands, so a
 		// per-chain edit is actually written back instead of silently dropped.
 		if (this.runtime.config.simplex.watchOnly === true) return
-		// A transient start option is not config. Under the override every chain reads
-		// watch-only, and writing that snapshot back would make one `--watch-only` run
-		// permanent for every run after it.
-		if (this.runtime.globalWatchOnly && this.runtime.config.simplex.watchOnly === undefined) return
+
+		if (this.runtime.globalWatchOnly) {
+			if (!changed) return
+			const existing = this.runtime.config.simplex.watchOnly
+			const perChain: Record<string, boolean> =
+				typeof existing === "object" && existing !== null ? { ...existing } : {}
+			// Both spellings boot accepts, so a change does not leave a duplicate key behind.
+			delete perChain[String(changed.chainId)]
+			delete perChain[formatChainKey(changed.chainId)]
+			if (changed.watchOnly) perChain[String(changed.chainId)] = true
+			this.runtime.config.simplex.watchOnly = Object.keys(perChain).length > 0 ? perChain : undefined
+			return
+		}
+
 		const perChain = Object.entries(this.runtime.intentFiller.getWatchOnly())
 			.filter(([, value]) => value === true)
 			.map(([chainId]) => [chainId, true] as const)
@@ -779,6 +843,7 @@ export class RebalanceController {
 
 	/** Replaces the rebalancing settings; trigger checks read them live. */
 	async set(rebalancing: RebalancingConfig | undefined): Promise<void> {
+		if (rebalancing) validateRebalancingConfig(rebalancing)
 		this.runtime.configService.setRebalancing(rebalancing)
 		this.runtime.config.rebalancing = rebalancing
 		await this.persist()
@@ -874,10 +939,16 @@ export class Simplex extends EventEmitter {
 
 		let orderScanner: OrderScanner | undefined
 		try {
+			// Probed once and handed to the scanner and to boot, which would each probe
+			// every endpoint otherwise. Boot tolerates an endpoint that cannot answer.
+			const resolvedChains = await resolveChainConfigs(options.config.chains ?? [], {
+				loggers,
+				tolerateUnreachable: true,
+			})
 			orderScanner =
 				options.orderScanner ??
 				(await OrderScannerImpl.create({
-					chains: options.config.chains,
+					chains: resolvedChains.map(({ chainId, rpcUrls }) => ({ chainId, rpcUrls })),
 					loggers,
 					// Honour `blockScanIntervalSeconds` on a scanner we build. One the
 					// caller supplied carries whatever interval they chose for it.
@@ -888,6 +959,7 @@ export class Simplex extends EventEmitter {
 				loggers,
 				signer: options.signer,
 				scanners: { orders: orderScanner },
+				resolvedChains,
 				configPath: options.configPath,
 				data: options.data ?? new MemoryDataStore(),
 				// A store we defaulted is ours to close; one the caller passed is theirs,
@@ -934,8 +1006,16 @@ export class Simplex extends EventEmitter {
 		this.runtime.limitOrders?.listen((event) => {
 			if (event.kind === "resized") {
 				this.emit("limit-order:resized", { order: event.order, delivered: event.delivered.toString() })
-			} else {
+			} else if (event.kind === "filled") {
 				this.emit("limit-order:filled", { order: event.order })
+				// A fill settled on the filler also retracts, but a close that came from the
+				// tally reconciliation did not pass through settlement. The pass is
+				// idempotent: its snapshot skips rows that are already retracted.
+				void this.runtime.intentFiller.retractBidsForLimitOrder(event.order.id)
+			} else if (event.kind === "expired" || event.kind === "rejected") {
+				// The order is off the book, but bids it priced still pay out at its price
+				// until they are retracted. Never rejects; the sweep is the backstop.
+				void this.runtime.intentFiller.retractBidsForLimitOrder(event.order.id)
 			}
 		})
 	}
@@ -1019,7 +1099,6 @@ export class Simplex extends EventEmitter {
 	status(): SimplexStatus {
 		return {
 			paused: this.isPaused(),
-			halted: this.isHalted(),
 			address: this.runtime.fillerAddress,
 			startedAt: this.runtime.startedAt,
 			uptimeSec: (Date.now() - this.runtime.startedAt) / 1000,
@@ -1044,18 +1123,6 @@ export class Simplex extends EventEmitter {
 	 */
 	bidStats(): Promise<BidStats> {
 		return this.runtime.data.bids.stats()
-	}
-
-	/**
-	 * Whether overfill protection has self-halted the engine. A halted filler
-	 * refuses every order until {@link resetHalt}.
-	 */
-	isHalted(): boolean {
-		return this.runtime.haltControls.some((control) => control.isHalted())
-	}
-
-	resetHalt(): void {
-		for (const control of this.runtime.haltControls) control.resetHalt()
 	}
 
 	/** Restricts which order `user` addresses are processed. Omit to accept all. */

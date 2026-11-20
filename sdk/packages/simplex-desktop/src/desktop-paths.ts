@@ -42,7 +42,7 @@ export function socketPathFor(
 	throw new Error(`Could not derive a Simplex socket path within ${UNIX_SOCKET_PATH_LIMIT} bytes`)
 }
 
-export type ResourcePaths = { node: string; solver: string; ui: string }
+export type ResourcePaths = { node: string; solver: string; ui: string; diagnostics: string }
 
 export function resourcePaths(options: {
 	isPackaged: boolean
@@ -65,7 +65,10 @@ export function resourcePaths(options: {
 	const ui = options.isPackaged
 		? path.join(options.resourcesPath, "simplex", "dist", "ui", "index.html")
 		: path.join(options.simplexPackageRoot, "dist", "ui", "index.html")
-	return { node, solver, ui }
+	const diagnostics = options.isPackaged
+		? path.join(options.resourcesPath, "desktop", "solver-diagnostics.mjs")
+		: path.join(options.packageRoot, "dist", "solver-diagnostics.js")
+	return { node, solver, ui, diagnostics }
 }
 
 export function assertResources(paths: ResourcePaths): void {

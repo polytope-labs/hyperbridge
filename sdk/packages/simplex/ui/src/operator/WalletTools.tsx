@@ -1,18 +1,14 @@
 import { useCallback, useLayoutEffect, useRef, useState } from "react"
 import { toast } from "sonner"
-import { chainByChainId } from "@/cli/init/chains"
 import { formatChainKey, parseChainKey } from "@/config/interpolated-curve"
 import { api } from "../api"
-import { SelectField } from "../components/AppSelect"
-import { SendConfirmDialog, type SendSummary } from "../components/SendConfirmDialog"
-import { ExternalLinkIcon } from "../components/InterfaceIcons"
 import { OperationLink } from "../components/OperationLink"
 import { OperatorSheet } from "../components/OperatorSheet"
 import { VaultRowsEditor } from "../components/VaultRowsEditor"
 import { useAction, usePolling } from "../lib/hooks"
 import { vaultRowsToToml, type VaultRowDraft } from "../lib/vault-rows"
-import type { BalanceSnapshot, ConfigDto, SendTokenOption, VaultSweepDto } from "../types"
-import { sendTokenOptionLabel, sendTokenOptionsForChain } from "./sendModel"
+import type { BalanceSnapshot, ConfigDto, VaultSweepDto } from "../types"
+import { SendDialog } from "./SendDialog"
 
 /** "2 vaults connected · Base, Arbitrum" for the drawer's summary line. */
 function describeConnectedVaults(vaults: ConfigDto["vaults"], chainLabel: (id: number | string) => string): string {
@@ -111,10 +107,10 @@ export function WalletTools(props: {
 						// process sweeps into or sources from them until it restarts.
 						setVaultNotice({
 							tone: "warn",
-							text: "Saved to config — restart the filler to activate the vault treasury",
+							text: "Saved to config — restart the solver to activate the vault treasury",
 						})
 						toast.warning("Vault settings saved", {
-							description: "Restart the filler to activate the vault treasury.",
+							description: "Restart the solver to activate the vault treasury.",
 						})
 					} else {
 						toast.success("Vault settings saved")
@@ -136,12 +132,12 @@ export function WalletTools(props: {
 					<span className="eyebrow">Funds</span>
 					<h2>Move and grow liquidity</h2>
 				</div>
-				<small>Each tool opens in a focused side panel.</small>
+				<small>Each tool opens on its own, over this page.</small>
 			</div>
 			<div className="operator-tool-list">
 				<OperationLink
 					title="Send funds"
-					description="Transfer native gas tokens or ERC-20 assets from the filler wallet."
+					description="Transfer native gas tokens or ERC-20 assets from the solver wallet."
 					meta={`${props.chains.length} ${props.chains.length === 1 ? "network" : "networks"}`}
 					onClick={() => setPanel("send")}
 				/>
@@ -153,20 +149,15 @@ export function WalletTools(props: {
 				/>
 			</div>
 
-			<OperatorSheet
+			<SendDialog
 				open={panel === "send"}
 				onClose={() => setPanel(undefined)}
-				title="Send funds"
-				description="Transfer assets from the filler wallet. Confirm the recipient and network carefully."
-			>
-				<SendCard
-					chains={props.chains}
-					chainLabel={chainLabel}
-					sendTokens={config?.sendTokens}
-					balances={props.balances}
-					onSent={props.onBalancesChanged}
-				/>
-			</OperatorSheet>
+				chains={props.chains}
+				chainLabel={chainLabel}
+				sendTokens={config?.sendTokens}
+				balances={props.balances}
+				onSent={props.onBalancesChanged}
+			/>
 
 			<OperatorSheet
 				open={panel === "vaults"}
@@ -178,7 +169,7 @@ export function WalletTools(props: {
 				<div className="operator-panel-form vault-panel">
 					{config && !config.vaultConfigured && (
 						<p className="hint">
-							The filler started without a vault treasury. Vaults saved here are written to the config and
+							The solver started without a vault treasury. Vaults saved here are written to the config and
 							activate after a restart.
 						</p>
 					)}
@@ -291,218 +282,4 @@ function describeSweep(result: VaultSweepDto, chainLabel: (id: number | string) 
 		return { tone: "ok", text: `Nothing to sweep — ${legs.join("; ")}` }
 	}
 	return { tone: "ok", text: "Nothing to sweep — no vault has a sweep threshold configured" }
-}
-
-function SendCard(props: {
-	chains: number[]
-	chainLabel: (id: number | string) => string
-	sendTokens?: Record<string, SendTokenOption[]>
-	balances?: BalanceSnapshot
-	onSent: () => Promise<void> | void
-}) {
-	const [chain, setChain] = useState<string>()
-	const [token, setToken] = useState("native")
-	const [customToken, setCustomToken] = useState("")
-	const [amount, setAmount] = useState("")
-	const [to, setTo] = useState("")
-	const [result, setResult] = useState<{ txHash: string; redeemed: boolean; explorerUrl?: string }>()
-	const [sending, setSending] = useState(false)
-	const [review, setReview] = useState<SendSummary>()
-	const { run: act, message, error } = useAction()
-
-	const selectedChain = chain ?? formatChainKey(props.chains[0] ?? "")
-	const selectedChainId = parseChainKey(selectedChain)
-	const options = sendTokenOptionsForChain(props.sendTokens?.[selectedChain], selectedChainId)
-	const tokenAddress = token === "custom" ? customToken.trim() : token
-	const selected = options.find((o) => o.address === token)
-	const symbol = selected?.symbol ?? (token === "custom" ? "tokens" : token)
-	const balance = selectedSendBalance(props.balances, selectedChain, tokenAddress)
-	const ready = Boolean(amount.trim()) && /^0x[0-9a-fA-F]{40}$/.test(to.trim()) && tokenAddress !== ""
-
-	const network = props.chainLabel(selectedChainId ?? selectedChain)
-
-	/** Opens the review; nothing is submitted until it is confirmed. */
-	const openReview = () => {
-		const requested = Number.parseFloat(amount.trim())
-		const wallet = balance.wallet
-		const covered = wallet === null || !Number.isFinite(requested) ? null : Math.min(requested, wallet)
-		setReview({
-			amount: amount.trim(),
-			symbol,
-			native: tokenAddress === "native",
-			chainLabel: network,
-			to: to.trim(),
-			wallet,
-			available: balance.available,
-			fromWallet: covered,
-			fromVault: covered === null ? null : Math.max(0, requested - covered),
-			largestVault: balance.largestVault,
-		})
-	}
-
-	const send = () => {
-		const chainId = parseChainKey(selectedChain)
-		const explorerUrl = chainId === null ? undefined : chainByChainId(chainId)?.explorerUrl
-		setReview(undefined)
-		setResult(undefined)
-		setSending(true)
-		return act(async () => {
-			try {
-				const res = await api.post<{ txHash: string; redeemed: boolean }>("/api/send", {
-					chain: selectedChain,
-					token: tokenAddress,
-					amount: amount.trim(),
-					to: to.trim(),
-				})
-				setResult({ ...res, explorerUrl })
-				setAmount("")
-				await props.onSent()
-			} finally {
-				setSending(false)
-			}
-		}, "Sent")
-	}
-
-	return (
-		<div className="operator-panel-form">
-			<h2>Send</h2>
-			<p className="hint">
-				Send tokens out of the filler wallet. When the wallet balance falls short, vault holdings of the asset
-				are redeemed to cover the difference. Native gas is required on networks without a paymaster.
-			</p>
-			<div className="operator-send-grid">
-				<SelectField
-					label="Network"
-					value={selectedChain}
-					options={props.chains.map((id) => ({ value: formatChainKey(id), label: props.chainLabel(id) }))}
-					onValueChange={(nextChain) => {
-						setChain(nextChain)
-						setToken("native")
-					}}
-				/>
-				<SelectField
-					label="Asset"
-          value={token}
-					options={[
-						...options.map((option) => ({ value: option.address, label: sendTokenOptionLabel(option) })),
-						{ value: "custom", label: "Custom address…", separatorBefore: true, muted: true },
-					]}
-					onValueChange={setToken}
-				/>
-				{token === "custom" && (
-					<label className="field operator-send-wide">
-						<span>Token contract</span>
-						<input
-							type="text"
-							placeholder="0x…"
-							value={customToken}
-							onChange={(e) => setCustomToken(e.target.value)}
-						/>
-					</label>
-				)}
-				<label className="field">
-					<span className="field-label">
-						<span>Amount</span>
-						<small className="operator-send-balance" data-status={balance.status} aria-live="polite">
-							Available <strong>{balance.label}</strong>
-						</small>
-					</span>
-					<input type="text" placeholder="0.00" value={amount} onChange={(e) => setAmount(e.target.value)} />
-				</label>
-				<label className="field operator-send-wide">
-					<span>Recipient</span>
-					<input type="text" placeholder="0x…" value={to} onChange={(e) => setTo(e.target.value)} />
-				</label>
-				<div className="operator-send-actions operator-send-wide">
-					<button type="button" className="primary" disabled={!ready || sending} onClick={openReview}>
-						{sending ? "Sending…" : "Review transfer"}
-					</button>
-				</div>
-			</div>
-			{result && (
-				<p className="hint">
-					✓ Sent{result.redeemed && " (topped up from the vault)"} — tx{" "}
-					{result.explorerUrl ? (
-						<a
-							className="operator-send-tx-link"
-							href={`${result.explorerUrl}/tx/${result.txHash}`}
-							target="_blank"
-							rel="noreferrer"
-							title={result.txHash}
-							aria-label={`Open transaction ${result.txHash} on the block explorer in a new tab`}
-						>
-							<span className="mono">{result.txHash.slice(0, 18)}…</span>
-							<ExternalLinkIcon aria-hidden="true" />
-						</a>
-					) : (
-						<span className="mono" title={result.txHash}>
-							{result.txHash.slice(0, 18)}…
-						</span>
-					)}
-				</p>
-			)}
-			{message && !result && <p className="hint">✓ {message}</p>}
-			{error && <p className="error">{error}</p>}
-			{review && (
-				<SendConfirmDialog
-					open
-					summary={review}
-					sending={sending}
-					onConfirm={() => void send()}
-					onCancel={() => setReview(undefined)}
-				/>
-			)}
-		</div>
-	)
-}
-
-interface SendBalance {
-	label: string
-	status: "loading" | "available" | "unavailable"
-	/** Underlying held directly by the wallet; null when unknown. */
-	wallet: number | null
-	/** Spendable wallet plus withdrawable vault assets; null when unknown. */
-	available: number | null
-	/** Largest single vault that could cover a shortfall — withdrawals draw on one vault, not several. */
-	largestVault: number
-}
-
-const UNKNOWN_BALANCE = { wallet: null, available: null, largestVault: 0 } as const
-
-function selectedSendBalance(balances: BalanceSnapshot | undefined, chain: string, token: string): SendBalance {
-	if (!balances || balances.status === "loading") return { label: "Loading…", status: "loading", ...UNKNOWN_BALANCE }
-
-	const chainId = parseChainKey(chain)
-	const chainBalance = balances.chains.find((row) => row.chainId === chainId)
-	if (!chainBalance) return { label: "Unavailable", status: "unavailable", ...UNKNOWN_BALANCE }
-
-	if (token === "native") {
-		// Native has no vault behind it: the wallet is the whole balance.
-		return chainBalance.native
-			? {
-					label: `${formatSendBalance(chainBalance.native.amount)} ${chainBalance.native.symbol}`,
-					status: "available",
-					wallet: chainBalance.native.amount,
-					available: chainBalance.native.amount,
-					largestVault: 0,
-				}
-			: { label: "Unavailable", status: "unavailable", ...UNKNOWN_BALANCE }
-	}
-
-	if (!token) return { label: "—", status: "loading", ...UNKNOWN_BALANCE }
-	const asset = chainBalance.assets.find((row) => row.address.toLowerCase() === token.toLowerCase())
-	if (asset?.available === null || asset?.available === undefined) {
-		return { label: "Unavailable", status: "unavailable", ...UNKNOWN_BALANCE }
-	}
-	return {
-		label: `${formatSendBalance(asset.available)} ${asset.symbol}`,
-		status: "available",
-		wallet: asset.wallet,
-		available: asset.available,
-		largestVault: asset.vaults.reduce((most, vault) => Math.max(most, vault.available), 0),
-	}
-}
-
-function formatSendBalance(value: number): string {
-	return value.toLocaleString(undefined, { maximumFractionDigits: 4 })
 }

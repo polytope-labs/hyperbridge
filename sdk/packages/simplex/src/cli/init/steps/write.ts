@@ -52,6 +52,11 @@ export async function stepWrite(state: WizardState, outputPath: string, prefill?
 
 	writeConfigFileAtomic(path, emitted)
 	log.success(`Config written to ${path} (permissions 600 — it contains secrets, don't commit it)`)
+	// Said here, not when the old file is read: "Start the filler with it as-is" never
+	// reaches this point and leaves the section in place, where boot warns and ignores it.
+	if (state.prefillConfig?.simplex?.overfillProtection !== undefined) {
+		log.info("Dropped [simplex.overfillProtection]: overfill protection was removed, so it is no longer read.")
+	}
 
 	note(FUNDING_CHECKLIST, "Before the filler can fill")
 
@@ -107,17 +112,17 @@ export function assembleConfig(state: WizardState): FillerConfigFile {
 			// Dead knobs: parsed for compatibility, never read, and not emitted — carrying
 			// them through would fail the round-trip gate below.
 			queue: undefined,
+			// Also the removed overfill-protection section, which an old file may carry.
+			overfillProtection: undefined,
 			entryPointAddress: undefined,
 			solverAccountContractAddress: undefined,
 			signer: state.signer,
 			maxConcurrentOrders: state.maxConcurrentOrders,
 			...(state.logging !== undefined ? { logging: state.logging } : {}),
-			substratePrivateKey: state.substratePrivateKey ?? "",
-			hyperbridgeWsUrl: state.hyperbridgeWsUrl ?? "",
+			// Omitted rather than written empty: a solver without a Hyperbridge key bids on the orderbook alone.
+			substratePrivateKey: state.substratePrivateKey || undefined,
+			hyperbridgeWsUrl: state.hyperbridgeWsUrl || undefined,
 			...(state.gasFeeBump ? { gasFeeBump: state.gasFeeBump } : { gasFeeBump: undefined }),
-			...(state.overfillProtection
-				? { overfillProtection: state.overfillProtection }
-				: { overfillProtection: undefined }),
 		},
 		assets: Object.keys(assets).length > 0 ? assets : undefined,
 		confirmationPolicies: state.confirmationPolicies,
@@ -161,8 +166,8 @@ function showSummary(state: WizardState, outputPath: string): void {
 		lines.push(`+ ${state.passthroughChains.length} unmanaged chain(s) kept from the previous config`)
 	}
 	lines.push(`Signer: ${state.signer?.type}`)
-	lines.push(`Substrate key: ${maskSecret(state.substratePrivateKey ?? "")}`)
-	lines.push(`Hyperbridge: ${state.hyperbridgeWsUrl}`)
+	lines.push(`Substrate key: ${state.substratePrivateKey ? maskSecret(state.substratePrivateKey) : "none (bids go to the orderbook alone)"}`)
+	lines.push(`Hyperbridge: ${state.hyperbridgeWsUrl ?? "none"}`)
 	lines.push(`Output: ${outputPath}`)
 	note(lines.join("\n"), "Summary")
 }

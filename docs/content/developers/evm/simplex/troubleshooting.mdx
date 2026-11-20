@@ -28,11 +28,35 @@ The order matched, but it is worth less than [`minOrderSizeUsd`](/developers/evm
 
 ---
 
+## **A partial fill is skipped**
+
+`Skipping a partial fill: worth $X, below minPartialFillUsd $Y` means the order can only be filled in part (your limit order has less left than the order asks, or the order has several legs), and the bid is worth less than [`minPartialFillUsd`](/developers/evm/simplex/configuration#simplex) (default $20). Lower it, or set it to 0 to bid dust.
+
+`Skipping a partial fill: nothing prices its payout or the input it releases` means none of your limit orders gives the token a dollar value. A same-asset book (CNGN/CNGN, EURC/EURC) or one without a path to a dollar stable (ZARP/CNGN) cannot, so every partial on it is skipped under the default. Set `minPartialFillUsd = 0` to bid them.
+
+---
+
 ## **An order is skipped before it is priced**
 
 `Skipping order: its deadline has passed on the destination chain` means the order cannot be filled by anyone. An order's deadline is a block number on its destination chain, set when the order is built. An order that takes too long to land on its source chain arrives already expired. The log carries the `deadline` and the destination `head` it was compared with.
 
+`Order destination is not delegated to the SolverAccount, skipping` (skip reason `undelegated`) means the filler wallet is not delegated to the SolverAccount on the order's destination chain, so a bid there could never execute. Boot marks a chain this way when its EIP-7702 delegation fails, and so does turning a chain's watch-only off. Simplex re-reads the wallet's code on that chain at most once a minute and drops the mark once the delegation shows. If it does not, use **Enable fills** for the chain on the dashboard, or restart the filler.
+
 `Error estimating gas, not bidding on this order` means the bundler could not simulate the fill, so the fill would revert. Simplex sends no bid without the bundler's estimate. The log carries the bundler's error. If it appears on every order for a chain, check that chain's bundler URL.
+
+---
+
+## **An order is dropped by screening**
+
+On mainnet, every order Simplex could fill is screened through the orderbook before it is bid on. The skip reason says what happened:
+
+| Skip reason | What it means |
+|---|---|
+| `Screening flagged the order` | Elliptic flags the order's user or beneficiary. Simplex never bids on it. |
+| `Screening unavailable: NO_ACTIVE_ORDER` | The orderbook screens only for an active solver with an active limit order on the book. Post a [limit order](/developers/evm/simplex/limit-orders), and check that heartbeats are not failing. A new solver also stays inactive until the orderbook's own screening clears its wallet, which happens once the orderbook has read the wallet's balance. A solver the orderbook has suspended stays inactive as well. |
+| `Screening unavailable: PROVIDER_UNAVAILABLE`, `ORDER_NOT_ON_CHAIN`, `REQUEST_FAILED` and similar | Simplex kept asking, backing off to 8 seconds between attempts, for a minute or for as long as the swap's confirmations take, whichever is longer, and got no verdict. The log line `Could not screen the order; dropping it` carries the orderbook's message. |
+| `Screening unavailable: GRAPHQL_ERROR` | The orderbook refused the screening request itself, usually because it does not serve screening yet. Simplex logs this at startup too: `The orderbook does not serve screening yet`. Mainnet orders are dropped until the orderbook is upgraded. |
+| `Screening unavailable: SCREENING_DISABLED` | The orderbook has screening turned off, which only the testnet orderbook should. Check that `[orderbook] url` points at the mainnet orderbook. |
 
 ---
 
@@ -43,6 +67,9 @@ The form shows the reason. The common ones are:
 - **The wallet cannot pay it out**, for example `The wallet holds 1000 in the wallet and 200 in vaults USDC on EVM-8453, which cannot pay out 1500`. Fund the fill chain, or post a smaller amount.
 - **Below the orderbook's dust floor.** The amount paid out is under the orderbook's minimum for that token.
 - **The pair, token or chain is not served.** The orderbook does not list that token on the fill chain or on one of the accepted source chains.
+- **`SOLVER_FLAGGED`.** The orderbook's screening has banned your wallet for good. The order is refused, and so is every later order or bid from that wallet.
+
+`SOLVER_SUSPENDED` is not a refusal. The orderbook's screening has suspended your wallet until a later screen passes, and it keeps your orders meanwhile. The limit order stays **open** with the code as its last error, and Simplex posts it again on its next reconciliation.
 
 ---
 
@@ -84,7 +111,8 @@ Simplex refuses to start, or to add or switch a chain, when a chain's bundler an
 
 ## **Bid submission fails**
 
-- Confirm that `substratePrivateKey` and `hyperbridgeWsUrl` are set, and that your Substrate account holds BRIDGE tokens.
+- A bid the orderbook refuses with `NO_LIMIT_ORDER` means you hold no open limit order on that leg's book for the order's destination chain.
+- If you set `substratePrivateKey`, confirm that `hyperbridgeWsUrl` is set too and that the account holds BRIDGE. Without enough BRIDGE for a bid's deposit and fee, Simplex still posts the bid to the orderbook, and logs once that bids go to the orderbook alone.
 - On chains with a paymaster (Circle or Simplex), make sure the solver's smart account holds at least 1 USDC (or 1 USDT for the `SimplexPaymaster`), so the paymaster can cover gas.
 - On chains without a paymaster, the solver needs a native balance. Simplex automatically tops up the ERC-4337 EntryPoint deposit to cover `targetGasUnits` (3M by default) at the current gas price.
 - If you use MPC Vault, verify that the client-signer container is running and reachable.

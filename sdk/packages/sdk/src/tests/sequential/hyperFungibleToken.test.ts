@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest"
-import { createPublicClient, createWalletClient, http, parseEther, type Chain } from "viem"
+import { createPublicClient, createWalletClient, erc20Abi, http, parseEther, parseUnits, type Chain } from "viem"
 import { privateKeyToAccount } from "viem/accounts"
 import { bscTestnet } from "viem/chains"
 import { EvmChain } from "@/chains/evm"
@@ -15,6 +15,7 @@ import {
 import EVM_HOST from "@/abis/evmHost"
 import { RequestStatus, type HexString } from "@/types"
 import { sleep } from "@/utils"
+import { type Asset, requireFunded, skipIfUnfunded } from "./funding"
 
 // WrappedHFT wrapping WBNB on BSC testnet (lock/unlock)
 const BSC_WRAPPED_HFT = "0x5ae3C15EFa6FC9D226c108bD3c706F2400Ab7311" as const
@@ -26,6 +27,18 @@ const POLYGON_HOST = "0x9AA003594d59C62EE17A73A569Fd7B1DbdBd71E1" as const
 
 // TokenFaucet (drips 1000 fee tokens per day)
 const BSC_FAUCET = "0xcb00f5b86aac5e2fdca9dc7f34d9bfe00b967c18" as const
+
+const BRIDGE_AMOUNT = parseEther("0.001")
+const RELAYER_FEE = parseEther("5")
+// The WrappedHFT wraps native BNB, so the send carries BRIDGE_AMOUNT as value; gas at Chapel's ~0.1 gwei is far less.
+const MIN_CHAPEL_BNB = parseEther("0.01")
+// RELAYER_FEE plus the host's per-byte fee, both paid in the fee token; whole tokens.
+const MIN_FEE_TOKEN = "10"
+const CHAPEL_BNB: Asset = {
+	chain: bscTestnet.name,
+	symbol: bscTestnet.nativeCurrency.symbol,
+	decimals: bscTestnet.nativeCurrency.decimals,
+}
 
 const RECEIPT_POLL_MS = 15_000
 const DELIVERED_TIMEOUT_MS = 12 * 60_000
@@ -205,7 +218,7 @@ async function bridgeToHyperbridge(params: {
 		dest,
 		timeout: 7200n,
 		payInFeeToken: true,
-		relayerFee: parseEther("5"),
+		relayerFee: RELAYER_FEE,
 	})
 
 	try {
@@ -309,7 +322,7 @@ describe("HyperFungibleToken SDK", () => {
 
 	it(
 		"locks BNB on BSC and delivers the mint request to Hyperbridge",
-		async () => {
+		async (ctx) => {
 			const account = privateKeyToAccount(requireEnv("PRIVATE_KEY") as HexString)
 			const bscRpc = requireEnv("BSC_CHAPEL")
 			const { source, dest } = createBscToPolygon()
@@ -332,16 +345,45 @@ describe("HyperFungibleToken SDK", () => {
 					account,
 				})
 
-				const commitment = await bridgeToHyperbridge({
-					hft,
-					hyperbridge,
-					token: BSC_WRAPPED_HFT,
-					account,
-					chain: bscTestnet,
-					rpcUrl: bscRpc,
-					dest: "EVM-80002",
-					amount: parseEther("0.001"),
-				})
+				// Checked after the faucet top-up, which costs only gas and tolerates its own failure.
+				const feeToken = await source.getFeeTokenWithDecimals()
+				await requireFunded(ctx, account.address, [
+					{
+						...CHAPEL_BNB,
+						min: MIN_CHAPEL_BNB,
+						read: () => source.client.getBalance({ address: account.address }),
+					},
+					{
+						chain: bscTestnet.name,
+						symbol: await source.client.readContract({
+							address: feeToken.address,
+							abi: erc20Abi,
+							functionName: "symbol",
+						}),
+						decimals: feeToken.decimals,
+						min: parseUnits(MIN_FEE_TOKEN, feeToken.decimals),
+						read: () =>
+							source.client.readContract({
+								address: feeToken.address,
+								abi: erc20Abi,
+								functionName: "balanceOf",
+								args: [account.address],
+							}),
+					},
+				])
+
+				const commitment = await skipIfUnfunded(ctx, account.address, CHAPEL_BNB, () =>
+					bridgeToHyperbridge({
+						hft,
+						hyperbridge,
+						token: BSC_WRAPPED_HFT,
+						account,
+						chain: bscTestnet,
+						rpcUrl: bscRpc,
+						dest: "EVM-80002",
+						amount: BRIDGE_AMOUNT,
+					}),
+				)
 
 				expect(await hyperbridge.queryRequestReceipt(commitment)).toBeTruthy()
 				await awaitIndexedDelivery(ismpClient, commitment, indexerUrl)

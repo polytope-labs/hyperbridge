@@ -10,6 +10,7 @@ import type {
 	VaultOutputFundingConfig,
 } from "@/funding/types"
 import type { ChainClientManager } from "@/services/ChainClientManager"
+import type { DelegationService } from "@/services/DelegationService"
 import type { UserOpSender } from "@/services/UserOpSender"
 import { type Logger, moduleLogger } from "@/services/Logger"
 import { encodeERC7821ExecuteBatch, type ERC7821Call, type HexString } from "@hyperbridge/sdk"
@@ -116,6 +117,13 @@ export class VaultFundingPlanner implements FundingVenue {
 		private readonly clientManager: ChainClientManager,
 		private config: VaultOutputFundingConfig,
 		private readonly userOpSender?: UserOpSender,
+		/**
+		 * Read-only EIP-7702 check for the native-tx fallback. A vault batch is an
+		 * `executeBatch` on the solver account, so it only does anything once the EOA is
+		 * delegated to that account; sent to a codeless EOA it succeeds and moves nothing.
+		 * Left out, the fallback is sent unchecked (library callers without a signer).
+		 */
+		private readonly delegation?: Pick<DelegationService, "isDelegated">,
 	) {
 		this.logger = moduleLogger(clientManager.loggers, "vault-funding")
 	}
@@ -203,9 +211,9 @@ export class VaultFundingPlanner implements FundingVenue {
 	}
 
 	/**
-	 * Returns a coherent read-only view of every configured vault. Refreshing
-	 * under the same per-chain mutex used by withdrawal planning ensures the
-	 * displayed availability includes all live pending-fill reservations.
+	 * Returns a coherent read-only view of every configured vault, refreshed
+	 * under the same per-chain mutex withdrawal planning uses. Availability is
+	 * the vault's own `maxWithdraw(solver)`.
 	 */
 	async getBalanceSnapshot(requestedChain?: string): Promise<VaultBalancePosition[]> {
 		const snapshots = await Promise.all(
@@ -224,7 +232,7 @@ export class VaultFundingPlanner implements FundingVenue {
 						symbol: vault.symbol,
 						decimals: vault.decimals,
 						positionAssets: vault.positionAssets,
-						availableAssets: vault.remaining,
+						availableAssets: vault.maxWithdrawable,
 						walletReserve: vault.minBalanceScaled,
 						acceptsDeposits: vault.maxDeposit > 0n,
 					}))
@@ -258,6 +266,11 @@ export class VaultFundingPlanner implements FundingVenue {
 	 * Produces a single `vault.withdraw` ERC-7821 call that sends up to
 	 * `amountNeeded` of `tokenOutLower` to the solver, capped by the vault's
 	 * `maxWithdraw`. Returns a no-op when no configured vault holds the token.
+	 *
+	 * `maxWithdraw` is read afresh for every plan, less `alreadyPlanned`: what
+	 * the caller's own evaluation has planned from this vault so far. Nothing is
+	 * held back across evaluations: a plan whose withdrawal another evaluation's
+	 * fill has already spent reverts its batch on chain, which is the accepted cost.
 	 */
 	async planWithdrawalForToken(
 		destChain: string,
@@ -265,6 +278,7 @@ export class VaultFundingPlanner implements FundingVenue {
 		tokenOutLower: string,
 		amountNeeded: bigint,
 		_deadlineTimestamp?: bigint,
+		alreadyPlanned = 0n,
 	): Promise<FundingPlanResult> {
 		const noopResult: FundingPlanResult = { calls: [], credited: 0n }
 
@@ -281,7 +295,8 @@ export class VaultFundingPlanner implements FundingVenue {
 			const vault = state.vaultForToken(tokenNeed)
 			if (!vault) return noopResult
 
-			const available = state.remaining(vault.asset)
+			const withdrawable = state.withdrawable(vault.asset)
+			const available = withdrawable > alreadyPlanned ? withdrawable - alreadyPlanned : 0n
 			if (available <= 0n) return noopResult
 
 			const amount = amountNeeded < available ? amountNeeded : available
@@ -296,7 +311,6 @@ export class VaultFundingPlanner implements FundingVenue {
 				}) as HexString,
 			}
 
-			state.consume(vault.asset, amount)
 
 			this.logger.debug(
 				{
@@ -304,6 +318,8 @@ export class VaultFundingPlanner implements FundingVenue {
 					vault: vault.vault,
 					asset: vault.asset,
 					amountNeeded: amountNeeded.toString(),
+					withdrawable: withdrawable.toString(),
+					alreadyPlanned: alreadyPlanned.toString(),
 					available: available.toString(),
 					credited: amount.toString(),
 				},
@@ -513,7 +529,9 @@ export class VaultFundingPlanner implements FundingVenue {
 	 *
 	 * The sponsored path only falls back to native when the op was **never
 	 * submitted**; a submitted-but-unconfirmed op throws so a native resend can't
-	 * double-execute the batch (the caller's timer logs and retries next cycle).
+	 * double-execute the batch (the caller's timer logs and retries next cycle). So does a
+	 * `PendingOpOnNonceError`: an earlier op from this wallet still holds the nonce, which is
+	 * "not now", never a reason to send natively.
 	 */
 	private async submitBatch(
 		chain: string,
@@ -538,6 +556,17 @@ export class VaultFundingPlanner implements FundingVenue {
 			})
 			if (result) return { txHash: result.txHash, sponsored: true }
 			this.logger.warn({ chain }, "Sponsored batch unavailable, sending native tx")
+		}
+
+		// The native fallback calls `executeBatch` on the solver account. Before the EOA is
+		// 7702-delegated that address has no code, so the tx succeeds and the batch inside it
+		// never runs — a phantom sweep that burns gas every interval and records movements
+		// that did not happen. Refuse rather than send it.
+		if (this.delegation && !(await this.delegation.isDelegated(chain))) {
+			throw new Error(
+				`The wallet is not 7702-delegated on ${chain} (or its delegation could not be read); ` +
+					`a vault batch sent to it would do nothing`,
+			)
 		}
 
 		const walletClient = this.clientManager.getWalletClient(chain)
@@ -595,12 +624,38 @@ export class VaultFundingPlanner implements FundingVenue {
 					args: [solver],
 				})) as bigint
 				if (shares === 0n) continue
+				// A vault that cannot redeem the whole balance right now (a liquidity-capped
+				// stataToken, a partially liquid market) reverts on `redeem(shares)`, and a revert
+				// takes every other vault in this per-chain batch with it. Redeem no more than the
+				// vault's own `maxRedeem` and leave the remainder behind for the operator.
+				const maxRedeem = (await publicClient.readContract({
+					abi: ERC4626_ABI,
+					address: vault.vault,
+					functionName: "maxRedeem",
+					args: [solver],
+				})) as bigint
+				const redeemable = shares < maxRedeem ? shares : maxRedeem
+				if (redeemable < shares) {
+					this.logger.warn(
+						{
+							chain,
+							vault: vault.vault,
+							asset: vault.asset,
+							symbol: vault.symbol,
+							shares: shares.toString(),
+							redeemable: redeemable.toString(),
+							maxRedeem: maxRedeem.toString(),
+						},
+						"Vault redeem capped by maxRedeem; redeemAll only runs at shutdown or on POST /api/vault/redeem, so the operator has to redeem the rest",
+					)
+				}
+				if (redeemable === 0n) continue
 				// For the ledger: what those shares are worth in the underlying, per the vault itself.
 				const assets = (await publicClient.readContract({
 					abi: ERC4626_ABI,
 					address: vault.vault,
 					functionName: "previewRedeem",
-					args: [shares],
+					args: [redeemable],
 				})) as bigint
 				movements.push({
 					vault: vault.vault,
@@ -608,7 +663,7 @@ export class VaultFundingPlanner implements FundingVenue {
 					symbol: vault.symbol,
 					decimals: vault.decimals,
 					amount: assets,
-					shares,
+					shares: redeemable,
 					...(await this.shareTokenMeta(vault.vault, publicClient)),
 				})
 
@@ -618,13 +673,13 @@ export class VaultFundingPlanner implements FundingVenue {
 					data: encodeFunctionData({
 						abi: ERC4626_ABI,
 						functionName: "redeem",
-						args: [shares, solver, solver],
+						args: [redeemable, solver, solver],
 					}) as HexString,
 				})
 
 				this.logger.info(
-					{ chain, vault: vault.vault, asset: vault.asset, shares: shares.toString() },
-					"Vault redeeming full position",
+					{ chain, vault: vault.vault, asset: vault.asset, shares: redeemable.toString() },
+					"Vault redeeming position",
 				)
 			}
 

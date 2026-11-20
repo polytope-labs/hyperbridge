@@ -17,8 +17,10 @@ RPC error into a lost bid or a native-gas fallback; failing open degrades to exa
 passes no `prefund` or the chain has no EntryPoint, preserving balance-only selection for callers
 that cannot price the op.
 
-Known gap, deliberately left: `filler.ts` skips solver EntryPoint deposit top-ups whenever
-`hasPaymaster(chain)` is true, so a chain whose paymasters are all deposit-drained now produces
-`type: "none"` bids that draw on a solver deposit nothing maintains. The durable fix is the
-paymaster keeper maintaining the deposits, not the filler funding a fallback it was configured to
-avoid.
+`filler.ts` skips solver EntryPoint deposit top-ups whenever `hasPaymaster(chain)` is true, so a
+chain whose paymasters are all deposit-drained produces `type: "none"` bids that draw on a solver
+deposit nothing maintains. That gap is now guarded rather than funded: `prepareBidUserOp` refuses a
+`none` bid unless the account's EntryPoint deposit plus its native balance cover
+the op's prefund at the gas limits it is signed with, so the bid is skipped before its Hyperbridge fee is paid (a failed read
+lets it through, as here). The durable fix is still the paymaster keeper maintaining the deposits,
+not the filler funding a fallback it was configured to avoid.

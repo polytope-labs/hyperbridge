@@ -24,6 +24,7 @@ import {
 	flushDesktopErrorReports,
 	rendererReportingOrigin,
 	reportDesktopError,
+	recordDesktopDiagnostic,
 	reportSolverFailure,
 	reportUncleanExit,
 	startDesktopErrorReporting,
@@ -32,15 +33,25 @@ import { markSessionEnded, markSessionStarted, previousUncleanSession } from "./
 import { assertResources, resourcePaths, socketPathFor, userDataOverrideFromArgv } from "./desktop-paths"
 import { latestLogPath, loginItemExecutable, LoginItemController } from "./login-item"
 import { DesktopNotificationClient, desktopNotificationUrl } from "./notification-client"
+import {
+	assertProfileCanBeReset,
+	claimProfile,
+	completePendingProfileReset,
+	requestProfileReset,
+} from "./profile-reset"
 import { handleSimplexProtocol } from "./protocol"
+import { RendererRecovery } from "./renderer-recovery"
 import { DesktopVault } from "./security/vault"
 import { deviceKeyStore } from "./security/device-key-store"
 import { BrowserPasskeys } from "./security/passkeys"
 import { loadMacNativePasskeys } from "./security/mac-native-passkeys"
 import { SIMPLEX_UPDATE_FEED } from "./release-provider"
 import {
+	bidsHoldingDeposits,
+	depositsNeedConfirming,
 	holdsMachineAwake,
 	sendSolverAction,
+	settleBidsHoldingDeposits,
 	shouldNotifySolverFailure,
 	SolverSupervisor,
 	solverHasVersionSkew,
@@ -50,12 +61,13 @@ import {
 import {
 	buildApplicationMenuTemplate,
 	buildTrayMenuTemplate,
+	resetAvailable,
 	solverStatusLabel,
 	type DesktopMenuActions,
 } from "./tray-menu"
 import { TRAY_ICON_STATES, trayIconPath, trayIconRetinaPath } from "./tray-icon"
 import { macTeamIdFromAppPackage, updateAuthenticityForInstallation } from "./update-authenticity"
-import { UpdateCoordinator, waitForSolverExit, type UpdateStatus } from "./update-coordinator"
+import { UpdateCoordinator, updateInstalling, waitForSolverExit, type UpdateStatus } from "./update-coordinator"
 import { FileUpdateStore, type UpdateChannel } from "./update-store"
 
 const { autoUpdater } = electronUpdater
@@ -69,6 +81,7 @@ const STATUS_POLL_INTERVAL_MS = 3_000
 const STOP_TIMEOUT_MS = 30_000
 
 let mainWindow: BrowserWindow | undefined
+let rendererRecovery: RendererRecovery | undefined
 let tray: Tray | undefined
 let daemonLaunch: DaemonLaunch | undefined
 let supervisor: SolverSupervisor | undefined
@@ -81,6 +94,8 @@ let powerSaveBlockerId: number | undefined
 let quitting = false
 let installingUpdate = false
 let intentionalStop = false
+/** Set once a reset is confirmed: nothing may start the solver again before the app relaunches. */
+let resetting = false
 let updateCoordinator: UpdateCoordinator | undefined
 let notificationClient: DesktopNotificationClient | undefined
 let vault: DesktopVault | undefined
@@ -89,8 +104,24 @@ let updateStatus: UpdateStatus = { state: "disabled", channel: "stable" }
 const userDataSwitch = app.commandLine.getSwitchValue("user-data-dir")
 const userDataOverride = userDataSwitch ? resolve(userDataSwitch) : userDataOverrideFromArgv()
 if (userDataOverride) app.setPath("userData", userDataOverride)
+// A reset confirmed in the last session is carried out here, before anything opens the profile.
+let profileResetFailure: Error | undefined
+try {
+	completePendingProfileReset(app.getPath("userData"))
+} catch (error) {
+	profileResetFailure = new Error(
+		`Simplex could not finish its reset: ${errorMessage(error)}. Close every Simplex process, delete ${app.getPath("userData")}, then open Simplex again.`,
+	)
+}
+// Before anything is written to the profile: a directory is Simplex's own when it is the app's
+// default one or starts out empty, and only such a directory is ever reset.
+try {
+	claimProfile(app.getPath("userData"), !userDataOverride)
+} catch {
+	// A profile that cannot be written fails where it is first used. Unstamped, it is never reset.
+}
 // After the userData override: Sentry queues undelivered reports under it.
-const errorReportingActive = startDesktopErrorReporting(app.getVersion(), app.isPackaged)
+const errorReportingActive = startDesktopErrorReporting(app.getVersion(), app.isPackaged, app.getPath("userData"))
 
 async function simplexPackageRoot(): Promise<string> {
 	const manifest = import.meta.resolve("@hyperbridge/simplex/package.json")
@@ -144,9 +175,14 @@ const menuActions: DesktopMenuActions = {
 	toggleLoginItem: () => toggleLoginItem(),
 	showAbout: () => app.showAboutPanel(),
 	checkForUpdates: () => updateCoordinator?.checkNow(),
+	installUpdate: () =>
+		installUpdate().catch((error) =>
+			dialog.showErrorBox("Simplex could not install the update", errorMessage(error)),
+		),
 	setUpdateChannel: (channel: UpdateChannel) => updateCoordinator?.setChannel(channel),
 	openDataDirectory: () => openDataDirectory(),
 	openLog: () => openCurrentLog(),
+	resetConfiguration: () => resetConfiguration(),
 	quitApp: () => quitApp(),
 	stopAndQuit: () => stopAndQuit(),
 }
@@ -164,6 +200,7 @@ function refreshNativeUi(): void {
 		updatesEnabled: app.isPackaged && Boolean(updateCoordinator),
 		update: updateStatus,
 		versionSkew: solverHasVersionSkew(status, app.getVersion()),
+		resetting,
 	}
 
 	if (tray && !tray.isDestroyed()) {
@@ -250,6 +287,8 @@ function trackDesktopSession(): void {
 }
 
 async function startOrAttachSolver(fatal: boolean, background = false): Promise<boolean> {
+	// A reset is deleting the profile, and an update is replacing the solver it has just stopped.
+	if (resetting || updateInstalling(updateStatus)) return false
 	if (vault && !vault.isUnlocked() && !background) {
 		await safeShowWindow()
 		return false
@@ -262,6 +301,7 @@ async function startOrAttachSolver(fatal: boolean, background = false): Promise<
 			...daemonLaunch,
 			configKey: daemonLaunch.configKey ? Buffer.from(daemonLaunch.configKey) : undefined,
 		}
+		intentionalStop = false
 		supervisor.setStatus({ state: "starting" })
 		try {
 			await ensureDaemon({ launch })
@@ -347,6 +387,12 @@ async function restartBundledSolver(): Promise<void> {
 	await startOrAttachSolver(false)
 }
 
+/** Stops the solver and installs the downloaded update. Only the operator's click starts it. */
+async function installUpdate(): Promise<void> {
+	if (!updateCoordinator) throw new Error("Updates are not available in this build")
+	await updateCoordinator.install()
+}
+
 function toggleLoginItem(): void {
 	if (!loginItem) return
 	try {
@@ -386,21 +432,161 @@ async function stopAndQuit(): Promise<void> {
 	if (await stopSolver()) quitApp()
 }
 
+/** The profile must not be deleted under a solver that is still using it. */
+async function stopSolverBeforeReset(socketPath: string): Promise<void> {
+	if (startPromise) await startPromise.catch(() => false)
+	const health = await probeHealth(socketPath)
+	if (health.state === "spawnable") return
+	if (!("mode" in health)) throw new Error(`The solver could not be reached to stop it (${health.detail})`)
+	// Without it, a closed socket is all that says the solver is gone, and the socket closes first.
+	if (!health.pid) throw new Error("The solver did not report its process id, so Simplex cannot tell when it has stopped")
+	intentionalStop = true
+	if (health.state !== "stopping") await sendSolverAction(socketPath, "stop")
+	if (!(await waitForSolverExit({ pid: health.pid, probe: () => probeHealth(socketPath) }))) {
+		throw new Error("The solver has not finished stopping. Try again once it has drained its orders.")
+	}
+}
+
+/** What the confirmation says about bid deposits, which are reclaimed from records the reset deletes. */
+function depositWarning(bids: number | undefined): string {
+	if (bids === 0) return ""
+	const held =
+		bids === undefined
+			? "Simplex could not check whether any bids still hold deposits on Hyperbridge."
+			: `${bids} ${bids === 1 ? "bid still holds a deposit" : "bids still hold deposits"} on Hyperbridge.`
+	return `${held} Simplex reclaims a deposit by retracting its bid, which it cannot do once the bid's record is deleted.\n\n`
+}
+
+function resetState(): Parameters<typeof resetAvailable>[0] {
+	return { locked: Boolean(vault && !vault.isUnlocked()), update: updateStatus, resetting }
+}
+
+/**
+ * A reset that could not be carried out leaves the app as it was, apart from a solver it stopped.
+ * A solver the reset paused for its count, and that is still up, is resumed.
+ */
+async function abandonReset(error: unknown, resume?: { socketPath: string }): Promise<void> {
+	resetting = false
+	intentionalStop = false
+	refreshNativeUi()
+	let reported = error
+	if (resume) {
+		try {
+			await sendSolverAction(resume.socketPath, "resume")
+		} catch {
+			reported = new Error(
+				`${errorMessage(error)}. The solver was paused for the reset and could not be resumed; resume it from the menu`,
+			)
+		}
+	}
+	reportActionError("Simplex could not reset its configuration", reported)
+}
+
+/**
+ * Returns Simplex to its first launch: the solver stops, and the next launch deletes the config,
+ * the sign-in, the databases and every other file in the data directory.
+ */
+async function resetConfiguration(): Promise<void> {
+	if (!daemonLaunch || !resetAvailable(resetState())) return
+	const { socketPath } = daemonLaunch
+	const userData = app.getPath("userData")
+	// Before anything is paused or stopped: a directory the reset refuses is refused here.
+	try {
+		assertProfileCanBeReset(userData)
+	} catch (error) {
+		return reportActionError("Simplex could not reset its configuration", error)
+	}
+	const choices = { buttons: ["Cancel", "Reset Configuration"], defaultId: 0, cancelId: 0, noLink: true }
+	const confirm = (options: Electron.MessageBoxOptions) =>
+		mainWindow && !mainWindow.isDestroyed()
+			? dialog.showMessageBox(mainWindow, options)
+			: dialog.showMessageBox(options)
+	const shown = await bidsHoldingDeposits(socketPath)
+	const { response } = await confirm({
+		...choices,
+		type: "warning",
+		title: "Reset Configuration",
+		message: "Reset the Simplex configuration?",
+		detail: `The solver stops and Simplex restarts as it was when first opened. Everything in ${userData} is deleted: the configuration with the solver wallet's key, your sign-in, the order and bid history, paired devices and logs.\n\nIf the wallet's key is not backed up somewhere else, the funds in the wallet are lost.\n\n${depositWarning(shown)}This cannot be undone.`,
+	})
+	// The dialog can stay open for a long time: an update may have started installing meanwhile.
+	if (response !== 1 || !resetAvailable(resetState())) return
+
+	resetting = true
+	refreshNativeUi()
+	// The solver kept bidding while the dialog was open, so what it said about deposits may be out
+	// of date. Bidding is paused before the count is read again, so it cannot rise once more.
+	const settled = await settleBidsHoldingDeposits(socketPath)
+	if (depositsNeedConfirming(shown, settled.count)) {
+		const again = await confirm({
+			...choices,
+			type: "warning",
+			title: "Reset Configuration",
+			message:
+				settled.count === undefined
+					? "Simplex could not count the bids again. Reset anyway?"
+					: "More bids hold deposits now. Reset anyway?",
+			detail: `${depositWarning(settled.count)}This cannot be undone.`,
+		})
+		if (again.response !== 1) {
+			resetting = false
+			refreshNativeUi()
+			if (settled.paused) {
+				await sendSolverAction(socketPath, "resume").catch((error) =>
+					reportActionError("Simplex could not resume the solver", error),
+				)
+			}
+			return
+		}
+	}
+	try {
+		await stopSolverBeforeReset(socketPath)
+	} catch (error) {
+		return abandonReset(error, settled.paused ? { socketPath } : undefined)
+	}
+	try {
+		requestProfileReset(userData)
+	} catch (error) {
+		// The solver is down, so it cannot be resumed here. A pause is kept across a restart.
+		const next = settled.paused ? "restart it from the menu, then resume it" : "restart it from the menu"
+		return abandonReset(new Error(`${errorMessage(error)}. The solver has been stopped; ${next}.`))
+	}
+
+	// The reset is now certain: the next launch deletes the profile, whatever fails from here on.
+	try {
+		// Launch-at-login lives outside the data directory, so it is switched off by hand.
+		if (loginItem?.supported && loginItem.isEnabled()) loginItem.setEnabled(false)
+		// An AppImage must be relaunched from the image, not from its mount, which goes away on exit.
+		const executable = loginItemExecutable(process.platform, process.execPath)
+		app.relaunch(executable === process.execPath ? undefined : { execPath: executable, args: process.argv.slice(1) })
+	} catch (error) {
+		reportActionError(
+			"Simplex could not restart itself",
+			new Error(`${errorMessage(error)}. Open Simplex again to finish the reset.`),
+		)
+	}
+	quitApp()
+}
+
 async function createWindow(notificationPath?: string): Promise<void> {
 	if (mainWindow && !mainWindow.isDestroyed()) {
-		if (mainWindow.isMinimized()) mainWindow.restore()
-		mainWindow.show()
-		mainWindow.focus()
-		if (notificationPath) {
-			void mainWindow
+		const window = mainWindow
+		if (window.isMinimized()) window.restore()
+		window.show()
+		window.focus()
+		await rendererRecovery?.show()
+		if (notificationPath && !window.isDestroyed() && !quitting && !installingUpdate) {
+			void window
 				.loadURL(desktopNotificationUrl(notificationPath))
 				.catch((error) => console.error(`Simplex could not open the notification page: ${errorMessage(error)}`))
 		}
 		return
 	}
 	if (!supervisor) return
+	// An installing update has stopped the solver itself, and the window shows its progress.
 	if (
 		(!vault || vault.isUnlocked()) &&
+		!updateInstalling(updateStatus) &&
 		(supervisor.status.state === "stopped" || supervisor.status.state === "unreachable")
 	) {
 		await dialog.showMessageBox({
@@ -422,6 +608,30 @@ async function createWindow(notificationPath?: string): Promise<void> {
 		webPreferences: rendererWebPreferences(app.isPackaged),
 	})
 	mainWindow = window
+	const recovery = new RendererRecovery({
+		canRecover: () =>
+			!quitting &&
+			!installingUpdate &&
+			!window.isDestroyed() &&
+			!window.webContents.isDestroyed() &&
+			window.webContents.isCrashed(),
+		reload: () => window.loadURL("simplex://local/"),
+		prompt: async () => {
+			const result = await dialog.showMessageBox(window, {
+				type: "error",
+				title: "Simplex dashboard stopped",
+				message: "The dashboard stopped again.",
+				detail: "Reload the dashboard to try again. The solver runs separately and has not been restarted.",
+				buttons: ["Reload dashboard", "Later"],
+				defaultId: 0,
+				cancelId: 1,
+			})
+			return result.response === 0
+		},
+		reportCrash: (error) => recordDesktopDiagnostic("renderer-exit", error),
+		report: reportDesktopError,
+	})
+	rendererRecovery = recovery
 	const invalidateMacAccess = () => {
 		if (process.platform === "darwin") vault?.cancelPendingAccess()
 	}
@@ -432,16 +642,24 @@ async function createWindow(notificationPath?: string): Promise<void> {
 		window.hide()
 	})
 	window.once("closed", () => {
-		if (mainWindow === window) mainWindow = undefined
+		if (mainWindow === window) {
+			mainWindow = undefined
+			rendererRecovery = undefined
+		}
 	})
 	window.on("hide", invalidateMacAccess)
 	window.webContents.on("did-start-navigation", (_event, _url, isSameDocument, isMainFrame) => {
 		if (isMainFrame && !isSameDocument) invalidateMacAccess()
 	})
-	window.webContents.on("render-process-gone", invalidateMacAccess)
+	window.webContents.on("render-process-gone", (_event, details) => {
+		invalidateMacAccess()
+		void recovery.crashed(details.reason, details.exitCode)
+	})
 	window.once("ready-to-show", () => window.show())
 	refreshNativeUi()
-	await window.loadURL(notificationPath ? desktopNotificationUrl(notificationPath) : "simplex://local/")
+	await recovery.loadInitial(() =>
+		window.loadURL(notificationPath ? desktopNotificationUrl(notificationPath) : "simplex://local/"),
+	)
 }
 
 async function showWindow(notificationPath?: string): Promise<void> {
@@ -492,7 +710,14 @@ async function prepareDesktop(): Promise<void> {
 		}
 	}
 	if (process.platform === "darwin") app.dock?.setIcon(applicationIconPath)
-	daemonLaunch = { nodePath: resources.node, solverPath: resources.solver, socketPath, dataDir: dataDirectory }
+	daemonLaunch = {
+		nodePath: resources.node,
+		solverPath: resources.solver,
+		socketPath,
+		dataDir: dataDirectory,
+		diagnosticsPath: resources.diagnostics,
+		diagnosticLog: recordDesktopDiagnostic,
+	}
 	vault = new DesktopVault({
 		dataDir: dataDirectory,
 		passkeys:
@@ -529,6 +754,8 @@ async function prepareDesktop(): Promise<void> {
 			}
 		},
 		start: async (key) => {
+			if (resetting) throw new Error("Simplex is being reset")
+			if (updateInstalling(updateStatus)) throw new Error("Simplex is installing an update")
 			if (startPromise) await startPromise
 			const launch = { ...daemonLaunch!, configKey: Buffer.from(key) }
 			intentionalStop = false
@@ -561,6 +788,10 @@ async function prepareDesktop(): Promise<void> {
 			uiDistDir: dirname(resources.ui),
 			desktopVersion: app.getVersion(),
 			access: vault,
+			update: { status: () => updateStatus, install: installUpdate },
+			onSolverStop: () => {
+				intentionalStop = true
+			},
 		}),
 	)
 	installSessionSecurity(session.defaultSession, rendererReportingOrigin())
@@ -602,10 +833,17 @@ async function prepareDesktop(): Promise<void> {
 			appVersion: app.getVersion(),
 			store: new FileUpdateStore(dataDirectory),
 			probeSolver: () => supervisor!.pollNow(),
-			canRestartSolver: () => Boolean(daemonLaunch?.configKey),
+			// An update stops the solver to install. A reset is already doing that, to delete the profile.
+			canRestartSolver: () => Boolean(daemonLaunch?.configKey) && !resetting,
 			requestSolverStop: async () => {
 				intentionalStop = true
-				await sendSolverAction(socketPath, "stop")
+				try {
+					await sendSolverAction(socketPath, "stop")
+				} catch (error) {
+					// The stop was not asked for after all, so a solver that dies later is reported again.
+					intentionalStop = false
+					throw error
+				}
 			},
 			restartSolver: async () => {
 				intentionalStop = false
@@ -613,7 +851,13 @@ async function prepareDesktop(): Promise<void> {
 				if (!(await startOrAttachSolver(false, true))) throw new Error("Simplex could not restart the solver")
 				await safeShowWindow()
 			},
-			waitForExit: (pid) => waitForSolverExit({ pid, probe: () => probeHealth(socketPath) }),
+			waitForExit: async (pid) => {
+				await waitForSolverExit({
+					pid,
+					timeoutMs: Number.POSITIVE_INFINITY,
+					probe: () => probeHealth(socketPath),
+				})
+			},
 			onChange: (next) => {
 				updateStatus = next
 				installingUpdate = next.state === "installing"
@@ -701,5 +945,10 @@ if (!app.requestSingleInstanceLock()) {
 	})
 	// A closed window leaves the tray and detached solver running on every OS.
 	app.on("window-all-closed", () => {})
-	app.whenReady().then(prepareDesktop).catch(reportStartupError)
+	app.whenReady()
+		.then(() => {
+			if (profileResetFailure) throw profileResetFailure
+			return prepareDesktop()
+		})
+		.catch(reportStartupError)
 }

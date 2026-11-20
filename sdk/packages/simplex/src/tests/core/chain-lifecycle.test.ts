@@ -195,6 +195,27 @@ describe("EventMonitor chain lifecycle", () => {
 		expect(seen).toEqual(["0xmine"])
 	})
 
+	it("carries the scanned block hash on newOrder", async () => {
+		// The block the placement was scanned from is what binds the confirmation
+		// wait to the commitment; the filler cannot recompute it from the order.
+		const { monitor, handlers } = monitorFor([1])
+		await monitor.startListening()
+
+		let emitted: { blockHash?: string } | undefined
+		monitor.on("newOrder", (event) => {
+			emitted = event
+		})
+
+		handlers()!.onOrder({
+			order: singleLegOrder("0xplaced"),
+			transactionHash: "0xtx",
+			blockHash: "0xblock",
+			chainId: 1,
+		} as never)
+
+		expect(emitted?.blockHash).toBe("0xblock")
+	})
+
 	it("drops a replayed order", async () => {
 		const { monitor, handlers } = monitorFor([1])
 		await monitor.startListening()
@@ -383,6 +404,7 @@ describe("ChainController bundler EntryPoint check", () => {
 		service: FillerConfigService,
 		resolvedChains: FillerRuntime["resolvedChains"] = [],
 		watchOnly: Record<number, boolean> = {},
+		globalWatchOnly = false,
 	) {
 		return {
 			configService: service,
@@ -393,11 +415,12 @@ describe("ChainController bundler EntryPoint check", () => {
 			},
 			intentFiller: {
 				setWatchOnly: vi.fn(),
+				guardDelegation: vi.fn(async () => {}),
 				clearWatchOnly: vi.fn(),
 				addChain: vi.fn(),
 				getWatchOnly: () => watchOnly,
 			},
-			globalWatchOnly: false,
+			globalWatchOnly,
 			signerless: false,
 			resolvedChains,
 			chainClientManager: { invalidate: vi.fn() },
@@ -474,5 +497,72 @@ describe("ChainController bundler EntryPoint check", () => {
 		expect(fetchSpy).not.toHaveBeenCalled()
 		expect(service.getConfiguredChainIds()).toEqual([1, 8453])
 		expect(runtime.intentFiller.setWatchOnly).toHaveBeenCalledWith(8453, true)
+	})
+
+	/** A config service with Ethereum (1) and BSC (56), both with a built-in confirmation curve. */
+	function twoChainService() {
+		return new FillerConfigService([
+			{ chainId: 1, rpcUrls: RPC_A, bundlerUrl: "https://bundler.example" },
+			{ chainId: 56, rpcUrls: RPC_B, bundlerUrl: "https://bundler.example" },
+		])
+	}
+
+	const twoChains = [
+		{ chainId: 1, rpcUrls: RPC_A, bundlerUrl: "https://bundler.example" },
+		{ chainId: 56, rpcUrls: RPC_B, bundlerUrl: "https://bundler.example" },
+	]
+
+	it("refuses to add a filling chain while --watch-only is in force", async () => {
+		const service = configService()
+		const scanner = emptyScanner()
+		const runtime = runtimeFor(service, [], {}, true)
+		const controller = new ChainController(runtime, vi.fn(), scanner, true)
+
+		await expect(controller.add({ rpcUrls: ["https://base.example"], watchOnly: false })).rejects.toThrow(
+			/runs watch-only/,
+		)
+		expect(service.getConfiguredChainIds()).toEqual([1])
+		expect(scanner.addChain).not.toHaveBeenCalled()
+	})
+
+	it("does not persist the override's default watch-only for an unflagged add", async () => {
+		vi.stubGlobal("fetch", vi.fn())
+		const service = twoChainService()
+		const runtime = runtimeFor(service, twoChains, { 1: true, 56: true }, true)
+		// A per-chain map that already watches 56, with the override covering both chains.
+		runtime.config.simplex.watchOnly = { "56": true }
+		const controller = new ChainController(runtime, vi.fn(), emptyScanner(), true)
+
+		await controller.add({ rpcUrls: ["https://base.example"] })
+
+		// Neither chain 1's override-only state nor the derived watch-only for the added
+		// chain may become permanent: the operator never asked for them.
+		expect(runtime.config.simplex.watchOnly).toEqual({ "56": true })
+	})
+
+	it("persists an explicit watch-only flag on a chain added under the override", async () => {
+		vi.stubGlobal("fetch", vi.fn())
+		const service = twoChainService()
+		const runtime = runtimeFor(service, twoChains, { 1: true, 56: true }, true)
+		runtime.config.simplex.watchOnly = { "56": true }
+		const controller = new ChainController(runtime, vi.fn(), emptyScanner(), true)
+
+		await controller.add({ rpcUrls: ["https://base.example"], watchOnly: true })
+
+		// The operator marked the added chain watch-only, so that one flag is kept. Chain 1's
+		// override-only state still is not.
+		expect(runtime.config.simplex.watchOnly).toEqual({ "56": true, "8453": true })
+	})
+
+	it("does not write the --watch-only override snapshot when toggling a chain's watch-only", async () => {
+		const service = twoChainService()
+		const runtime = runtimeFor(service, twoChains, { 1: true, 56: true }, true)
+		runtime.config.simplex.watchOnly = { "56": true }
+		const controller = new ChainController(runtime, vi.fn(), emptyScanner(), true)
+
+		await controller.setWatchOnly(56, true)
+
+		expect(runtime.intentFiller.setWatchOnly).toHaveBeenCalledWith(56, true)
+		expect(runtime.config.simplex.watchOnly).toEqual({ "56": true })
 	})
 })

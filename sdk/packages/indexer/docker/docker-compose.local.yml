@@ -28,6 +28,10 @@ services:
             - --allow-schema-migration
             - --unsafe
             - --log-level=${LOG_LEVEL:-info}
+            # Finalized blocks only, as on testnet and mainnet. The node indexes unfinalized blocks
+            # unless this is false, and a fork then rewinds every chain in the database. An EVM
+            # node that has not stored a block yet cannot rewind and exits on every start.
+            - --unfinalized-blocks=false
             - --store-cache-async=false
             - --store-cache-threshold=1
 
@@ -102,7 +106,9 @@ services:
             - --unsafe
             - --log-level=${LOG_LEVEL:-info}
             - --historical=timestamp
-            - --unfinalized-blocks
+            # Finalized blocks only, as config-local.json sets and as on testnet. Chapel finalizes
+            # a block or two behind its head.
+            - --unfinalized-blocks=false
             - --block-confirmations=${SUBQL_BLOCK_CONFIRMATIONS:-3}
             - --store-cache-async=false
             - --store-cache-threshold=1
@@ -142,6 +148,8 @@ services:
             - --unsafe
             - --log-level=${LOG_LEVEL:-info}
             - --historical=timestamp
+            # Base Sepolia keeps unfinalized blocks, as on testnet: its finalized block trails the
+            # head by about 20 minutes.
             - --unfinalized-blocks
             - --block-confirmations=${SUBQL_BLOCK_CONFIRMATIONS:-3}
             - --store-cache-async=false
@@ -181,6 +189,11 @@ services:
             - --multi-chain
             - --unsafe
             - --log-level=${LOG_LEVEL:-info}
+            # Finalized blocks only, as config-local.json sets and as on testnet. Amoy finalizes
+            # within a few blocks of its head. The confirmations apply when the node does not
+            # find the endpoint's `finalized` tag at start-up. The default is 200 blocks.
+            - --unfinalized-blocks=false
+            - --block-confirmations=${SUBQL_BLOCK_CONFIRMATIONS:-3}
             - --store-cache-async=false
             - --store-cache-threshold=1
 

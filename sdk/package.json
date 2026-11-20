@@ -57,7 +57,7 @@
 		"node": ">=22",
 		"pnpm": ">=11"
 	},
-	"packageManager": "pnpm@11.0.0",
+	"packageManager": "pnpm@11.28.7",
 	"dependencies": {
 		"jest": "^29.7.0",
 		"ts-node": "^10.9.2"

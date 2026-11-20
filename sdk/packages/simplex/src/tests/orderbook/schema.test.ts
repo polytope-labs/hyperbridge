@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs"
 import { buildSchema, parse, validate } from "graphql"
 import { describe, expect, it } from "vitest"
 import { ORDERBOOK_DOCUMENTS } from "@/orderbook/client"
-import { FAILURE_CODES, MESSAGE_REJECTION_CODES, REJECTION_CODES } from "@/orderbook/types"
+import { FAILURE_CODES, MESSAGE_REJECTION_CODES, REJECTION_CODES, SCREENING_FAILURE_CODES } from "@/orderbook/types"
 
 /**
  * The documents we send, against the schema the orderbook publishes.
@@ -48,5 +48,13 @@ describe("the codes we handle", () => {
 
 	it("covers every FailureCode the schema declares", () => {
 		expect([...FAILURE_CODES].sort()).toEqual(enumValues("FailureCode").sort())
+	})
+
+	it("covers every ScreeningFailureCode the schema declares", () => {
+		expect([...SCREENING_FAILURE_CODES].sort()).toEqual(enumValues("ScreeningFailureCode").sort())
+	})
+
+	it("reads both ScreeningVerdict values", () => {
+		expect(enumValues("ScreeningVerdict").sort()).toEqual(["FLAGGED", "UNFLAGGED"])
 	})
 })

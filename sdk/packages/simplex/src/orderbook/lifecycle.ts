@@ -23,7 +23,9 @@ export interface LifecycleOptions {
  * knows how to do. The heartbeat stops the orderbook suspending the solver, the
  * expiry sweep takes orders that have outlived their TTL off the book, and
  * reconciliation repairs what a crash or an unanswered request left behind:
- * first against each order's on-chain tally, then against the orderbook.
+ * first against each order's on-chain tally, then against the orderbook. The
+ * heartbeat clock also renews the heartbeat key before it lapses, and
+ * reconciliation authorises it whenever the main key is signing heartbeats instead.
  *
  * Nothing renews. An order's TTL is its whole life: when it runs out the posting
  * lapses and the order is done, and the operator posts a fresh one if they still
@@ -84,11 +86,13 @@ export class LimitOrderLifecycle {
 
 	/**
 	 * The tally pass first, so reconciliation against the orderbook reads the sizes
-	 * it left. Each fails on its own.
+	 * it left, and the heartbeat key last, once the orderbook holds the postings that
+	 * make the solver known to it. Each fails on its own.
 	 */
 	private async upkeep(): Promise<void> {
 		await this.run("tally reconciliation", async () => this.options.reconcileTallies())
 		await this.run("reconciliation", () => this.reconcile())
+		await this.run("heartbeat key authorisation", () => this.service.authorizeHeartbeatSigner())
 	}
 
 	private async reconcile(): Promise<void> {

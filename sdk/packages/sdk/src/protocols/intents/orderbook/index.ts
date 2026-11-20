@@ -5,6 +5,7 @@ export {
 	orderbookUrlFor,
 	ORDERBOOK_DECIMALS,
 	ORDERBOOK_QUERIES,
+	type OrderbookBid,
 	type OrderbookBook,
 	type OrderbookRate,
 	type OrderbookRoute,

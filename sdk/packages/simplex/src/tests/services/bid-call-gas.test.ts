@@ -16,6 +16,7 @@ import { privateKeySigner } from "@/services/wallet"
 const SOLVER_KEY = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80" as HexString
 const BASE_CALL_GAS = 1_000_000n
 const FUNDING_GAS_PER_CALL = 400_000n
+const APPROVAL_GAS_PER_TOKEN = 45_000n
 
 function service(): ContractInteractionService {
 	// biome-ignore lint/suspicious/noExplicitAny: nothing on this path reads a chain or config
@@ -25,9 +26,9 @@ function service(): ContractInteractionService {
 const call = (data: HexString): ERC7821Call => ({ target: "0x0000000000000000000000000000000000000001", value: 0n, data })
 const order = { id: "0xorder" } as Order
 
-function callGasFor(contract: ContractInteractionService): bigint {
+function callGasFor(contract: ContractInteractionService, approvedTokens = 0): bigint {
 	// biome-ignore lint/suspicious/noExplicitAny: the allowance is what is under test
-	return (contract as any).callGasLimitFor(order, BASE_CALL_GAS)
+	return (contract as any).callGasLimitFor(order, BASE_CALL_GAS, approvedTokens)
 }
 
 describe("the call gas a bid signs", () => {
@@ -35,6 +36,17 @@ describe("the call gas a bid signs", () => {
 		const contract = service()
 		contract.cacheService.clearFundingPrepends(order.id!)
 		expect(callGasFor(contract)).toBe(BASE_CALL_GAS)
+	})
+
+	it("adds an allowance for each token the batch approves", () => {
+		const contract = service()
+		contract.cacheService.clearFundingPrepends(order.id!)
+
+		expect(callGasFor(contract, 1)).toBe(BASE_CALL_GAS + APPROVAL_GAS_PER_TOKEN)
+		expect(callGasFor(contract, 3)).toBe(BASE_CALL_GAS + 3n * APPROVAL_GAS_PER_TOKEN)
+
+		contract.cacheService.setFundingPrepends(order.id!, [call("0x01")])
+		expect(callGasFor(contract, 2)).toBe(BASE_CALL_GAS + FUNDING_GAS_PER_CALL + 2n * APPROVAL_GAS_PER_TOKEN)
 	})
 
 	it("follows the funding calls of the bid being signed", () => {

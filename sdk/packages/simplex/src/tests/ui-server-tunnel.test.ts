@@ -29,7 +29,12 @@ function fakeTunnel(): TunnelControls & { calls: unknown[]; enabled: boolean; re
 		port: state.enabled ? 24567 : undefined,
 		hostFingerprint: "SHA256:host",
 		operatorFingerprint: "SHA256:operator",
-		devices: state.devices.map((label, i) => ({ fingerprint: `SHA256:dev${i}`, label, addedAt: 1 })),
+		devices: state.devices.map((label, i) => ({
+			fingerprint: `SHA256:dev${i}`,
+			label,
+			addedAt: 1,
+			connected: false,
+		})),
 		activeConnections: 0,
 		connection: {
 			host: state.relay.split(":")[0],
@@ -109,7 +114,6 @@ function operatorContext(tunnel?: TunnelControls): OperatorContext & { configPat
 		balances: Object.assign(new EventEmitter(), {
 			getSnapshot: () => ({ updatedAt: null, status: "loading" as const, chains: [], issues: [] }),
 		}),
-		haltControls: [],
 		config,
 		stop: vi.fn().mockResolvedValue(undefined),
 		activity: new ActivityRecorder(data.activity),

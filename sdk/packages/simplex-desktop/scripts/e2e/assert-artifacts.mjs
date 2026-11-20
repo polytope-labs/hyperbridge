@@ -19,6 +19,7 @@ const requiredArtifacts = [
 	resolve(desktopRoot, "dist/main.js"),
 	resolve(desktopRoot, "dist/main.js.map"),
 	resolve(desktopRoot, "dist/bootstrap.js"),
+	resolve(desktopRoot, "dist/solver-diagnostics.js"),
 	resolve(desktopRoot, "THIRD-PARTY-NOTICES.md"),
 	resolve(desktopRoot, "resources/icon.icns"),
 	resolve(desktopRoot, "resources/icon.ico"),

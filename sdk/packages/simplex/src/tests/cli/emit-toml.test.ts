@@ -53,7 +53,7 @@ const crossAssetWithCurves: FillerConfigFile = {
 }
 
 const kitchenSink: FillerConfigFile = {
-	orderbook: { url: "https://orderbook.hyperbridge.network/graphql" },
+	orderbook: { url: "https://orderbook.hyperbridge.network/graphql", delegateHeartbeats: false },
 	simplex: {
 		signer: {
 			type: SignerType.MpcVault,
@@ -70,8 +70,8 @@ const kitchenSink: FillerConfigFile = {
 		watchOnly: false,
 		targetGasUnits: 2500000,
 		minOrderSizeUsd: 50,
+		minPartialFillUsd: 35,
 		gasFeeBump: { maxPriorityFeePerGasBumpPercent: 12, maxFeePerGasBumpPercent: 15 },
-		overfillProtection: { maxOverfillBps: 300, maxConsecutiveClamps: 2 },
 	},
 	assets: {
 		BRZ: { "EVM-8453": "0x5555555555555555555555555555555555555555" },

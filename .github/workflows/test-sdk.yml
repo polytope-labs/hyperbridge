@@ -42,7 +42,7 @@ jobs:
             - name: Setup pnpm
               uses: pnpm/action-setup@v4
               with:
-                  version: 11
+                  version: 11.0.0
 
             - name: Install dependencies
               run: pnpm install
@@ -147,7 +147,7 @@ jobs:
             - name: Setup pnpm
               uses: pnpm/action-setup@v4
               with:
-                  version: 11
+                  version: 11.0.0
 
             - name: Install dependencies
               run: pnpm install
@@ -178,11 +178,12 @@ jobs:
                   TURNKEY_SIGN_WITH=${{ secrets.TURNKEY_SIGN_WITH }}
                   EOF
 
-            # `start:local` shells out to docker-compose (v1), and the readiness wait uses nc.
-            - name: Install Docker Compose and netcat
+            # `start:local` runs `docker compose`, the plugin on the runner image. The readiness wait
+            # uses nc.
+            - name: Install netcat
               run: |
                   sudo apt-get update
-                  sudo apt-get install -y docker-compose netcat-openbsd
+                  sudo apt-get install -y netcat-openbsd
                   docker compose version
 
             # The indexer imports `@hyperbridge/sdk/intents-helpers`, which only exists once the SDK

@@ -89,9 +89,25 @@ export class OrderScanner implements OrderScannerContract {
 			scanIntervalSecs === undefined ? undefined : Math.round(scanIntervalSecs * 1000),
 		)
 		try {
-			// Sequential: two entries resolving to the same chain must be caught, and the
-			// only network call is the chain-id probe for entries that omit it.
-			for (const chain of chains) await scanner.addChain(chain)
+			// The chain-id probes for entries that omit one run together, so startup waits
+			// for the slowest chain rather than for each in turn.
+			const chainIds = await Promise.all(
+				chains.map(
+					async (chain) =>
+						chain.chainId ??
+						(
+							await resolveChainConfigs([{ rpcUrls: chain.rpcUrls }], {
+								loggers: scanner.loggers,
+								tolerateUnreachable: true,
+							})
+						)[0].chainId,
+				),
+			)
+			// The adds stay sequential: two entries resolving to the same chain must be
+			// caught, and with the chain id known an add makes no network call.
+			for (const [index, chain] of chains.entries()) {
+				await scanner.addChain({ ...chain, chainId: chainIds[index] })
+			}
 		} catch (error) {
 			// The caller never gets a handle to a rejected create, so the loops already
 			// started here would scan forever with nobody able to stop them.

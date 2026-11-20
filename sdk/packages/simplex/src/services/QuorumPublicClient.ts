@@ -66,11 +66,16 @@ export const SCAN_BUDGET: QuorumBudget = {
 }
 
 /**
- * Confirmation polling: `getTransactionConfirmations` makes two requests in
- * sequence per endpoint (head, then receipt), so the scan budget would cut off
- * a slow but honest endpoint mid-sequence. Roomier on both counts, and still
- * bounded — the poller is deciding whether money is safe to pay out, so it can
- * afford to wait longer than a scan, but not forever.
+ * Confirmation polling: `getTransactionInclusion` (and the
+ * `getTransactionConfirmations` depth over it) makes two requests in sequence per
+ * endpoint — head, then receipt — as does `readLegEscrow`, whose leg→token
+ * fallback tries a second request when the gateway rejects the first. The scan
+ * budget would cut off a slow but honest endpoint mid-sequence. Roomier on both
+ * counts, and still bounded — the poller is deciding whether money is safe to pay
+ * out, so it can afford to wait longer than a scan, but not forever. A
+ * `readWithQuorum` callback that fans out to several slots cannot approach the
+ * budget by itself: those requests run concurrently, and one endpoint's attempt
+ * ceiling is its transport timeout.
  */
 export const CONFIRMATION_BUDGET: QuorumBudget = {
 	timeoutMs: 10_000,
@@ -250,9 +255,10 @@ function isReceiptNotFound(error: unknown): boolean {
 
 /**
  * Wraps multiple viem `PublicClient`s — one per configured RPC URL — and runs
- * selected read paths (`getLogs`, `getBlockNumber`, `getTransactionConfirmations`)
- * as a **BFT quorum**: a result is accepted only when `quorumThreshold(m)` of the
- * `m` endpoints that answered agree on it.
+ * selected read paths (`getLogs`, `getBlockNumber`, `getTransactionInclusion` /
+ * `getTransactionConfirmations`, `readWithQuorum`) as a **BFT quorum**: a result is
+ * accepted only when `quorumThreshold(m)` of the `m` endpoints that answered agree
+ * on it.
  *
  * A provider that *answers with divergent data* is never special-cased away — it
  * simply fails to join the agreeing group, which is what makes a lying or reorged
@@ -544,20 +550,23 @@ export class QuorumPublicClient {
 	}
 
 	/**
-	 * Confirmation count for a transaction under the quorum.
+	 * The inclusion a quorum of endpoints agreed on for a transaction, and its depth.
 	 *
 	 * Every endpoint is asked for the receipt and its head. A "receipt not found"
 	 * answer is a valid **no** vote — the endpoint is responsive but does not see
 	 * the transaction (not yet propagated, or reorged out) — so it counts toward
-	 * responsiveness but joins no inclusion group. The transaction is confirmed
-	 * only when a quorum agrees on the same `(blockHash, blockNumber)`; the depth
-	 * is then the quorum head of that agreeing group. A minority still serving a
-	 * reorged/fabricated receipt can never reach the quorum.
+	 * responsiveness but joins no inclusion group. The block is reported only when a
+	 * quorum agrees on the same `(blockHash, blockNumber)`; the depth is then the
+	 * quorum head of that agreeing group. A minority still serving a
+	 * reorged/fabricated receipt can never reach the quorum. Returning the block as
+	 * well as the depth lets a caller bind the count to the block it read the event
+	 * from: a placement re-mined elsewhere keeps its transaction hash but not its
+	 * block, and not the commitment built from it.
 	 *
 	 * Throws {@link QuorumError} when no inclusion reaches the quorum — including
 	 * the ordinary window where the tx is not yet mined on enough endpoints.
 	 */
-	async getTransactionConfirmations({ hash }: { hash: Hash }): Promise<bigint> {
+	async getTransactionInclusion({ hash }: { hash: Hash }): Promise<TransactionInclusion> {
 		type ReceiptProbe = { head: bigint; receipt: { blockHash: string; blockNumber: bigint } | null }
 		const toViews = (fulfilled: ReadonlyArray<{ idx: number; value: ReceiptProbe }>): ReceiptView[] => {
 			const views: ReceiptView[] = []
@@ -593,17 +602,77 @@ export class QuorumPublicClient {
 			// Early exit only on a POSITIVE quorum: an agreeing inclusion group can
 			// only grow, so the first satisfiable quorum is final. Not-found votes
 			// never decide early — "not confirmed" needs the full response set.
-			(fulfilled, threshold) => aggregateConfirmations(toViews(fulfilled), threshold) ?? undefined,
+			(fulfilled, threshold) => aggregateInclusion(toViews(fulfilled), threshold) ?? undefined,
 			(fulfilled, failures, threshold) => {
-				const confirmations = aggregateConfirmations(toViews(fulfilled), threshold)
-				if (confirmations === null) {
+				const inclusion = aggregateInclusion(toViews(fulfilled), threshold)
+				if (inclusion === null) {
 					throw new QuorumError(
-						`Quorum not reached for getTransactionConfirmations(${hash}): no inclusion agreed on by a ` +
+						`Quorum not reached for getTransactionInclusion(${hash}): no inclusion agreed on by a ` +
 							`quorum (${threshold}). ${this.describeResponders(fulfilled.length, queried.length, skipped, allBenched)}. ` +
 							this.formatFailures(failures.map(({ idx, error }) => ({ idx, error }))),
 					)
 				}
-				return confirmations
+				return inclusion
+			},
+		)
+	}
+
+	/**
+	 * Confirmation count for a transaction under the quorum. See
+	 * {@link getTransactionInclusion}, whose depth this is.
+	 */
+	async getTransactionConfirmations({ hash }: { hash: Hash }): Promise<bigint> {
+		return (await this.getTransactionInclusion({ hash })).confirmations
+	}
+
+	/**
+	 * Runs an arbitrary read on every endpoint and returns the value a quorum
+	 * agrees on. The `read` callback is the whole vote: one endpoint's answer is
+	 * whatever its callback resolves to, so a caller that reads a vector of slots
+	 * (e.g. every leg's escrow) votes on the vector, not on each slot separately.
+	 * Values are compared under `JSON.stringify(..., bigIntReplacer)`, so bigints
+	 * and arrays compare by value rather than by identity.
+	 *
+	 * An endpoint whose `read` throws does not vote — the class's rule for every
+	 * quorum path. A quorum-meeting group is unique, so the first satisfiable
+	 * agreement is final. Fails with {@link QuorumError} when no value reaches the
+	 * bar, naming `label`.
+	 */
+	async readWithQuorum<T>(label: string, read: (client: PublicClient) => Promise<T>): Promise<T> {
+		const groupOf = (fulfilled: ReadonlyArray<{ idx: number; value: T }>) => {
+			const groups = new Map<string, { result: T; providerIdxs: number[] }>()
+			for (const { idx, value } of fulfilled) {
+				const key = JSON.stringify(value, bigIntReplacer) ?? "undefined"
+				const existing = groups.get(key)
+				if (existing) existing.providerIdxs.push(idx)
+				else groups.set(key, { result: value, providerIdxs: [idx] })
+			}
+			return groups
+		}
+
+		const { queried, skipped, allBenched } = this.participants()
+		return this.settleUntilQuorum(
+			// Deferred so a callback that throws synchronously fails only its own
+			// endpoint (it does not vote) instead of rejecting the whole call before
+			// the later endpoints' promises even exist.
+			queried.map(({ idx, client }) => ({ idx, task: (async (): Promise<T> => read(client))() })),
+			(fulfilled, threshold) => {
+				for (const group of groupOf(fulfilled).values()) {
+					if (group.providerIdxs.length >= threshold) return group.result
+				}
+				return undefined
+			},
+			(fulfilled, failures, threshold) => {
+				const groups = groupOf(fulfilled)
+				for (const group of groups.values()) {
+					if (group.providerIdxs.length >= threshold) return group.result
+				}
+				const responders = [...groups.values()].reduce((n, g) => n + g.providerIdxs.length, 0)
+				throw new QuorumError(
+					`Quorum not reached for ${label}: no result agreed on by a quorum (${threshold}). ` +
+						`${this.describeResponders(responders, queried.length, skipped, allBenched)}. ` +
+						this.formatFailures(failures.map(({ idx, error }) => ({ idx, error }))),
+				)
 			},
 		)
 	}
@@ -737,25 +806,34 @@ function describeLogsParams(params: { address?: unknown; fromBlock?: unknown; to
 	return `${address}, ${String(from ?? "?")}..${String(to ?? "?")}${span}`
 }
 
-/** One endpoint's receipt answer for {@link aggregateConfirmations}. */
+/** One endpoint's receipt answer for {@link aggregateInclusion}. */
 export interface ReceiptView {
 	blockHash: string
 	blockNumber: bigint
 	head: bigint
 }
 
+/** The inclusion a quorum of endpoints agreed on for a transaction, and its depth. */
+export interface TransactionInclusion {
+	blockHash: string
+	blockNumber: bigint
+	confirmations: bigint
+}
+
 /**
- * BFT aggregation for {@link QuorumPublicClient.getTransactionConfirmations}.
+ * BFT aggregation for {@link QuorumPublicClient.getTransactionInclusion}.
  *
  * Groups the receipt-holders by `(blockHash, blockNumber)` and looks for a group
  * of at least `quorum` endpoints agreeing on that inclusion. The depth is then
  * the group's *quorum head*: the highest block that `quorum` members of the
  * group have all indexed (mirroring {@link QuorumPublicClient.getBlockNumber}),
- * so the count never advances on fewer endpoints than the quorum bound.
+ * so the count never advances on fewer endpoints than the quorum bound. The
+ * block is returned alongside the depth so a caller can tie the count to the
+ * block it read the event from.
  *
  * Returns `null` when no inclusion reaches the quorum. Exported for tests.
  */
-export function aggregateConfirmations(views: readonly ReceiptView[], quorum: number): bigint | null {
+export function aggregateInclusion(views: readonly ReceiptView[], quorum: number): TransactionInclusion | null {
 	const groups = new Map<string, ReceiptView[]>()
 	for (const view of views) {
 		const key = `${view.blockHash}:${view.blockNumber}`
@@ -771,9 +849,22 @@ export function aggregateConfirmations(views: readonly ReceiptView[], quorum: nu
 		const head = heads[quorum - 1]
 		const receiptBlock = group[0].blockNumber
 		const confirmations = head - receiptBlock + 1n
-		return confirmations > 0n ? confirmations : 0n
+		return {
+			blockHash: group[0].blockHash,
+			blockNumber: receiptBlock,
+			confirmations: confirmations > 0n ? confirmations : 0n,
+		}
 	}
 	return null
+}
+
+/**
+ * BFT aggregation for {@link QuorumPublicClient.getTransactionConfirmations}:
+ * the depth of the inclusion {@link aggregateInclusion} agreed on, or `null`.
+ * Exported for tests.
+ */
+export function aggregateConfirmations(views: readonly ReceiptView[], quorum: number): bigint | null {
+	return aggregateInclusion(views, quorum)?.confirmations ?? null
 }
 
 /**

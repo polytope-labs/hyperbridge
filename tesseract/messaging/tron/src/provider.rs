@@ -156,6 +156,7 @@ impl IsmpProvider for TronClient {
 			.map(|_| EstimateGasReturnParams {
 				execution_cost: Default::default(),
 				successful_execution: true,
+				failure: None,
 			})
 			.collect();
 		Ok(result)

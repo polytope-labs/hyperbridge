@@ -80,6 +80,20 @@ describe("setup API", () => {
 		expect(defaults.chains.every((chain: { network: string }) => chain.network === "mainnet")).toBe(true)
 		expect(defaults.hyperbridgeWs).toEqual({ mainnet: "wss://nexus.rpc.polytope.technology" })
 		expect(defaults).not.toHaveProperty("testnetConfirmationPoints")
+		// A plain config file, so the wizard says the key is kept in plain text.
+		expect(defaults).not.toHaveProperty("configEncrypted")
+	})
+
+	it("tells the wizard when the config file is saved encrypted", async () => {
+		const dir = mkdtempSync(join(tmpdir(), "simplex-setup-"))
+		server = new UiServer({
+			mode: "init",
+			configEncrypted: true,
+			setup: { configPath: join(dir, "filler-config.toml"), onSaveAndStart: vi.fn().mockResolvedValue(undefined) },
+		})
+		const port = await server.start(0)
+		const defaults = await (await fetch(`http://127.0.0.1:${port}/api/setup/defaults`)).json()
+		expect(defaults.configEncrypted).toBe(true)
 	})
 
 	it("validates an RPC against the expected chain id", async () => {

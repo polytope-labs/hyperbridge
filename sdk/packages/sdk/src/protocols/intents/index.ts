@@ -16,6 +16,7 @@ export type {
 	BuyAndSellRates,
 	IntentQuoteLeg,
 	PessimisticQuoteIntentResult,
+	OrderbookBid,
 	OrderbookBook,
 	OrderbookRate,
 	OrderbookRoute,
@@ -53,6 +54,13 @@ export {
 	applyRundlerPriorityFee,
 	rundlerUserOperationFees,
 } from "./rundlerFees"
+export {
+	BundlerRpcError,
+	BUNDLER_ESTIMATE_RETRY_DELAYS_MS,
+	BUNDLER_REQUEST_TIMEOUT_MS,
+	isTransientBundlerError,
+	retryTransientBundlerErrors,
+} from "./bundlerRetry"
 export {
 	encodeFillOrder,
 	decodeFillOrder,

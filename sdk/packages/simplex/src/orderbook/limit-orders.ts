@@ -1,13 +1,14 @@
 import { randomBytes, randomUUID } from "node:crypto"
 import { ENTRY_POINT_V08, getChainId, MAX_DECLARED_ENTRIES, type HexString } from "@hyperbridge/sdk"
 import { type AssetRegistry, normalizeSymbol } from "@/config/asset-registry"
-import type { LimitOrder, LimitOrderFilter, LimitOrderInsert, LimitOrderStore } from "@/data/types"
+import { LIMIT_ORDER_FEE_RESERVE_TOKENS } from "@/config/defaults"
+import type { LimitOrder, LimitOrderFilter, LimitOrderInsert, LimitOrderStatus, LimitOrderStore } from "@/data/types"
 import type { ContractInteractionService } from "@/services/ContractInteractionService"
 import type { DelegationService } from "@/services/DelegationService"
 import type { FillerConfigService } from "@/services/FillerConfigService"
 import { defaultLoggerContext, type Logger, type LoggerContext } from "@/services/Logger"
 import type { VaultBalancePosition } from "@/funding/types"
-import type { Signer } from "@/services/wallet"
+import type { Signer, TypedDataPayload } from "@/services/wallet"
 import {
 	budgetFor,
 	budgetRoom,
@@ -20,17 +21,19 @@ import {
 } from "./amounts"
 import { OrderbookClient, OrderbookRequestError } from "./client"
 import { limitOrderLegs } from "./matching"
-import type {
-	Book,
-	CancelOrderResult,
-	ChainInfo,
-	HeartbeatResult,
-	OrderbookLimits,
-	OrderbookFilters,
-	OrderbookLevelQuery,
-	PostedOrder,
-	SubmitOrderResult,
-	TokenMinSize,
+import {
+	HEARTBEAT_SIGNER_RENEWAL_TICKS,
+	type Book,
+	type CancelOrderResult,
+	type ChainInfo,
+	type HeartbeatResult,
+	type MessageRejectionCode,
+	type OrderbookLimits,
+	type OrderbookFilters,
+	type OrderbookLevelQuery,
+	type PostedOrder,
+	type SubmitOrderResult,
+	type TokenMinSize,
 } from "./types"
 
 /** How long a read of `serverInfo` and `books` is reused before being refreshed. */
@@ -42,6 +45,13 @@ const LIMITS_TTL_MS = 5 * 60 * 1000
  * can land while one is in flight.
  */
 const POSTABLE = ["open", "resizing"] as const
+/**
+ * Which rows a tally clamp may lower. The tally path (a fill's sync and the periodic
+ * pass) acts on an `open` row and then reposts it, so a row a repost already holds is
+ * left to that repost; the repost itself lowers the row it holds.
+ */
+const TALLY_PATH = ["open"] as const
+const HELD_BY_REPOST = ["resizing"] as const
 
 /**
  * How long a row must have sat untouched before reconciliation treats a missing
@@ -73,6 +83,15 @@ const HEARTBEAT_TYPES = {
 	EIP712Domain: EIP712_DOMAIN,
 	Heartbeat: [
 		{ name: "solver", type: "address" },
+		{ name: "timestamp", type: "uint64" },
+	],
+} as const
+
+const AUTHORIZE_HEARTBEAT_SIGNER_TYPES = {
+	EIP712Domain: EIP712_DOMAIN,
+	AuthorizeHeartbeatSigner: [
+		{ name: "solver", type: "address" },
+		{ name: "signer", type: "address" },
 		{ name: "timestamp", type: "uint64" },
 	],
 } as const
@@ -115,12 +134,15 @@ export interface CreateLimitOrderRequest {
 
 /**
  * What the service reports about an order nobody asked it about: a fill worked it
- * down, or took it under the dust floor. Operator-initiated changes are reported
- * by the controller that took the request.
+ * down, took it under the dust floor, it outlived its `expiresAt` and was
+ * retired, or the orderbook refused its posting. Operator-initiated changes are
+ * reported by the controller that took the request.
  */
 export type LimitOrderEvent =
 	| { kind: "resized"; order: LimitOrder; delivered: bigint }
 	| { kind: "filled"; order: LimitOrder }
+	| { kind: "expired"; order: LimitOrder }
+	| { kind: "rejected"; order: LimitOrder }
 
 /**
  * What came of an order being created: the orderbook's answer, or `unposted` for
@@ -171,9 +193,15 @@ export interface VaultHoldings {
 export class LimitOrderService {
 	private logger: Logger
 	private cachedLimits?: { limits: OrderbookLimits; readAt: number }
+	/** The orderbook's heartbeat key TTL, null when it predates heartbeat keys, reused like the limits. */
+	private cachedHeartbeatSignerTtl?: { secs: number | null; readAt: number }
 	private onEvent?: (event: LimitOrderEvent) => void
 	/** Re-signs in flight, by order id. A fill's resize waits one out rather than reposting alongside it. */
 	private readonly resigning = new Map<string, Promise<boolean>>()
+	/** When the orderbook stops taking heartbeats from {@link heartbeatSigner}, in ms. Unset while the main key heartbeats. */
+	private heartbeatSignerUntil?: number
+	/** An authorisation in flight, shared so the heartbeat and reconciliation clocks never pay for two. */
+	private authorizing?: Promise<number | undefined>
 
 	constructor(
 		private readonly store: LimitOrderStore,
@@ -189,6 +217,16 @@ export class LimitOrderService {
 		private readonly startingNonce: () => bigint = initialOrderNonce,
 		/** The configured ERC-4626 vaults, when the operator runs any. */
 		private readonly vaultBalances?: VaultHoldings,
+		/**
+		 * Whether the filler only watches a chain (`--watch-only`, or `watchOnly` in the config,
+		 * globally or for that chain). Live: the operator can flip it while running.
+		 */
+		private readonly isWatchOnly?: (chain: string) => boolean,
+		/**
+		 * A key held in memory that signs heartbeats once the main key has authorised it, so a
+		 * remote signer is not billed for one every tick. Without it the main key signs them all.
+		 */
+		private readonly heartbeatSigner?: Signer,
 	) {
 		this.logger = loggers.get("limit-orders")
 	}
@@ -254,10 +292,22 @@ export class LimitOrderService {
 
 		await this.assertWalletCanPay(request.tokenOut, request.fillChain, amountOut)
 
-		if (!sameAsset && this.delegationService && !(await this.delegationService.setupDelegation(request.fillChain))) {
-			throw new LimitOrderValidationError(
-				`The solver is not 7702-delegated on ${request.fillChain}, and the orderbook deletes an undelegated solver's orders`,
-			)
+		// A same-asset order is never posted, but it still prices bids, and a bid from an
+		// undelegated EOA cannot execute — so it needs the delegation check too.
+		if (this.delegationService) {
+			if (this.isWatchOnly?.(request.fillChain)) {
+				// A watch-only filler never sends a transaction or a sponsored op on that chain,
+				// so creating an order must not be what delegates it: it can only find out.
+				if (!(await this.delegationService.isDelegated(request.fillChain))) {
+					throw new LimitOrderValidationError(
+						`${request.fillChain} is watch-only and the solver is not 7702-delegated there. A watch-only filler does not delegate, and the orderbook deletes an undelegated solver's orders`,
+					)
+				}
+			} else if (!(await this.delegationService.setupDelegation(request.fillChain))) {
+				throw new LimitOrderValidationError(
+					`The solver is not 7702-delegated on ${request.fillChain}; it cannot fill there, and the orderbook deletes an undelegated solver's orders`,
+				)
+			}
 		}
 
 		const insert: LimitOrderInsert = {
@@ -344,12 +394,10 @@ export class LimitOrderService {
 	}
 
 	private async signAndCancel(commitment: HexString, timestamp: number): Promise<CancelOrderResult> {
-		const { eip712DomainName, eip712DomainVersion } = (await this.limits()).serverInfo
 		const solver = this.signer.address
 		// `solver` is part of what is signed, not merely an argument alongside it:
 		// it is what stops two solvers ever signing the same digest.
-		const signature = await this.signer.signTypedData({
-			domain: { name: eip712DomainName, version: eip712DomainVersion },
+		const signature = await this.signMessage(this.signer, {
 			types: CANCEL_ORDER_TYPES,
 			primaryType: "CancelOrder",
 			message: { solver, commitment, timestamp },
@@ -385,6 +433,12 @@ export class LimitOrderService {
 	async books(): Promise<{ books: Book[]; minOrderSizes: TokenMinSize[]; chains: ChainInfo[] }> {
 		const limits = await this.limits()
 		return { books: limits.books, minOrderSizes: limits.serverInfo.minOrderSizes, chains: limits.chains ?? [] }
+	}
+
+	/** The EIP-712 domain every message signed to the orderbook is signed under, from the cached limits. */
+	async signingDomain(): Promise<{ name: string; version: string }> {
+		const { eip712DomainName, eip712DomainVersion } = (await this.limits()).serverInfo
+		return { name: eip712DomainName, version: eip712DomainVersion }
 	}
 
 	/**
@@ -549,7 +603,14 @@ export class LimitOrderService {
 	 * balance between them. Whichever order fills first draws the inventory down,
 	 * and the rest are cut to what is left. Netting them here would refuse the
 	 * second side of every book. Vault positions are counted the same way: the
-	 * whole position, not what is left after reservations for fills in flight.
+	 * whole position.
+	 *
+	 * An order that pays out the fill chain's fee token must also leave
+	 * {@link LIMIT_ORDER_FEE_RESERVE_TOKENS} of it unpromised. A cross-chain fill
+	 * pays the escrow-release dispatch fee in that token from the same wallet, and
+	 * the orderbook advertises the whole balance when the quote reaches it, so an
+	 * order sized to everything held is matched for swaps whose fill is then
+	 * skipped for want of the fee.
 	 */
 	private async assertWalletCanPay(symbol: string, chain: string, payout: bigint): Promise<void> {
 		const token = this.assetRegistry.getAddress(symbol, chain)
@@ -561,12 +622,35 @@ export class LimitOrderService {
 			decimals,
 		)
 		const vaults = await this.vaultHoldings(token, chain)
+		const held = vaults > 0n ? `${toHuman(wallet)} in the wallet and ${toHuman(vaults)} in vaults` : toHuman(wallet)
 
 		if (wallet + vaults < payout) {
-			const held = vaults > 0n ? `${toHuman(wallet)} in the wallet and ${toHuman(vaults)} in vaults` : toHuman(wallet)
 			throw new LimitOrderValidationError(
 				`The wallet holds ${held} ${symbol} on ${chain}, which cannot pay out ${toHuman(payout)}`,
 			)
+		}
+
+		const feeReserve = (await this.isFeeToken(token, chain)) ? LIMIT_ORDER_FEE_RESERVE_TOKENS * ORDERBOOK_SCALE : 0n
+		if (wallet + vaults < payout + feeReserve) {
+			const most = wallet + vaults > feeReserve ? wallet + vaults - feeReserve : 0n
+			throw new LimitOrderValidationError(
+				`${symbol} pays the fill fees on ${chain}, so ${toHuman(feeReserve)} of it stays out of the book: the wallet holds ${held}, which can pay out at most ${toHuman(most)}`,
+			)
+		}
+	}
+
+	/**
+	 * Whether `token` is the fee token of `chain`'s host. A fee token that cannot be read
+	 * holds nothing back: the fill still refuses a payout that leaves too little for the
+	 * dispatch fee, so the cost is a skipped fill, not a lost one.
+	 */
+	private async isFeeToken(token: HexString, chain: string): Promise<boolean> {
+		try {
+			const feeToken = await this.contractService.getFeeTokenWithDecimals(chain)
+			return sameAddress(feeToken.address, token)
+		} catch (err) {
+			this.logger.warn({ chain, token, err }, "Could not read the fee token; holding none of the payout back for fees")
+			return false
 		}
 	}
 
@@ -596,33 +680,14 @@ export class LimitOrderService {
 	}
 
 	/**
-	 * Works a limit order down by what a fill delivered, and puts the rest back on
-	 * the orderbook.
-	 *
-	 * The order is moved to `resizing` and its new size written before the
-	 * orderbook is touched, so a crash mid-way leaves a row that says what it was
-	 * doing rather than one that silently advertises output it has already paid.
-	 *
-	 * The old entry is cancelled before the new one is posted. Two live entries
-	 * for one liability would advertise the same output twice, and the gap between
-	 * the two calls is at most one request.
-	 */
-	async settleFill(id: string, delivered: bigint): Promise<LimitOrder | null> {
-		const order = await this.store.get(id)
-		if (!order) return null
-
-		const remaining = await this.store.drawDown(id, delivered.toString())
-		if (!remaining) return null
-		return this.resize(remaining, delivered)
-	}
-
-	/**
 	 * Puts an order that has already been worked down back on the book, or closes
 	 * it when what is left is under the orderbook's dust floor for what it pays.
 	 *
-	 * Separate from the draw-down because that is a store write that belongs in
-	 * the same transaction as the hold it settles, while this is a round trip to
-	 * the orderbook and must not be inside one.
+	 * The order is moved to `resizing` before the orderbook is touched, so a crash
+	 * mid-way leaves a row that says what it was doing rather than one that silently
+	 * advertises output it has already paid. The old entry is cancelled before the
+	 * new one is posted: two live entries for one liability would advertise the same
+	 * output twice, and the gap between the two calls is at most one request.
 	 */
 	async resize(remaining: LimitOrder, delivered: bigint): Promise<LimitOrder | null> {
 		const id = remaining.id
@@ -637,32 +702,35 @@ export class LimitOrderService {
 		const order = await this.store.setStatus(id, "resizing", null, POSTABLE)
 		if (!order) return null
 
-		if (BigInt(order.remaining) < floor) {
-			this.logger.info(
-				{ id, remaining: order.remaining, floor: floor.toString() },
-				"Limit order worked down past the dust floor; closing it",
-			)
-			if (order.commitment) await this.withdraw(order.commitment as HexString)
-			const closed = await this.store.setPosting(
-				id,
-				{
-					commitment: null,
-					bookExpiresAt: null,
-					bookPrice: null,
-					orderNonce: order.orderNonce,
-					entryPoint: null,
-					status: "filled",
-					lastError: null,
-				},
-				POSTABLE,
-			)
-			if (closed) this.report({ kind: "filled", order: closed })
-			return closed
-		}
+		if (BigInt(order.remaining) < floor) return this.closeFilled(order, floor)
 
 		const resized = await this.repost(order)
 		if (resized) this.report({ kind: "resized", order: resized, delivered })
 		return resized
+	}
+
+	/** Takes an order that has been worked down past the dust floor off the book and closes the row. */
+	private async closeFilled(order: LimitOrder, floor: bigint): Promise<LimitOrder | null> {
+		this.logger.info(
+			{ id: order.id, remaining: order.remaining, floor: floor.toString() },
+			"Limit order worked down past the dust floor; closing it",
+		)
+		if (order.commitment) await this.withdraw(order.commitment as HexString)
+		const closed = await this.store.setPosting(
+			order.id,
+			{
+				commitment: null,
+				bookExpiresAt: null,
+				bookPrice: null,
+				orderNonce: order.orderNonce,
+				entryPoint: null,
+				status: "filled",
+				lastError: null,
+			},
+			POSTABLE,
+		)
+		if (closed) this.report({ kind: "filled", order: closed })
+		return closed
 	}
 
 	/**
@@ -712,10 +780,40 @@ export class LimitOrderService {
 			return null
 		}
 
+		// A fill that lands while the row is `resizing` is not applied: `syncToChain` only
+		// acts on an `open` order, and this repost holds the row from a read taken before
+		// the fill. Posting that read would advertise output the account has already paid
+		// until the next tally pass, so the size is brought down to the chain's tally first.
+		const sized = await this.lowerBeforePosting(order)
+		if (!sized) return null
+
 		// A fresh nonce, because the orderbook remembers every op hash it has taken
 		// and a signed op cannot be posted twice.
-		const nonce = (BigInt(order.orderNonce) + 1n).toString()
-		return (await this.post({ ...order, commitment: null, orderNonce: nonce })).order
+		const nonce = (BigInt(sized.orderNonce) + 1n).toString()
+		return (await this.post({ ...sized, commitment: null, orderNonce: nonce })).order
+	}
+
+	/**
+	 * The order at the size the chain's tally allows, ready to post: lowered in the store
+	 * when the tally leaves it less than it holds, and closed when what is left is under
+	 * the dust floor (answering null). A tally that cannot be read leaves the size alone,
+	 * and the periodic tally pass follows up.
+	 */
+	private async lowerBeforePosting(order: LimitOrder): Promise<LimitOrder | null> {
+		let lowered: LimitOrder | null
+		try {
+			lowered = await this.clampToTally(order, HELD_BY_REPOST, "info")
+		} catch (err) {
+			this.logger.warn({ id: order.id, err }, "Could not read the limit order's tally before posting it; posting its present size")
+			return order
+		}
+		if (!lowered) return order
+
+		const floor = await this.dustFloor(lowered)
+		if (BigInt(lowered.remaining) >= floor) return { ...order, remaining: lowered.remaining }
+		// The old entry is already down, so there is nothing left to withdraw.
+		await this.closeFilled({ ...lowered, commitment: null }, floor)
+		return null
 	}
 
 	/** A listener that throws is the listener's problem, not the fill's. */
@@ -736,7 +834,8 @@ export class LimitOrderService {
 	 * when there is nothing posted to keep alive.
 	 */
 	async heartbeat(): Promise<HeartbeatResult | null> {
-		if (!(await this.live()).some((order) => order.commitment)) return null
+		if (!(await this.hasPostings())) return null
+		this.renewLapsingHeartbeatSigner()
 
 		const first = await this.signAndHeartbeat(nowSecs())
 		if (first.kind === "accepted") {
@@ -747,7 +846,7 @@ export class LimitOrderService {
 		}
 		// A heartbeat sent on the back of a posting can land in the same second as
 		// the scheduled one, and the timestamp is the whole of the objection.
-		if (first.code !== "SIGNATURE_REUSED" && first.code !== "SIGNATURE_EXPIRED") return first
+		if (!TIMESTAMP_OBJECTIONS.includes(first.code)) return first
 		return this.signAndHeartbeat(nowSecs() + 1)
 	}
 
@@ -757,6 +856,18 @@ export class LimitOrderService {
 		return Math.max(1, Math.floor(heartbeatIntervalSecs / 2)) * 1000
 	}
 
+	/**
+	 * Authorises the heartbeat key when there are postings to keep alive and no
+	 * authorisation holds. Reconciliation calls this, which is how delegation is picked
+	 * back up after a refusal such as `SOLVER_NOT_VALIDATED`. An orderbook that does not
+	 * publish `heartbeatSignerTtlSecs` predates delegation, so the main key signs nothing for it.
+	 */
+	async authorizeHeartbeatSigner(): Promise<void> {
+		if (!this.heartbeatSigner || !(await this.hasPostings())) return
+		// Held is checked after the read, since the heartbeat clock may have authorised the key meanwhile.
+		if ((await this.heartbeatSignerTtlSecs()) === null || this.delegatedHeartbeatSigner()) return
+		this.heartbeatSignerUntil = await this.renewHeartbeatSigner(this.heartbeatSigner)
+	}
 
 	/**
 	 * Brings the orderbook's copy of the operator's orders back in line with ours.
@@ -788,8 +899,12 @@ export class LimitOrderService {
 			if (underFunds(entry)) {
 				const reason = underFunded(entry)
 				this.logger.warn({ id: owner.id, commitment: entry.commitment }, reason)
-				await this.store.setStatus(owner.id, owner.status, reason)
-				report.underFunded++
+				// Guarded on the status this pass listed the order with: the snapshot was
+				// taken before paging the orderbook and withdrawing orphans, and a cancel
+				// or an expiry that landed in that window owns the row now. Writing the
+				// snapshot's status back would undo it and put the entry up again.
+				const marked = await this.store.setStatus(owner.id, owner.status, reason, [owner.status])
+				if (marked) report.underFunded++
 			}
 		}
 
@@ -834,9 +949,10 @@ export class LimitOrderService {
 	 *
 	 * The row is read again and claimed out of `open` first: a fill can have worked
 	 * it down or started its own repost since reconciliation listed it, and that
-	 * write is the one to follow. A fill that lands once the claim is taken waits
-	 * in `resize` for this to finish. The EntryPoint is only written with a posting
-	 * that landed, so a pass cut short anywhere leaves a row the next pass still
+	 * write is the one to follow. A fill that lands once the claim is taken cannot
+	 * sync the row, which is `resizing`; the repost lowers the order to the chain's
+	 * tally before it posts, and `resize` waits for this to finish. The EntryPoint
+	 * is only written with a posting that landed, so a pass cut short anywhere leaves a row the next pass still
 	 * reads as stale, or as having no entry, and finishes the job.
 	 */
 	private async resign(listed: LimitOrder): Promise<boolean> {
@@ -878,10 +994,11 @@ export class LimitOrderService {
 	 * pay for it, and puts the order back on the book at that size.
 	 *
 	 * The account tallies each order's payouts on the fill chain and refuses a fill
-	 * that would take the tally past the order's size. A fill that never settled
-	 * here, or a store restored from an older copy, leaves `remaining` above that
-	 * room and the order posted at a size the account will refuse. A tally behind
-	 * the store changes nothing: `remaining` is never raised.
+	 * that would take the tally past the order's size. Settlement brings an order
+	 * down to its tally after each fill; this pass catches what that missed: a sync
+	 * that failed, a chain read that did not yet show the fill, a store restored
+	 * from an older copy. A tally behind the store changes nothing: `remaining` is
+	 * never raised.
 	 *
 	 * Answers how many orders were lowered.
 	 */
@@ -889,10 +1006,8 @@ export class LimitOrderService {
 		let lowered = 0
 		for (const order of await this.store.list({ status: "open" })) {
 			try {
-				const clamped = await this.clampToTally(order)
-				if (!clamped) continue
-				lowered++
-				await this.resize(clamped, BigInt(order.remaining) - BigInt(clamped.remaining))
+				// Settlement lowers an order after each fill, so one lowered here is one it missed.
+				if (await this.lowerToTally(order, "warn")) lowered++
 			} catch (err) {
 				this.logger.error({ id: order.id, err }, "Could not bring the limit order in line with its on-chain tally")
 			}
@@ -900,8 +1015,48 @@ export class LimitOrderService {
 		return lowered
 	}
 
-	/** The order as the store now holds it when its tally lowered it, null when it was left alone. */
-	private async clampToTally(order: LimitOrder): Promise<LimitOrder | null> {
+	/**
+	 * Brings one order's `remaining` down to its on-chain tally and puts it back on
+	 * the book at that size, or closes it under the dust floor: what
+	 * {@link reconcileTallies} does for every open order.
+	 *
+	 * The tally is read at `blockNumber` when given: a fill passes the block it landed
+	 * in, so an endpoint lagging behind it cannot answer with the tally from before the
+	 * fill. The periodic pass reads the latest block.
+	 *
+	 * The read falls back to the latest block when the pinned one fails.
+	 *
+	 * Answers whether the order was lowered. False when it is not `open` (also when a
+	 * repost takes it between the check and the write), or when the tally leaves it where it is, including a chain that has not yet counted a
+	 * fill and a tally that cannot be read (logged by the read). Throws when the chain
+	 * cannot be read for the token's decimals, or the store or orderbook fail;
+	 * settlement catches that and the periodic pass follows up.
+	 */
+	async syncToChain(id: string, blockNumber?: bigint): Promise<boolean> {
+		const order = await this.store.get(id)
+		if (!order || order.status !== "open") return false
+		return this.lowerToTally(order, "info", blockNumber)
+	}
+
+	private async lowerToTally(order: LimitOrder, level: "info" | "warn", blockNumber?: bigint): Promise<boolean> {
+		const clamped = await this.clampToTally(order, TALLY_PATH, level, blockNumber)
+		if (!clamped) return false
+		await this.resize(clamped, BigInt(order.remaining) - BigInt(clamped.remaining))
+		return true
+	}
+
+	/**
+	 * The order as the store now holds it when its tally lowered it, null when it was left alone.
+	 *
+	 * `only` is the statuses the row may hold for the clamp to apply, so a row that moved to
+	 * another between the caller's read and this write is not touched.
+	 */
+	private async clampToTally(
+		order: LimitOrder,
+		only: readonly LimitOrderStatus[],
+		level: "info" | "warn",
+		blockNumber?: bigint,
+	): Promise<LimitOrder | null> {
 		const token = this.assetRegistry.getAddress(limitOrderLegs(order).output, order.fillChain)
 		if (!token) return null
 
@@ -909,30 +1064,39 @@ export class LimitOrderService {
 		// kept in the token's units, and the cap each bid carries comes from this read.
 		const decimals = await this.contractService.getTokenDecimals(token, order.fillChain)
 		const budget = budgetFor(order, token, decimals)
-		const spent = await this.contractService.limitOrderSpent(order.fillChain, budget.budgetId)
+		let spent = await this.contractService.limitOrderSpent(order.fillChain, budget.budgetId, blockNumber)
+		if (spent === null && blockNumber !== undefined) {
+			// A node that pruned the fill's block, or has not reached it, cannot answer a pinned
+			// read. The clamp only ever lowers, so one read at the latest block is safe: the
+			// tally never shrinks, and an endpoint still behind the fill leaves the row where it
+			// is for the periodic pass.
+			this.logger.info(
+				{ id: order.id, blockNumber: blockNumber.toString() },
+				"Could not read the limit order's tally at the fill's block; reading the latest block",
+			)
+			spent = await this.contractService.limitOrderSpent(order.fillChain, budget.budgetId)
+		}
 		if (spent === null) return null
 
 		// A size finer than the token truncates into the cap, which leaves `remaining`
 		// above the room by less than one unit of the token. No bid could pay that
-		// out, so it is not worth a repost. `reserved` is added back as
-		// `clampRemaining` adds it.
+		// out, so it is not worth a repost.
 		const room = budgetRoom(budget, spent, decimals)
-		const over = BigInt(order.remaining) - (room + BigInt(order.reserved))
+		const over = BigInt(order.remaining) - room
 		if (over < toScaled(1n, decimals)) return null
 
-		const clamped = await this.store.clampRemaining(order.id, room.toString())
+		const clamped = await this.store.clampRemaining(order.id, room.toString(), only)
 		if (!clamped) return null
 
-		this.logger.warn(
+		this.logger[level](
 			{
 				id: order.id,
 				before: order.remaining,
 				after: clamped.remaining,
 				spent: spent.toString(),
 				cap: budget.cap.toString(),
-				reserved: clamped.reserved,
 			},
-			"Limit order had more left than its on-chain tally allows; lowering it",
+			"Lowered the limit order to what its on-chain tally has left",
 		)
 		return clamped
 	}
@@ -958,19 +1122,31 @@ export class LimitOrderService {
 		return stale.length
 	}
 
-	/** Takes an expired order off the book and closes the row. */
+	/**
+	 * Takes an expired order off the book and closes the row, and reports it so the bids
+	 * it priced, which would otherwise still pay out at its price, are retracted.
+	 *
+	 * Guarded like every other posting write: an order the operator cancelled, or a fill
+	 * closed, while the entry was coming down keeps that status and is not reported here.
+	 */
 	private async retire(order: LimitOrder): Promise<LimitOrder | null> {
 		this.logger.info({ id: order.id, expiresAt: order.expiresAt }, "Limit order has expired; withdrawing it")
 		if (order.commitment) await this.withdraw(order.commitment as HexString)
-		return this.store.setPosting(order.id, {
-			commitment: null,
-			bookExpiresAt: null,
-			bookPrice: null,
-			orderNonce: order.orderNonce,
-			entryPoint: null,
-			status: "expired",
-			lastError: null,
-		})
+		const expired = await this.store.setPosting(
+			order.id,
+			{
+				commitment: null,
+				bookExpiresAt: null,
+				bookPrice: null,
+				orderNonce: order.orderNonce,
+				entryPoint: null,
+				status: "expired",
+				lastError: null,
+			},
+			POSTABLE,
+		)
+		if (expired) this.report({ kind: "expired", order: expired })
+		return expired
 	}
 
 	/** Every order that has a posting on the book, or should have one. */
@@ -994,16 +1170,141 @@ export class LimitOrderService {
 		return entries
 	}
 
+	private async hasPostings(): Promise<boolean> {
+		return (await this.live()).some((order) => order.commitment)
+	}
+
+	/** The heartbeat key while its authorisation holds, or undefined when the main key has to sign. */
+	private delegatedHeartbeatSigner(): Signer | undefined {
+		return (this.heartbeatSignerUntil ?? 0) > Date.now() ? this.heartbeatSigner : undefined
+	}
+
+	/**
+	 * Signs with the heartbeat key while it is authorised. When the orderbook refuses it, the
+	 * main key signs this heartbeat and every one until the key is authorised again. A missed
+	 * heartbeat is a suspension, so no failure here may cost one.
+	 */
 	private async signAndHeartbeat(timestamp: number): Promise<HeartbeatResult> {
-		const { eip712DomainName, eip712DomainVersion } = (await this.limits()).serverInfo
+		const held = this.heartbeatSignerUntil
+		const delegated = this.delegatedHeartbeatSigner()
+		if (!delegated) return this.sendHeartbeat(this.signer, timestamp)
+
+		const result = await this.sendHeartbeat(delegated, timestamp)
+		if (result.kind === "accepted" || TIMESTAMP_OBJECTIONS.includes(result.code)) return result
+
+		this.logger.warn({ code: result.code }, "Orderbook refused the heartbeat key; the main key signs meanwhile")
+		// An authorisation that landed while this heartbeat was out is newer than the refusal.
+		if (this.heartbeatSignerUntil === held) this.heartbeatSignerUntil = undefined
+		// Only a lapse is put right by authorising again straight away. A key another process
+		// replaced waits for reconciliation, so two of them never take turns paying every tick.
+		if (result.code === "HEARTBEAT_SIGNER_EXPIRED") {
+			this.renewHeartbeatSigner(delegated)
+				.then((until) => {
+					this.heartbeatSignerUntil = until
+				})
+				.catch((err) => this.logger.warn({ err }, "Could not authorise the heartbeat key"))
+		}
+		return this.sendHeartbeat(this.signer, timestamp)
+	}
+
+	private async sendHeartbeat(signer: Signer, timestamp: number): Promise<HeartbeatResult> {
+		// The heartbeat is always the solver's, whichever key signs it.
 		const solver = this.signer.address
-		const signature = await this.signer.signTypedData({
-			domain: { name: eip712DomainName, version: eip712DomainVersion },
+		const signature = await this.signMessage(signer, {
 			types: HEARTBEAT_TYPES,
 			primaryType: "Heartbeat",
 			message: { solver, timestamp },
 		})
 		return this.client.heartbeat({ solver, timestamp, signature })
+	}
+
+	/**
+	 * Re-authorises the heartbeat key in the background once it is within a few ticks of lapsing,
+	 * so a slow main signer never holds a heartbeat up. Only a key still held is renewed; one that
+	 * has lapsed is left to reconciliation, so an orderbook that keeps failing costs a few tries
+	 * rather than a signature every tick.
+	 */
+	private renewLapsingHeartbeatSigner(): void {
+		const delegated = this.delegatedHeartbeatSigner()
+		if (!delegated) return
+		this.renewalMarginMs()
+			.then(async (marginMs) => {
+				if ((this.heartbeatSignerUntil ?? 0) - Date.now() > marginMs) return
+				this.heartbeatSignerUntil = await this.renewHeartbeatSigner(delegated)
+			})
+			.catch((err) => this.logger.warn({ err }, "Could not renew the heartbeat key"))
+	}
+
+	/**
+	 * How long before the heartbeat key lapses to start renewing it. Never more than half its
+	 * TTL, or a short one would put every tick inside the margin.
+	 */
+	private async renewalMarginMs(): Promise<number> {
+		const ticksMs = HEARTBEAT_SIGNER_RENEWAL_TICKS * (await this.heartbeatIntervalMs())
+		const ttlSecs = await this.heartbeatSignerTtlSecs()
+		return ttlSecs === null ? ticksMs : Math.min(ticksMs, ttlSecs * 500)
+	}
+
+	private async heartbeatSignerTtlSecs(): Promise<number | null> {
+		const cached = this.cachedHeartbeatSignerTtl
+		if (cached && Date.now() - cached.readAt < LIMITS_TTL_MS) return cached.secs
+		const secs = await this.client.heartbeatSignerTtlSecs()
+		this.cachedHeartbeatSignerTtl = { secs, readAt: Date.now() }
+		return secs
+	}
+
+	/**
+	 * Has the main key authorise `heartbeatSigner`, answering when the authorisation lapses or
+	 * undefined when the orderbook refused it. A request that got no answer throws, and so does a
+	 * refusal of this message's timestamp alone, leaving any authorisation still held to run out
+	 * on its own while the next tick or reconciliation tries again.
+	 */
+	private renewHeartbeatSigner(heartbeatSigner: Signer): Promise<number | undefined> {
+		this.authorizing ??= this.signAndAuthorize(heartbeatSigner).finally(() => {
+			this.authorizing = undefined
+		})
+		return this.authorizing
+	}
+
+	private async signAndAuthorize(heartbeatSigner: Signer): Promise<number | undefined> {
+		const solver = this.signer.address
+		const signer = heartbeatSigner.address
+		const timestamp = nowSecs()
+		const signature = await this.signMessage(this.signer, {
+			types: AUTHORIZE_HEARTBEAT_SIGNER_TYPES,
+			primaryType: "AuthorizeHeartbeatSigner",
+			message: { solver, signer, timestamp },
+		})
+		const result = await this.client.authorizeHeartbeatSigner({ solver, signer, timestamp, signature })
+		if (result.kind === "rejected" && TIMESTAMP_OBJECTIONS.includes(result.code)) {
+			throw new Error(`Orderbook refused the authorisation's timestamp: ${result.code}`)
+		}
+		if (result.kind === "rejected") {
+			this.logger.info(
+				{ code: result.code, message: result.message },
+				"Orderbook refused the heartbeat key; the main key signs heartbeats meanwhile",
+			)
+			return undefined
+		}
+		// One main key signature each, logged so an operator can match them against a signing bill.
+		this.logger.info({ signer, authorizedUntil: result.authorizedUntil }, "Main key authorised the heartbeat key")
+		// A lapse already inside the renewal margin, or one this clock cannot place, would have
+		// the main key renew it on every tick.
+		const until = Date.parse(result.authorizedUntil ?? "")
+		if (!(until - Date.now() > (await this.renewalMarginMs()))) {
+			this.logger.warn(
+				{ authorizedUntil: result.authorizedUntil },
+				"Heartbeat key authorisation is too short to keep; the main key signs heartbeats meanwhile",
+			)
+			return undefined
+		}
+		return until
+	}
+
+	/** Signs one of the orderbook's EIP-712 messages under the domain it publishes. */
+	private async signMessage(signer: Signer, payload: Omit<TypedDataPayload, "domain">): Promise<HexString> {
+		const { eip712DomainName, eip712DomainVersion } = (await this.limits()).serverInfo
+		return signer.signTypedData({ domain: { name: eip712DomainName, version: eip712DomainVersion }, ...payload })
 	}
 
 	/**
@@ -1084,10 +1385,19 @@ export class LimitOrderService {
 		// its database was away or the request never landed, so the order stays open
 		// with the reason on it and something posts it again later. Marking it
 		// `rejected` would retire an order the operator still wants over one timeout.
-		if (result.kind === "failed" && result.retryable) {
+		// Nor is a suspension: screening refuses a suspended solver's submissions
+		// (`SOLVER_SUSPENDED`) only until a screen passes, and the orderbook keeps its
+		// orders meanwhile. A ban (`SOLVER_FLAGGED`) is final, and is a refusal.
+		const postLater =
+			(result.kind === "failed" && result.retryable) ||
+			(result.kind === "rejected" && result.code === "SOLVER_SUSPENDED")
+		if (postLater) {
 			this.logger.warn({ id: order.id, err: message }, "Could not post the limit order; leaving it to be posted again")
-			return {
-				order: (await this.store.setPosting(order.id, {
+			// Guarded like the other writes here: a cancel or an expiry that landed while the
+			// post was in flight owns the row, and says nothing is left to post again.
+			const left = await this.store.setPosting(
+				order.id,
+				{
 					commitment: null,
 					bookExpiresAt: null,
 					bookPrice: null,
@@ -1095,15 +1405,17 @@ export class LimitOrderService {
 					entryPoint: null,
 					status: "open",
 					lastError: message,
-				}))!,
-				result,
-			}
+				},
+				POSTABLE,
+			)
+			return { order: left ?? (await this.store.get(order.id))!, result }
 		}
 
 		this.logger.error({ id: order.id, err: message }, "Orderbook refused the limit order")
 		// Guarded for the same reason: a refusal that arrives after the operator
 		// cancelled says nothing about the row they left behind.
 		const rejected = await this.store.setStatus(order.id, "rejected", message, POSTABLE)
+		if (rejected) this.report({ kind: "rejected", order: rejected })
 		return { order: rejected ?? (await this.store.get(order.id))!, result }
 	}
 
@@ -1238,6 +1550,9 @@ function spelledAs(book: { base: string; quote: string }, symbol: string): strin
 function nowSecs(): number {
 	return Math.floor(Date.now() / 1000)
 }
+
+/** The refusals that object only to a message's timestamp, which the next second puts right. */
+const TIMESTAMP_OBJECTIONS: readonly MessageRejectionCode[] = ["SIGNATURE_REUSED", "SIGNATURE_EXPIRED"]
 
 /** Whether this order is ours alone: a same-asset quote has no book to sit on. */
 function isLocal(order: LimitOrder): boolean {

@@ -208,7 +208,7 @@ export class TunnelService implements TunnelControls {
 			lastError: this.lastError,
 			hostFingerprint: this.hostKey.fingerprint,
 			operatorFingerprint: this.operatorKey.fingerprint,
-			devices: this.keys.devices().map(toDeviceDto),
+			devices: this.keys.devices().map((device) => toDeviceDto(device, this.server.isDeviceConnected(device.fingerprint))),
 			activeConnections: this.server.connections,
 			connection: this.connection(),
 		}
@@ -277,7 +277,7 @@ export class TunnelService implements TunnelControls {
 			"Paired a new device for remote access",
 		)
 		return {
-			device: toDeviceDto(device),
+			device: toDeviceDto(device, false),
 			privateKey,
 			publicKey: device.publicKey,
 			connection: this.connection(),
@@ -426,6 +426,9 @@ export class TunnelService implements TunnelControls {
 	}
 }
 
-function toDeviceDto(device: { fingerprint: string; label: string; addedAt: number }): TunnelDeviceDto {
-	return { fingerprint: device.fingerprint, label: device.label, addedAt: device.addedAt }
+function toDeviceDto(
+	device: { fingerprint: string; label: string; addedAt: number },
+	connected: boolean,
+): TunnelDeviceDto {
+	return { fingerprint: device.fingerprint, label: device.label, addedAt: device.addedAt, connected }
 }

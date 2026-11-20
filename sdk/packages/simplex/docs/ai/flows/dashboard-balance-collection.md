@@ -7,8 +7,8 @@ performs the first refresh before boot returns; later refreshes run on the confi
 For each chain, `BalanceProvider` resolves configured USDC/USDT and unique exotic assets, reads the
 solver's native and token wallet balances, then merges the planner's vault rows by underlying asset.
 `VaultFundingPlanner.getBalanceSnapshot()` takes the same per-chain mutex as fill planning, refreshes
-`VaultLiquidityState`, and returns base-unit position, remaining withdrawable assets, and wallet
-reserve. The API boundary formats those once and derives:
+`VaultLiquidityState`, and returns base-unit position, withdrawable assets (the vault's
+`maxWithdraw(solver)`, with nothing held back for planned fills), and wallet reserve. The API boundary formats those once and derives:
 
 - `total = wallet + vaultPosition`
 - `available = max(wallet - walletReserve, 0) + vaultAvailable`
@@ -42,7 +42,9 @@ values explicit and use the warning accent instead of inheriting the token colou
 "Some balances are unavailable" notice covers the whole snapshot, including networks that are not
 currently selected.
 
-`Operator` passes the same snapshot to the Wallet page (`WalletTools`). `SendCard` matches the selected chain
-and token address, displays the asset's canonical `available` value beside Amount, and uses the native
-wallet row for native gas. After `/api/send` succeeds, it invokes the parent load path so the shared
+`Operator` passes the same snapshot to the Wallet page (`WalletTools`). `SendDialog` matches each
+sendable token to its chain row and token address. It does not show the asset's `available` value,
+which leaves out the wallet floor a vault asks for. A send can use the whole wallet and withdraw the
+rest from one vault, so the dialog shows `wallet` plus the largest vault's `available`. The native
+row is the native balance. After `/api/send` accepts a send, it invokes the parent load path so the shared
 balance snapshot, strategies, and configuration refresh immediately.

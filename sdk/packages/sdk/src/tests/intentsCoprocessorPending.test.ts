@@ -289,7 +289,7 @@ describe("in-flight extrinsic handling", () => {
 
 		expect(result.success).toBe(false)
 		expect(result.pending).toBeUndefined()
-		expect(result.error).toBe("Transaction failed after 3 attempts")
+		expect(result.error).toMatch(/^Transaction failed after 3 attempts/)
 		expect(calls.count).toBe(3)
 	})
 

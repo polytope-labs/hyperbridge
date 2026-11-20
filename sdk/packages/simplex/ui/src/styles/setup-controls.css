@@ -1,8 +1,13 @@
-.signer-tabs {
-	display: inline-grid;
-	grid-template-columns: repeat(3, max-content);
-	max-width: 100%;
-	margin: 1.25rem 0 0;
+.steps.signer-tabs {
+	margin: 0.75rem 0 0;
+}
+
+/* Four tabs do not fit a phone in one row, so they sit two by two. */
+@media (max-width: 600px) {
+	.steps.signer-tabs {
+		display: grid;
+		grid-template-columns: repeat(2, minmax(0, 1fr));
+	}
 }
 
 .chain-provider-controls {
@@ -433,23 +438,107 @@ button.chain-check-again:hover:not(:disabled) {
 	padding-inline: 0.6rem;
 }
 
-.signer-method-summary {
-	display: block;
-	margin-top: 0.85rem;
+/* The few short points a wizard step opens with. */
+.step-points {
+	display: grid;
+	grid-template-columns: repeat(3, minmax(0, 1fr));
+	gap: 1.5rem;
+	margin: 0 0 1.75rem;
+	padding: 0 0 1.75rem;
+	border-bottom: 1px solid var(--border);
+	list-style: none;
 }
 
-.signer-method-summary strong {
+.step-points li {
+	display: flex;
+	align-items: flex-start;
+	gap: 0.75rem;
+	min-width: 0;
+}
+
+.step-point-icon {
+	display: grid;
+	place-items: center;
+	width: 2rem;
+	height: 2rem;
+	flex: 0 0 auto;
+	border: 1px solid var(--border-strong);
+	border-radius: 0.6rem;
+	background: var(--control);
+	color: var(--text-secondary);
+}
+
+.step-point-icon svg {
+	width: 1rem;
+	height: 1rem;
+}
+
+.step-points strong {
 	display: block;
-	font-size: 0.8125rem;
+	font-size: 0.875rem;
 	font-weight: 500;
+	letter-spacing: -0.01em;
+	line-height: 1.35;
 }
 
-.signer-method-summary p,
-.credential-note {
-	margin: 0.18rem 0 0;
+.step-points p {
+	margin: 0.2rem 0 0;
 	color: var(--muted);
-	font-size: 0.75rem;
+	font-size: 0.8125rem;
+	line-height: 1.45;
+	text-wrap: pretty;
+}
+
+@media (max-width: 720px) {
+	.step-points {
+		grid-template-columns: minmax(0, 1fr);
+		gap: 0.9rem;
+	}
+}
+
+/* The intro is the step's only <section>, so the last-of-type rule would strip its bottom padding. */
+.chains-step > .chain-funding-intro {
+	padding-bottom: 1.5rem;
+}
+
+/* A chain whose fills cannot be turned on yet reads as off. Its status line says what it needs and
+   its chevron still opens the endpoints, so both stay as they are. */
+.chains-step .chain-configuration[data-locked] .chain-logo {
+	filter: grayscale(1);
+	opacity: 0.4;
+}
+
+.chains-step .chain-configuration[data-locked] .chain-identity h2 {
+	color: var(--muted);
+}
+
+.chains-step .chain-configuration[data-locked] .chain-enable-toggle {
+	opacity: 0.45;
+	cursor: not-allowed;
+}
+
+/* A long status line must wrap instead of squeezing the switch and the chevron. */
+.chains-step .chain-header-controls {
+	flex-shrink: 0;
+}
+
+.signer-method-note {
+	margin: 0.85rem 0 0;
+	color: var(--text-secondary);
+	font-size: 0.8125rem;
 	line-height: 1.5;
+}
+
+.credential-note {
+	margin: 0.5rem 0 0;
+	color: var(--muted);
+	font-size: 0.8125rem;
+	line-height: 1.5;
+}
+
+/* Every field on this step is needed, so the badge on each one only adds noise. */
+.signer-step .field-required {
+	display: none;
 }
 
 .signer-credentials {
@@ -464,23 +553,17 @@ button.chain-check-again:hover:not(:disabled) {
 	display: flex;
 	align-items: center;
 	gap: 0.45rem;
-	margin-top: 0.55rem;
-	font-size: 0.75rem;
+	margin: 0.75rem 0 0;
+	font-size: 0.8125rem;
 	line-height: 1.45;
 }
 
-.signer-key-validation-empty,
 .signer-key-validation-checking {
 	color: var(--muted);
 }
 
-.signer-key-validation-invalid,
-.signer-key-validation-error {
+.signer-key-validation-invalid {
 	color: var(--err);
-}
-
-.signer-key-validation-valid {
-	color: var(--ok);
 }
 
 .signer-key-validation-icon {
@@ -504,13 +587,6 @@ button.chain-check-again:hover:not(:disabled) {
 	border-right-color: transparent;
 	border-radius: 50%;
 	animation: signer-key-spin 0.7s linear infinite;
-}
-
-.signer-key-validation-dot {
-	width: 0.4rem;
-	height: 0.4rem;
-	border-radius: 50%;
-	background: currentColor;
 }
 
 @keyframes signer-key-spin {

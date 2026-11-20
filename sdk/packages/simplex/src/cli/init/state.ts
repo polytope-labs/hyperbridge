@@ -29,7 +29,6 @@ export interface WizardState {
 	maxConcurrentOrders: number
 	logging?: string
 	gasFeeBump?: FillerTomlConfig["simplex"]["gasFeeBump"]
-	overfillProtection?: FillerTomlConfig["simplex"]["overfillProtection"]
 	rebalancing?: FillerTomlConfig["rebalancing"]
 	vault?: FillerTomlConfig["vault"]
 	allowlist?: FillerTomlConfig["allowlist"]

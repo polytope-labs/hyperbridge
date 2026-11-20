@@ -4,25 +4,30 @@ import { useAppBootstrap } from "./app/useAppBootstrap"
 import { ScreenErrorBoundary } from "./components/ScreenErrorBoundary"
 import { InstallAppProvider } from "./components/InstallAppButton"
 import { DesktopAccess } from "./app/DesktopAccess"
+import { DesktopUpdateProvider, UpdatingScreen, useDesktopUpdate } from "./app/DesktopUpdate"
 
 export function App() {
 	return (
 		<DesktopAccess>
-			<AppContent />
+			<DesktopUpdateProvider>
+				<AppContent />
+			</DesktopUpdateProvider>
 		</DesktopAccess>
 	)
 }
 
 function AppContent() {
 	const { state, refresh } = useAppBootstrap()
+	const { installing } = useDesktopUpdate()
+	const operator = state.kind === "operator" && !installing
 
 	return (
 		<InstallAppProvider>
-			<div className={`app-shell ${state.kind === "operator" ? "app-shell-operator" : ""}`}>
+			<div className={`app-shell ${operator ? "app-shell-operator" : ""}`}>
 				<HeaderGradient />
-				<main className={`app-container ${state.kind === "operator" ? "operator-container" : ""}`}>
+				<main className={`app-container ${operator ? "operator-container" : ""}`}>
 					<ScreenErrorBoundary>
-						<AppScreen state={state} refresh={refresh} />
+						{installing ? <UpdatingScreen /> : <AppScreen state={state} refresh={refresh} />}
 					</ScreenErrorBoundary>
 				</main>
 			</div>

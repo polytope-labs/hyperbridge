@@ -107,6 +107,7 @@ async function assertDirectSolverStartup(appDirectory) {
 	const launch = {
 		nodePath: join(resources, "runtime", process.platform === "win32" ? "node.exe" : "node"),
 		solverPath: join(resources, "simplex", "dist", "bin", "simplex.js"),
+		diagnosticsPath: join(resources, "desktop", "solver-diagnostics.mjs"),
 		socketPath,
 		dataDir: userData,
 	}

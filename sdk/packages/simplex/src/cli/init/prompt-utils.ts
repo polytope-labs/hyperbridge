@@ -89,11 +89,15 @@ export async function askUrl(
 	})
 }
 
-/** Masked input; when a previous value exists, pressing Enter keeps it. */
+/**
+ * Masked input; when a previous value exists, pressing Enter keeps it. With `optional`, an
+ * empty submission and no previous value returns an empty string instead of asking again.
+ */
 export async function askSecret(
 	message: string,
 	previous?: string,
 	validate?: (value: string) => string | undefined,
+	options: { optional?: boolean } = {},
 ): Promise<string> {
 	for (;;) {
 		const input = guard(
@@ -101,7 +105,7 @@ export async function askSecret(
 				message: previous ? `${message} (press Enter to keep the current value)` : message,
 				validate: (value) => {
 					const trimmed = (value ?? "").trim()
-					if (!trimmed) return previous ? undefined : "This value is required"
+					if (!trimmed) return previous || options.optional ? undefined : "This value is required"
 					return validate?.(trimmed)
 				},
 			}),
@@ -109,6 +113,7 @@ export async function askSecret(
 		const trimmed = (input ?? "").trim()
 		if (trimmed) return trimmed
 		if (previous) return previous
+		if (options.optional) return ""
 	}
 }
 

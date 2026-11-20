@@ -5,6 +5,7 @@ import {
 	QuorumError,
 	quorumThreshold,
 	aggregateConfirmations,
+	aggregateInclusion,
 	type ReceiptView,
 } from "@/services/QuorumPublicClient"
 
@@ -231,6 +232,38 @@ describe("aggregateConfirmations — BFT agreement on an inclusion", () => {
 	})
 })
 
+describe("aggregateInclusion — the block a quorum agreed the transaction is in", () => {
+	const RECEIPT_BLOCK = 100n
+	const HASH_A = "0xaaaa"
+	const HASH_B = "0xbbbb"
+
+	function view(head: bigint, blockHash = HASH_A, blockNumber = RECEIPT_BLOCK): ReceiptView {
+		return { blockHash, blockNumber, head }
+	}
+
+	it("returns the agreeing group's blockHash, blockNumber and confirmations", () => {
+		const views = [view(120n), view(118n), view(115n)]
+		expect(aggregateInclusion(views, 2)).toEqual({
+			blockHash: HASH_A,
+			blockNumber: RECEIPT_BLOCK,
+			confirmations: 19n, // 2nd-highest head = 118 → 118-100+1
+		})
+	})
+
+	it("ignores a divergent minority and reports the inclusion a quorum agreed on", () => {
+		const views = [view(120n), view(117n), view(999n, HASH_B, 90n)]
+		expect(aggregateInclusion(views, 2)).toEqual({
+			blockHash: HASH_A,
+			blockNumber: RECEIPT_BLOCK,
+			confirmations: 18n, // 2nd-highest head of the HASH_A group = 117 → 117-100+1
+		})
+	})
+
+	it("returns null when no inclusion reaches the quorum", () => {
+		expect(aggregateInclusion([view(120n)], 2)).toBeNull()
+	})
+})
+
 describe("QuorumPublicClient — failure handling (stubbed clients)", () => {
 	// Stubs are swapped in post-construction (URLs are .invalid, never contacted).
 	function makeClient(size: number): QuorumPublicClient {
@@ -343,6 +376,100 @@ describe("QuorumPublicClient — failure handling (stubbed clients)", () => {
 		// not 19 (which would leak the not-found head 200 into the sort).
 		c.clients[3] = notFoundClient(200n)
 		await expect(c.getTransactionConfirmations({ hash: "0x1" as any })).resolves.toBe(16n)
+	})
+
+	it("getTransactionInclusion reports the block a quorum agreed on", async () => {
+		const c = makeClient(4) // threshold 3
+		c.clients[0] = receiptClient(120n, "0xabc", 100n)
+		c.clients[1] = receiptClient(118n, "0xabc", 100n)
+		c.clients[2] = receiptClient(115n, "0xabc", 100n)
+		c.clients[3] = errHead("down")
+		await expect(c.getTransactionInclusion({ hash: "0x1" as any })).resolves.toEqual({
+			blockHash: "0xabc",
+			blockNumber: 100n,
+			confirmations: 16n, // quorum head = 3rd-highest agreeing head = 115 → 115-100+1
+		})
+	})
+
+	it("getTransactionInclusion follows a quorum that agrees on a re-mined inclusion", async () => {
+		// A source reorg re-mined the tx into 0xnew at 102; three endpoints see
+		// that, one stale endpoint still serves the pre-reorg inclusion.
+		const c = makeClient(4) // threshold 3
+		c.clients[0] = receiptClient(120n, "0xnew", 102n)
+		c.clients[1] = receiptClient(120n, "0xnew", 102n)
+		c.clients[2] = receiptClient(120n, "0xnew", 102n)
+		c.clients[3] = receiptClient(120n, "0xold", 100n)
+		await expect(c.getTransactionInclusion({ hash: "0x1" as any })).resolves.toEqual({
+			blockHash: "0xnew",
+			blockNumber: 102n,
+			confirmations: 19n, // 120-102+1
+		})
+	})
+
+	it("getTransactionInclusion fails when no inclusion reaches the quorum", async () => {
+		const c = makeClient(3) // threshold 3
+		c.clients[0] = receiptClient(120n, "0xabc", 100n)
+		c.clients[1] = receiptClient(120n, "0xabc", 100n)
+		c.clients[2] = receiptClient(120n, "0xother", 100n)
+		await expect(c.getTransactionInclusion({ hash: "0x1" as any })).rejects.toThrow(/Quorum not reached/)
+	})
+
+	// ── readWithQuorum: the read callback is the whole vote, so an endpoint's
+	// answer is whatever its callback resolves to and a throwing endpoint does
+	// not vote. ──
+
+	const withRead = (value: unknown) => ({ readValue: async () => value }) as any
+	const readValue = (client: any) => client.readValue() as Promise<unknown>
+
+	it("readWithQuorum returns the value a quorum agrees on over a divergent minority", async () => {
+		const c = makeClient(4) // threshold 3
+		c.clients[0] = withRead(5n)
+		c.clients[1] = withRead(5n)
+		c.clients[2] = withRead(5n)
+		c.clients[3] = withRead(99n)
+		await expect(c.readWithQuorum("_orders", readValue)).resolves.toBe(5n)
+	})
+
+	it("readWithQuorum: a throwing endpoint does not vote", async () => {
+		const c = makeClient(3) // threshold 3 when all answer
+		c.clients[0] = withRead(7n)
+		c.clients[1] = withRead(7n)
+		c.clients[2] = {
+			readValue: async () => {
+				throw new Error("down")
+			},
+		} as any
+		// Two answered, so both must back the value.
+		await expect(c.readWithQuorum("_orders", readValue)).resolves.toBe(7n)
+	})
+
+	it("readWithQuorum: a read that throws synchronously fails only its own endpoint", async () => {
+		const c = makeClient(3) // threshold 3 when all answer
+		c.clients[0] = withRead(4n)
+		c.clients[1] = withRead(4n)
+		c.clients[2] = withRead(4n)
+		// Throws before returning a promise — one endpoint's fault, not the call's.
+		const read = (client: any) => {
+			if (client === c.clients[2]) throw new Error("synchronous boom")
+			return client.readValue() as Promise<unknown>
+		}
+		await expect(c.readWithQuorum("_orders", read)).resolves.toBe(4n)
+	})
+
+	it("readWithQuorum compares bigint arrays by value, not identity", async () => {
+		const c = makeClient(2) // threshold 2
+		// Distinct arrays, same contents — as two endpoints reading the same slots.
+		c.clients[0] = withRead([5n, 6n])
+		c.clients[1] = withRead([5n, 6n])
+		await expect(c.readWithQuorum("_orders", readValue)).resolves.toEqual([5n, 6n])
+	})
+
+	it("readWithQuorum throws when no value reaches the bar", async () => {
+		const c = makeClient(3) // threshold 3
+		c.clients[0] = withRead(1n)
+		c.clients[1] = withRead(2n)
+		c.clients[2] = withRead(3n)
+		await expect(c.readWithQuorum("_orders", readValue)).rejects.toThrow(/Quorum not reached/)
 	})
 
 	it("getLogs returns the majority batch over a divergent minority", async () => {

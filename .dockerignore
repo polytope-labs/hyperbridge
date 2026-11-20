@@ -6,6 +6,7 @@ target
 !target/release/telemetry-server
 !target/release/governance-api
 !target/release/hyperbridge
+!target/release/omniplex
 
 .github
 .cargo

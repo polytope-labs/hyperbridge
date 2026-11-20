@@ -11,6 +11,10 @@ files:
     - package.json
 
 extraResources:
+    - from: dist/solver-diagnostics.js
+      to: desktop/solver-diagnostics.mjs
+    - from: dist/solver-diagnostics.js.map
+      to: desktop/solver-diagnostics.js.map
     - from: build/package/simplex
       to: simplex
     - from: build/package/runtime-deps/node_modules

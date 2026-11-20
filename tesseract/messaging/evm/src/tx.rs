@@ -8,9 +8,13 @@ use crate::{
 };
 use alloy::{
 	consensus::{Eip658Value, TxReceipt as AlloyTxReceipt},
-	primitives::{Address, Bytes, B256, U256 as AlloyU256},
-	providers::Provider,
-	rpc::types::{TransactionReceipt, TransactionRequest},
+	eips::BlockId,
+	primitives::{Address, Bytes, Log, LogData, B256, U256 as AlloyU256},
+	providers::{ext::DebugApi, Provider},
+	rpc::types::{
+		trace::geth::{CallFrame, GethTrace},
+		TransactionReceipt, TransactionRequest,
+	},
 	transports::TransportError,
 };
 use alloy_sol_types::SolEvent;
@@ -123,6 +127,85 @@ fn extract_event_commitments(receipt: &TransactionReceipt) -> BTreeSet<H256> {
 		.collect()
 }
 
+/// The commitments the host names when it handles `message`: each post request's own, and for
+/// a GET response the commitment of the GetRequest it answers.
+fn message_commitments(message: &Message) -> Vec<H256> {
+	match message {
+		Message::Request(msg) => msg
+			.requests
+			.iter()
+			.map(|post| hash_request::<Hasher>(&Request::Post(post.clone())))
+			.collect(),
+		Message::Response(msg) => msg
+			.requests
+			.iter()
+			.map(|get| hash_request::<Hasher>(&Request::Get(get.clone())))
+			.collect(),
+		_ => Vec::new(),
+	}
+}
+
+/// What `messages` left undelivered, given the commitments a mined transaction handled.
+///
+/// `EvmHost.dispatchIncoming` swallows a reverting module callback, so a transaction that
+/// succeeds can still deliver only some of its messages. A request message comes back holding
+/// only its undelivered requests: parking keeps the requests and the retry path proves each one
+/// again, so the proof it still carries is not reused. A response message comes back whole when
+/// any of its responses is missing.
+fn undelivered(messages: &[Message], delivered: &BTreeSet<H256>) -> Vec<Message> {
+	messages
+		.iter()
+		.filter_map(|message| match message {
+			Message::Request(msg) => {
+				let mut msg = msg.clone();
+				msg.requests.retain(|post| {
+					!delivered.contains(&hash_request::<Hasher>(&Request::Post(post.clone())))
+				});
+				(!msg.requests.is_empty()).then_some(Message::Request(msg))
+			},
+			Message::Response(_) => message_commitments(message)
+				.iter()
+				.any(|commitment| !delivered.contains(commitment))
+				.then(|| message.clone()),
+			_ => None,
+		})
+		.collect()
+}
+
+/// The commitments a traced call's `PostRequestHandled` and `GetRequestHandled` logs name, and
+/// how deeply its calls nest below the top frame.
+fn traced_deliveries(frame: &CallFrame) -> (BTreeSet<H256>, usize) {
+	fn walk(frame: &CallFrame, depth: usize, handled: &mut BTreeSet<H256>) -> usize {
+		for log in &frame.logs {
+			let topics = log.topics.clone().unwrap_or_default();
+			let data = log.data.clone().unwrap_or_default();
+			let Some(data) = LogData::new(topics, data) else { continue };
+			let log = Log { address: log.address.unwrap_or_default(), data };
+			if let Ok(ev) = PostRequestHandled::decode_log(&log) {
+				handled.insert(H256::from_slice(ev.commitment.as_slice()));
+			} else if let Ok(ev) = GetRequestHandled::decode_log(&log) {
+				handled.insert(H256::from_slice(ev.commitment.as_slice()));
+			}
+		}
+		frame
+			.calls
+			.iter()
+			.map(|call| walk(call, depth + 1, handled))
+			.fold(depth, usize::max)
+	}
+
+	let mut handled = BTreeSet::new();
+	let depth = walk(frame, 0, &mut handled);
+	(handled, depth)
+}
+
+/// Gas for a transaction that used `used` with calls nested `depth` deep. Each call keeps back
+/// 1/64 of the gas it has left (EIP-150), so the deepest frame starts with at most `(63/64)^depth`
+/// of the transaction's gas; `used * (64/63)^depth` leaves enough at every depth.
+fn nested_call_gas(used: u64, depth: usize) -> u64 {
+	(0..depth).fold(used, |gas, _| gas.saturating_mul(64).div_ceil(63))
+}
+
 /// Scan a receipt's logs for `EvmHost::NewEpoch(set_id, relayer)`
 /// events addressed to `self_address`. Returns every `set_id` we won
 /// the race for in this submission — a single tx can carry multiple
@@ -233,6 +316,88 @@ async fn fetch_gas_price(client: &EvmClient, debug_trace: bool) -> anyhow::Resul
 	}
 
 	Ok(price)
+}
+
+// ── Delivery gas limit ────────────────────────────────────────────────────────
+
+/// Traces `tx` with the call tracer against the latest block, at `gas_limit` and with a gas price
+/// only where the client needs one to trace.
+async fn trace_call(
+	client: &EvmClient,
+	tx: &TransactionRequest,
+	gas_limit: u64,
+) -> anyhow::Result<CallFrame> {
+	let gas_price = fetch_gas_price(client, true).await?;
+	let mut traced = tx.clone().gas_limit(gas_limit);
+	traced.gas_price = (!gas_price.is_zero()).then(|| gas_price.low_u128());
+	let options = crate::provider::call_tracer_options()?;
+	match client.client.debug_trace_call(traced, BlockId::latest(), options).await? {
+		GethTrace::CallTracer(frame) => Ok(frame),
+		trace => Err(anyhow!("Unexpected geth trace variant: {trace:?}")),
+	}
+}
+
+/// The gas limit to submit `tx` with, so that it delivers every message in `messages` it can.
+///
+/// `eth_estimateGas` returns the lowest limit at which the transaction does not revert. Because
+/// `EvmHost.dispatchIncoming` swallows a module callback that runs out of gas, that limit can
+/// leave the last messages undelivered, and a fixed percentage over it does not cover how deeply
+/// a module's calls nest. So the transaction is traced with the chain's whole gas limit to learn
+/// what it delivers, how much gas it uses and how deep its calls go. The limit is that usage
+/// grown by the 1/64 each nested call keeps back, never below `tx`'s own limit, and a second
+/// trace confirms it delivers the same messages. When it does not, the chain's whole gas limit
+/// is used; when tracing is unavailable, `tx`'s own limit is kept.
+async fn delivery_gas_limit(
+	client: &EvmClient,
+	tx: &TransactionRequest,
+	messages: &[Message],
+) -> u64 {
+	let current = tx.gas.unwrap_or_default();
+	let expected = messages.iter().flat_map(message_commitments).collect::<BTreeSet<_>>();
+	if expected.is_empty() {
+		return current;
+	}
+
+	let chain_gas_limit = get_chain_gas_limit(client.state_machine);
+	let full = match trace_call(client, tx, chain_gas_limit).await {
+		Ok(frame) if frame.error.is_none() => frame,
+		Ok(frame) => {
+			tracing::warn!(
+				target: crate::LOG_TARGET, chain = ?client.state_machine, error = ?frame.error,
+				"Transaction reverts with the chain's whole gas limit, keeping its estimate",
+			);
+			return current;
+		},
+		Err(err) => {
+			tracing::warn!(
+				target: crate::LOG_TARGET, chain = ?client.state_machine, ?err,
+				"Could not trace the transaction, keeping its estimate",
+			);
+			return current;
+		},
+	};
+
+	let (deliverable, depth) = traced_deliveries(&full);
+	let failing = expected.difference(&deliverable).count();
+	if failing > 0 {
+		tracing::warn!(
+			target: crate::LOG_TARGET, chain = ?client.state_machine, failing,
+			"Messages that are not delivered even with the chain's whole gas limit",
+		);
+	}
+
+	let used = full.gas_used.saturating_to::<u64>();
+	let gas_limit = nested_call_gas(used, depth).max(current).min(chain_gas_limit);
+	match trace_call(client, tx, gas_limit).await {
+		Ok(frame) if deliverable.is_subset(&traced_deliveries(&frame).0) => gas_limit,
+		_ => {
+			tracing::warn!(
+				target: crate::LOG_TARGET, chain = ?client.state_machine, gas_limit,
+				"The sized gas limit does not deliver every message, using the chain's whole gas limit",
+			);
+			chain_gas_limit
+		},
+	}
 }
 
 // ── Public API ────────────────────────────────────────────────────────────────
@@ -464,6 +629,8 @@ pub async fn submit_batch_messages(
 	let calldata_len = calldata.len();
 	let tx_request =
 		build_tx_request(from, handler_addr, calldata, gas_price, gas_with_buffer(gas));
+	let gas_limit = delivery_gas_limit(client, &tx_request, &messages).await;
+	let tx_request = tx_request.gas_limit(gas_limit);
 
 	let nonce = client.signer.get_transaction_count(from).await?;
 	let tx = tx_request.nonce(nonce).transaction_type(0);
@@ -480,6 +647,7 @@ pub async fn submit_batch_messages(
 		non_consensus_msgs,
 		calldata_bytes = calldata_len,
 		gas_estimate = gas,
+		gas_limit,
 		nonce,
 		"dispatching HandlerV2.batchCall",
 	);
@@ -533,9 +701,10 @@ pub async fn submit_batch_messages(
 		"batchCall included",
 	);
 
-	// Atomic semantics: if the tx succeeded every inner call did, so no
-	// per-message unsuccessful bucket.
-	Ok((events, Vec::new(), new_epochs))
+	// The inner calls are atomic, but the host swallows a module callback that reverts, so a
+	// mined batch can still leave some of its messages undelivered.
+	let unsuccessful = undelivered(&messages, &events);
+	Ok((events, unsuccessful, new_epochs))
 }
 
 /// Result of a single transaction submission: which message commitments
@@ -591,9 +760,11 @@ pub async fn submit_messages(
 	let from = Address::from_slice(&client.address);
 
 	for (idx, tx) in tx_requests.into_iter().enumerate() {
+		let gas_limit = delivery_gas_limit(client, &tx, std::slice::from_ref(&messages[idx])).await;
+
 		// Fetch the pending nonce upfront so we can reuse it if the tx gets stuck.
 		let nonce = client.signer.get_transaction_count(from).await?;
-		let tx = tx.nonce(nonce).transaction_type(0);
+		let tx = tx.gas_limit(gas_limit).nonce(nonce).transaction_type(0);
 
 		// Retry the send on rate limits.
 		let pending = loop {
@@ -621,9 +792,7 @@ pub async fn submit_messages(
 			},
 		};
 
-		if matches!(messages[idx], Message::Request(_) | Message::Response(_)) && evs.is_empty() {
-			unsuccessful.push(messages[idx].clone());
-		}
+		unsuccessful.extend(undelivered(std::slice::from_ref(&messages[idx]), &evs));
 		events.extend(evs);
 		new_epochs.extend(epochs);
 	}
@@ -778,5 +947,123 @@ mod tests {
 			},
 			None => panic!("Block {block_number} not found"),
 		}
+	}
+
+	fn post(nonce: u64) -> ismp::router::PostRequest {
+		ismp::router::PostRequest {
+			source: StateMachine::Evm(56),
+			dest: StateMachine::Evm(8453),
+			nonce,
+			from: vec![1; 20],
+			to: vec![2; 20],
+			timeout_timestamp: 0,
+			body: vec![0],
+		}
+	}
+
+	fn commitment(post: &ismp::router::PostRequest) -> H256 {
+		hash_request::<Hasher>(&Request::Post(post.clone()))
+	}
+
+	fn ismp_proof() -> ismp::messaging::Proof {
+		ismp::messaging::Proof {
+			height: ismp::consensus::StateMachineHeight {
+				id: ismp::consensus::StateMachineId {
+					state_id: StateMachine::Polkadot(3367),
+					consensus_state_id: *b"PARA",
+				},
+				height: 1,
+			},
+			proof: vec![],
+		}
+	}
+
+	fn request_message(posts: Vec<ismp::router::PostRequest>) -> Message {
+		Message::Request(ismp::messaging::RequestMessage {
+			requests: posts,
+			proof: ismp_proof(),
+			signer: vec![],
+		})
+	}
+
+	#[test]
+	fn undelivered_keeps_the_requests_the_receipt_does_not_name() {
+		let (first, second, third) = (post(67), post(68), post(69));
+		let messages = vec![request_message(vec![first.clone(), second.clone(), third.clone()])];
+
+		let delivered = BTreeSet::from([commitment(&first), commitment(&second)]);
+		assert_eq!(undelivered(&messages, &delivered), vec![request_message(vec![third.clone()])]);
+
+		let all = BTreeSet::from([commitment(&first), commitment(&second), commitment(&third)]);
+		assert!(undelivered(&messages, &all).is_empty());
+
+		assert_eq!(undelivered(&messages, &BTreeSet::new()), messages);
+	}
+
+	#[test]
+	fn undelivered_returns_a_response_message_whole_when_any_response_is_missing() {
+		let get = |nonce| ismp::router::GetRequest {
+			source: StateMachine::Evm(8453),
+			dest: StateMachine::Evm(56),
+			nonce,
+			from: vec![1; 20],
+			keys: vec![vec![3; 32]],
+			height: 1,
+			context: vec![],
+			timeout_timestamp: 0,
+		};
+		let (first, second) = (get(1), get(2));
+		let message = Message::Response(ResponseMessage {
+			requests: vec![first.clone(), second],
+			proof: ismp_proof(),
+			signer: vec![],
+		});
+		let delivered = BTreeSet::from([hash_request::<Hasher>(&Request::Get(first))]);
+		assert_eq!(undelivered(std::slice::from_ref(&message), &delivered), vec![message]);
+	}
+
+	#[test]
+	fn undelivered_ignores_consensus_messages() {
+		let consensus = Message::Consensus(ismp::messaging::ConsensusMessage {
+			consensus_proof: vec![],
+			consensus_state_id: *b"BEEF",
+			signer: vec![],
+		});
+		assert!(undelivered(&[consensus], &BTreeSet::new()).is_empty());
+	}
+
+	#[test]
+	fn traced_deliveries_reads_handled_logs_at_any_depth() {
+		let handled = commitment(&post(69));
+		let log = PostRequestHandled { commitment: B256::from(handled.0), relayer: Address::ZERO }
+			.encode_log_data();
+		let host = CallFrame {
+			logs: vec![alloy::rpc::types::trace::geth::CallLogFrame {
+				address: Some(Address::repeat_byte(0x62)),
+				topics: Some(log.topics().to_vec()),
+				data: Some(log.data.clone()),
+				..Default::default()
+			}],
+			calls: vec![CallFrame { calls: vec![CallFrame::default()], ..Default::default() }],
+			..Default::default()
+		};
+		let batch = CallFrame {
+			calls: vec![CallFrame { calls: vec![host], ..Default::default() }],
+			..Default::default()
+		};
+
+		let (commitments, depth) = traced_deliveries(&batch);
+		assert_eq!(commitments, BTreeSet::from([handled]));
+		assert_eq!(depth, 4);
+	}
+
+	#[test]
+	fn nested_call_gas_covers_what_each_call_keeps_back() {
+		assert_eq!(nested_call_gas(100_000, 0), 100_000);
+		assert_eq!(nested_call_gas(63, 1), 64);
+		// Base tx 0xf1a357de…: the batch used 861,222 gas with calls nested nine deep and needed a
+		// 915,009 limit to deliver its last request, while its estimate plus 5% was 911,982.
+		assert!(gas_with_buffer(868_555) < 915_009);
+		assert!(nested_call_gas(861_222, 9) >= 915_009);
 	}
 }

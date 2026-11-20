@@ -24,8 +24,13 @@ export function useAction() {
 			setPendingKeys(new Set(pendingKeysRef.current))
 		}
 	}, [])
+	const clear = useCallback(() => {
+		setMessage(undefined)
+		setError(undefined)
+	}, [])
 	return {
 		run,
+		clear,
 		pending: pendingKeys.size > 0,
 		isPending: (key = "default") => pendingKeys.has(key),
 		message,

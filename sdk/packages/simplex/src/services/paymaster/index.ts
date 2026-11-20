@@ -6,6 +6,7 @@ import {
 	DEPOSIT_HEADROOM_PERCENT,
 	packPaymasterAndData,
 	POST_OP_GAS_LIMIT_SIMPLEX,
+	RECOMMENDED_AMOUNT_USD,
 	VERIFICATION_GAS_LIMIT_PERMIT,
 	permit2VerificationGasLimit,
 } from "./types"
@@ -34,7 +35,7 @@ export function hasPaymaster(chain: string, configService: FillerConfigService):
  * EntryPoint configured; without either, selection is balance-only.
  */
 export async function buildPaymasterAndData(options: PaymasterOptions): Promise<PaymasterDataResult> {
-	const { chain, solverAccount, publicClient, walletClient, signer, configService, permitBootstrap } = options
+	const { chain, solverAccount, publicClient, walletClient, signer, configService, permitBootstrap, permitDeadline } = options
 
 	const simplexAddr = configService.getSimplexPaymasterAddress(chain)
 	if (!simplexAddr) {
@@ -68,6 +69,7 @@ export async function buildPaymasterAndData(options: PaymasterOptions): Promise<
 			chain,
 			configService,
 			permitBootstrap,
+			permitDeadline,
 		)
 		if ("paymaster" in pm) {
 			return {
@@ -139,11 +141,13 @@ async function depositShortfall(
 
 /**
  * Whole tokens of a paymaster-eligible stablecoin a fill must leave in the
- * wallet. The paymaster's pull is the EntryPoint's worst-case gas cost — cents
- * on an L2, most of it refunded in postOp — so this is mostly headroom for gas
- * spikes and for other UserOps in flight against the same balance.
+ * wallet. The paymaster's pull is the EntryPoint's worst-case gas cost: cents
+ * on an L2, but 2–5 tokens for a sponsored op on Ethereum, most of it refunded
+ * in postOp. It is pulled in full during validation, so the reserve has to
+ * cover the largest prefund any chain charges; the per-op Permit2 cap
+ * ({@link RECOMMENDED_AMOUNT_USD}) is that bound, since no op may pull more.
  */
-export const PAYMASTER_RESERVE_TOKENS = 2n
+export const PAYMASTER_RESERVE_TOKENS = RECOMMENDED_AMOUNT_USD
 
 /**
  * Wallet balance of `tokenLower` that a fill on `chain` must not spend, because

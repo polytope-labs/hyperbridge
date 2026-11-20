@@ -19,6 +19,7 @@ import type {
 	EstimateFillOrderParams,
 	FillOrderEstimate,
 	BidPreVerificationGasParams,
+	BundlerRetryEvent,
 	OrderFeesQuote,
 	IntentOrderStatusUpdate,
 	SelectBidResult,
@@ -143,7 +144,9 @@ export class IntentGateway {
 	 *
 	 * @param source - Source chain client.
 	 * @param dest - Destination chain client.
-	 * @param intentsCoprocessor - Optional coprocessor for bid fetching.
+	 * @param intentsCoprocessor - Optional. Bids are read from the HyperFX orderbook; with a coprocessor
+	 *   they are read from Hyperbridge as well and merged. When omitted, bids are read from the
+	 *   orderbook alone.
 	 */
 	private constructor(
 		source: IEvmChain,
@@ -182,7 +185,7 @@ export class IntentGateway {
 		const gasEstimator = new GasEstimator(this.ctx, crypto)
 
 		this.orderPlacer = new OrderPlacer(this.ctx)
-		this.orderExecutor = new OrderExecutor(this.ctx, bidManager)
+		this.orderExecutor = new OrderExecutor(this.ctx, bidManager, () => this.orderbook)
 		this.orderCanceller = new OrderCanceller(this.ctx)
 		this.orderStatusChecker = new OrderStatusChecker(this.ctx)
 		this.bidManager = bidManager
@@ -205,7 +208,9 @@ export class IntentGateway {
 	 *
 	 * @param source - Source chain for order placement
 	 * @param dest - Destination chain for order fulfillment
-	 * @param intentsCoprocessor - Optional coprocessor for bid fetching and order execution
+	 * @param intentsCoprocessor - Optional. Bids are read from the HyperFX orderbook; with a coprocessor
+	 *   they are read from Hyperbridge as well and merged. When omitted, bids are read from the
+	 *   orderbook alone.
 	 * @param options - Optional settings; see {@link IntentGatewayOptions}
 	 * @returns Initialized IntentGateway instance
 	 */
@@ -247,8 +252,8 @@ export class IntentGateway {
 	}
 
 	/**
-	 * Points quotes, liquidity and rate reads at a HyperFX orderbook other than
-	 * the destination chain's network deployment ({@link ORDERBOOK_URLS}).
+	 * Points quotes, liquidity and rate reads, and the bids read during execution, at a HyperFX
+	 * orderbook other than the destination chain's network deployment ({@link ORDERBOOK_URLS}).
 	 * Returns `this` for chaining.
 	 *
 	 * @param orderbook - The orderbook's GraphQL URL, or a configured client.
@@ -790,8 +795,11 @@ export class IntentGateway {
 	 *
 	 * Delegates to {@link GasEstimator.estimateBidPreVerificationGas}.
 	 */
-	async estimateBidPreVerificationGas(params: BidPreVerificationGasParams): Promise<bigint> {
-		return this.gasEstimator.estimateBidPreVerificationGas(params)
+	async estimateBidPreVerificationGas(
+		params: BidPreVerificationGasParams,
+		onBundlerRetry?: (event: BundlerRetryEvent) => void,
+	): Promise<bigint> {
+		return this.gasEstimator.estimateBidPreVerificationGas(params, onBundlerRetry)
 	}
 
 	/**

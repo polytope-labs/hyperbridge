@@ -1,12 +1,12 @@
 import {
 	UiServer,
-	type HaltControl,
 	type OperatorContext,
 	type PauseControl,
 } from "@/services/server/UiServer"
 import { EventEmitter } from "node:events"
 import type { SetupDeps } from "@/services/server/setup-api"
 import { ActivityRecorder } from "@/data/recorder"
+import { PendingOpOnNonceError, SubmittedUnconfirmedError } from "@/services/submission"
 import { MemoryDataStore } from "@/data/memory"
 import { LoggerContext, type LogLevel } from "@/services/Logger"
 import { LogStore } from "@/services/server/LogStore"
@@ -82,19 +82,6 @@ function fakePauseControl(): PauseControl & { paused: boolean } {
 		},
 		getWatchOnly() {
 			return { 56: true }
-		},
-	}
-}
-
-function fakeHaltControl(index: number, halted = false): HaltControl & { halted: boolean } {
-	return {
-		index,
-		halted,
-		isHalted() {
-			return this.halted
-		},
-		resetHalt() {
-			this.halted = false
 		},
 	}
 }
@@ -180,7 +167,6 @@ function baseOperator(overrides: Partial<OperatorContext> = {}): TestOperator {
 			},
 		} as unknown as OperatorContext["limitOrders"],
 		balances: testBalanceSource(),
-		haltControls: [],
 		config: fakeConfig(),
 		stop: vi.fn().mockResolvedValue(undefined),
 		activity: new ActivityRecorder(data.activity),
@@ -545,7 +531,7 @@ describe("UiServer (operator mode)", () => {
 		const { base } = await startServer()
 		// A framing page cannot read or script this origin, but it does not need
 		// to: an invisible overlay makes the operator click the real UI's own
-		// buttons. Pause, reset-halt and vault redeem are one click each.
+		// buttons. Pause and vault redeem are one click each.
 		const expectFramingDenied = async (path: string, init?: Parameters<typeof fetch>[1]) => {
 			const res = await fetch(`${base}${path}`, init)
 			await res.arrayBuffer()
@@ -582,17 +568,14 @@ describe("UiServer (operator mode)", () => {
 		expect(await operator.data.state.get()).toEqual({ paused: false })
 	})
 
-	it("surfaces halted strategies in status and resets them", async () => {
-		const halt = fakeHaltControl(1, true)
-		const { base } = await startServer({ haltControls: [halt] })
+	it("reports no halt state and has no reset-halt route", async () => {
+		// The overfill self-halt was removed: status carries no `halted`, and the old
+		// reset route is an unknown route like any other.
+		const { base } = await startServer()
 
 		const status = await (await fetch(`${base}/api/status`)).json()
-		expect(status.halted).toEqual([1])
-
-		const res = await fetch(`${base}/api/reset-halt`, { method: "POST", headers: CSRF })
-		expect(await res.json()).toEqual({ halted: [] })
-		expect(halt.halted).toBe(false)
-		expect((await (await fetch(`${base}/api/status`)).json()).halted).toEqual([])
+		expect(status).not.toHaveProperty("halted")
+		expect((await fetch(`${base}/api/reset-halt`, { method: "POST", headers: CSRF })).status).toBe(404)
 	})
 
 	it("stop drains the runtime via the operator callback", async () => {
@@ -907,6 +890,131 @@ describe("UiServer (operator mode)", () => {
 		expect((await failed.json()).error).toContain("Insufficient")
 	})
 
+	it("reports an unconfirmed operator send as pending and records no wallet-history row", async () => {
+		const userOpHash = ("0x" + "ab".repeat(32)) as `0x${string}`
+		const send = vi.fn().mockRejectedValue(
+			new SubmittedUnconfirmedError("unconfirmed", "EVM-8453", {
+				kind: "userOp",
+				userOpHash,
+				nonce: 0n,
+				nonceKey: 0n,
+				expires: true,
+				submittedAt: Date.now(),
+			}),
+		)
+		const { base } = await startServer({ send })
+		const body = {
+			chain: "EVM-8453",
+			token: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+			amount: "25",
+			to: "0x5b2c3e25243634732eE94525Ae98aEc404c82506",
+		}
+		const post = () => fetch(`${base}/api/send`, { method: "POST", headers: CSRF, body: JSON.stringify(body) })
+
+		const res = await post()
+		expect(res.status).toBe(202)
+		const payload = await res.json()
+		expect(payload).toMatchObject({ pending: true, sponsored: true, userOpHash })
+		expect(payload.message).toContain("not confirmed")
+		// A balance check cannot show an op still in the pool, so the message says it may land and to wait.
+		expect(payload.message).toContain("may still land")
+		// A sponsored send has no wallet-history row, so the message must not send the operator
+		// there; it names the UserOp hash to look up instead.
+		expect(payload.message).not.toContain("wallet history")
+		expect(payload.message).toContain(userOpHash)
+		expect(payload.message).toContain("look that UserOp up on the bundler")
+		expect(payload.message).toContain("recipient's balance")
+		expect(payload.message).not.toContain("explorer")
+		// A UserOp has no tx hash until it lands, so none is reported — and no history row is written.
+		expect(payload.txHash).toBeUndefined()
+		const history = await (await fetch(`${base}/api/wallet/history`)).json()
+		expect(history.txs).toHaveLength(0)
+
+		// Any other error stays a plain 400.
+		send.mockRejectedValueOnce(new Error("Insufficient token balance"))
+		const failed = await post()
+		expect(failed.status).toBe(400)
+		expect((await failed.json()).error).toContain("Insufficient")
+	})
+
+	it("says a send may have been submitted when the bundler could not be asked at all", async () => {
+		const userOpHash = ("0x" + "ab".repeat(32)) as `0x${string}`
+		const send = vi.fn().mockRejectedValue(
+			new SubmittedUnconfirmedError(
+				"lost",
+				"EVM-8453",
+				{ kind: "userOp", userOpHash, nonce: 0n, nonceKey: 0n, expires: true, submittedAt: Date.now() },
+				true,
+			),
+		)
+		const { base } = await startServer({ send })
+		const body = {
+			chain: "EVM-8453",
+			token: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+			amount: "25",
+			to: "0x5b2c3e25243634732eE94525Ae98aEc404c82506",
+		}
+
+		const res = await fetch(`${base}/api/send`, { method: "POST", headers: CSRF, body: JSON.stringify(body) })
+
+		expect(res.status).toBe(202)
+		const payload = await res.json()
+		expect(payload).toMatchObject({ pending: true, sponsored: true, userOpHash })
+		expect(payload.message).toContain("may have been submitted")
+		expect(payload.message).toContain(userOpHash)
+		expect(payload.message).not.toContain("wallet history")
+	})
+
+	it("answers a send refused by a pending earlier op with a wait message and no hash", async () => {
+		const send = vi.fn().mockRejectedValue(new PendingOpOnNonceError("pending", "EVM-8453", 3n, 0n))
+		const { base } = await startServer({ send })
+		const body = {
+			chain: "EVM-8453",
+			token: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+			amount: "25",
+			to: "0x5b2c3e25243634732eE94525Ae98aEc404c82506",
+		}
+
+		const res = await fetch(`${base}/api/send`, { method: "POST", headers: CSRF, body: JSON.stringify(body) })
+
+		expect(res.status).toBe(202)
+		const payload = await res.json()
+		expect(payload).toEqual({
+			pending: true,
+			sponsored: true,
+			message: "An earlier sponsored operation from this wallet is still pending; wait for it to land before sending again.",
+		})
+		const history = await (await fetch(`${base}/api/wallet/history`)).json()
+		expect(history.txs).toHaveLength(0)
+	})
+
+	it("reports an unconfirmed native send as pending with its tx hash and records it", async () => {
+		const txHash = ("0x" + "cd".repeat(32)) as `0x${string}`
+		const send = vi
+			.fn()
+			.mockRejectedValue(
+				new SubmittedUnconfirmedError("unconfirmed", "EVM-8453", { kind: "tx", txHash, nonce: 4, submittedAt: Date.now() }),
+			)
+		const { base } = await startServer({ send })
+
+		const body = {
+			chain: "EVM-8453",
+			token: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+			amount: "25",
+			to: "0x5b2c3e25243634732eE94525Ae98aEc404c82506",
+		}
+		const res = await fetch(`${base}/api/send`, { method: "POST", headers: CSRF, body: JSON.stringify(body) })
+
+		expect(res.status).toBe(202)
+		const payload = await res.json()
+		expect(payload).toMatchObject({ pending: true, sponsored: false, txHash })
+		// A native tx has a hash to check, so its message keeps the explorer wording.
+		expect(payload.message).toContain("explorer")
+		// The hash is known, so the send is recorded in the wallet history like a confirmed one.
+		const history = await (await fetch(`${base}/api/wallet/history`)).json()
+		expect(history.txs).toMatchObject([{ txHash, sponsored: false, kind: "send" }])
+	})
+
 	it("does not list vault shares among send token options", async () => {
 		const vaultAddress = "0xC768c589647798a6EE01A91FdE98EF2ed046DBD6"
 		const config = fakeConfig()
@@ -983,6 +1091,16 @@ describe("UiServer (operator mode)", () => {
 			body: JSON.stringify({ triggerPercentage: 1.5, baseBalances: { USDC: { "1": "10" } } }),
 		})
 		expect(badTrigger.status).toBe(400)
+		expect((await badTrigger.json()).error).toMatch(/triggerPercentage must be a number between 0 and 1/)
+
+		const badBase = await fetch(`${base}/api/rebalancing`, {
+			method: "PUT",
+			headers: CSRF,
+			body: JSON.stringify({ triggerPercentage: 0.4, baseBalances: { USDC: { "1": "-1" } } }),
+		})
+		expect(badBase.status).toBe(400)
+		expect((await badBase.json()).error).toMatch(/must be a number >= 0/)
+		expect(operator.applyRebalancing).toHaveBeenCalledTimes(1)
 	})
 
 	it("serves the running config without any word of a secret phrase", async () => {

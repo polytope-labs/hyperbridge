@@ -31,6 +31,7 @@ export async function assertPackagedResources(resourcesDirectory, platform) {
 	const executable = platform === "win32" ? "node.exe" : "node"
 	const required = [
 		join(resourcesDirectory, "runtime", executable),
+		join(resourcesDirectory, "desktop", "solver-diagnostics.mjs"),
 		join(resourcesDirectory, "simplex", "package.json"),
 		join(resourcesDirectory, "simplex", "dist", "bin", "simplex.js"),
 		join(resourcesDirectory, "simplex", "dist", "bin", "simplex.js.map"),

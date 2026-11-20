@@ -21,6 +21,11 @@ export interface FundingVenue {
 	 * from LP positions on `destChain`. Returns the calls and the credited
 	 * amount that will become available after execution.
 	 *
+	 * `alreadyPlanned` is what the caller's current evaluation has already
+	 * planned from this venue for this token on this chain, and is taken off
+	 * what the venue can release. It is the caller's to keep; the venue holds
+	 * nothing between calls.
+	 *
 	 * Access is serialised per chain via a mutex so concurrent evaluations
 	 * do not race on shared liquidity state.
 	 */
@@ -30,6 +35,7 @@ export interface FundingVenue {
 		tokenOutLower: string,
 		amountNeeded: bigint,
 		deadlineTimestamp?: bigint,
+		alreadyPlanned?: bigint,
 	): Promise<FundingPlanResult>
 	/**
 	 * Wallet balance of `tokenLower` the fill must keep liquid and never source
@@ -107,8 +113,6 @@ export interface HydratedVault {
 	 * sweep has nothing it can do.
 	 */
 	maxDeposit: bigint
-	/** Sourceable amount after consume() accounting for pending fills this round. */
-	remaining: bigint
 }
 
 /**
@@ -124,7 +128,7 @@ export interface VaultBalancePosition {
 	decimals: number
 	/** Solver-owned vault position in underlying-asset terms. */
 	positionAssets: bigint
-	/** Immediately withdrawable amount after pending-fill reservations. */
+	/** Immediately withdrawable amount: the vault's `maxWithdraw(solver)`. */
 	availableAssets: bigint
 	/** Underlying amount deliberately kept liquid in the solver wallet. */
 	walletReserve: bigint

@@ -169,56 +169,115 @@ for (const backend of backends) {
 			expect((await bids.byCommitment(OTHER))!.bid).toBeNull()
 		})
 
-		it("counts bids by state", async () => {
+		it("counts bids by state, with a bid the orderbook alone holds as placed", async () => {
 			const bids = backend.create()
 			await bids.store({ commitment: COMMITMENT, success: true })
 			await bids.store({ commitment: OTHER, success: false, error: "nope" })
+			// No BRIDGE for the deposit, but the orderbook took it: a swapper can execute it.
+			await bids.store({ commitment: THIRD, success: false, onOrderbook: true, error: "InsufficientBalance" })
 			await bids.markRetracted(COMMITMENT, null)
 
 			expect(await bids.stats()).toEqual({
-				total: 2,
-				successful: 1,
+				total: 3,
+				successful: 2,
 				failed: 1,
 				retracted: 1,
+				// The orderbook holds no deposit, so there is nothing to reclaim from it.
 				pendingRetraction: 0,
 			})
+			expect((await bids.failed()).map((bid) => bid.commitment)).toEqual([OTHER])
+			expect((await bids.unretractedReclaimable()).map((bid) => bid.commitment)).toEqual([])
 		})
 
-		it("finds the bids that drew on a limit order, newest first", async () => {
-			// What makes a limit order's `remaining` explicable: the fills behind it.
+		it("finds the bids a limit order priced, newest first", async () => {
+			// What makes a limit order's `remaining` explicable: which bids drew on it.
 			const bids = backend.create()
-			const hold = (limitOrderId: string, amount: string) => [{ limitOrderId, amount }]
-			await bids.store({ commitment: COMMITMENT, success: true, reservations: hold("limit-1", "100") })
-			await bids.store({ commitment: OTHER, success: true, reservations: hold("limit-2", "200") })
-			await bids.store({
-				commitment: THIRD,
-				success: true,
-				reservations: [...hold("limit-1", "300"), ...hold("limit-2", "50")],
-			})
+			const priced = (limitOrderId: string, payout: string) => ({ limitOrderId, payout })
+			await bids.store({ commitment: COMMITMENT, success: true, pricedBy: priced("limit-1", "100") })
+			await bids.store({ commitment: OTHER, success: true, pricedBy: priced("limit-2", "200") })
+			await bids.store({ commitment: THIRD, success: true, pricedBy: priced("limit-1", "300") })
+			// No limit order priced this one.
+			await bids.store({ commitment: THIRD, success: true })
 
 			const drew = await bids.byLimitOrder("limit-1")
 			expect(drew.map((bid) => bid.commitment)).toEqual([THIRD, COMMITMENT])
-			expect(drew.map((bid) => bid.reservations[0].amount)).toEqual(["300", "100"])
-			// A bid that drew on two orders is found under both.
-			expect((await bids.byLimitOrder("limit-2")).map((bid) => bid.commitment)).toEqual([THIRD, OTHER])
+			expect(drew.map((bid) => bid.pricedBy?.payout)).toEqual(["300", "100"])
+			expect((await bids.byLimitOrder("limit-2")).map((bid) => bid.commitment)).toEqual([OTHER])
 			expect(await bids.byLimitOrder("limit-3")).toEqual([])
 		})
 
-		it("keeps two bids on one order apart by their identifier", async () => {
-			// One solver bidding two prices on one order: same commitment, each bid filed
-			// under keccak256 of its own calldata.
+		it("keeps what priced a bid as written, whatever happens to the bid after", async () => {
+			// Provenance, not a hold: retracting or killing the bid does not clear it.
 			const bids = backend.create()
-			const hold = (limitOrderId: string, amount: string) => [{ limitOrderId, amount }]
 			const first = `0x${"b1".repeat(32)}`
 			const second = `0x${"b2".repeat(32)}`
-			await bids.store({ commitment: COMMITMENT, bid: first, success: true, reservations: hold("limit-1", "100") })
-			await bids.store({ commitment: COMMITMENT, bid: second, success: true, reservations: hold("limit-2", "200") })
+			const pricedBy = { limitOrderId: "limit-1", payout: "100", take: "7", takeDecimals: 6 }
+			await bids.store({ commitment: COMMITMENT, bid: first, success: true, pricedBy })
+			await bids.store({ commitment: COMMITMENT, bid: second, success: true, pricedBy: { limitOrderId: "limit-2", payout: "200" } })
 
-			expect((await bids.byCommitments([COMMITMENT])).map((bid) => bid.bid).sort()).toEqual([first, second])
-			// Naming a bid claims its holds alone; without one, whatever is left.
-			expect(await bids.claimReservation(COMMITMENT, second)).toEqual(hold("limit-2", "200"))
-			expect(await bids.claimReservation(COMMITMENT)).toEqual(hold("limit-1", "100"))
-			expect(await bids.claimReservation(COMMITMENT)).toEqual([])
+			await bids.markDead(COMMITMENT)
+			await bids.markRetracted(COMMITMENT, null)
+
+			const rows = await bids.byCommitments([COMMITMENT])
+			expect(rows.map((bid) => [bid.bid, bid.pricedBy])).toEqual([
+				[second, { limitOrderId: "limit-2", payout: "200" }],
+				[first, pricedBy],
+			])
+			expect((await bids.byLimitOrder("limit-1")).map((bid) => bid.bid)).toEqual([first])
+		})
+
+		it("marks retracted and flags dead only the rows a retraction names", async () => {
+			// A retraction closes the rows it read and sent retractions for, not a bid stored
+			// on the commitment while it was in flight.
+			const bids = backend.create()
+			const first = `0x${"b1".repeat(32)}`
+			const second = `0x${"b2".repeat(32)}`
+			await bids.store({ commitment: COMMITMENT, bid: first, success: true })
+			await bids.store({ commitment: COMMITMENT, bid: second, success: true })
+			await bids.store({ commitment: OTHER, success: true })
+			const firstRow = (await bids.byCommitments([COMMITMENT])).find((row) => row.bid === first)!
+			const secondRow = (await bids.byCommitments([COMMITMENT])).find((row) => row.bid === second)!
+			const other = (await bids.byCommitment(OTHER))!
+
+			// Another commitment's row id names nothing here, and an empty list names nothing.
+			expect(await bids.markRetracted(COMMITMENT, "0xr", [other.id])).toBe(false)
+			expect(await bids.markRetracted(COMMITMENT, "0xr", [])).toBe(false)
+			expect(await bids.markDead(COMMITMENT, [])).toBe(false)
+			expect(await bids.markDead(COMMITMENT, [other.id])).toBe(false)
+
+			expect(await bids.markRetracted(COMMITMENT, "0xr", [firstRow.id])).toBe(true)
+			expect(
+				(await bids.byCommitments([COMMITMENT])).map((row) => [row.bid, row.retracted, row.retractExtrinsicHash]).sort(),
+			).toEqual([
+				[first, true, "0xr"],
+				[second, false, null],
+			])
+			expect((await bids.byCommitment(OTHER))!.retracted).toBe(false)
+
+			// Flagging dead by row leaves the commitment's other bids alone.
+			expect(await bids.markDead(COMMITMENT, [secondRow.id])).toBe(true)
+			expect((await bids.byCommitments([COMMITMENT])).map((row) => [row.bid, row.dead]).sort()).toEqual([
+				[first, false],
+				[second, true],
+			])
+			expect((await bids.byCommitment(OTHER))!.dead).toBe(false)
+			// A retracted row is not flagged again.
+			expect(await bids.markDead(COMMITMENT, [firstRow.id])).toBe(false)
+		})
+
+		it("marks the whole commitment retracted and dead when no rows are named", async () => {
+			const bids = backend.create()
+			await bids.store({ commitment: COMMITMENT, bid: `0x${"b1".repeat(32)}`, success: true })
+			await bids.store({ commitment: COMMITMENT, bid: `0x${"b2".repeat(32)}`, success: true })
+			await bids.store({ commitment: OTHER, success: true })
+
+			expect(await bids.markDead(COMMITMENT)).toBe(true)
+			expect((await bids.byCommitments([COMMITMENT])).every((row) => row.dead)).toBe(true)
+			expect((await bids.byCommitment(OTHER))!.dead).toBe(false)
+
+			expect(await bids.markRetracted(COMMITMENT, null)).toBe(true)
+			expect((await bids.byCommitments([COMMITMENT])).every((row) => row.retracted)).toBe(true)
+			expect((await bids.byCommitment(OTHER))!.retracted).toBe(false)
 		})
 	})
 }
@@ -257,5 +316,73 @@ describe("SqliteBidStore migrations", () => {
 
 		expect(await store.bids.markDead(COMMITMENT)).toBe(true)
 		expect((await store.bids.expiredUnretracted(HOUR_MS)).map((b) => b.commitment)).toEqual([COMMITMENT])
+	})
+})
+
+describe("SqliteBidStore provenance across the upgrade", () => {
+	/** A database as the build with limit-order holds left it: `reservations` and no `priced_by`. */
+	function holdsEraDatabase(dir: string) {
+		const legacy = new DatabaseSync(join(dir, "bids.db"))
+		legacy.exec(`
+			CREATE TABLE bids (
+				id INTEGER PRIMARY KEY AUTOINCREMENT,
+				commitment TEXT NOT NULL,
+				bid TEXT,
+				extrinsic_hash TEXT,
+				block_hash TEXT,
+				success INTEGER NOT NULL,
+				pending INTEGER NOT NULL DEFAULT 0,
+				error TEXT,
+				created_at TEXT NOT NULL DEFAULT (datetime('now')),
+				retracted INTEGER NOT NULL DEFAULT 0,
+				retracted_at TEXT,
+				retract_extrinsic_hash TEXT,
+				dead INTEGER NOT NULL DEFAULT 0,
+				reservations TEXT
+			);
+		`)
+		return legacy
+	}
+
+	it("adds priced_by in place and reads a bid placed before it from its reservations", async () => {
+		const dir = tempDir("simplex-bids-holds-")
+		const legacy = holdsEraDatabase(dir)
+		const hold = [{ limitOrderId: "limit-1", amount: "1000", take: "100", takeDecimals: 6 }]
+		legacy.prepare("INSERT INTO bids (commitment, bid, success, reservations) VALUES (?, ?, 1, ?)").run(
+			COMMITMENT,
+			"0xb1",
+			JSON.stringify(hold),
+		)
+		// A bid whose hold that build had already settled has nothing left to read.
+		legacy.prepare("INSERT INTO bids (commitment, bid, success) VALUES (?, ?, 1)").run(OTHER, "0xb2")
+		legacy.close()
+
+		const store = new SqliteDataStore(dir)
+		stores.push(store)
+
+		const [bid] = await store.bids.byCommitments([COMMITMENT])
+		expect(bid.pricedBy).toEqual({ limitOrderId: "limit-1", payout: "1000", take: "100", takeDecimals: 6 })
+		expect(bid).not.toHaveProperty("reservations")
+		expect((await store.bids.byCommitment(OTHER))!.pricedBy).toBeNull()
+		expect((await store.bids.byLimitOrder("limit-1")).map((row) => row.commitment)).toEqual([COMMITMENT])
+	})
+
+	it("writes priced_by and leaves reservations untouched, so an older build still opens the file", async () => {
+		const dir = tempDir("simplex-bids-rollback-")
+		holdsEraDatabase(dir).close()
+
+		const store = new SqliteDataStore(dir)
+		stores.push(store)
+		await store.bids.store({ commitment: COMMITMENT, success: true, pricedBy: { limitOrderId: "limit-1", payout: "5" } })
+		await store.close()
+
+		const raw = new DatabaseSync(join(dir, "bids.db"))
+		const row = raw.prepare("SELECT reservations, priced_by FROM bids WHERE commitment = ?").get(COMMITMENT) as {
+			reservations: string | null
+			priced_by: string | null
+		}
+		raw.close()
+		expect(row.reservations).toBeNull()
+		expect(JSON.parse(row.priced_by!)).toEqual({ limitOrderId: "limit-1", payout: "5" })
 	})
 })

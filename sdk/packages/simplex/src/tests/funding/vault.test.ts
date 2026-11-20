@@ -1,11 +1,14 @@
 import { describe, it, expect, vi } from "vitest"
 import { decodeFunctionData, parseUnits } from "viem"
+import { decodeERC7821ExecuteBatch } from "@hyperbridge/sdk"
 import { VaultFundingPlanner } from "@/funding/vault/VaultFundingPlanner"
 import { ERC4626_ABI } from "@/config/abis/Erc4626"
 import type { VaultOutputFundingConfig } from "@/funding/types"
 import type { ChainClientManager } from "@/services/ChainClientManager"
+import type { DelegationService } from "@/services/DelegationService"
 import type { UserOpSender } from "@/services/UserOpSender"
 import { addLogSink } from "@/services/Logger"
+import { PendingOpOnNonceError } from "@/services/submission"
 import type { HexString } from "@hyperbridge/sdk"
 
 const CHAIN = "EVM-8453"
@@ -80,6 +83,9 @@ function makeSweepPlanner(
 	shares: Record<string, bigint> = {},
 	maxDeposit = 10_000_000_000n,
 	userOpSender?: UserOpSender,
+	delegation?: Pick<DelegationService, "isDelegated">,
+	/** Per-vault `maxRedeem(solver)`, keyed by lowercase vault address; uncapped by default. */
+	maxRedeem: Record<string, bigint> = {},
 ) {
 	const sendTransaction = vi.fn(async (_tx: { to: HexString; data: HexString; value: bigint }) => "0xtx" as HexString)
 
@@ -98,6 +104,8 @@ function makeSweepPlanner(
 			if (functionName === "symbol") return address.toLowerCase() === USDT.toLowerCase() ? "USDT" : "USDC"
 			if (functionName === "maxWithdraw") return 10_000_000_000n
 			if (functionName === "maxDeposit") return maxDeposit
+			// Uncapped unless a test names a cap, so the 1:1 redeem tests keep their behaviour.
+			if (functionName === "maxRedeem") return maxRedeem[address.toLowerCase()] ?? 10_000_000_000n
 			// Shares are 1:1 with assets in this mock.
 			if (functionName === "previewRedeem") return args?.[0] as bigint
 			if (functionName === "balanceOf") {
@@ -122,14 +130,19 @@ function makeSweepPlanner(
 		getWalletClient: () => walletClient,
 	} as unknown as ChainClientManager
 
-	const planner = new VaultFundingPlanner(clientManager, { vaultsByChain: { [CHAIN]: vaults } }, userOpSender)
+	const planner = new VaultFundingPlanner(
+		clientManager,
+		{ vaultsByChain: { [CHAIN]: vaults } },
+		userOpSender,
+		delegation,
+	)
 	return { planner, sendTransaction }
 }
 
 const u = (n: string) => parseUnits(n, 6)
 
 describe("VaultFundingPlanner", () => {
-	it("exposes owned, available and reserved vault liquidity as one coherent snapshot", async () => {
+	it("exposes owned and withdrawable vault liquidity as one coherent snapshot", async () => {
 		const planner = makeWithdrawPlanner(
 			{ positionAssets: u("4200"), maxWithdrawable: u("3500") },
 			{ vault: VAULT_USDC, minBalance: "300" },
@@ -146,7 +159,8 @@ describe("VaultFundingPlanner", () => {
 			symbol: "USDC",
 			decimals: 6,
 			positionAssets: u("4200"),
-			availableAssets: u("3000"),
+			// The vault's own maxWithdraw: the plan above holds nothing back.
+			availableAssets: u("3500"),
 			walletReserve: u("300"),
 			acceptsDeposits: true,
 		})
@@ -204,20 +218,33 @@ describe("VaultFundingPlanner", () => {
 		expect(res.credited).toBe(0n)
 	})
 
-	it("does not over-source across concurrent plans (consume accounting)", async () => {
+	it("lets consecutive plans each draw up to maxWithdraw: the chain settles conflicts", async () => {
 		const planner = makeWithdrawPlanner({ positionAssets: 400_000n, maxWithdrawable: 400_000n })
 		await planner.initialise(SOLVER)
 
 		const first = await planner.planWithdrawalForToken(CHAIN, SOLVER, USDC.toLowerCase(), 300_000n)
 		const second = await planner.planWithdrawalForToken(CHAIN, SOLVER, USDC.toLowerCase(), 300_000n)
 
+		// Nothing planned is held back locally. Whichever withdrawal executes second
+		// finds the vault short and reverts its fill batch on chain.
 		expect(first.credited).toBe(300_000n)
-		// Only 100k remains unreserved after the first plan; refresh sees the same
-		// on-chain position (withdrawal not yet executed) so consume must hold it back.
-		expect(second.credited).toBe(100_000n)
+		expect(second.credited).toBe(300_000n)
 	})
 
-	it("releases a reservation as soon as the on-chain position drops (back-to-back fills)", async () => {
+	it("takes off what the caller's evaluation already planned, never planning below zero", async () => {
+		const planner = makeWithdrawPlanner({ positionAssets: 400_000n, maxWithdrawable: 400_000n })
+		await planner.initialise(SOLVER)
+
+		const rest = await planner.planWithdrawalForToken(CHAIN, SOLVER, USDC.toLowerCase(), 300_000n, undefined, 300_000n)
+		expect(rest.credited).toBe(100_000n)
+		const decoded = decodeFunctionData({ abi: ERC4626_ABI, data: rest.calls[0].data })
+		expect(decoded.args[0]).toBe(100_000n)
+
+		const none = await planner.planWithdrawalForToken(CHAIN, SOLVER, USDC.toLowerCase(), 300_000n, undefined, 500_000n)
+		expect(none).toEqual({ calls: [], credited: 0n })
+	})
+
+	it("plans against the maxWithdraw read for each plan", async () => {
 		const balances = { positionAssets: 1_000_000n, maxWithdrawable: 1_000_000n }
 		const planner = makeWithdrawPlanner(balances)
 		await planner.initialise(SOLVER)
@@ -225,37 +252,12 @@ describe("VaultFundingPlanner", () => {
 		const first = await planner.planWithdrawalForToken(CHAIN, SOLVER, USDC.toLowerCase(), 300_000n)
 		expect(first.credited).toBe(300_000n)
 
-		// The planned withdrawal executes on-chain: position drops by 300k.
+		// The planned withdrawal executes on-chain: the vault now honours 700k.
 		balances.positionAssets = 700_000n
 		balances.maxWithdrawable = 700_000n
 
-		// Next fill sees the full 700k — the reservation was reconciled away by the
-		// position drop, not left to linger until the TTL (which would show 400k).
-		const second = await planner.planWithdrawalForToken(CHAIN, SOLVER, USDC.toLowerCase(), 700_000n)
+		const second = await planner.planWithdrawalForToken(CHAIN, SOLVER, USDC.toLowerCase(), 1_000_000n)
 		expect(second.credited).toBe(700_000n)
-	})
-
-	it("frees reservations after the TTL so lost bids don't starve sourcing", async () => {
-		vi.useFakeTimers()
-		try {
-			const planner = makeWithdrawPlanner({ positionAssets: 400_000n, maxWithdrawable: 400_000n })
-			await planner.initialise(SOLVER)
-
-			const first = await planner.planWithdrawalForToken(CHAIN, SOLVER, USDC.toLowerCase(), 300_000n)
-			expect(first.credited).toBe(300_000n)
-
-			// Same round: the 300k reservation still holds liquidity back.
-			const second = await planner.planWithdrawalForToken(CHAIN, SOLVER, USDC.toLowerCase(), 300_000n)
-			expect(second.credited).toBe(100_000n)
-
-			// Neither bid is won (no on-chain withdrawal). After the TTL the
-			// reservations expire and the full position is sourceable again.
-			await vi.advanceTimersByTimeAsync(61_000)
-			const third = await planner.planWithdrawalForToken(CHAIN, SOLVER, USDC.toLowerCase(), 300_000n)
-			expect(third.credited).toBe(300_000n)
-		} finally {
-			vi.useRealTimers()
-		}
 	})
 
 	it("exposes the configured minBalance as the wallet reserve for the token", async () => {
@@ -466,6 +468,89 @@ describe("VaultFundingPlanner.redeemAll", () => {
 
 		expect(sendTransaction).not.toHaveBeenCalled()
 	})
+
+	it("caps a redeem at the vault's maxRedeem, and the other vaults still redeem", async () => {
+		const { planner, sendTransaction } = makeSweepPlanner(
+			{},
+			[
+				{ vault: VAULT_USDC, threshold: "3000", redeemOnShutdown: true },
+				{ vault: VAULT_USDT, threshold: "3000", redeemOnShutdown: true },
+			],
+			{ [VAULT_USDC.toLowerCase()]: u("5000"), [VAULT_USDT.toLowerCase()]: u("4000") },
+			undefined,
+			undefined,
+			undefined,
+			// USDC's vault will only let 3000 of the 5000 shares out right now.
+			{ [VAULT_USDC.toLowerCase()]: u("3000") },
+		)
+		await planner.initialise(SOLVER)
+
+		const onTx = vi.fn()
+		planner.onTx = onTx
+
+		const lines: string[] = []
+		const removeSink = addLogSink({ write: (line) => lines.push(line) })
+		await planner.redeemAll().finally(removeSink)
+
+		const batch = decodeERC7821ExecuteBatch(sendTransaction.mock.calls[0][0].data as HexString)!
+		expect(batch).toHaveLength(2)
+		const [capped, other] = batch.map((call) => ({
+			target: call.target.toLowerCase(),
+			...decodeFunctionData({ abi: ERC4626_ABI, data: call.data }),
+		}))
+		expect(capped.target).toBe(VAULT_USDC.toLowerCase())
+		// Addresses decode to their EIP-55 checksummed form, so compare case-insensitively.
+		expect(capped.args?.[0]).toBe(u("3000"))
+		expect((capped.args?.[1] as string).toLowerCase()).toBe(SOLVER.toLowerCase())
+		expect((capped.args?.[2] as string).toLowerCase()).toBe(SOLVER.toLowerCase())
+		// The vault that is not capped redeems in full, in the same batch.
+		expect(other.target).toBe(VAULT_USDT.toLowerCase())
+		expect(other.args?.[0]).toBe(u("4000"))
+
+		// The ledger movement carries the shares actually redeemed, not the whole position;
+		// shares are 1:1 in the mock, so previewRedeem(redeemable) equals the redeemable shares.
+		expect(onTx).toHaveBeenCalledOnce()
+		const { movements } = onTx.mock.calls[0][0]
+		const movement = (vault: HexString) =>
+			movements.find((m: { vault: HexString }) => m.vault.toLowerCase() === vault.toLowerCase())
+		expect(movement(VAULT_USDC)).toMatchObject({ shares: u("3000"), amount: u("3000") })
+		expect(movement(VAULT_USDT)).toMatchObject({ shares: u("4000"), amount: u("4000") })
+
+		// Shares left behind are logged with both numbers rather than silently dropped.
+		const cappedLines = lines.filter((line) => line.includes("capped by maxRedeem"))
+		expect(cappedLines).toHaveLength(1)
+		expect(JSON.parse(cappedLines[0])).toMatchObject({
+			vault: VAULT_USDC,
+			shares: u("5000").toString(),
+			redeemable: u("3000").toString(),
+			maxRedeem: u("3000").toString(),
+		})
+	})
+
+	it("skips a vault whose maxRedeem is zero, and the others still redeem", async () => {
+		const { planner, sendTransaction } = makeSweepPlanner(
+			{},
+			[
+				{ vault: VAULT_USDC, threshold: "3000", redeemOnShutdown: true },
+				{ vault: VAULT_USDT, threshold: "3000", redeemOnShutdown: true },
+			],
+			{ [VAULT_USDC.toLowerCase()]: u("5000"), [VAULT_USDT.toLowerCase()]: u("4000") },
+			undefined,
+			undefined,
+			undefined,
+			// A vault that lets no shares out right now must not take the batch down with it.
+			{ [VAULT_USDC.toLowerCase()]: 0n },
+		)
+		await planner.initialise(SOLVER)
+		await planner.redeemAll()
+
+		const batch = decodeERC7821ExecuteBatch(sendTransaction.mock.calls[0][0].data as HexString)!
+		expect(batch).toHaveLength(1)
+		expect(batch[0].target.toLowerCase()).toBe(VAULT_USDT.toLowerCase())
+		const decoded = decodeFunctionData({ abi: ERC4626_ABI, data: batch[0].data })
+		expect(decoded.args?.[0]).toBe(u("4000"))
+		expect((decoded.args?.[1] as string).toLowerCase()).toBe(SOLVER.toLowerCase())
+	})
 })
 
 describe("VaultFundingPlanner — paymaster-sponsored sweep", () => {
@@ -506,6 +591,18 @@ describe("VaultFundingPlanner — paymaster-sponsored sweep", () => {
 		expect(sendTransaction).toHaveBeenCalledOnce()
 	})
 
+	it("stalls, rather than sending natively, while an earlier op holds the nonce", async () => {
+		const { sender, trySendSponsored } = makeSender({ canSponsor: true })
+		trySendSponsored.mockRejectedValue(new PendingOpOnNonceError("pending", CHAIN, 0n, 0n))
+		const { planner, sendTransaction } = makeSweepPlanner(sweepWallet, sweepVault, {}, undefined, sender)
+		await planner.initialise(SOLVER)
+
+		await expect(planner.sweepExcessToVault(CHAIN)).rejects.toBeInstanceOf(PendingOpOnNonceError)
+
+		expect(trySendSponsored).toHaveBeenCalledOnce()
+		expect(sendTransaction).not.toHaveBeenCalled()
+	})
+
 	it("uses a native tx when the chain cannot be sponsored", async () => {
 		const { sender, trySendSponsored } = makeSender({ canSponsor: false })
 		const { planner, sendTransaction } = makeSweepPlanner(sweepWallet, sweepVault, {}, undefined, sender)
@@ -514,5 +611,35 @@ describe("VaultFundingPlanner — paymaster-sponsored sweep", () => {
 
 		expect(trySendSponsored).not.toHaveBeenCalled()
 		expect(sendTransaction).toHaveBeenCalledOnce()
+	})
+
+	it("still uses a native tx when the wallet is delegated", async () => {
+		const { sender } = makeSender({ canSponsor: false })
+		const { planner, sendTransaction } = makeSweepPlanner(sweepWallet, sweepVault, {}, undefined, sender, {
+			isDelegated: async () => true,
+		})
+		await planner.initialise(SOLVER)
+		await planner.sweepExcessToVault(CHAIN)
+
+		expect(sendTransaction).toHaveBeenCalledOnce()
+	})
+
+	it("refuses the native fallback on an undelegated wallet, before any tx or movement", async () => {
+		// No sponsor, and the EOA carries no 7702 code: the native `executeBatch` would succeed
+		// and do nothing, recording a sweep that never happened and burning gas every tick.
+		const { sender } = makeSender({ canSponsor: false })
+		const isDelegated = vi.fn(async () => false)
+		const { planner, sendTransaction } = makeSweepPlanner(sweepWallet, sweepVault, {}, undefined, sender, {
+			isDelegated,
+		})
+		await planner.initialise(SOLVER)
+		const onTx = vi.fn()
+		planner.onTx = onTx
+
+		await expect(planner.sweepExcessToVault(CHAIN)).rejects.toThrow(/not 7702-delegated/)
+
+		expect(isDelegated).toHaveBeenCalledWith(CHAIN)
+		expect(sendTransaction).not.toHaveBeenCalled()
+		expect(onTx).not.toHaveBeenCalled()
 	})
 })

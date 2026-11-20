@@ -53,8 +53,8 @@ pub async fn consensus_notification<C: Config>(
 			consensus_state_id: client.consensus_state_id,
 			signer: H160::random().0.to_vec(),
 		};
-		let res = counterparty.estimate_gas(vec![Message::Consensus(msg)]).await?[0];
-		res.successful_execution
+		let estimates = counterparty.estimate_gas(vec![Message::Consensus(msg)]).await?;
+		estimates[0].successful_execution
 	} else {
 		false
 	};

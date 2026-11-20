@@ -19,7 +19,7 @@ less work.
 npm install @hyperbridge/simplex
 ```
 
-Node.js 22.16 or later. The package ships ESM and CJS builds with bundled types.
+Node.js 22.23.4+, 24.22.1+ or 26.12.1+. The package ships ESM and CJS builds with bundled types.
 
 ## Starting a solver
 
@@ -38,6 +38,8 @@ const config: SimplexConfig = {
         maxConcurrentOrders: 5,
         // Seconds between block scans per chain. Defaults to 3, minimum 0.1.
         blockScanIntervalSeconds: 3,
+        // Optional: a Hyperbridge account also places bids on Hyperbridge. Leave both
+        // out to bid on the HyperFX orderbook alone.
         substratePrivateKey: process.env.SUBSTRATE_KEY!,
         hyperbridgeWsUrl: "wss://hyperbridge-mainnet-rpc.blockops.network",
     },
@@ -254,7 +256,7 @@ that is only reclaimable by retracting it, and the retraction sweep finds what t
 querying the bid store. Lose those records and you leak deposits.
 
 The bundled SQLite store is a separate entry point. It runs on Node's built-in `node:sqlite`, so
-there is no native module to install or compile — the package just needs Node 22.16 or newer:
+there is no native module to install or compile — the package just needs Node 22.23.4+, 24.22.1+ or 26.12.1+:
 
 ```ts lineNumbers
 import { SqliteDataStore } from "@hyperbridge/simplex/sqlite"
@@ -277,14 +279,14 @@ const store: SimplexDataStore = {
     activity: myActivityLog,
     // get, set
     state: myStateStore,
-    // create, get, list, open, reserve, release, drawDown, recordFill, fills, …
+    // create, get, list, open, clampRemaining, recordFill, fills, …
     limitOrders: myLimitOrderStore,
 }
 ```
 
-Every method is async. `bids` and `limitOrders` are correctness-critical: `store` must be durable
-before it resolves, and a limit order's `remaining` and `reserved` are what stop two chains paying
-out the same liability twice. `activity` is observability — prune, sample or cap it freely.
+Every method is async. `bids` is correctness-critical: `store` must be durable before it resolves,
+or a bid's deposit is never reclaimed. A limit order's `remaining` follows its budget on chain, which
+is what refuses an overfill. `activity` is observability — prune, sample or cap it freely.
 
 ## Reacting to orders
 
@@ -456,6 +458,7 @@ await simplex.rebalancing.trigger()
 ```ts lineNumbers
 simplex.wallet.address
 // Native, USDC, USDT and every token in the orderbook's books, per chain.
+// `status` is "loading" until the first read lands, shortly after `Simplex.start` returns.
 simplex.wallet.balances()
 await simplex.wallet.send({
     chain: "EVM-8453",

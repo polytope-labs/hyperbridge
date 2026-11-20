@@ -81,6 +81,17 @@ hyperbridgeWsUrl = ""
 # to never check fees. An order Simplex cannot value in dollars is treated as below it.
 # minOrderSizeUsd = 20
 
+# Smallest payout a partial fill may bid, in USD. A partial fill collects none of the order's
+# fees and is exempt from the profit floor, so its gas is paid by the margin in the limit order
+# that prices it. Without a floor, a near-exhausted limit order or a wallet just above its gas
+# reserve bids dust on every matching order, each bid paying fill gas and the relayer fee.
+#
+# A partial that no limit order can value in USD is skipped too: a same-asset book (CNGN/CNGN)
+# or one with no path to a dollar stable (ZARP/CNGN) prices nothing.
+#
+# Set it to 0 to bid whatever can be filled. Full fills are unaffected.
+# minPartialFillUsd = 20
+
 # Gas fee bump configuration (optional)
 # These values control how much to bump gas fees for UserOperation submission
 # Both are percentages added ON TOP of the base gasPrice
@@ -88,18 +99,6 @@ hyperbridgeWsUrl = ""
 # [simplex.gasFeeBump]
 # maxPriorityFeePerGasBumpPercent = 8   # Percentage added to gasPrice for priority fee (default: 8)
 # maxFeePerGasBumpPercent = 10          # Percentage added to gasPrice for max fee (default: 10)
-
-# Overfill protection (optional)
-# A bid offers the matched limit order's whole payout at its rate (capped by what the
-# order has left), which can be more than the swapper asked for: the gateway credits the
-# swapper the requested amount and splits the surplus between swapper and protocol.
-# Nothing is clamped. The filler logs a warning when an offer exceeds
-# (1 + maxOverfillBps / 10000) × the requested output, which usually means a limit order's
-# amounts are mistyped. `maxConsecutiveClamps` is accepted but never halts the filler.
-# If not provided, defaults will be used (maxOverfillBps = 500, maxConsecutiveClamps = 3)
-# [simplex.overfillProtection]
-# maxOverfillBps = 500          # warn when an offer is 5% above the requested output (default: 500)
-# maxConsecutiveClamps = 3      # accepted, currently unused (default: 3)
 
 # Logging level: trace, debug, info, warn, error
 logging = "debug"
@@ -228,6 +227,7 @@ url = "https://orderbook.hyperfx.finance/mainnet/graphql"   # testnet: https://o
 # defaultTtlSecs = 31536000     # how long an order lives, and its posting's TTL; default 365 days, floor 900
 # reconcileIntervalSecs = 300   # how often to check the orderbook still matches (default 300)
 # requestTimeoutMs = 10000      # per orderbook request (default 10000)
+# delegateHeartbeats = true     # sign heartbeats with an in-memory key the signer authorises (default true)
 
 # Remote access from a phone. Off by default. When enabled, simplex keeps an outbound
 # SSH tunnel to a relay so a phone's SSH client can open this UI with a local port

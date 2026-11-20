@@ -1,7 +1,7 @@
 import { defineConfig } from "tsup"
 
 export default defineConfig({
-	entry: { bootstrap: "src/bootstrap.ts", main: "src/main.ts" },
+	entry: { bootstrap: "src/bootstrap.ts", main: "src/main.ts", "solver-diagnostics": "src/solver-diagnostics.ts" },
 	format: ["esm"],
 	platform: "node",
 	target: "node24",

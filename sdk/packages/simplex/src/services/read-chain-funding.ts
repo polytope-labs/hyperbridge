@@ -53,6 +53,44 @@ export async function readChainFunding(
 	}
 }
 
+/**
+ * {@link readChainFunding} through RPCs nothing has checked yet: the setup wizard's, typed by the
+ * operator before any filler exists. The fee token here and the paymaster's Permit2 probe are
+ * cached for the whole process, which the filler booted by the wizard shares, so a URL serving
+ * another chain would pin that chain's answers for this one. Every URL is probed for its chain id
+ * first and the read goes only through those that answered `chainId`:
+ *
+ * - a URL that answers another chain fails the read, since the operator typed it for this one;
+ * - a URL that cannot be reached is left out, as the fallback transport would skip it anyway;
+ * - with no URL answering at all, the read fails without touching the chain.
+ */
+export async function readChainFundingFromUnverifiedRpcs(
+	rpcUrls: readonly string[],
+	chainId: number,
+	configService: FillerConfigService,
+	wallet: HexString,
+	io: {
+		/** A bounded `eth_chainId` probe of one URL. */
+		probeChainId: (url: string) => Promise<number>
+		/** A client reading through `urls` with fallback between them. */
+		connect: (urls: string[]) => PublicClient
+	},
+): Promise<ChainFunding> {
+	const probes = await Promise.allSettled(rpcUrls.map((url) => io.probeChainId(url)))
+	const verified: string[] = []
+	probes.forEach((probe, index) => {
+		if (probe.status === "rejected") return
+		if (probe.value !== chainId) {
+			throw new Error(`RPC endpoint ${index + 1} serves chain ${probe.value}, not chain ${chainId}`)
+		}
+		verified.push(rpcUrls[index])
+	})
+	if (verified.length === 0) {
+		throw new Error(`None of the RPC endpoints for chain ${chainId} answered; check the URLs and try again`)
+	}
+	return readChainFunding(io.connect(verified), configService, wallet, `EVM-${chainId}`)
+}
+
 function gatewayFeeToken(client: PublicClient, configService: FillerConfigService, chain: string): Promise<FeeToken> {
 	let pending = feeTokens.get(chain)
 	if (!pending) {

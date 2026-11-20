@@ -1,13 +1,13 @@
 import type { FillResult, FillerStrategy } from "@/strategies/base"
+import { type BidPlacer, orderbookHoldsBid } from "@/core/bid-venues"
 import {
 	type Order,
-	type ExecutionResult,
 	type HexString,
 	bytes32ToBytes20,
 	type ERC7821Call,
 	type TokenInfo,
-	type IntentsCoprocessor,
 	ADDRESS_ZERO,
+	assertGatewayRelease,
 } from "@hyperbridge/sdk"
 import type { ChainClientManager, ContractInteractionService } from "@/services"
 import type { FillerConfigService } from "@/services/FillerConfigService"
@@ -66,18 +66,8 @@ export class FXFiller implements FillerStrategy {
 	private registry: AssetRegistry
 	private signer: Signer
 	private logger: Logger
-	/**
-	 * Consecutive orders where the overfill clamp activated. Dormant: the clamp
-	 * existed for venue-priced legs, which went with Uniswap V4 pricing, so every
-	 * outcome is now recorded unclamped and this never climbs. See `recordOrderOutcome`.
-	 */
-	private consecutiveClamps = 0
-	/** Once set, the filler refuses all orders until reset. Unreachable while the clamp is dormant. */
-	private halted = false
-	/** Bps above the swapper's ask past which a limit order's offer is logged as suspicious. Warn only. */
-	private readonly maxOverfillBps: bigint
-	/** Consecutive clamped evaluations before halting. Dormant, as `consecutiveClamps` is. */
-	private readonly maxConsecutiveClamps: number
+	/** Source chains whose gateway reported the release a cross-chain partial fill needs. */
+	private readonly sourceReleaseChecked = new Set<string>()
 	confirmationPolicy?: { getConfirmationBlocks: (chainId: number, amountUsd: number) => number }
 	private fundingVenues: FundingVenue[]
 	/** The operator's resting orders: the only thing that prices a fill. */
@@ -116,8 +106,6 @@ export class FXFiller implements FillerStrategy {
 		this.fundingVenues = fundingVenues
 
 		this.signer = signer
-		this.maxOverfillBps = configService.getMaxOverfillBps()
-		this.maxConsecutiveClamps = configService.getMaxConsecutiveClamps()
 		if (confirmationPolicy) {
 			this.confirmationPolicy = {
 				getConfirmationBlocks: (chainId: number, amountUsd: number) =>
@@ -140,10 +128,6 @@ export class FXFiller implements FillerStrategy {
 	}
 
 	async canFill(order: Order): Promise<boolean> {
-		if (this.halted) {
-			this.logger.warn({ orderId: order.id }, "FXFiller halted — rejecting order")
-			return false
-		}
 		try {
 			if (order.inputs.length !== order.output.assets.length) {
 				this.logger.info(
@@ -187,7 +171,9 @@ export class FXFiller implements FillerStrategy {
 	 *   without output calldata and without an earlier partial fill allow.
 	 * - Cap each payout by the filler's balance plus funding-venue withdrawals,
 	 *   then gate it on fees (full fills of orders below `minOrderSizeUsd`) and the
-	 *   same-asset spread.
+	 *   same-asset spread. A partial fill worth less than `minPartialFillUsd` is
+	 *   skipped, before any balance or venue planning when the leg is already known
+	 *   to be a partial.
 	 * - Cache the resulting bids for later use in `executeOrder`.
 	 */
 	async calculateProfitability(order: Order): Promise<number> {
@@ -195,10 +181,6 @@ export class FXFiller implements FillerStrategy {
 		// so a stale `true` from an earlier evaluation would let a refusal through.
 		if (order.id) this.contractService.cacheService.clearPartialFill(order.id)
 		if (order.id) this.contractService.cacheService.clearFeeCheckWaived(order.id)
-		if (this.halted) {
-			this.logger.warn({ orderId: order.id }, "FXFiller halted — rejecting order")
-			return 0
-		}
 		try {
 			const sourceChain = order.source
 			const destChain = order.destination
@@ -207,6 +189,14 @@ export class FXFiller implements FillerStrategy {
 			const destClient = this.clientManager.getPublicClient(destChain)
 			const walletAddress = this.signer.address as HexString
 			const balanceCache = new Map<string, bigint>()
+			// What this evaluation has planned to withdraw from each funding venue, keyed by
+			// venue, chain and token (the venue keys its liquidity by chain and asset). Like
+			// `balanceCache` it lives for this evaluation only, and only stops two of its
+			// candidates or legs planning the same vault liquidity twice. It is not a hold:
+			// the next evaluation starts at zero and reads `maxWithdraw` from the chain
+			// again, and a conflict between evaluations is left to the chain, where the
+			// second `withdraw` reverts its fill batch and only gas is spent.
+			const venuePlanned = new Map<string, bigint>()
 
 			// Every leg is priced on its own: each is an input escrowed against an output,
 			// and the gateway fills and credits them separately (`_partialFills` per leg).
@@ -230,9 +220,13 @@ export class FXFiller implements FillerStrategy {
 			// figure on is treated as below it. Priced once, and only when a bid's fees
 			// fall short.
 			let atOrAboveMinSize: boolean | undefined
+			// Shared with the partial-fill floor below: both price the order, and
+			// `getOrderUsdValue` walks every open limit order. Cached once per evaluation.
+			let orderUsd: Promise<{ inputUsd: Decimal } | null> | undefined
+			const orderUsdValue = () => (orderUsd ??= this.getOrderUsdValue(order))
 			const feeCheckWaived = async (): Promise<boolean> => {
 				if (atOrAboveMinSize === undefined) {
-					const usd = await this.getOrderUsdValue(order)
+					const usd = await orderUsdValue()
 					atOrAboveMinSize = usd !== null && usd.inputUsd.gte(this.configService.getMinOrderSizeUsd())
 				}
 				return atOrAboveMinSize
@@ -337,21 +331,22 @@ export class FXFiller implements FillerStrategy {
 					// The prior-partial probe is a contract read, and most orders fill fully
 					// and never consult it — so it runs only once an under-fill is actually on
 					// the table, and at most once per evaluation.
-					let priorPartialChecked: boolean | undefined
-					const partialEligible = async (): Promise<boolean> => {
+					let noPriorPartial: boolean | undefined
+					const hasNoPriorPartial = async (): Promise<boolean> => {
 						if (!partialEligibleCheap) return false
-						if (priorPartialChecked === undefined) {
-							priorPartialChecked = !(await this.hasExistingPartialFill(order, destChain))
-						}
-						return priorPartialChecked
+						if (noPriorPartial === undefined) noPriorPartial = !(await this.hasExistingPartialFill(order, destChain))
+						return noPriorPartial
 					}
-
+					// A cross-chain partial also releases escrow on the source chain, so its
+					// gateway must confirm it can (`sourceReleasesPartially`; read once per chain).
+					const partialEligible = async (): Promise<boolean> =>
+						(await hasNoPriorPartial()) &&
+						(sourceChain === destChain || (await this.sourceReleasesPartially(order, sourceChain)))
 
 					let deadlineTimestamp: bigint | undefined
 					try {
 						const latestBlock = await destClient.getBlock()
-						const blockTimeMs = destClient.chain?.blockTime
-						const blockTimeSec = blockTimeMs ? blockTimeMs / 1000 : 2
+						const blockTimeSec = await this.contractService.blockTimeSeconds(destChain)
 						const remainingBlocks = order.deadline > latestBlock.number ? Number(order.deadline - latestBlock.number) : 0
 						deadlineTimestamp = BigInt(Math.floor(Number(latestBlock.timestamp) + remainingBlocks * blockTimeSec))
 					} catch (err) {
@@ -377,25 +372,87 @@ export class FXFiller implements FillerStrategy {
 					}
 					if (targetOutput < output.amount) partialFill = true
 
-					// The bid is the whole offer, so it can sit above the ask; the gateway
-					// hands the excess to the swapper and the protocol rather than to us.
-					// Nothing is clamped here. An offer far past what the swapper wanted
-					// is still worth a warning: it is a limit order priced well away from
-					// the market, which is usually a mistake in the operator's terms.
-					const overfillCeiling = (output.amount * (10000n + this.maxOverfillBps)) / 10000n
-					if (offered > overfillCeiling) {
-						this.logger.warn(
-							{
-								orderId: order.id,
-								limitOrder: candidate.order.id,
-								token: output.token,
-								userRequested: output.amount.toString(),
-								offered: offered.toString(),
-								ceiling: overfillCeiling.toString(),
-								maxOverfillBps: this.maxOverfillBps.toString(),
-							},
-							"Limit order offers far more than the swapper asked for",
-						)
+					const usdFactors = usdFactorsFrom(limitOrderUsdEdges(await this.limitOrders!.open()))
+					const outputSymbol = this.registry.symbolFor(outputToken, destChain)
+
+					// What a bid releasing `released` of this leg's input is worth when no
+					// limit order prices the output token: the input is priced instead. On a
+					// single-leg order that is the order's own dollar value scaled to the
+					// amount (`getOrderUsdValue` totals every leg, so it only scales to one
+					// leg on a single-leg order); on a multi-leg order it is the leg's own
+					// input at the limit orders' rates. Null when nothing prices it.
+					const valueByInput = async (released: bigint): Promise<Decimal | null> => {
+						if (order.inputs.length === 1) {
+							const usd = await orderUsdValue()
+							if (!usd || input.amount <= 0n) return null
+							return usd.inputUsd
+								.mul(new Decimal(formatUnits(released, inputDecimals)))
+								.div(new Decimal(formatUnits(input.amount, inputDecimals)))
+						}
+						const inputSymbol = this.registry.symbolFor(bytes32ToBytes20(input.token) as HexString, sourceChain)
+						return inputSymbol
+							? usdValueOf(usdFactors, inputSymbol, new Decimal(formatUnits(released, inputDecimals)))
+							: null
+					}
+
+					// THE PARTIAL-FILL FLOOR, cheap pass. A partial collects none of the
+					// order's fees and is exempt from the caller's profit floor — its gas is
+					// paid by the margin in the limit order that prices it. Without a floor of
+					// its own, a near-exhausted limit order, or a wallet just above its gas
+					// reserve, bids dust on every matching order and pays fill gas plus the
+					// relayer fee for it. When the leg is already known to be a partial and
+					// even the most this bid could pay (`targetOutput`, or the whole input it
+					// could release when no limit order prices the output) is below the floor,
+					// skip before any balance or venue planning: a dust bid must hold no
+					// wallet room and cost no vault read. A known partial that nothing prices
+					// at all is skipped here too, since the check after sizing would refuse it
+					// the same way. A leg not safely partial here is left to that check, which
+					// also judges a payout the wallet cuts below the ask.
+					const minPartialFillUsd = this.configService.getMinPartialFillUsd()
+					const maxPayoutUsd =
+						outputSymbol && minPartialFillUsd > 0
+							? usdValueOf(usdFactors, outputSymbol, new Decimal(formatUnits(targetOutput, outputDecimals)))
+							: null
+					// The prior-partial probe is a contract read, so it runs only once the
+					// payout is already known to be below the floor, or not priced at all. It
+					// is the only read this pass makes: the source gateway is checked by
+					// `partialEligible`, before a partial is bid on, not here.
+					if (
+						minPartialFillUsd > 0 &&
+						(partialFill || multiLeg) &&
+						(maxPayoutUsd === null || maxPayoutUsd.lt(minPartialFillUsd)) &&
+						(await hasNoPriorPartial())
+					) {
+						const maxBidUsd = maxPayoutUsd ?? (await valueByInput(input.amount))
+						if (maxBidUsd === null) {
+							this.logger.info(
+								{
+									orderId: order.id,
+									leg,
+									limitOrder: candidate.order.id,
+									token: output.token,
+									payout: formatUnits(targetOutput, outputDecimals),
+								},
+								"Skipping a partial fill: nothing prices its payout or the input it releases",
+							)
+							continue
+						}
+						if (maxBidUsd.lt(minPartialFillUsd)) {
+							this.logger.info(
+								{
+									orderId: order.id,
+									leg,
+									limitOrder: candidate.order.id,
+									token: output.token,
+									...(outputSymbol ? { symbol: outputSymbol } : {}),
+									payout: formatUnits(targetOutput, outputDecimals),
+									valueUsd: maxBidUsd.toString(),
+									minPartialFillUsd,
+								},
+								`Skipping a partial fill: worth $${maxBidUsd.toFixed(2)}, below minPartialFillUsd $${minPartialFillUsd}`,
+							)
+							continue
+						}
 					}
 
 					// Spend the free wallet balance first, down to the reserve — the paymaster's
@@ -414,19 +471,31 @@ export class FXFiller implements FillerStrategy {
 
 					let credited = 0n
 					let needed = targetOutput - walletContribution
+					// What this candidate would draw from each venue, added to `venuePlanned`
+					// only once it becomes a plan.
+					const venueDraws: [string, bigint][] = []
 					for (const venue of this.fundingVenues) {
 						if (needed <= 0n) break
-						const planned = await venue.planWithdrawalForToken(destChain, walletAddress, tokenAddress, needed, deadlineTimestamp)
+						const key = `${venue.name}:${destChain}:${tokenAddress}`
+						const planned = await venue.planWithdrawalForToken(
+							destChain,
+							walletAddress,
+							tokenAddress,
+							needed,
+							deadlineTimestamp,
+							venuePlanned.get(key) ?? 0n,
+						)
 						if (planned.calls.length > 0) {
 							fundingCalls.push(...planned.calls)
 							credited += planned.credited
 							needed -= planned.credited
+							venueDraws.push([key, planned.credited])
 						}
 					}
 
 					const effectiveBalance = walletContribution + credited
-					// Brought down to a whole 1e18 unit, the unit the hold beside it is kept in:
-					// a token finer than that could otherwise sign an output its hold cannot
+					// Brought down to a whole 1e18 unit, the unit the bid's payout is recorded in:
+					// a token finer than that could otherwise sign an output its payout cannot
 					// express. No other token is changed by it.
 					const finalOutputAmount = toRaw(
 						toScaled(effectiveBalance > targetOutput ? targetOutput : effectiveBalance, outputDecimals),
@@ -484,16 +553,6 @@ export class FXFiller implements FillerStrategy {
 						partialFill = true
 					}
 
-					// Decrement the wallet pool by what this fill drew from it (vault-sourced
-					// tokens are tracked by the venue's own reservations).
-					const walletRemaining = balance - walletContribution
-					balanceCache.set(tokenAddress, walletRemaining > 0n ? walletRemaining : 0n)
-
-					// The venue clamp went with Uniswap V4 pricing, so a fill can never be clamped —
-					// the halt subsystem is left in place but dormant (always recorded as a
-					// clean, unclamped outcome).
-					this.recordOrderOutcome(false, order.id)
-
 					// The take signed beside the output. `fillOrder` settles the output against
 					// it as this bid's rate, credits the swapper `take * ask / escrow`, and
 					// charges the solver the escrow it releases at that rate.
@@ -506,6 +565,9 @@ export class FXFiller implements FillerStrategy {
 					//    gateway accepts for it (`RateBelowOrder` refuses a take whose credit
 					//    at the order's rate exceeds the output), which only binds when the
 					//    limit order's price is the ask itself.
+					//
+					// Sized before the wallet pool is drawn down: a bid the floor below refuses
+					// must leave the pool for later candidates.
 					const releasedInput =
 						finalOutputAmount >= output.amount
 							? input.amount
@@ -535,6 +597,65 @@ export class FXFiller implements FillerStrategy {
 						continue
 					}
 
+					// THE PARTIAL-FILL FLOOR, final pass. The cheap pass judged the most this
+					// bid could pay; here the payout has been sized to the wallet and the
+					// venues, so a leg the wallet cut below the ask is judged too. `partialFill`
+					// is final by now. Checked before the gas estimate, so a skipped bid costs
+					// no gas estimate. A value of 0 disables it.
+					if (partialFill) {
+						if (minPartialFillUsd > 0) {
+							// The bid is worth its payout. Only when no limit order prices the
+							// output token is the input it releases priced — and only then is
+							// the order's own dollar value read. `getOrderUsdValue` totals every
+							// leg, so its figure scales to one leg only on a single-leg order;
+							// on a multi-leg order the leg's own input is priced from the same
+							// edges. Nothing priceable at all is skipped, the same way an
+							// unpriceable order sits below `minOrderSizeUsd`.
+							let bidUsd = outputSymbol
+								? usdValueOf(
+										usdFactors,
+										outputSymbol,
+										new Decimal(formatUnits(finalOutputAmount, outputDecimals)),
+									)
+								: null
+							bidUsd ??= await valueByInput(releasedInput)
+							if (bidUsd === null) {
+								this.logger.info(
+									{
+										orderId: order.id,
+										leg,
+										limitOrder: candidate.order.id,
+										token: output.token,
+										payout: formatUnits(finalOutputAmount, outputDecimals),
+									},
+									"Skipping a partial fill: nothing prices its payout or the input it releases",
+								)
+								continue
+							}
+							if (bidUsd.lt(minPartialFillUsd)) {
+								this.logger.info(
+									{
+										orderId: order.id,
+										leg,
+										limitOrder: candidate.order.id,
+										token: output.token,
+										...(outputSymbol ? { symbol: outputSymbol } : {}),
+										payout: formatUnits(finalOutputAmount, outputDecimals),
+										valueUsd: bidUsd.toString(),
+										minPartialFillUsd,
+									},
+									`Skipping a partial fill: worth $${bidUsd.toFixed(2)}, below minPartialFillUsd $${minPartialFillUsd}`,
+								)
+								continue
+							}
+						}
+					}
+
+					// Decrement the wallet pool by what this fill drew from it. The vault draw
+					// is added to `venuePlanned` later, once the candidate becomes a plan.
+					const walletRemaining = balance - walletContribution
+					balanceCache.set(tokenAddress, walletRemaining > 0n ? walletRemaining : 0n)
+
 					// One entry per leg, zero on every leg but this one: the gateway skips those.
 					const fillerOutputs: TokenInfo[] = order.output.assets.map((asset, i) => ({
 						token: asset.token,
@@ -544,9 +665,6 @@ export class FXFiller implements FillerStrategy {
 						token: asset.token,
 						amount: i === leg ? releasedInput : 0n,
 					}))
-
-					const usdFactors = usdFactorsFrom(limitOrderUsdEdges(await this.limitOrders!.open()))
-					const outputSymbol = this.registry.symbolFor(outputToken, destChain)
 
 					// A same-asset market realizes its spread in kind: escrow released minus
 					// output paid, in the asset's own units. Positive iff the filler nets the
@@ -691,7 +809,7 @@ export class FXFiller implements FillerStrategy {
 							offer: candidate.offer.toString(),
 							limitOrders: matches.length,
 							available: candidate.available.toString(),
-							payout: targetOutput.toString(),
+							payout: finalOutputAmount.toString(),
 							orderFees: formatUnits(order.fees, feeTokenDecimals),
 							fillGas: formatUnits(totalCostInSourceFeeToken, feeTokenDecimals),
 							relayerFee: formatUnits(relayerFeeInSourceFeeToken, feeTokenDecimals),
@@ -710,6 +828,13 @@ export class FXFiller implements FillerStrategy {
 						candidate.order.id,
 						(plannedOn.get(candidate.order.id) ?? 0n) + toScaled(finalOutputAmount, outputDecimals),
 					)
+					// Counted here, beside `plannedOn`, once every skip has passed: a candidate
+					// refused by the partial floor, the dispatch-fee check, either gate or a zero
+					// release leaves its vault draw to later candidates. The wallet pool is
+					// decremented earlier, before the dispatch-fee check that reads the net
+					// balance, so a candidate those later checks refuse still holds its wallet
+					// share for the rest of the evaluation; the vault tally does not.
+					for (const [key, amount] of venueDraws) venuePlanned.set(key, (venuePlanned.get(key) ?? 0n) + amount)
 					plans.push({
 						limitOrderId: candidate.order.id,
 						leg,
@@ -763,25 +888,25 @@ export class FXFiller implements FillerStrategy {
 	}
 
 	/**
-	 * Executes an order by submitting a bid via the IntentsCoprocessor.
+	 * Executes an order by placing a bid through the filler's venues.
 	 *
 	 * Assumes that `calculateProfitability` has already been called for the
 	 * given order so that filler outputs are cached in `contractService`.
 	 * This method only orchestrates the bid construction and submission; the
 	 * actual token movements are handled on-chain by the IntentGateway.
 	 */
-	async executeOrder(order: Order, intentsCoprocessor?: IntentsCoprocessor): Promise<ExecutionResult> {
+	async executeOrder(order: Order, bids?: BidPlacer): Promise<FillResult> {
 		const startTime = Date.now()
 
 		try {
-			if (!intentsCoprocessor) {
+			if (!bids) {
 				return {
 					success: false,
-					error: "FXFiller requires the UserOp/Hyperbridge path (intentsCoprocessor must be provided)",
+					error: "FXFiller requires the UserOp path (the filler's bid venues must be provided)",
 				}
 			}
 
-			return await this.submitBid(order, startTime, intentsCoprocessor)
+			return await this.submitBid(order, startTime, bids)
 		} catch (error) {
 			this.logger.error({ err: error }, "Error executing FX swap order")
 			return {
@@ -796,17 +921,14 @@ export class FXFiller implements FillerStrategy {
 	// =========================================================================
 
 	/**
-	 * Prepares and submits a bid UserOp to Hyperbridge for the given order.
+	 * Prepares the bid UserOp for the given order and places it through the filler's venues.
 	 *
 	 * Uses the filler outputs previously cached by `calculateProfitability`.
 	 * Approval bundling and UserOp construction are handled by
-	 * `ContractInteractionService.prepareBidUserOp`.
+	 * `ContractInteractionService.prepareBidUserOp`. The result's `success`, `txHash`,
+	 * `pending` and `error` are Hyperbridge's answer; `orderbook` is the orderbook's.
 	 */
-	private async submitBid(
-		order: Order,
-		startTime: number,
-		intentsCoprocessor: IntentsCoprocessor,
-	): Promise<FillResult> {
+	private async submitBid(order: Order, startTime: number, bids: BidPlacer): Promise<FillResult> {
 		const entryPointAddress = this.configService.getEntryPointAddress(order.destination)
 		if (!entryPointAddress) {
 			return {
@@ -824,75 +946,59 @@ export class FXFiller implements FillerStrategy {
 			solverAccountAddress,
 		)
 
-		const bidResult = await intentsCoprocessor.submitBid(commitment, userOp, bid)
+		const placed = await bids.place(commitment, userOp, bid)
+		const onHyperbridge = placed.hyperbridge
+		const onOrderbook = placed.orderbook
 
-		const endTime = Date.now()
-		if (bidResult.success) {
-			this.logger.info({ commitment }, "Bid submitted successfully")
+		const processingTimeMs = Date.now() - startTime
+		const venue = onOrderbook ? { orderbook: onOrderbook } : {}
+		if (onHyperbridge?.success) {
+			this.logger.info({ commitment, orderbook: onOrderbook?.kind }, "Bid submitted successfully")
 			return {
 				success: true,
-				txHash: bidResult.extrinsicHash,
+				txHash: onHyperbridge.extrinsicHash,
 				strategyUsed: this.name,
-				processingTimeMs: endTime - startTime,
+				processingTimeMs,
 				commitment,
 				bid,
+				...venue,
 			}
 		}
 
-		this.logger.error({ commitment, error: bidResult.error, pending: bidResult.pending }, "Bid submission failed")
+		if (onHyperbridge && orderbookHoldsBid(onOrderbook)) {
+			// Live on the orderbook, so a swapper can still execute it; Hyperbridge's refusal is worth knowing, not an outage.
+			this.logger.warn(
+				{ commitment, error: onHyperbridge.error, pending: onHyperbridge.pending },
+				"Hyperbridge did not take the bid; the orderbook holds it",
+			)
+		} else if (onHyperbridge) {
+			this.logger.error(
+				{ commitment, error: onHyperbridge.error, pending: onHyperbridge.pending, orderbook: onOrderbook?.kind },
+				"Bid submission failed",
+			)
+		} else if (orderbookHoldsBid(onOrderbook)) {
+			this.logger.info({ commitment }, "Bid posted to the orderbook")
+		} else {
+			this.logger.error({ commitment, orderbook: onOrderbook }, "Bid reached no venue")
+		}
 		// `pending` and the hash ride along: a pooled extrinsic that later lands
 		// reserves a deposit, so the sweep must be able to find and trace it.
 		return {
 			success: false,
-			pending: bidResult.pending === true,
-			txHash: bidResult.extrinsicHash,
-			error: bidResult.error,
+			pending: onHyperbridge?.pending === true,
+			txHash: onHyperbridge?.extrinsicHash,
+			error: onHyperbridge?.error,
+			strategyUsed: this.name,
+			processingTimeMs,
 			commitment,
 			bid,
+			...venue,
 		}
 	}
 
 	// =========================================================================
 	// Private — Helpers
 	// =========================================================================
-
-	/**
-	 * Update consecutive-clamp counter after a successful order evaluation.
-	 *
-	 * Dormant. Only venue-priced legs ever fed a clamped outcome here: a streak
-	 * of those meant a live market source had gone off (stale pool, manipulated
-	 * venue). Venue pricing went with Uniswap V4, and limit orders are prices the
-	 * operator set, so the only caller records `false` and the filler never
-	 * halts. `isHalted`, `resetHalt` and `[simplex.overfillProtection]
-	 * maxConsecutiveClamps` are kept so existing configs and the halt API still
-	 * load; they can go once nothing reads them.
-	 */
-	private recordOrderOutcome(clamped: boolean, orderId: string | undefined) {
-		if (clamped) {
-			this.consecutiveClamps += 1
-			if (this.consecutiveClamps >= this.maxConsecutiveClamps) {
-				this.halted = true
-				this.logger.error(
-					{ orderId, consecutiveClamps: this.consecutiveClamps, maxConsecutiveClamps: this.maxConsecutiveClamps },
-					"FXFiller HALTED — venue-priced overfill clamp triggered consecutively; restart required after investigation",
-				)
-			}
-		} else {
-			this.consecutiveClamps = 0
-		}
-	}
-
-	public isHalted(): boolean {
-		return this.halted
-	}
-
-	/** Operator acknowledgement after investigating a self-halt; resumes filling. */
-	public resetHalt(): void {
-		if (!this.halted) return
-		this.halted = false
-		this.consecutiveClamps = 0
-		this.logger.warn("FXFiller halt reset by operator — resuming order evaluation")
-	}
 
 	/**
 	 * Whether any solver has already delivered output against this order.
@@ -911,6 +1017,30 @@ export class FXFiller implements FillerStrategy {
 			)
 			return true
 		}
+	}
+
+	/**
+	 * Whether the source chain's gateway runs the release this SDK requires. Only the destination
+	 * gateway's release is asserted when a fill is estimated, but a cross-chain under-fill is
+	 * settled on the source by `RedeemEscrowPartial`, which an older source gateway does not
+	 * handle: the fill would be paid out and its escrow never released. Only a supported release
+	 * is cached, so an upgraded gateway is picked up without a restart. A failed read, or a chain
+	 * with no gateway configured, counts as unsupported for this evaluation.
+	 */
+	private async sourceReleasesPartially(order: Order, chain: string): Promise<boolean> {
+		if (this.sourceReleaseChecked.has(chain)) return true
+		try {
+			const gateway = this.configService.getIntentGatewayAddress(chain)
+			await assertGatewayRelease(this.clientManager.getPublicClient(chain), gateway, chain)
+		} catch (err) {
+			this.logger.info(
+				{ orderId: order.id, sourceChain: chain, err },
+				"Skipping a cross-chain partial fill: the source gateway's release could not be confirmed",
+			)
+			return false
+		}
+		this.sourceReleaseChecked.add(chain)
+		return true
 	}
 
 	/**

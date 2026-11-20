@@ -17,15 +17,20 @@ const funded: ChainFunding = {
 	delegated: false,
 }
 
-function controllerFor({ signerless = false, watchOnly = {} as Record<number, boolean> } = {}) {
+function controllerFor({
+	signerless = false,
+	globalWatchOnly = false,
+	watchOnly = {} as Record<number, boolean>,
+} = {}) {
 	const intentFiller = {
 		enableFills: vi.fn(async () => {}),
+		guardDelegation: vi.fn(async () => {}),
 		setWatchOnly: vi.fn(),
 		getWatchOnly: () => watchOnly,
 	}
 	const runtime = {
 		signerless,
-		globalWatchOnly: false,
+		globalWatchOnly,
 		config: { simplex: {} },
 		configService: {},
 		fillerAddress: FILLER,
@@ -84,5 +89,49 @@ describe("ChainController.enableFills", () => {
 		const { controller, intentFiller } = controllerFor({ signerless: true })
 		await expect(controller.enableFills(56)).rejects.toThrow(/started without a signer/)
 		expect(intentFiller.enableFills).not.toHaveBeenCalled()
+	})
+
+	it("refuses to enable fills while watch-only is in force", async () => {
+		const { controller, intentFiller } = controllerFor({ globalWatchOnly: true })
+		await expect(controller.enableFills(56)).rejects.toThrow(/runs watch-only/)
+		expect(intentFiller.enableFills).not.toHaveBeenCalled()
+	})
+})
+
+describe("ChainController.setWatchOnly", () => {
+	it("refuses to clear watch-only while watch-only is in force", async () => {
+		const { controller, intentFiller } = controllerFor({ globalWatchOnly: true, watchOnly: { 56: true } })
+		await expect(controller.setWatchOnly(56, false)).rejects.toThrow(/runs watch-only/)
+		expect(intentFiller.setWatchOnly).not.toHaveBeenCalled()
+	})
+})
+
+describe("ChainController.setWatchOnly", () => {
+	it("checks delegation before it turns watch-only off", async () => {
+		const { controller, intentFiller, persist } = controllerFor({ watchOnly: { 56: true } })
+		const order: string[] = []
+		intentFiller.guardDelegation.mockImplementation(async () => void order.push("guard"))
+		intentFiller.setWatchOnly.mockImplementation(() => void order.push("set"))
+
+		await controller.setWatchOnly(56, false)
+		expect(intentFiller.guardDelegation).toHaveBeenCalledWith(56)
+		expect(order).toEqual(["guard", "set"])
+		expect(persist).toHaveBeenCalled()
+	})
+
+	it("leaves the chain watch-only, and unsaved, when the delegation check rejects", async () => {
+		const { controller, intentFiller, persist } = controllerFor({ watchOnly: { 56: true } })
+		intentFiller.guardDelegation.mockRejectedValue(new Error("Could not read solver selection on EVM-56"))
+
+		await expect(controller.setWatchOnly(56, false)).rejects.toThrow(/Could not read solver selection/)
+		expect(intentFiller.setWatchOnly).not.toHaveBeenCalled()
+		expect(persist).not.toHaveBeenCalled()
+	})
+
+	it("does not check delegation when it turns watch-only on", async () => {
+		const { controller, intentFiller } = controllerFor()
+		await controller.setWatchOnly(56, true)
+		expect(intentFiller.guardDelegation).not.toHaveBeenCalled()
+		expect(intentFiller.setWatchOnly).toHaveBeenCalledWith(56, true)
 	})
 })

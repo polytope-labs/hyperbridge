@@ -13,6 +13,9 @@ export const MIN_BLOCK_SCAN_INTERVAL_SECONDS = 0.1
 /** Order size in USD below which fees must cover execution, when `simplex.minOrderSizeUsd` is not set. */
 export const DEFAULT_MIN_ORDER_SIZE_USD = 20
 
+/** Payout in USD below which a partial fill is not bid, when `simplex.minPartialFillUsd` is not set. */
+export const DEFAULT_MIN_PARTIAL_FILL_USD = 20
+
 export interface UserProvidedChainConfig {
 	/** One or more RPC URLs. When multiple are provided, event scans use quorum consensus. */
 	rpcUrls: string[]
@@ -180,13 +183,6 @@ export interface RebalancingConfig {
 	}
 }
 
-export interface OverfillProtectionConfig {
-	/** Ceiling bps above user-requested output; filler clamps its computed output to this. Default 500 (5%). */
-	maxOverfillBps?: number
-	/** Consecutive clamped evaluations before the strategy halts itself. Default 3. */
-	maxConsecutiveClamps?: number
-}
-
 export interface AllowlistConfig {
 	/** Hex addresses eligible across all chains. */
 	users?: string[]
@@ -222,10 +218,10 @@ export interface FillerConfig {
 	 */
 	minOrderSizeUsd?: number
 	/**
-	 * Overfill protection knobs. If omitted, defaults are used
-	 * (maxOverfillBps=500, maxConsecutiveClamps=3).
+	 * Smallest payout, in USD, a partial fill may bid. Defaults to 20. Set to 0 to
+	 * bid whatever can be filled. See `minPartialFillUsd` in filler-toml.
 	 */
-	overfillProtection?: OverfillProtectionConfig
+	minPartialFillUsd?: number
 	/**
 	 * Restricts which order `user` addresses the filler processes. When omitted, all
 	 * users are accepted. When present, only listed users (global ∪ per-source) are
@@ -679,14 +675,12 @@ export class FillerConfigService {
 		return this.fillerConfig?.minOrderSizeUsd ?? DEFAULT_MIN_ORDER_SIZE_USD
 	}
 
-	/** Ceiling bps above user-requested output. Default 500 (5%). */
-	getMaxOverfillBps(): bigint {
-		return BigInt(this.fillerConfig?.overfillProtection?.maxOverfillBps ?? 500)
-	}
-
-	/** Consecutive clamped evaluations before the strategy halts. Default 3. */
-	getMaxConsecutiveClamps(): number {
-		return this.fillerConfig?.overfillProtection?.maxConsecutiveClamps ?? 3
+	/**
+	 * The smallest payout, in USD, a partial fill may bid. Defaults to 20. `0` bids
+	 * whatever can be filled. Full fills are not checked.
+	 */
+	getMinPartialFillUsd(): number {
+		return this.fillerConfig?.minPartialFillUsd ?? DEFAULT_MIN_PARTIAL_FILL_USD
 	}
 
 }

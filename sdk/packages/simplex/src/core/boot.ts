@@ -1,11 +1,13 @@
 import { join } from "node:path"
 import { formatUnits, toHex } from "viem"
+import { generatePrivateKey } from "viem/accounts"
 import { IntentFiller } from "@/core/filler"
 import { FXFiller } from "@/strategies/fx"
 import type { VaultConfig, FundingVenue } from "@/funding/types"
 import { VaultFundingPlanner } from "@/funding/vault/VaultFundingPlanner"
 import { VaultLiquidityState } from "@/funding/vault/VaultLiquidityState"
 import { TokenSender } from "@/services/TokenSender"
+import { revokeStaleGatewayAllowances } from "@/services/gateway-allowance"
 import { BridgeTopUp } from "@/services/BridgeTopUp"
 import { deriveSubstrateKeyPair } from "@/services/substrate-key"
 import { formatChainKey, parseChainKey } from "@/config/interpolated-curve"
@@ -31,6 +33,7 @@ import { DelegationService } from "@/services/DelegationService"
 import { OrderbookClient } from "@/orderbook/client"
 import { LimitOrderLifecycle } from "@/orderbook/lifecycle"
 import { LimitOrderService, initialOrderNonce } from "@/orderbook/limit-orders"
+import { assertOrderEncoding, OrderScreener, reportScreeningStatus } from "@/orderbook/screening"
 import { DEFAULT_LIMIT_ORDER_TTL_SECONDS } from "@/orderbook/types"
 import { UserOpSender } from "@/services/UserOpSender"
 import { RebalancingService } from "@/services/RebalancingService"
@@ -44,9 +47,8 @@ import { InventoryRecorder } from "@/data/inventory"
 import { chainByChainId } from "@/cli/init/chains"
 import type { SimplexDataStore } from "@/data/types"
 import type { OrderScanner } from "@/scanner/types"
-import type { HaltControl } from "@/services/server/UiServer"
 import type { BinanceCexConfig } from "@/services/rebalancers/index"
-import type { Signer } from "@/services/wallet"
+import { privateKeySigner, type Signer } from "@/services/wallet"
 
 export interface BootOptions {
 	/** Where the config was loaded from, when it came from a file. Purely informational. */
@@ -69,6 +71,11 @@ export interface BootOptions {
 	 * caller passed, or builds a private one from this config.
 	 */
 	scanners: { orders: OrderScanner }
+	/**
+	 * The config's chains with their ids already probed. `Simplex.start` passes
+	 * them so the endpoints are probed once; without them boot probes itself.
+	 */
+	resolvedChains?: ResolvedChainConfig[]
 	/** --watch-only CLI flag: forces watch-only on every chain. */
 	watchOnlyOverride?: boolean
 	/**
@@ -83,8 +90,6 @@ export interface FillerRuntime {
 	intentFiller: IntentFiller
 	balanceProvider: BalanceProvider
 	vaultVenue?: VaultFundingPlanner
-	/** Self-halt visibility/reset for the trading engine (overfill protection). */
-	haltControls: HaltControl[]
 	/** Live order-activity bridge; emits `event` per stored row. */
 	activity: ActivityRecorder
 	/** The persistence backend this filler was started with. */
@@ -158,6 +163,9 @@ export function allChainsWatchOnly(watchOnly: Record<number, boolean> | undefine
  */
 export async function bootFiller(config: FillerTomlConfig, options: BootOptions): Promise<FillerRuntime> {
 	validateConfig(config, options.watchOnlyOverride === true)
+	// Before anything starts: screening sends each order as abi.encode(order), and an encoding that
+	// has drifted would degrade every mainnet order's screening rather than fail once here.
+	assertOrderEncoding()
 
 	const logger = moduleLogger(options.loggers, "cli")
 	logger.info({ configPath: options.configPath }, "Loading configuration")
@@ -185,13 +193,25 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 	if ("pairs" in config) {
 		logger.warn("[[pairs]] is no longer read and can be deleted from the config")
 	}
+	// Likewise [simplex.overfillProtection], which `simplex init` wrote uncommented. Not
+	// rejected: refusing it would crash-loop a deployment that has carried it for months,
+	// and nothing it configured exists any more. `!== undefined` so a library caller
+	// passing `{ overfillProtection: undefined }` is not warned.
+	if (config.simplex.overfillProtection !== undefined) {
+		logger.warn(
+			"[simplex.overfillProtection] is ignored: overfill protection was removed, so Simplex no longer clamps bids or halts on overfill. The section can be deleted from the config",
+		)
+	}
 
-	logger.info("Resolving chain IDs from RPC endpoints...")
-	// Boot tolerates an endpoint that cannot answer; runtime endpoint edits do not.
-	const resolvedChains: ResolvedChainConfig[] = await resolveChainConfigs(config.chains, {
-		loggers: options.loggers,
-		tolerateUnreachable: true,
-	})
+	let resolvedChains = options.resolvedChains
+	if (!resolvedChains) {
+		logger.info("Resolving chain IDs from RPC endpoints...")
+		// Boot tolerates an endpoint that cannot answer; runtime endpoint edits do not.
+		resolvedChains = await resolveChainConfigs(config.chains, {
+			loggers: options.loggers,
+			tolerateUnreachable: true,
+		})
+	}
 	logger.info({ chains: resolvedChains.map((c) => c.chainId) }, "Chain IDs resolved")
 
 	const fillerConfigForService: FillerServiceConfig = {
@@ -204,9 +224,9 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 		targetGasUnits: config.simplex.targetGasUnits,
 		bidValiditySeconds: config.simplex.bidValiditySeconds,
 		minOrderSizeUsd: config.simplex.minOrderSizeUsd,
+		minPartialFillUsd: config.simplex.minPartialFillUsd,
 		blockScanIntervalSeconds: config.simplex.blockScanIntervalSeconds,
 		gasFeeBump: config.simplex.gasFeeBump,
-		overfillProtection: config.simplex.overfillProtection,
 		allowlist: config.allowlist,
 	}
 
@@ -321,6 +341,9 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 				sweepIntervalMs: config.vault.sweepIntervalMs,
 			},
 			userOpSender,
+			// Used read-only here: the native-sweep fallback refuses to send an `executeBatch`
+			// to a wallet that is not 7702-delegated (it would be a no-op that still costs gas).
+			new DelegationService(chainClientManager, configService, runtimeSigner),
 		)
 	}
 
@@ -356,12 +379,6 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 	logger.info("Hydrating funding venue state...")
 	await engine.initialise()
 	const strategies: FXFiller[] = [engine]
-
-	const haltControls: HaltControl[] = strategies.map((engine, index) => ({
-		index,
-		isHalted: () => engine.isHalted(),
-		resetHalt: () => engine.resetHalt(),
-	}))
 
 	// Initialize rebalancing service only if fully configured
 	let rebalancingService: RebalancingService | undefined
@@ -409,13 +426,17 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 	// that reached here has one. Checked rather than asserted: boot is also entered
 	// from the setup API, and a filler with no orderbook has nothing to price from.
 	if (!config.orderbook) throw new Error("an [orderbook] section is required")
+	const orderbookClient = new OrderbookClient(
+		config.orderbook.url,
+		config.orderbook.requestTimeoutMs ?? DEFAULT_ORDERBOOK_TIMEOUT_MS,
+		options.loggers,
+	)
+	// Every bid is posted to the orderbook too, and to it alone when the account holds no
+	// BRIDGE for the Hyperbridge deposit.
+	intentFiller.setOrderbook(orderbookClient)
 	const limitOrderService = new LimitOrderService(
 		options.data.limitOrders,
-		new OrderbookClient(
-			config.orderbook.url,
-			config.orderbook.requestTimeoutMs ?? DEFAULT_ORDERBOOK_TIMEOUT_MS,
-			options.loggers,
-		),
+		orderbookClient,
 		contractService,
 		configService,
 		assetRegistry,
@@ -426,10 +447,25 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 		initialOrderNonce,
 		// A fill withdraws a payout shortfall from the vaults, so what they hold backs an order too.
 		vaultVenue,
+		// Read live from the filler: the operator can switch a chain's watch-only mode at runtime.
+		(chain) => intentFiller.getWatchOnly()[configService.getChainId(chain)] === true,
+		// A fresh key every start, never written anywhere: authorising it replaces the last one on the orderbook.
+		config.orderbook.delegateHeartbeats === false ? undefined : privateKeySigner(generatePrivateKey()),
 	)
 	// A fill has to work its limit order down and put the rest back on the book,
 	// which the filler cannot do until the service that owns the connection exists.
 	intentFiller.setLimitOrderService(limitOrderService)
+	// Every mainnet order is screened through the orderbook before it is bid on, and dropped
+	// when flagged or when no verdict can be had. Testnet orders are not screened.
+	intentFiller.setScreener(
+		new OrderScreener(orderbookClient, runtimeSigner, () => limitOrderService.signingDomain(), options.loggers),
+	)
+	// Fire-and-forget, like the backfills: a slow orderbook must not hold up the boot.
+	void reportScreeningStatus(
+		orderbookClient,
+		resolvedChains.map((chain) => formatChainKey(chain.chainId)),
+		moduleLogger(options.loggers, "screening"),
+	)
 	const lifecycle = new LimitOrderLifecycle(
 		limitOrderService,
 		{
@@ -439,14 +475,15 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 		options.loggers,
 	)
 	started.push(() => lifecycle.stop())
-	await lifecycle.start()
-
-	// Initialize (sets up EIP-7702 delegation if solver selection is configured)
-	try {
-		await intentFiller.initialize()
-	} catch (error) {
+	// The orderbook's lifecycle and the filler's initialization (EIP-7702 delegation
+	// where solver selection is configured) do not depend on each other, so they run
+	// together. Both are waited for before a failure unwinds, so the lifecycle never
+	// installs its timers after it was stopped.
+	const settled = await Promise.allSettled([intentFiller.initialize(), lifecycle.start()])
+	const failure = settled.find((result): result is PromiseRejectedResult => result.status === "rejected")
+	if (failure) {
 		await unwind()
-		throw error
+		throw failure.reason
 	}
 
 	// Order-activity feed for the operator UI. Legs are described with the
@@ -526,6 +563,7 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 		fillerAddress: runtimeSigner.address,
 		tokens: bookTokens,
 		vaultBalances: vaultVenue,
+		feeToken: async (chain) => (await contractService.getFeeTokenWithDecimals(chain)).address,
 		hyperbridge: intentFiller.hyperbridgeConnection,
 		substratePrivateKey: config.simplex.substratePrivateKey,
 	})
@@ -570,7 +608,9 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 	vaultVenue?.startSweeping()
 
 	started.push(() => balanceProvider.stop())
-	await balanceProvider.start()
+	// Not awaited: the first read covers every chain and takes as long as the slowest
+	// one. Until it lands the snapshot says "loading", which its readers handle.
+	void balanceProvider.start().catch((err) => logger.warn({ err }, "Could not start reading balances"))
 
 	// What the solver holds, about once a day: the inventory profit is measured against. A
 	// signerless observer runs on a throwaway key that holds nothing worth recording.
@@ -608,6 +648,9 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 		logger.warn(`Shutting down intent filler (${signal})...`)
 		balanceProvider.stop()
 		vaultVenue?.stopSweeping()
+		// Before the filler: an expiry tick queues retractions, and one landing after the
+		// filler's drain would find Hyperbridge disconnected.
+		lifecycle.stop()
 		await intentFiller.stop()
 		// Exit all vault positions back to the underlying asset (best-effort).
 		await vaultVenue?.redeemAll()
@@ -615,19 +658,38 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 		if (options.ownsData) await options.data.close?.()
 	}
 
+	// One delegation view shared by the operator's sends and the BRIDGE top-up. TokenSender reads
+	// it to refuse a native batch on an undelegated wallet, which would succeed and do nothing.
+	const delegationService = new DelegationService(chainClientManager, configService, runtimeSigner)
 	const tokenSender = new TokenSender(
 		chainClientManager,
 		runtimeSigner.address as HexString,
 		() => config.vault?.vaults ?? [],
 		userOpSender,
 		configService,
+		(chain) => delegationService.isDelegated(chain),
 	)
+	// Fills before the exact-approval release left the gateway approved for the destination fee
+	// token. A fill clears that only for the token and chain it touches, so clear what is still
+	// standing now, once delegation is set up. A signerless observer holds nothing to revoke.
+	// Fire-and-forget: it is housekeeping that retries on the next boot, and it never rejects.
+	if (options.signer) {
+		void revokeStaleGatewayAllowances({
+			clientManager: chainClientManager,
+			configService,
+			contractService,
+			tokenSender,
+			solver: runtimeSigner.address as HexString,
+			watchOnly: watchOnlyConfig,
+			logger: moduleLogger(options.loggers, "gateway-allowance"),
+		})
+	}
 	// BRIDGE trades only on mainnet BSC, so a testnet filler has nothing to top up with.
 	const bridgeTopUp =
 		config.simplex.substratePrivateKey && network === "mainnet"
 			? new BridgeTopUp({
 					clientManager: chainClientManager,
-					delegation: new DelegationService(chainClientManager, configService, runtimeSigner),
+					delegation: delegationService,
 					configService,
 					tokenSender,
 					state: options.data.state,
@@ -636,6 +698,10 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 					solver: runtimeSigner.address as HexString,
 					substratePublicKey: toHex((await deriveSubstrateKeyPair(config.simplex.substratePrivateKey)).publicKey),
 					hyperbridge: intentFiller.hyperbridgeConnection,
+					// Lets the dashboard show the new BRIDGE balance as soon as a top-up is delivered.
+					refreshBridgeBalance: () => balanceProvider.refreshHyperbridgeBalance(),
+					// Sizes its evidence margins at the block times measured when simplex started.
+					blockTimeSeconds: (chain) => contractService.blockTimeSeconds(chain),
 					loggers: options.loggers,
 				})
 			: undefined
@@ -647,7 +713,6 @@ export async function bootFiller(config: FillerTomlConfig, options: BootOptions)
 		limitOrders: limitOrderService,
 		balanceProvider,
 		vaultVenue,
-		haltControls,
 		activity,
 		data: options.data,
 		configService,

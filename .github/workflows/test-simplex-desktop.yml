@@ -80,14 +80,14 @@ jobs:
 
             - name: Execute staged Node on Unix
               if: runner.os != 'Windows'
-              run: test "$(packages/simplex-desktop/resources/node/${{ matrix.target }}/node --version)" = "v24.19.0"
+              run: test "$(packages/simplex-desktop/resources/node/${{ matrix.target }}/node --version)" = "v24.22.1"
 
             - name: Execute staged Node on Windows
               if: runner.os == 'Windows'
               shell: pwsh
               run: |
                   $version = & "packages/simplex-desktop/resources/node/win32-x64/node.exe" --version
-                  if ($version -ne "v24.19.0") { throw "Expected v24.19.0, got $version" }
+                  if ($version -ne "v24.22.1") { throw "Expected v24.22.1, got $version" }
 
     desktop-e2e-artifacts:
         name: Build Simplex desktop E2E artifacts

@@ -38,6 +38,35 @@ mod db;
 #[cfg(test)]
 mod tests;
 
+/// Retry bookkeeping stored with a parked message.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct RetryState {
+	/// Retry passes that already failed to deliver this message.
+	pub attempts: u32,
+	/// Unix seconds when the message was first parked. Zero means a row
+	/// written by an older build; the retry loop treats it as parked now.
+	pub created_at: u64,
+	/// Unix seconds before which the retry loop leaves the row alone.
+	pub next_attempt_at: u64,
+}
+
+/// A message parked for retry, with the row it was read from.
+#[derive(Debug, Clone)]
+pub struct ParkedMessage {
+	pub message: Message,
+	pub state: RetryState,
+	/// Row id; `None` for a message being parked for the first time.
+	pub id: Option<i32>,
+}
+
+/// Seconds since the Unix epoch.
+pub fn unix_now() -> u64 {
+	std::time::SystemTime::now()
+		.duration_since(std::time::UNIX_EPOCH)
+		.map(|elapsed| elapsed.as_secs())
+		.unwrap_or_default()
+}
+
 #[derive(Clone)]
 pub struct TransactionPayment {
 	pub db: Arc<PrismaClient>,
@@ -262,6 +291,54 @@ impl TransactionPayment {
 				delivery_height: data.delivery_height,
 			})
 			.collect())
+	}
+
+	/// The last height a pipeline read from `source` for `dest`, if it has a saved checkpoint.
+	pub async fn processed_height(&self, source: &str, dest: &str) -> anyhow::Result<Option<u64>> {
+		use crate::db::processed_heights;
+		let row = self
+			.db
+			.processed_heights()
+			.find_unique(processed_heights::UniqueWhereParam::SourceDestEquals(
+				source.to_string(),
+				dest.to_string(),
+			))
+			.exec()
+			.await?;
+		Ok(row.map(|row| row.height as u64))
+	}
+
+	/// Save the last height a pipeline read from `source` for `dest`, so a restart resumes from it.
+	pub async fn store_processed_height(
+		&self,
+		source: &str,
+		dest: &str,
+		height: u64,
+	) -> anyhow::Result<()> {
+		use crate::db::processed_heights;
+		let now = chrono::Utc::now().timestamp() as i32;
+		self.db
+			.processed_heights()
+			.upsert(
+				processed_heights::UniqueWhereParam::SourceDestEquals(
+					source.to_string(),
+					dest.to_string(),
+				),
+				processed_heights::create(
+					source.to_string(),
+					dest.to_string(),
+					height as i64,
+					now,
+					vec![],
+				),
+				vec![
+					processed_heights::height::set(height as i64),
+					processed_heights::updated_at::set(now),
+				],
+			)
+			.exec()
+			.await?;
+		Ok(())
 	}
 
 	/// Query all deliveries in the db and make them unique by the source & destination pair
@@ -502,11 +579,12 @@ impl TransactionPayment {
 		Ok(ids)
 	}
 
-	/// Fetch all unprofitable messages from the db, returns their id so they can be deleted.
+	/// Fetch all unprofitable messages from the db, with the retry bookkeeping
+	/// stored alongside each row.
 	pub async fn unprofitable_messages(
 		&self,
 		dest: &StateMachine,
-	) -> Result<Vec<(Message, i32)>, anyhow::Error> {
+	) -> Result<Vec<ParkedMessage>, anyhow::Error> {
 		let data = self
 			.db
 			.unprofitable_messages()
@@ -515,18 +593,26 @@ impl TransactionPayment {
 			))])
 			.exec()
 			.await?;
-		// Dedup data
-		let mut ids = vec![];
+		// Dedup data, keeping the first row for each encoded message.
+		let mut parked = vec![];
 		let mut duplicates = vec![];
-		let mut data_set = BTreeSet::new();
-		data.into_iter().for_each(|data| {
-			let new = data_set.insert(data.encoded);
-			if new {
-				ids.push(data.id)
-			} else {
-				duplicates.push(data.id);
+		let mut seen = BTreeSet::new();
+		for row in data {
+			if !seen.insert(row.encoded.clone()) {
+				duplicates.push(row.id);
+				continue;
 			}
-		});
+
+			parked.push(ParkedMessage {
+				message: Message::decode(&mut &row.encoded[..])?,
+				state: RetryState {
+					attempts: row.attempts.max(0) as u32,
+					created_at: row.created_at.max(0) as u64,
+					next_attempt_at: row.next_attempt_at.max(0) as u64,
+				},
+				id: Some(row.id),
+			});
+		}
 		// Delete any duplicates in background
 		// A previous delete operation could have failed causing us to have duplicate messages in
 		// the db
@@ -535,13 +621,7 @@ impl TransactionPayment {
 			let _ = tx.delete_unprofitable_messages(duplicates).await;
 		});
 
-		let unprofitable = data_set
-			.into_iter()
-			.zip(ids)
-			.map(|(encoded, id)| Ok((Message::decode(&mut &encoded[..])?, id)))
-			.collect::<Result<Vec<_>, anyhow::Error>>()?;
-
-		Ok(unprofitable)
+		Ok(parked)
 	}
 
 	/// Delete any unprofitable message
@@ -563,22 +643,66 @@ impl TransactionPayment {
 		Ok(())
 	}
 
-	/// Store unprofitable messages
+	/// Store unprofitable messages with their retry bookkeeping.
 	pub async fn store_unprofitable_messages(
 		&self,
-		unprofitable: Vec<Message>,
+		unprofitable: Vec<ParkedMessage>,
 		dest: StateMachine,
 	) -> Result<Vec<i32>, anyhow::Error> {
 		let actions = unprofitable
 			.into_iter()
-			.map(|item| {
-				self.db.unprofitable_messages().create(dest.to_string(), item.encode(), vec![])
+			.map(|parked| {
+				let state = parked.state;
+				self.db.unprofitable_messages().create(
+					dest.to_string(),
+					parked.message.encode(),
+					vec![
+						db::unprofitable_messages::attempts::set(
+							state.attempts.min(i32::MAX as u32) as i32,
+						),
+						db::unprofitable_messages::created_at::set(
+							state.created_at.min(i32::MAX as u64) as i32,
+						),
+						db::unprofitable_messages::next_attempt_at::set(
+							state.next_attempt_at.min(i32::MAX as u64) as i32,
+						),
+					],
+				)
 			})
 			.collect::<Vec<_>>();
 
 		let ids = self.db._batch(actions).await?.into_iter().map(|record| record.id).collect();
 
 		Ok(ids)
+	}
+
+	/// Rewrite a parked message's encoded payload and retry state in place.
+	pub async fn update_unprofitable_message(
+		&self,
+		id: i32,
+		parked: ParkedMessage,
+	) -> Result<(), anyhow::Error> {
+		let state = parked.state;
+		self.db
+			.unprofitable_messages()
+			.update(
+				db::unprofitable_messages::UniqueWhereParam::IdEquals(id),
+				vec![
+					db::unprofitable_messages::encoded::set(parked.message.encode()),
+					db::unprofitable_messages::attempts::set(
+						state.attempts.min(i32::MAX as u32) as i32,
+					),
+					db::unprofitable_messages::created_at::set(
+						state.created_at.min(i32::MAX as u64) as i32,
+					),
+					db::unprofitable_messages::next_attempt_at::set(
+						state.next_attempt_at.min(i32::MAX as u64) as i32,
+					),
+				],
+			)
+			.exec()
+			.await?;
+		Ok(())
 	}
 
 	/// Create payment claim proof for all deliveries of requests and responses from source to dest

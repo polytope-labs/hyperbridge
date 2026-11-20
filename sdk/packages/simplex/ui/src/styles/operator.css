@@ -157,6 +157,38 @@ button.operator-nav-item[data-active="true"] {
 	letter-spacing: 0.03em;
 }
 
+/* The update button sits at the bottom of the sidebar, above the version line. */
+button.operator-update-nav {
+	flex: none;
+	min-height: 0;
+	margin-top: auto;
+	padding-block: 0.5rem;
+	border-color: rgba(74, 222, 255, 0.22);
+	background:
+		linear-gradient(135deg, rgba(74, 222, 255, 0.08), rgba(255, 53, 235, 0.05)),
+		rgba(255, 255, 255, 0.012);
+	color: var(--text);
+}
+
+button.operator-update-nav:hover:not(:disabled) {
+	border-color: rgba(74, 222, 255, 0.4);
+	background:
+		linear-gradient(135deg, rgba(74, 222, 255, 0.12), rgba(255, 53, 235, 0.08)),
+		var(--card-raised);
+	color: var(--text);
+}
+
+.operator-update-nav + .operator-sidebar-footer {
+	margin-top: 0.7rem;
+}
+
+/* At the window's minimum height the nav and the button fill the sidebar, so the button drops its second line. */
+@media (max-height: 700px) {
+	.operator-update-nav small {
+		display: none;
+	}
+}
+
 .operator-main {
 	min-width: 0;
 	min-height: 0;
@@ -199,7 +231,7 @@ button.operator-nav-item[data-active="true"] {
 
 .operator-metrics {
 	display: grid;
-	grid-template-columns: repeat(4, minmax(0, 1fr));
+	grid-template-columns: repeat(var(--metric-columns, 4), minmax(0, 1fr));
 	margin: 0;
 	padding: 1.65rem 0;
 	border-bottom: 1px solid var(--border);
@@ -1402,17 +1434,6 @@ button.operator-tool-row {
 	margin: 0;
 }
 
-.operator-send-grid {
-	display: grid;
-	grid-template-columns: repeat(2, minmax(0, 1fr));
-	gap: 0 0.8rem;
-	margin-top: 1.25rem;
-}
-
-.operator-send-grid .field {
-	margin: 0 0 0.9rem;
-}
-
 .operator-send-balance {
 	display: inline-flex;
 	align-items: baseline;
@@ -1434,15 +1455,478 @@ button.operator-tool-row {
 	color: var(--warn);
 }
 
-.operator-send-wide,
-.operator-send-actions {
-	grid-column: 1 / -1;
+/*
+ * Send: the asset on its network, the recipient, then the amount in one card with
+ * shares of the balance under it. The same layout as the HyperFX app's send.
+ */
+/* Only the centred dialog is narrowed: on a phone it is a drawer, which spans the screen. */
+.market-dialog.send-dialog:not(.drawer-popup) {
+	width: min(30rem, calc(100vw - 2rem));
 }
 
-.operator-send-actions {
+.send-form {
+	display: grid;
+	gap: 1rem;
+	/* The dialog body has horizontal padding only, so the form supplies its own. */
+	padding: 0.5rem 0 1.5rem;
+}
+
+.send-fields {
+	display: grid;
+	grid-area: 2 / 1;
+	gap: 1rem;
+	min-width: 0;
+}
+
+.send-fields > p {
+	margin: 0;
+}
+
+/* The contract field and its toggle sit close under the asset row they belong to. */
+.send-custom {
+	display: grid;
+	gap: 0.6rem;
+	margin-top: -0.4rem;
+}
+
+.send-custom .field {
+	margin: 0;
+}
+
+/*
+ * The asset row and the list it opens. Both are rows of the form's grid: the list shares the
+ * fields' cell and is laid over them, so it covers them exactly and the dialog keeps its height.
+ */
+.send-asset-select {
+	display: contents;
+}
+
+/* What the list covers is hidden, not only painted over, so nothing shows at its corners or takes focus. */
+.send-asset-select[data-open] + .send-fields {
+	visibility: hidden;
+}
+
+.send-asset-trigger,
+.send-asset-option {
 	display: flex;
-	justify-content: flex-end;
-	padding-top: 0.35rem;
+	align-items: center;
+	justify-content: flex-start;
+	gap: 0.75rem;
+	width: 100%;
+	color: var(--text);
+	text-align: left;
+	cursor: pointer;
+}
+
+.send-asset-trigger {
+	padding: 0.65rem 0.9rem;
+	border: 1px solid var(--border-strong);
+	border-radius: 0.75rem;
+	background: var(--control);
+	transition: background-color 150ms ease;
+}
+
+.send-asset-trigger:disabled {
+	cursor: default;
+}
+
+.send-asset-trigger:hover:not(:disabled),
+.send-asset-trigger[aria-expanded="true"] {
+	background: var(--card-raised);
+}
+
+.send-asset-trigger > svg {
+	flex: 0 0 auto;
+	width: 1rem;
+	height: 1rem;
+	color: var(--muted);
+	transition: transform 150ms ease;
+}
+
+.send-asset-trigger[aria-expanded="true"] > svg {
+	transform: rotate(180deg);
+}
+
+.send-asset-list {
+	z-index: 1;
+	display: flex;
+	grid-area: 2 / 1;
+	flex-direction: column;
+	/* Sized by the fields it covers, never by its own rows. */
+	contain: size;
+	/* Closer to its row than the form's gap. */
+	margin: -0.625rem 0 0;
+	padding: 0.25rem;
+	overflow-y: auto;
+	overscroll-behavior: contain;
+	border: 1px solid var(--border-strong);
+	border-radius: 0.75rem;
+	background: var(--control);
+	box-shadow: 0 1.5rem 3rem rgba(0, 0, 0, 0.5);
+	list-style: none;
+	scrollbar-width: thin;
+	scrollbar-color: var(--border-strong) transparent;
+}
+
+.send-asset-option {
+	padding: 0.6rem 0.65rem;
+	border: 0;
+	border-radius: 0.5rem;
+	background: transparent;
+}
+
+.send-asset-option:hover {
+	background: var(--card-raised);
+}
+
+.send-asset-option[aria-current="true"] {
+	background: var(--card);
+}
+
+.send-asset-option:focus-visible {
+	box-shadow: inset 0 0 0 2px var(--focus);
+}
+
+.send-asset-select .send-review-asset > svg {
+	width: 2rem;
+	height: 2rem;
+	color: var(--muted);
+}
+
+.send-asset-name {
+	display: grid;
+	flex: 1 1 auto;
+	gap: 0.15rem;
+	min-width: 0;
+}
+
+.send-asset-name strong,
+.send-asset-name > span {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.send-asset-name strong {
+	font-size: 0.9375rem;
+	font-weight: 500;
+}
+
+.send-asset-name > span {
+	color: var(--muted);
+	font-size: 0.8125rem;
+}
+
+.send-asset-balance {
+	flex: 0 0 auto;
+	font-size: 0.9375rem;
+	font-weight: 500;
+	font-variant-numeric: tabular-nums;
+	white-space: nowrap;
+}
+
+/* Nothing to send: an empty balance, or one that has not been read. */
+.send-asset-balance:not([data-funded]) {
+	color: var(--muted);
+	font-weight: 400;
+}
+
+button.send-custom-toggle {
+	justify-self: start;
+	min-height: 0;
+	padding: 0;
+	border: 0;
+	background: none;
+	color: var(--muted);
+	font-size: 0.75rem;
+	font-weight: 400;
+	text-decoration: underline;
+	text-underline-offset: 0.2em;
+	cursor: pointer;
+}
+
+button.send-custom-toggle:hover {
+	color: var(--text-secondary);
+}
+
+.send-address {
+	display: grid;
+	gap: 0.375rem;
+}
+
+.send-address > label {
+	color: var(--muted);
+	font-size: 0.75rem;
+}
+
+.send-address-field {
+	display: flex;
+	align-items: center;
+	gap: 0.5rem;
+	min-height: 3.125rem;
+	padding: 0 0.5rem 0 0.75rem;
+	border: 1px solid var(--border);
+	border-radius: 1rem;
+	background: var(--control);
+	transition: border-color 180ms var(--ease-out);
+}
+
+.send-address-field:focus-within {
+	border-color: var(--border-strong);
+}
+
+.send-address-field input[type="text"] {
+	flex: 1;
+	min-width: 0;
+	min-height: 0;
+	padding: 0;
+	border: 0;
+	border-radius: 0;
+	background: transparent;
+	box-shadow: none;
+	font-size: 0.9375rem;
+	outline: none;
+}
+
+.send-address-status {
+	display: inline-flex;
+	flex: 0 0 auto;
+	align-items: center;
+	justify-content: center;
+	width: 1.5rem;
+	height: 1.5rem;
+	border-radius: 999px;
+	color: var(--muted);
+}
+
+.send-address-status svg,
+.send-address-status .chain-logo {
+	width: 1.5rem;
+	height: 1.5rem;
+}
+
+button.send-paste {
+	display: inline-flex;
+	flex: 0 0 auto;
+	align-items: center;
+	justify-content: center;
+	width: 2rem;
+	height: 2rem;
+	min-height: 0;
+	padding: 0;
+	border: 0;
+	border-radius: 0.5rem;
+	background: none;
+	color: var(--muted);
+	cursor: pointer;
+}
+
+button.send-paste:hover {
+	background: var(--card-raised);
+	color: var(--text);
+}
+
+button.send-paste svg {
+	width: 1.1rem;
+	height: 1.1rem;
+}
+
+.send-address-note {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.25rem;
+	margin: 0;
+	font-size: 0.75rem;
+}
+
+.send-address-note svg {
+	width: 0.875rem;
+	height: 0.875rem;
+}
+
+.send-address-note[data-state="ok"] {
+	color: var(--ok);
+}
+
+.send-address-note[data-state="error"],
+.send-amount-error {
+	color: var(--err);
+}
+
+.send-amount {
+	padding: 0.75rem;
+	border: 1px solid var(--border-strong);
+	border-radius: 0.75rem;
+	background: var(--control);
+	transition: border-color 180ms var(--ease-out);
+}
+
+.send-amount:focus-within {
+	border-color: var(--text-secondary);
+}
+
+.send-amount[data-invalid],
+.send-amount[data-invalid]:focus-within {
+	border-color: var(--err);
+}
+
+.send-amount-head {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 0.75rem;
+}
+
+.send-amount-head > label {
+	color: var(--muted);
+	font-size: 0.875rem;
+	font-weight: 500;
+}
+
+.send-amount-chip {
+	display: inline-flex;
+	flex: 0 0 auto;
+	align-items: center;
+	gap: 0.5rem;
+	padding: 0.4rem 0.75rem;
+	border: 1px solid var(--border);
+	border-radius: 999px;
+	background: var(--card);
+	font-size: 0.875rem;
+	font-weight: 500;
+}
+
+.send-amount-chip .token-icon {
+	width: 1.25rem;
+	height: 1.25rem;
+}
+
+.send-amount input[type="text"] {
+	width: 100%;
+	min-height: 0;
+	height: 3rem;
+	margin-top: 0.75rem;
+	padding: 0;
+	border: 0;
+	border-radius: 0;
+	background: transparent;
+	box-shadow: none;
+	font-size: 1.875rem;
+	font-weight: 500;
+	outline: none;
+}
+
+.send-amount[data-invalid] input[type="text"] {
+	color: var(--err);
+}
+
+.send-amount-error {
+	margin: 0.25rem 0 0;
+	font-size: 0.75rem;
+}
+
+.send-amount-foot {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	justify-content: space-between;
+	gap: 0.5rem;
+	margin-top: 0.75rem;
+}
+
+.send-percentages {
+	display: flex;
+	gap: 0.375rem;
+	margin-left: auto;
+}
+
+.send-percentages button {
+	height: 1.5rem;
+	min-height: 0;
+	padding: 0.25rem 0.6rem;
+	border: 0;
+	border-radius: 999px;
+	background: var(--card-raised);
+	color: var(--muted);
+	font-size: 0.75rem;
+	line-height: 1;
+	cursor: pointer;
+}
+
+.send-percentages button:hover:not(:disabled) {
+	color: var(--text);
+}
+
+.send-percentages button[aria-pressed="true"],
+.send-percentages button[aria-pressed="true"]:hover:not(:disabled) {
+	background: var(--text);
+	color: var(--accent-text);
+}
+
+.send-percentages button:disabled {
+	cursor: default;
+	opacity: 0.5;
+}
+
+.send-actions {
+	display: grid;
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+	gap: 0.75rem;
+	padding-top: 0.25rem;
+}
+
+.send-actions[data-single] {
+	grid-template-columns: minmax(0, 1fr);
+	width: 100%;
+}
+
+.send-form[hidden] {
+	display: none;
+}
+
+/* A finished send replaces the form: a large tick, what went out, and a way to the transaction. */
+.send-success {
+	display: grid;
+	justify-items: center;
+	gap: 1rem;
+	padding: 1.5rem 0;
+	text-align: center;
+}
+
+.send-success-mark {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	width: 6rem;
+	height: 6rem;
+	border-radius: 999px;
+	background: rgba(116, 233, 152, 0.15);
+	box-shadow: 0 0 0 1px rgba(116, 233, 152, 0.3);
+	color: var(--ok);
+}
+
+.send-success-mark svg {
+	width: 3rem;
+	height: 3rem;
+}
+
+.send-success h3 {
+	margin: 0 0 0.25rem;
+	font-size: 1.25rem;
+	font-weight: 500;
+}
+
+.send-success p {
+	margin: 0;
+	color: var(--muted);
+	font-size: 0.875rem;
+}
+
+.send-success-link {
+	color: var(--text);
+	font-size: 0.875rem;
+	text-decoration: underline;
+	text-underline-offset: 0.2em;
 }
 
 .operator-send-tx-link {
@@ -1937,6 +2421,10 @@ button.operator-runtime-stop:hover:not(:disabled) {
 }
 
 .tunnel-device strong {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 0.5rem;
 	font-size: 0.875rem;
 	font-weight: 500;
 }
@@ -2277,12 +2765,17 @@ button.operator-runtime-stop:hover:not(:disabled) {
 	margin-right: 0.4rem;
 }
 
-/* Send review dialog */
+/* Send review */
 .send-review {
 	display: grid;
 	gap: 1.25rem;
 	/* The dialog body has horizontal padding only, so the review supplies its own. */
 	padding: 0.5rem 0 1.5rem;
+}
+
+/* Focus is moved here so the review is read out; it is not a control to ring. */
+.send-review:focus-visible {
+	outline: none;
 }
 
 .send-review-asset {
@@ -2373,8 +2866,10 @@ button.operator-runtime-stop:hover:not(:disabled) {
 	font-size: 0.875rem;
 }
 
+/* When the address has to wrap, split it into even lines, not one line and a stray character. */
 .send-review-address {
-	overflow-wrap: anywhere;
+	word-break: break-all;
+	text-wrap: balance;
 }
 
 .send-review-alert {
@@ -2425,10 +2920,8 @@ button.operator-runtime-stop:hover:not(:disabled) {
 /* Pair icons, the rate, how far it has filled, the cap. */
 button.limit-order-item {
 	--consumed: 0%;
-	--held: 0%;
 	--bar-fill: color-mix(in srgb, var(--ok) 12%, transparent);
 	--bar-edge: color-mix(in srgb, var(--ok) 70%, transparent);
-	--bar-held: color-mix(in srgb, var(--ok) 30%, transparent);
 	position: relative;
 	display: grid;
 	grid-template-columns: 3.25rem 11rem minmax(0, 1fr) auto;
@@ -2446,13 +2939,11 @@ button.limit-order-item {
 button.limit-order-item[data-side="ASK"] {
 	--bar-fill: color-mix(in srgb, var(--err) 12%, transparent);
 	--bar-edge: color-mix(in srgb, var(--err) 70%, transparent);
-	--bar-held: color-mix(in srgb, var(--err) 30%, transparent);
 }
 
 button.limit-order-item[data-tab="cancelled"] {
 	--bar-fill: rgba(255, 255, 255, 0.055);
 	--bar-edge: rgba(255, 255, 255, 0.28);
-	--bar-held: transparent;
 }
 
 button.limit-order-item:hover:not(:disabled) {
@@ -2464,15 +2955,12 @@ button.limit-order-item:active:not(:disabled) {
 	transform: scale(0.995);
 }
 
-button.limit-order-item::before,
-button.limit-order-item::after {
+button.limit-order-item::before {
 	content: "";
 	position: absolute;
 	bottom: 0;
 	pointer-events: none;
-	transition:
-		left 400ms var(--ease-out),
-		width 400ms var(--ease-out);
+	transition: width 400ms var(--ease-out);
 }
 
 /*
@@ -2486,14 +2974,6 @@ button.limit-order-item::before {
 	width: var(--consumed);
 	background: var(--bar-fill);
 	box-shadow: inset 0 -3px 0 var(--bar-edge);
-}
-
-/* What live bids are holding of the rest, promised and not yet paid: the rule carried on, fainter. */
-button.limit-order-item::after {
-	left: var(--consumed);
-	width: var(--held);
-	height: 3px;
-	background: var(--bar-held);
 }
 
 /* Above the bar, which is positioned and would otherwise paint over the copy. */
@@ -3283,6 +3763,15 @@ button.limit-order-side[data-side="ASK"]:hover:not(.is-selected) {
 
 .token-picker-keys kbd:last-child {
 	margin-right: 0;
+}
+
+/* The drawer has no surface of its own, so the picker brings the one its dialog has. */
+.token-picker.drawer-popup {
+	border: 1px solid var(--border-strong);
+	border-bottom: 0;
+	border-radius: 1rem 1rem 0 0;
+	background: var(--bg);
+	color: var(--text);
 }
 
 .token-picker.drawer-popup .token-picker-panes {

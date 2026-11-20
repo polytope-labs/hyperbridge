@@ -80,7 +80,7 @@ export class EventMonitor extends EventEmitter {
 		this.subscription = this.orderScanner.subscribe({
 			onOrder: (event) => {
 				if (!this.chains.has(event.chainId)) return
-				this.handleOrder(event.order, event.transactionHash, event.graffiti)
+				this.handleOrder(event.order, event.transactionHash, event.graffiti, event.blockHash)
 			},
 			onFill: (event) => {
 				if (!this.chains.has(event.chainId)) return
@@ -92,7 +92,12 @@ export class EventMonitor extends EventEmitter {
 		this.logger.info({ chains: [...this.chains] }, "Subscribed to the order scanner")
 	}
 
-	private handleOrder(order: Order, transactionHash: string, graffiti?: HexString): void {
+	private handleOrder(
+		order: Order,
+		transactionHash: string,
+		graffiti: HexString | undefined,
+		blockHash: string,
+	): void {
 		// Multi-leg orders pass: the strategy bids on each leg a limit order serves.
 		// Legs pair inputs with outputs by index, so anything else cannot be filled.
 		if (order.inputs.length === 0 || order.inputs.length !== order.output.assets.length) {
@@ -119,7 +124,7 @@ export class EventMonitor extends EventEmitter {
 				if (evicted) this.seen.delete(evicted)
 			}
 		}
-		this.emit("newOrder", { order, transactionHash, graffiti })
+		this.emit("newOrder", { order, transactionHash, graffiti, blockHash })
 	}
 
 	private handleFill(event: ScannedFill): void {
@@ -148,6 +153,15 @@ export class EventMonitor extends EventEmitter {
 			outputs: event.outputs,
 			inputs: event.inputs,
 			transactionHash,
+			// Which log of its transaction this fill is: one bundle can carry several of our
+			// fills, and the transaction hash alone does not tell them apart.
+			logIndex: event.logIndex,
+			// The block the fill landed in, which the limit order's on-chain tally is read at
+			// so that a lagging endpoint cannot answer with the tally from before the fill.
+			// A scanner that lacks the coordinate substitutes `0n`, and the tally read treats
+			// any defined value as a pinned block: a read at block 0 fails, so settlement
+			// would never lower the order. Left unset, it reads the latest block.
+			blockNumber: event.blockNumber > 0n ? event.blockNumber : undefined,
 			// A scanner that cannot tell leaves this unset; treated as closing the order,
 			// as every fill of ours was before partial fills were told apart.
 			complete: event.complete !== false,

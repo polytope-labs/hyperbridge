@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest"
-import { createPublicClient, createWalletClient, encodeFunctionData, http, parseEventLogs, stringToHex } from "viem"
+import {
+	createPublicClient,
+	createWalletClient,
+	encodeFunctionData,
+	http,
+	parseEther,
+	parseEventLogs,
+	stringToHex,
+} from "viem"
 import { privateKeyToAccount } from "viem/accounts"
 import { bscTestnet } from "viem/chains"
 
@@ -11,6 +19,7 @@ import { getRequestCommitment } from "@/utils"
 import EVM_HOST from "@/abis/evmHost"
 import { RequestStatus } from "@/types"
 import type { HexString } from "@/types"
+import { type Asset, requireFunded, skipIfUnfunded } from "./funding"
 
 /**
  * Live end-to-end test of GET self-delivery from BSC Chapel to Polygon Amoy.
@@ -23,7 +32,8 @@ import type { HexString } from "@/types"
  * invoking HyperGet.onGetResponse (which RLP-decodes and emits the balance), then DESTINATION.
  *
  * Needs PRIVATE_KEY, BSC_CHAPEL, POLYGON_AMOY and HYPERBRIDGE_GARGANTUA. GARGANTUA_INDEXER_URL
- * overrides the public gargantua indexer. Slow (source finalization).
+ * overrides the public gargantua indexer. Slow (source finalization). Skipped with a warning when the
+ * wallet cannot pay for its Chapel transactions (see ./funding).
  *   npx vitest run --sequence.concurrent=false src/tests/sequential/getRequestBscAmoy.test.ts
  */
 
@@ -33,6 +43,13 @@ const HYPER_GET = "0xAb1E0F59Dd32D7B4f2AC0A94a78dd9BbDa5510A2" as HexString
 // Polygon Amoy WMATIC/WPOL and its balanceOf mapping slot.
 const WMATIC = "0x360ad4f9a9A8EFe9A8DCB5f461c4Cc1047E1Dcf9" as HexString
 const WMATIC_BALANCE_SLOT = 3n
+// The GET pays no relayer fee; the dispatch and the handler delivery cost Chapel gas, at most 0.002 tBNB at ~0.1 gwei.
+const MIN_CHAPEL_BNB = parseEther("0.05")
+const CHAPEL_BNB: Asset = {
+	chain: bscTestnet.name,
+	symbol: bscTestnet.nativeCurrency.symbol,
+	decimals: bscTestnet.nativeCurrency.decimals,
+}
 
 const HYPER_GET_ABI = [
 	{
@@ -62,7 +79,7 @@ const HYPER_GET_ABI = [
 describe("GET self-delivery from BSC Chapel to Polygon Amoy (live)", () => {
 	it(
 		"reads WMATIC.balanceOf on Amoy via GET and drives it to completion on the source (onGetResponse)",
-		async () => {
+		async (ctx) => {
 			const env = readEnv()
 			const account = privateKeyToAccount(env.privateKey)
 			const reader = account.address // whose WMATIC balance the GET reads
@@ -79,6 +96,13 @@ describe("GET self-delivery from BSC Chapel to Polygon Amoy (live)", () => {
 				host: HOST,
 				consensusStateId: "POLY",
 			})
+			await requireFunded(ctx, account.address, [
+				{
+					...CHAPEL_BNB,
+					min: MIN_CHAPEL_BNB,
+					read: () => source.client.getBalance({ address: account.address }),
+				},
+			])
 			const hyperbridge = await SubstrateChain.connect({
 				consensusStateId: "PAS0",
 				stateMachineId: "KUSAMA-4009",
@@ -109,7 +133,8 @@ describe("GET self-delivery from BSC Chapel to Polygon Amoy (live)", () => {
 			})
 			const publicClient = createPublicClient({ chain: bscTestnet, transport: http(env.chapelRpc) })
 			const walletClient = createWalletClient({ account, chain: bscTestnet, transport: http(env.chapelRpc) })
-			const txHash = await walletClient.sendTransaction({ to: HYPER_GET, data })
+			const onChapel = <T>(step: () => Promise<T>) => skipIfUnfunded(ctx, account.address, CHAPEL_BNB, step)
+			const txHash = await onChapel(() => walletClient.sendTransaction({ to: HYPER_GET, data }))
 			console.log(`[2] dispatch tx on BSC Chapel: ${txHash}`)
 			const receipt = await publicClient.waitForTransactionReceipt({ hash: txHash })
 			console.log(`    included in BSC block ${receipt.blockNumber}`)
@@ -154,7 +179,9 @@ describe("GET self-delivery from BSC Chapel to Polygon Amoy (live)", () => {
 						functionName: "hostParams",
 					})) as { handler: HexString }
 					console.log(`[5] delivering GetResponse to BSC handler ${params.handler}`)
-					const respTx = await walletClient.sendTransaction({ to: params.handler, data: calldata })
+					const respTx = await onChapel(() =>
+						walletClient.sendTransaction({ to: params.handler, data: calldata }),
+					)
 					const respReceipt = await publicClient.waitForTransactionReceipt({ hash: respTx })
 					const ev = parseEventLogs({ abi: HYPER_GET_ABI, logs: respReceipt.logs }).find(
 						(l) => l.eventName === "BalanceReceived",

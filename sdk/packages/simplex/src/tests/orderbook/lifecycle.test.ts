@@ -2,16 +2,18 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import type { HexString } from "@hyperbridge/sdk"
 import { OrderbookRequestError } from "@/orderbook/client"
 import { LimitOrderLifecycle } from "@/orderbook/lifecycle"
-import type { SubmitOrderResult } from "@/orderbook/types"
+import type { MessageRejectionCode, SubmitOrderResult } from "@/orderbook/types"
 import {
 	CREATE_REQUEST as REQUEST,
 	fakeClient,
+	heartbeatKey,
 	limitOrderService as makeService,
 	ORDERBOOK_FIXTURES,
 	postedOrder,
+	settleFill,
 } from "../helpers/limit-orders"
 
-const { ONE } = ORDERBOOK_FIXTURES
+const { ONE, HEARTBEAT_KEY } = ORDERBOOK_FIXTURES
 
 /** Past every grace period, for a reconciliation that should treat a row as settled. */
 function later(): Date {
@@ -91,6 +93,199 @@ describe("heartbeat", () => {
 	})
 })
 
+describe("the heartbeat key", () => {
+	afterEach(() => vi.useRealTimers())
+
+	/** A posted order, with the heartbeat key authorised the way reconciliation does it. */
+	const authorised = async (client = fakeClient([])) => {
+		const { service } = makeService(client, undefined, {}, () => 0n, undefined, undefined, undefined, heartbeatKey)
+		await service.create(REQUEST)
+		await service.authorizeHeartbeatSigner()
+		client.heartbeatSignatures.length = 0
+		return { client, service }
+	}
+
+	const refusal = (code: MessageRejectionCode) => ({ kind: "rejected" as const, code, message: code })
+
+	it("signs heartbeats once the main key has authorised it", async () => {
+		const { client, service } = await authorised()
+
+		expect(client.authorizations).toEqual([HEARTBEAT_KEY])
+		await service.heartbeat()
+		await service.heartbeat()
+		expect(client.heartbeatSignatures).toEqual(["0xbeat", "0xbeat"])
+		expect(client.authorizations).toHaveLength(1)
+	})
+
+	it("is not authorised again while its authorisation holds", async () => {
+		const { client, service } = await authorised()
+		await service.authorizeHeartbeatSigner()
+		expect(client.authorizations).toHaveLength(1)
+	})
+
+	it("is authorised again a few ticks before it lapses", async () => {
+		const { client, service } = await authorised()
+		vi.useFakeTimers({ now: Date.now() + 7200_000 - 60_000 })
+
+		await service.heartbeat()
+		await vi.waitFor(() => expect(client.authorizations).toHaveLength(2))
+		expect(client.heartbeatSignatures).toEqual(["0xbeat"])
+	})
+
+	it("never holds a heartbeat up behind a slow renewal", async () => {
+		const { client, service } = await authorised()
+		vi.useFakeTimers({ now: Date.now() + 7200_000 - 60_000 })
+		client.authorizeHeartbeatSigner = () => new Promise(() => {})
+
+		await service.heartbeat()
+		expect(client.heartbeatSignatures).toEqual(["0xbeat"])
+	})
+
+	it("leaves a lapsed key to reconciliation rather than renewing it every tick", async () => {
+		const { client, service } = await authorised()
+		vi.useFakeTimers({ now: Date.now() + 7200_000 + 1_000 })
+		let tries = 0
+		client.authorizeHeartbeatSigner = async () => {
+			tries += 1
+			throw new OrderbookRequestError("timed out")
+		}
+
+		await service.heartbeat()
+		await service.heartbeat()
+		expect(client.heartbeatSignatures).toEqual(["0xsig", "0xsig"])
+		expect(tries).toBe(0)
+	})
+
+	it("is not kept when the orderbook says it has already lapsed", async () => {
+		const client = fakeClient([])
+		client.authorizationResults = [
+			{ kind: "authorized", signer: HEARTBEAT_KEY, authorizedUntil: new Date(Date.now() - 1_000).toISOString() },
+		]
+		const { service } = await authorised(client)
+
+		await service.heartbeat()
+		await service.heartbeat()
+		expect(client.heartbeatSignatures).toEqual(["0xsig", "0xsig"])
+		expect(client.authorizations).toHaveLength(1)
+	})
+
+	it("leaves the main key signing on an orderbook that predates it", async () => {
+		const client = fakeClient([])
+		client.heartbeatSignersSupported = false
+		const { service } = await authorised(client)
+
+		expect(client.authorizations).toEqual([])
+		await service.heartbeat()
+		expect(client.heartbeatSignatures).toEqual(["0xsig"])
+	})
+
+	it("leaves the main key signing until a solver is validated, and tries again on reconciliation", async () => {
+		const client = fakeClient([])
+		client.authorizationResults = [refusal("SOLVER_NOT_VALIDATED")]
+		const { service } = await authorised(client)
+
+		await service.heartbeat()
+		expect(client.heartbeatSignatures).toEqual(["0xsig"])
+
+		await service.authorizeHeartbeatSigner()
+		await service.heartbeat()
+		expect(client.authorizations).toHaveLength(2)
+		expect(client.heartbeatSignatures).toEqual(["0xsig", "0xbeat"])
+	})
+
+	it("hands a lapsed key's heartbeat to the main key and authorises it again", async () => {
+		const client = fakeClient([])
+		const { service } = await authorised(client)
+		client.heartbeatResults = [refusal("HEARTBEAT_SIGNER_EXPIRED")]
+
+		expect(await service.heartbeat()).toMatchObject({ kind: "accepted" })
+		expect(client.heartbeatSignatures).toEqual(["0xbeat", "0xsig"])
+		await vi.waitFor(() => expect(client.authorizations).toHaveLength(2))
+
+		await service.heartbeat()
+		expect(client.heartbeatSignatures.at(-1)).toBe("0xbeat")
+	})
+
+	it.each(["SOLVER_MISMATCH", "BAD_SIGNATURE", "SOLVER_NOT_VALIDATED"] as const)(
+		"hands the heartbeat to the main key on %s and leaves the key to reconciliation",
+		async (code) => {
+			const client = fakeClient([])
+			const { service } = await authorised(client)
+			client.heartbeatResults = [refusal(code)]
+
+			expect(await service.heartbeat()).toMatchObject({ kind: "accepted" })
+			await service.heartbeat()
+			// Another process holding the solver's key would take it straight back, so nothing is paid here.
+			expect(client.heartbeatSignatures).toEqual(["0xbeat", "0xsig", "0xsig"])
+			expect(client.authorizations).toHaveLength(1)
+
+			await service.authorizeHeartbeatSigner()
+			await service.heartbeat()
+			expect(client.heartbeatSignatures.at(-1)).toBe("0xbeat")
+		},
+	)
+
+	it("keeps a held key when a renewal is refused only for its timestamp", async () => {
+		const client = fakeClient([])
+		const { service } = await authorised(client)
+		vi.useFakeTimers({ now: Date.now() + 7200_000 - 60_000 })
+		client.authorizationResults = [refusal("SIGNATURE_REUSED")]
+
+		await service.heartbeat()
+		await vi.waitFor(() => expect(client.authorizations).toHaveLength(2))
+		await service.heartbeat()
+		expect(client.heartbeatSignatures).toEqual(["0xbeat", "0xbeat"])
+	})
+
+	it("starts renewing no earlier than half way through a short TTL", async () => {
+		const client = fakeClient([])
+		// A 120 second TTL against a 30 second tick: five ticks would cover all of it.
+		client.heartbeatSignerTtlSecs = async () => 120
+		client.authorizationResults = [
+			{
+				kind: "authorized",
+				signer: HEARTBEAT_KEY,
+				authorizedUntil: new Date(Date.now() + 120_000).toISOString(),
+			},
+		]
+		const { service } = await authorised(client)
+
+		await service.heartbeat()
+		await service.heartbeat()
+		expect(client.heartbeatSignatures).toEqual(["0xbeat", "0xbeat"])
+		expect(client.authorizations).toHaveLength(1)
+	})
+
+	it("asks an older orderbook about heartbeat keys once per limits read, not every reconciliation", async () => {
+		const client = fakeClient([])
+		client.heartbeatSignersSupported = false
+		let reads = 0
+		const inner = client.heartbeatSignerTtlSecs.bind(client)
+		client.heartbeatSignerTtlSecs = () => {
+			reads += 1
+			return inner()
+		}
+		const { service } = await authorised(client)
+
+		await service.authorizeHeartbeatSigner()
+		await service.authorizeHeartbeatSigner()
+		expect(reads).toBe(1)
+		expect(client.authorizations).toEqual([])
+	})
+
+	it("never costs a heartbeat when the authorisation gets no answer", async () => {
+		const client = fakeClient([])
+		const { service } = await authorised(client)
+		client.heartbeatResults = [refusal("HEARTBEAT_SIGNER_EXPIRED")]
+		client.authorizeHeartbeatSigner = async () => {
+			throw new OrderbookRequestError("timed out")
+		}
+
+		expect(await service.heartbeat()).toMatchObject({ kind: "accepted" })
+		expect(client.heartbeatSignatures).toEqual(["0xbeat", "0xsig"])
+	})
+})
+
 describe("the operator's own expiry", () => {
 	/** An order expiring in an hour, and the clock wound past it. */
 	const withExpiry = async (results: SubmitOrderResult[] = []) => {
@@ -112,6 +307,32 @@ describe("the operator's own expiry", () => {
 		expect(client.cancelled).toEqual(["0xabc"])
 	})
 
+	it("reports the expiry, so the bids the order priced are retracted", async () => {
+		const { service, id, after } = await withExpiry()
+		const events: Array<{ kind: string; id: string; status: string }> = []
+		service.listen((event) => events.push({ kind: event.kind, id: event.order.id, status: event.order.status }))
+
+		await service.expireStale(after)
+
+		expect(events).toEqual([{ kind: "expired", id, status: "expired" }])
+	})
+
+	it("neither overwrites nor reports an order cancelled while its entry came down", async () => {
+		const { client, service, store, id, after } = await withExpiry()
+		const events: string[] = []
+		service.listen((event) => events.push(event.kind))
+		const inner = client.cancelOrder
+		client.cancelOrder = async (params) => {
+			await store.setStatus(id, "cancelled")
+			return inner(params)
+		}
+
+		await service.expireStale(after)
+
+		expect((await store.get(id))?.status).toBe("cancelled")
+		expect(events).toEqual([])
+	})
+
 	it("leaves an order whose expiry has not come", async () => {
 		const { client, service, store, id } = await withExpiry()
 
@@ -131,6 +352,17 @@ describe("the operator's own expiry", () => {
 		await service.reconcile(after)
 		expect((await store.get(id))?.status).toBe("expired")
 		expect(client.submitted).toEqual(["0x00"])
+	})
+
+	it("does not expire an order the operator cancelled since the pass listed it", async () => {
+		// Reconciliation reaches `retire` through `repost` from a snapshot, and a cancel
+		// can land between the two. The expiry must not overwrite it.
+		const { service, store, id } = await withExpiry()
+		const listed = (await store.get(id))!
+		await service.cancel(id)
+
+		await service.repost({ ...listed, commitment: null, expiresAt: "2020-01-01T00:00:00.000Z" })
+		expect((await store.get(id))?.status).toBe("cancelled")
 	})
 
 	it("is never put back by reconciliation, whichever clock got there first", async () => {
@@ -164,7 +396,7 @@ describe("the operator's own expiry", () => {
 		const created = await service.create(REQUEST)
 		await store.create({ ...created.order, id: "late", expiresAt: "2020-01-01T00:00:00.000Z" })
 
-		const settled = await service.settleFill("late", 500_000n * ONE)
+		const settled = await settleFill(service, "late", 500_000n * ONE)
 		expect(settled?.status).toBe("expired")
 		expect(settled?.commitment).toBeNull()
 		expect(client.submitted).toEqual(["0x00"])
@@ -274,6 +506,60 @@ describe("reconciliation", () => {
 		expect(await service.reconcile()).toEqual({ cancelled: 0, reposted: 0, underFunded: 0 })
 		expect(client.submitted).toEqual(["0x00"])
 	})
+
+	it("does not reopen an order the operator cancelled while a post that then failed was in flight", async () => {
+		// A failure the orderbook could not decide leaves the order open to be posted again,
+		// but only if nothing else has closed it since: the cancel owns the row.
+		const client = fakeClient([])
+		const { service, store } = makeService(client)
+		client.submitOrder = async () => {
+			const [created] = await store.list()
+			await service.cancel(created.id)
+			throw new OrderbookRequestError("connect ECONNREFUSED")
+		}
+
+		const { order, result } = await service.create(REQUEST)
+
+		expect(result).toMatchObject({ kind: "failed", retryable: true })
+		expect(order.status).toBe("cancelled")
+		expect((await store.get(order.id))?.status).toBe("cancelled")
+		expect(order.lastError).toBeNull()
+		// Nothing is left to post again.
+		expect(await service.reconcile(later())).toEqual({ cancelled: 0, reposted: 0, underFunded: 0 })
+		expect(client.submitted).toEqual([])
+	})
+
+	it("does not put back a posting the operator cancelled while it paged the orderbook", async () => {
+		// The pass snapshots the row as open, then awaits the orderbook's entries. A
+		// cancel that lands inside that window owns the row; writing the snapshot back
+		// would undo it and re-post the entry.
+		const client = countingClient([])
+		const { service, store } = makeService(client)
+		const { order } = await service.create(REQUEST)
+		client.entries = [postedOrder({ resized: true, advertisedSize: "1" })]
+
+		const paged = client.myOrders.bind(client)
+		let cancelled = false
+		client.myOrders = async () => {
+			if (!cancelled) {
+				cancelled = true
+				// Let `live()` take its snapshot first, then cancel: the cancel must
+				// land inside the paging window, on a row reconciliation listed as open.
+				await new Promise((resolve) => setTimeout(resolve, 0))
+				await service.cancel(order.id)
+			}
+			return paged()
+		}
+
+		expect(await service.reconcile()).toMatchObject({ cancelled: 0, reposted: 0, underFunded: 0 })
+		expect((await store.get(order.id))?.status).toBe("cancelled")
+
+		// A later pass finds the entry nothing here owns and withdraws it, but the
+		// cancelled order is never posted again.
+		const before = client.submitted.length
+		await service.reconcile(later())
+		expect(client.submitted).toHaveLength(before)
+	})
 })
 
 /**
@@ -293,7 +579,7 @@ describe("a posting through a fill and a reconciliation", () => {
 
 		// A fill takes 500,000 of the 1,500,000 cNGN offered, and the rest goes back
 		// up at its new size.
-		const resized = (await service.settleFill(order.id, 500_000n * ONE))!
+		const resized = (await settleFill(service, order.id, 500_000n * ONE))!
 		expect(resized.commitment).toBe("0xa2")
 		expect(resized.remaining).toBe((1_000_000n * ONE).toString())
 
@@ -333,6 +619,20 @@ describe("LimitOrderLifecycle", () => {
 		lifecycle.stop()
 		await vi.advanceTimersByTimeAsync(300_000)
 		expect(client.heartbeats).toHaveLength(2)
+	})
+
+	it("authorises the heartbeat key on the way up", async () => {
+		const client = fakeClient([])
+		const { service } = makeService(client, undefined, {}, () => 0n, undefined, undefined, undefined, heartbeatKey)
+		await service.create(REQUEST)
+
+		const lifecycle = new LimitOrderLifecycle(service, {
+			reconcileIntervalSecs: 300,
+			reconcileTallies: async () => 0,
+		})
+		await lifecycle.start()
+		await vi.waitFor(() => expect(client.authorizations).toHaveLength(1))
+		lifecycle.stop()
 	})
 
 	it("reconciles on the way up rather than waiting out the first interval", async () => {

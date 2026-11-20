@@ -240,6 +240,53 @@ describe("daemon lifecycle", () => {
 		).rejects.toThrow(/could not be spawned: permission denied/)
 	})
 
+	it("waits past the old two-minute limit for a slow cold boot", async () => {
+		vi.useFakeTimers({ toFake: ["Date"] })
+		try {
+			const startedAt = Date.now()
+			const spawn = vi.fn()
+			const probe = vi.fn(
+				async (): Promise<HealthProbe> =>
+					Date.now() - startedAt >= 4 * 60_000
+						? { state: "ready", mode: "operator", pid: 42 }
+						: { state: "starting", mode: "operator", pid: 42 },
+			)
+			await expect(
+				ensureDaemon({
+					launch,
+					probe,
+					spawn,
+					delay: async (milliseconds) => {
+						vi.setSystemTime(Date.now() + milliseconds)
+					},
+				}),
+			).resolves.toEqual({ attached: true, mode: "operator" })
+			expect(spawn).not.toHaveBeenCalled()
+		} finally {
+			vi.useRealTimers()
+		}
+	})
+
+	it("reports a five-minute deadline when the solver never becomes ready", async () => {
+		vi.useFakeTimers({ toFake: ["Date"] })
+		try {
+			const spawn = vi.fn()
+			await expect(
+				ensureDaemon({
+					launch,
+					probe: sequence([{ state: "starting", mode: "init", pid: 42 }]),
+					spawn,
+					delay: async (milliseconds) => {
+						vi.setSystemTime(Date.now() + milliseconds)
+					},
+				}),
+			).rejects.toThrow(/within 300 seconds/)
+			expect(spawn).not.toHaveBeenCalled()
+		} finally {
+			vi.useRealTimers()
+		}
+	})
+
 	it("times out without killing the detached child", async () => {
 		const spawned = child()
 		const kill = vi.fn()

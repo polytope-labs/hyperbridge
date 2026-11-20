@@ -29,6 +29,7 @@ function makeProvider(
 	vaultBalances?: VaultBalanceSource,
 	configOverrides: Partial<FillerConfigService> = {},
 	tokens: () => Promise<Record<string, string[]>> = async () => ({ "EVM-8453": [EXOTIC] }),
+	feeToken?: (chain: string) => Promise<string>,
 ) {
 	const chainClientManager = { getPublicClient: vi.fn().mockReturnValue(client) } as unknown as ChainClientManager
 	const configService = {
@@ -45,6 +46,7 @@ function makeProvider(
 		fillerAddress: "0x1111111111111111111111111111111111111111",
 		tokens,
 		vaultBalances,
+		feeToken,
 	})
 }
 
@@ -108,6 +110,29 @@ describe("BalanceProvider", () => {
 		expect(snapshot.status).toBe("fresh")
 		expect(snapshot.issues).toEqual([])
 		expect(provider.getSnapshot()).toBe(snapshot)
+	})
+
+	it("marks the chain's fee token with what a limit order paying it out leaves unpromised", async () => {
+		const provider = makeProvider(undefined, undefined, {}, undefined, async () => USDC.toUpperCase().replace("0X", "0x"))
+
+		const [chain] = (await provider.refresh()).chains
+		const reserves = chain.assets.map((asset) => [asset.symbol, asset.limitOrderFeeReserve])
+		expect(reserves).toEqual([
+			["USDC", 10],
+			["USDT", undefined],
+			["cNGN", undefined],
+		])
+		expect(chain.assets[0].available).toBe(1500)
+	})
+
+	it("marks no fee token when the chain's cannot be read", async () => {
+		const provider = makeProvider(undefined, undefined, {}, undefined, async () => {
+			throw new Error("rpc down")
+		})
+
+		const snapshot = await provider.refresh()
+		expect(snapshot.chains[0].assets.every((asset) => asset.limitOrderFeeReserve === undefined)).toBe(true)
+		expect(snapshot.issues).toEqual([])
 	})
 
 	it("keeps partial results when individual reads fail", async () => {

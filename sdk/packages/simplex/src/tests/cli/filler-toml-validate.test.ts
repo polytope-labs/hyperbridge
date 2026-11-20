@@ -53,16 +53,18 @@ describe("validateConfig", () => {
 		expect(() => validateConfig(config)).not.toThrow()
 	})
 
-	it("rejects a missing substratePrivateKey", () => {
+	// A solver without a Hyperbridge key bids on the orderbook alone.
+	it("accepts a config without a substratePrivateKey or hyperbridgeWsUrl", () => {
 		const config = minimalConfig()
-		config.simplex.substratePrivateKey = ""
-		expect(() => validateConfig(config)).toThrow(/substratePrivateKey is required/)
+		config.simplex.substratePrivateKey = undefined
+		config.simplex.hyperbridgeWsUrl = undefined
+		expect(() => validateConfig(config)).not.toThrow()
 	})
 
-	it("rejects a missing hyperbridgeWsUrl", () => {
+	it("rejects a hyperbridgeWsUrl missing while a substratePrivateKey is set", () => {
 		const config = minimalConfig()
 		config.simplex.hyperbridgeWsUrl = ""
-		expect(() => validateConfig(config)).toThrow(/hyperbridgeWsUrl is required/)
+		expect(() => validateConfig(config)).toThrow(/hyperbridgeWsUrl is required when simplex.substratePrivateKey is set/)
 	})
 
 	it("loads an older config that still carries [[pairs]]", () => {
@@ -136,6 +138,76 @@ describe("validateConfig", () => {
 
 })
 
+describe("validateConfig [simplex.overfillProtection]", () => {
+	// Removed, but ignored rather than refused: `simplex init` wrote the section
+	// uncommented, and rejecting it would crash-loop those deployments. Boot warns.
+	it("accepts the removed section in any form, including an empty table", () => {
+		for (const overfillProtection of [{}, { maxOverfillBps: 500 }, { maxConsecutiveClamps: 3 }]) {
+			const config = minimalConfig()
+			config.simplex.overfillProtection = overfillProtection
+			expect(() => validateConfig(config)).not.toThrow()
+		}
+	})
+
+	it("accepts a config without it, or with it undefined", () => {
+		expect(() => validateConfig(minimalConfig())).not.toThrow()
+		const config = minimalConfig()
+		config.simplex.overfillProtection = undefined
+		expect(() => validateConfig(config)).not.toThrow()
+	})
+
+	it("accepts a TOML file that still carries the section", () => {
+		// The same parse every entry point (`simplex run`, `simplex init`, the desktop) reads the file with.
+		const example = readFileSync(resolve(__dirname, "../../../filler-config-example.toml"), "utf-8")
+		const config = parse(`${example}\n[simplex.overfillProtection]\nmaxOverfillBps = 500\n`) as FillerConfigFile
+		config.simplex.substratePrivateKey = "seed"
+		config.simplex.hyperbridgeWsUrl = "wss://example"
+		for (const chain of config.chains) chain.rpcUrls = ["https://rpc.example"]
+		expect(() => validateConfig(config)).not.toThrow()
+	})
+})
+
+describe("validateConfig [rebalancing]", () => {
+	const withRebalancing = (triggerPercentage: number, base = "12000"): FillerTomlConfig => ({
+		...minimalConfig(),
+		rebalancing: { triggerPercentage, baseBalances: { USDC: { "8453": base } } },
+	})
+
+	it.each([0, 1, -0.1, Number.NaN])("rejects a triggerPercentage of %s", (trigger) => {
+		expect(() => validateConfig(withRebalancing(trigger))).toThrow(/triggerPercentage must be a number between 0 and 1/)
+	})
+
+	it("accepts a quoted triggerPercentage that parses to a number in range", () => {
+		// A TOML `triggerPercentage = "0.5"` parses as a string, which the rebalancer coerces.
+		expect(() => validateConfig(withRebalancing("0.5" as unknown as number))).not.toThrow()
+	})
+
+	it.each(["abc", "0", "1", "", "-0.5", "Infinity"])("rejects a quoted triggerPercentage of %j", (trigger) => {
+		expect(() => validateConfig(withRebalancing(trigger as unknown as number))).toThrow(
+			`rebalancing.triggerPercentage must be a number between 0 and 1 (exclusive); got the string ${JSON.stringify(trigger)}`,
+		)
+	})
+
+	it("accepts a triggerPercentage strictly between 0 and 1", () => {
+		expect(() => validateConfig(withRebalancing(0.5))).not.toThrow()
+	})
+
+	it.each(["-5", "abc", "Infinity"])("rejects a base balance of %s", (base) => {
+		expect(() => validateConfig(withRebalancing(0.5, base))).toThrow(/baseBalances\.USDC for chain 8453/)
+	})
+
+	it.each(["0", 0 as unknown as string])("accepts a base balance of %s: finite and not negative", (base) => {
+		expect(() => validateConfig(withRebalancing(0.5, base))).not.toThrow()
+	})
+
+	it("accepts base balances with no triggerPercentage, because rebalancing is then switched off", () => {
+		// Boot starts the rebalancer only when a trigger is set, so these configs run today.
+		const config = withRebalancing(0.5, "0")
+		config.rebalancing = { baseBalances: { USDC: { "8453": "-5", "1": "abc" } } } as unknown as FillerTomlConfig["rebalancing"]
+		expect(() => validateConfig(config)).not.toThrow()
+	})
+})
+
 describe("validateConfig [orderbook]", () => {
 	const withOrderbook = (orderbook: FillerTomlConfig["orderbook"]): FillerTomlConfig => ({
 		...minimalConfig(),
@@ -167,6 +239,13 @@ describe("validateConfig [orderbook]", () => {
 	it("refuses a ttl below the orderbook's own floor", () => {
 		expect(() => validateConfig(withOrderbook({ url: "https://example", defaultTtlSecs: 60 }))).toThrow(
 			/defaultTtlSecs must be an integer >= 900/,
+		)
+	})
+
+	it("refuses a quoted delegateHeartbeats, which would leave delegation on", () => {
+		const orderbook = { url: "https://example", delegateHeartbeats: "false" as unknown as boolean }
+		expect(() => validateConfig(withOrderbook(orderbook))).toThrow(
+			/delegateHeartbeats must be true or false; got the string "false"/,
 		)
 	})
 })

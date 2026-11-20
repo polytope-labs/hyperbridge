@@ -1,10 +1,25 @@
 import { describe, expect, it, vi } from "vitest"
-import { decodeAbiParameters, decodeFunctionData, encodeFunctionData, maxUint256, parseAbi } from "viem"
+import {
+	decodeAbiParameters,
+	decodeFunctionData,
+	encodeFunctionData,
+	maxUint256,
+	parseAbi,
+	WaitForTransactionReceiptTimeoutError,
+} from "viem"
 
 const ERC7821_EXECUTE_ABI = parseAbi(["function execute(bytes32 mode, bytes executionData)"])
 import { ERC20_ABI } from "@/config/abis/ERC20"
 import { ERC4626_ABI } from "@/config/abis/Erc4626"
 import { TokenSender } from "@/services/TokenSender"
+import { UserOpSender } from "@/services/UserOpSender"
+import { PendingOpOnNonceError, SubmittedUnconfirmedError, type SubmittedUserOp } from "@/services/submission"
+import { buildPaymasterAndData } from "@/services/paymaster"
+import {
+	packPaymasterAndData,
+	VERIFICATION_GAS_LIMIT_PERMIT2,
+	POST_OP_GAS_LIMIT_SIMPLEX,
+} from "@/services/paymaster/types"
 import type { ChainClientManager } from "@/services/ChainClientManager"
 import { resolvePendingPermit2Approval } from "@/services/paymaster/provider/simplex"
 
@@ -13,6 +28,15 @@ import { resolvePendingPermit2Approval } from "@/services/paymaster/provider/sim
 vi.mock("@/services/paymaster/provider/simplex", async (importOriginal) => ({
 	...(await importOriginal<typeof import("@/services/paymaster/provider/simplex")>()),
 	resolvePendingPermit2Approval: vi.fn(),
+}))
+
+// The sponsored path under test runs the real UserOpSender, so its paymaster selection is stubbed;
+// the deposit/balance reads behind it belong to the paymaster tests. The rest of the module
+// (`paymasterReserveForToken`, used by the vault tests above) stays real.
+vi.mock("@/services/paymaster", async (importOriginal) => ({
+	...(await importOriginal<typeof import("@/services/paymaster")>()),
+	hasPaymaster: () => true,
+	buildPaymasterAndData: vi.fn(),
 }))
 
 const SOLVER = "0x5b2c3e25243634732eE94525Ae98aEc404c82506" as const
@@ -39,11 +63,13 @@ function makeVaultSender(opts: {
 			if (functionName === "maxWithdraw") return opts.maxWithdraw
 			throw new Error(`unexpected read: ${functionName}`)
 		}),
+		getTransactionCount: vi.fn().mockResolvedValue(7),
 		waitForTransactionReceipt: vi.fn().mockResolvedValue({ status: "success" }),
 	}
 	const clientManager = {
 		getPublicClient: () => publicClient,
 		getWalletClient: () => ({ sendTransaction, chain: undefined }),
+		getPendingNonce: vi.fn().mockResolvedValue(7),
 	} as unknown as ChainClientManager
 	const vaults = [{ chain: "EVM-8453", vault: VAULT, ...(opts.minBalance ? { minBalance: opts.minBalance } : {}) }]
 	// canSponsor decides whether a reserve applies at all; the amount comes from
@@ -95,13 +121,17 @@ function makeSender(vaults: Array<{ chain: string; vault: `0x${string}` }> = [])
 		readContract: vi.fn(async ({ functionName }: { functionName: string }): Promise<number | bigint> => {
 			if (functionName === "decimals") return 6
 			if (functionName === "balanceOf") return 1_000_000_000n
+			// Uncapped unless a test overrides it, so the share sends below keep working.
+			if (functionName === "maxRedeem") return 1_000_000_000n
 			throw new Error(`unexpected read: ${functionName}`)
 		}),
+		getTransactionCount: vi.fn().mockResolvedValue(7),
 		waitForTransactionReceipt: vi.fn().mockResolvedValue({ status: "success" }),
 	}
 	const clientManager = {
 		getPublicClient: () => publicClient,
 		getWalletClient: () => ({ sendTransaction, chain: undefined }),
+		getPendingNonce: vi.fn().mockResolvedValue(7),
 	} as unknown as ChainClientManager
 	const sender = new TokenSender(clientManager, SOLVER, () => vaults.map((v) => ({ ...v })))
 	return { sender, sendTransaction, publicClient }
@@ -138,6 +168,23 @@ describe("TokenSender", () => {
 		expect(result.redeemed).toBe(false)
 		const decoded = decodeFunctionData({ abi: ERC20_ABI, data: sendTransaction.mock.calls[0][0].data })
 		expect(decoded.functionName).toBe("transfer")
+	})
+
+	it("refuses a vault-share send above the vault's maxRedeem before submitting anything", async () => {
+		// A liquidity-capped vault would revert `redeem(units)`; the guard refuses up front with
+		// the amount it can actually redeem instead of building a batch that cannot succeed.
+		const { sender, sendTransaction, publicClient } = makeSender([{ chain: "EVM-8453", vault: VAULT }])
+		publicClient.readContract.mockImplementation(async ({ functionName }: { functionName: string }) => {
+			if (functionName === "decimals") return 6
+			if (functionName === "balanceOf") return 1_000_000_000n
+			if (functionName === "maxRedeem") return 4_000_000n
+			throw new Error(`unexpected read: ${functionName}`)
+		})
+
+		await expect(sender.send({ chain: "EVM-8453", token: VAULT, amount: "10", to: RECIPIENT })).rejects.toThrow(
+			/only redeem 4000000 shares/,
+		)
+		expect(sendTransaction).not.toHaveBeenCalled()
 	})
 
 	it("sends native value directly", async () => {
@@ -205,11 +252,11 @@ describe("TokenSender", () => {
 		const { sender, sendTransaction } = makeVaultSender({
 			walletBalance: 9_989_773n,
 			maxWithdraw: 481_970_486_507n,
-			reserve: 2_000_000n,
+			reserve: 5_000_000n,
 		})
 		await sender.send({ chain: "EVM-8453", token: TOKEN, amount: "4000", to: RECIPIENT })
 		const withdrawal = decodeFunctionData({ abi: ERC4626_ABI, data: batchOf(sendTransaction)[0].data })
-		expect(withdrawal.args?.[0]).toBe(4_000_000_000n - 9_989_773n + 2_000_000n)
+		expect(withdrawal.args?.[0]).toBe(4_000_000_000n - 9_989_773n + 5_000_000n)
 	})
 
 	it("tops the wallet up when it covers the transfer but not the paymaster's pull", async () => {
@@ -218,14 +265,14 @@ describe("TokenSender", () => {
 		const { sender, sendTransaction } = makeVaultSender({
 			walletBalance: 4_000_000_000n,
 			maxWithdraw: 481_970_486_507n,
-			reserve: 2_000_000n,
+			reserve: 5_000_000n,
 		})
 		const result = await sender.send({ chain: "EVM-8453", token: TOKEN, amount: "4000", to: RECIPIENT })
 		expect(result.redeemed).toBe(true)
 		const calls = batchOf(sendTransaction)
 		expect(calls).toHaveLength(2)
 		const withdrawal = decodeFunctionData({ abi: ERC4626_ABI, data: calls[0].data })
-		expect(withdrawal.args?.[0]).toBe(2_000_000n)
+		expect(withdrawal.args?.[0]).toBe(5_000_000n)
 	})
 
 	it("still refuses when no vault holds the asset at all", async () => {
@@ -260,9 +307,59 @@ describe("TokenSender", () => {
 		)
 		expect(sendTransaction).not.toHaveBeenCalled()
 	})
+
+	it.each([
+		["the zero address", "0x0000000000000000000000000000000000000000", TOKEN, /zero address/],
+		["the token contract", TOKEN.toLowerCase(), TOKEN, /token contract/],
+		["a configured vault", VAULT.toLowerCase(), TOKEN, /configured vault/],
+		["the filler's own wallet", SOLVER.toLowerCase(), "native", /own wallet/],
+		["the filler's own wallet, in an ERC-20", SOLVER.toLowerCase(), TOKEN, /own wallet/],
+	])("refuses to send to %s without submitting anything", async (_label, to, token, message) => {
+		const trySendSponsored = vi.fn().mockResolvedValue({ txHash: "0xsponsored" })
+		const sendTransaction = vi.fn().mockResolvedValue("0xhash")
+		const clientManager = {
+			getPublicClient: () => ({
+				getBalance: vi.fn().mockResolvedValue(10n ** 18n),
+				readContract: vi.fn(async ({ functionName }: { functionName: string }) =>
+					functionName === "decimals" ? 6 : 1_000_000_000n,
+				),
+				waitForTransactionReceipt: vi.fn().mockResolvedValue({ status: "success" }),
+			}),
+			getWalletClient: () => ({ sendTransaction, chain: undefined }),
+			getPendingNonce: vi.fn().mockResolvedValue(7),
+		} as unknown as ChainClientManager
+		const sender = new TokenSender(clientManager, SOLVER, () => [{ chain: "EVM-8453", vault: VAULT }], {
+			canSponsor: () => true,
+			trySendSponsored,
+		} as never)
+		await expect(
+			sender.send({ chain: "EVM-8453", token, amount: "1", to: to as `0x${string}` }),
+		).rejects.toThrow(message)
+		expect(trySendSponsored).not.toHaveBeenCalled()
+		expect(sendTransaction).not.toHaveBeenCalled()
+	})
+
+	it("redeems vault shares to the filler's own wallet, the way to withdraw an exact amount", async () => {
+		const { sender, sendTransaction } = makeSender([{ chain: "EVM-8453", vault: VAULT }])
+		const result = await sender.send({ chain: "EVM-8453", token: VAULT, amount: "10", to: SOLVER })
+		expect(result.redeemed).toBe(true)
+		const decoded = decodeFunctionData({ abi: ERC4626_ABI, data: sendTransaction.mock.calls[0][0].data })
+		expect(decoded.functionName).toBe("redeem")
+		expect(decoded.args).toEqual([10_000_000n, SOLVER, SOLVER])
+	})
 })
 
 describe("TokenSender sponsored batches", () => {
+	/** The sponsored op a successful send reports. */
+	const USER_OP: SubmittedUserOp = {
+		kind: "userOp",
+		userOpHash: `0x${"cd".repeat(32)}`,
+		nonce: 5n,
+		nonceKey: 0n,
+		expires: true,
+		submittedAt: 1_000,
+	}
+
 	const FEE_TOKEN = "0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359" as const
 	const PERMIT2 = "0x000000000022D473030F116dDEE9F6B43aC78BA3" as const
 	const PAYMASTER = "0xe99acFe0f5fC4C8ea54A187D8D3b05f136150095" as const
@@ -272,12 +369,16 @@ describe("TokenSender sponsored batches", () => {
 		data: encodeFunctionData({ abi: ERC20_ABI, functionName: "transfer", args: [RECIPIENT, 25_000_000n] }),
 	}
 
-	function makeSponsoredSender(sponsored: { txHash: `0x${string}` } | null = { txHash: "0xsponsored" }) {
+	function makeSponsoredSender(sponsored: { txHash: `0x${string}`; userOp: SubmittedUserOp } | null = { txHash: "0xsponsored", userOp: USER_OP }) {
 		const sendTransaction = vi.fn().mockResolvedValue("0xnative")
 		const trySendSponsored = vi.fn().mockResolvedValue(sponsored)
 		const clientManager = {
-			getPublicClient: () => ({ waitForTransactionReceipt: vi.fn().mockResolvedValue({ status: "success" }) }),
+			getPublicClient: () => ({
+				getTransactionCount: vi.fn().mockResolvedValue(7),
+				waitForTransactionReceipt: vi.fn().mockResolvedValue({ status: "success" }),
+			}),
 			getWalletClient: () => ({ sendTransaction, chain: undefined }),
+			getPendingNonce: vi.fn().mockResolvedValue(7),
 		} as unknown as ChainClientManager
 		const sender = new TokenSender(
 			clientManager,
@@ -303,7 +404,7 @@ describe("TokenSender sponsored batches", () => {
 		})
 		const { sender, trySendSponsored, sendTransaction } = makeSponsoredSender()
 
-		expect(await sender.submitCalls("EVM-137", [transfer])).toEqual({ txHash: "0xsponsored", sponsored: true })
+		expect(await sender.submitCalls("EVM-137", [transfer])).toEqual({ txHash: "0xsponsored", sponsored: true, submission: USER_OP })
 
 		const request = trySendSponsored.mock.calls[0][0]
 		expect(request.permitBootstrap).toBe(true)
@@ -329,6 +430,22 @@ describe("TokenSender sponsored batches", () => {
 		expect(sponsoredBatch(trySendSponsored).map((call) => call.target)).toEqual([TOKEN])
 	})
 
+	it("sends the sponsored op on the nonce key the caller names", async () => {
+		const { sender, trySendSponsored } = makeSponsoredSender()
+
+		await sender.submitCalls("EVM-137", [transfer], { nonceKey: 7n })
+
+		expect(trySendSponsored.mock.calls[0][0].nonceKey).toBe(7n)
+	})
+
+	it("leaves the nonce key unset for a caller that names none, so the op uses key 0", async () => {
+		const { sender, trySendSponsored } = makeSponsoredSender()
+
+		await sender.submitCalls("EVM-137", [transfer])
+
+		expect(trySendSponsored.mock.calls[0][0].nonceKey).toBeUndefined()
+	})
+
 	it("sends the batch unchanged when the approval check fails", async () => {
 		vi.mocked(resolvePendingPermit2Approval).mockRejectedValueOnce(new Error("429 Too Many Requests"))
 		const { sender, trySendSponsored } = makeSponsoredSender()
@@ -346,10 +463,272 @@ describe("TokenSender sponsored batches", () => {
 		})
 		const { sender, sendTransaction } = makeSponsoredSender(null)
 
-		expect(await sender.submitCalls("EVM-137", [transfer])).toEqual({ txHash: "0xnative", sponsored: false })
+		expect(await sender.submitCalls("EVM-137", [transfer])).toMatchObject({
+			txHash: "0xnative",
+			sponsored: false,
+			submission: { kind: "tx", txHash: "0xnative", nonce: 7 },
+		})
 
 		const tx = sendTransaction.mock.calls[0][0]
 		expect(tx.to).toBe(TOKEN)
 		expect(decodeFunctionData({ abi: ERC20_ABI, data: tx.data }).functionName).toBe("transfer")
+	})
+})
+
+describe("TokenSender native batch safety", () => {
+	const TX = `0x${"ab".repeat(32)}` as `0x${string}`
+	const CALL = { target: TOKEN, value: 0n, data: "0x1234" as `0x${string}` }
+	const BATCH = [CALL, { target: TOKEN, value: 0n, data: "0x5678" as `0x${string}` }]
+
+	function makeNativeSender(isDelegated?: (chain: string) => Promise<boolean>) {
+		const sendTransaction = vi.fn().mockResolvedValue(TX)
+		const waitForTransactionReceipt = vi.fn().mockResolvedValue({ status: "success" })
+		const getTransactionCount = vi.fn().mockResolvedValue(3)
+		const getPendingNonce = vi.fn().mockResolvedValue(7)
+		const clientManager = {
+			getPublicClient: () => ({ waitForTransactionReceipt, getTransactionCount }),
+			getWalletClient: () => ({ sendTransaction, chain: undefined }),
+			getPendingNonce,
+		} as unknown as ChainClientManager
+		const sender = new TokenSender(clientManager, SOLVER, () => [], undefined, undefined, isDelegated)
+		return { sender, sendTransaction, waitForTransactionReceipt, getTransactionCount, getPendingNonce }
+	}
+
+	it("reports a native tx whose receipt timed out as submitted but unconfirmed", async () => {
+		const { sender, waitForTransactionReceipt } = makeNativeSender()
+		waitForTransactionReceipt.mockRejectedValue(new WaitForTransactionReceiptTimeoutError({ hash: TX }))
+
+		const error = await sender.submitCalls("EVM-8453", [CALL]).catch((err) => err)
+
+		expect(error).toBeInstanceOf(SubmittedUnconfirmedError)
+		expect(error.message).toContain("Timed out while waiting for transaction")
+		expect(error.chain).toBe("EVM-8453")
+		// The nonce travels with the hash: a node forgetting the tx proves nothing, the nonce moving does.
+		expect(error.submission).toMatchObject({ kind: "tx", txHash: TX, nonce: 7 })
+	})
+
+	it("reports any receipt-read failure as submitted but unconfirmed", async () => {
+		const { sender, waitForTransactionReceipt } = makeNativeSender()
+		// Not a timeout: the node accepted the tx, so its outcome is still unknown.
+		waitForTransactionReceipt.mockRejectedValue(new Error("connection reset"))
+
+		const error = await sender.submitCalls("EVM-8453", [CALL]).catch((err) => err)
+
+		expect(error).toBeInstanceOf(SubmittedUnconfirmedError)
+		expect(error.message).toContain("connection reset")
+		expect(error.submission).toMatchObject({ kind: "tx", txHash: TX })
+	})
+
+	it("sends with the wallet's pending nonce, read through the client that sends", async () => {
+		const { sender, sendTransaction, getTransactionCount, getPendingNonce } = makeNativeSender()
+
+		await sender.submitCalls("EVM-8453", [CALL])
+
+		// The public client fails over sooner than a send does, so its nonce can be another node's.
+		expect(getPendingNonce).toHaveBeenCalledWith("EVM-8453")
+		expect(getTransactionCount).not.toHaveBeenCalled()
+		expect(sendTransaction.mock.calls[0][0].nonce).toBe(7)
+	})
+
+	it("reports a mined revert as a plain failure, not an unconfirmed submission", async () => {
+		const { sender, waitForTransactionReceipt } = makeNativeSender()
+		waitForTransactionReceipt.mockResolvedValue({ status: "reverted" })
+
+		const error = await sender.submitCalls("EVM-8453", [CALL]).catch((err) => err)
+
+		expect(error).not.toBeInstanceOf(SubmittedUnconfirmedError)
+		expect(error.message).toContain(`Send tx reverted: ${TX}`)
+	})
+
+	it("refuses a native batch on a wallet that is not 7702-delegated", async () => {
+		const { sender, sendTransaction } = makeNativeSender(async () => false)
+
+		await expect(sender.submitCalls("EVM-8453", BATCH)).rejects.toThrow(
+			"The wallet is not 7702-delegated on EVM-8453 (or its delegation could not be read); a batch sent to it would do nothing",
+		)
+		expect(sendTransaction).not.toHaveBeenCalled()
+	})
+
+	it("sends a native batch through executeBatch when the wallet is delegated", async () => {
+		const { sender, sendTransaction } = makeNativeSender(async () => true)
+
+		expect(await sender.submitCalls("EVM-8453", BATCH)).toMatchObject({ txHash: TX, sponsored: false })
+		expect(sendTransaction.mock.calls[0][0].to).toBe(SOLVER)
+	})
+
+	it("sends a single native call straight to the target regardless of delegation", async () => {
+		const { sender, sendTransaction } = makeNativeSender(async () => false)
+
+		expect(await sender.submitCalls("EVM-8453", [CALL])).toMatchObject({ txHash: TX, sponsored: false })
+		expect(sendTransaction.mock.calls[0][0].to).toBe(TOKEN)
+	})
+})
+
+/**
+ * The c07 regression, end to end through the real UserOpSender: a lost `eth_sendUserOperation`
+ * response must not let `submitCalls` re-send the same calls as a native tx. Only a definite
+ * "the bundler never got it" may fall back.
+ */
+describe("TokenSender sponsored send with a lost bundler response", () => {
+	const FEE_TOKEN = "0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359" as const
+	const PAYMASTER = "0xe99acFe0f5fC4C8ea54A187D8D3b05f136150095" as const
+	const ENTRY_POINT = "0x4337843378433784337843378433784337843378" as const
+	const HTML_PAGE = Symbol("html-page")
+	const transfer = {
+		target: TOKEN,
+		value: 0n,
+		data: encodeFunctionData({ abi: ERC20_ABI, functionName: "transfer", args: [RECIPIENT, 25_000_000n] }),
+	}
+	const paymasterAndData = packPaymasterAndData({
+		paymaster: PAYMASTER,
+		paymasterData: "0x02" as `0x${string}`,
+		paymasterVerificationGasLimit: VERIFICATION_GAS_LIMIT_PERMIT2,
+		paymasterPostOpGasLimit: POST_OP_GAS_LIMIT_SIMPLEX,
+	})
+
+	/** A TokenSender wired to a real UserOpSender, with only the chain/bundler transport faked. */
+	function makeRealSender(bundlerUrl: string) {
+		const sendTransaction = vi.fn().mockResolvedValue("0xnative")
+		const publicClient = {
+			getGasPrice: async () => 1_000_000_000n,
+			getBlock: async () => ({ baseFeePerGas: 900_000_000n }),
+			readContract: async () => 0n,
+			getTransactionCount: async () => 7,
+			waitForTransactionReceipt: vi.fn().mockResolvedValue({ status: "success" }),
+		}
+		const clientManager = {
+			getPublicClient: () => publicClient,
+			getWalletClient: () => ({ sendTransaction, chain: undefined }),
+			getPendingNonce: vi.fn().mockResolvedValue(7),
+		} as unknown as ChainClientManager
+		const signer = { address: SOLVER, signTypedData: async () => ("0x" + "11".repeat(65)) as `0x${string}` }
+		const configService = {
+			getEntryPointAddress: () => ENTRY_POINT,
+			getBundlerUrl: () => bundlerUrl,
+			getChainId: () => 8453,
+			getSimplexPaymasterAddress: () => PAYMASTER,
+		} as never
+		const userOpSender = new UserOpSender(clientManager, configService, signer as never)
+		const sender = new TokenSender(clientManager, SOLVER, () => [], userOpSender, configService)
+		return { sender, sendTransaction }
+	}
+
+	const fetchMethods: string[] = []
+
+	const stubFetch = (byMethod: Record<string, unknown>) => {
+		vi.stubGlobal("fetch", async (_url: unknown, init?: { body?: string }) => {
+			const { method } = JSON.parse(init?.body ?? "{}") as { method: string }
+			fetchMethods.push(method)
+			const reply = byMethod[method]
+			if (reply === undefined) {
+				return { status: 404, json: async () => ({ jsonrpc: "2.0", id: 1, error: { code: -32601 } }) }
+			}
+			if (reply === HTML_PAGE) {
+				return {
+					status: 504,
+					json: async () => {
+						throw new SyntaxError("Unexpected token '<'")
+					},
+				}
+			}
+			if (reply instanceof Error) throw reply
+			const { status, ...body } = reply as { status?: number } & object
+			return { status: status ?? 200, json: async () => ({ jsonrpc: "2.0", id: 1, ...body }) }
+		})
+	}
+
+	const drainLookups = async () => {
+		for (const delay of [2_000, 5_000, 10_000]) await vi.advanceTimersByTimeAsync(delay)
+	}
+
+	beforeEach(() => {
+		fetchMethods.length = 0
+		vi.mocked(buildPaymasterAndData).mockResolvedValue({
+			paymasterAndData,
+			type: "simplex",
+			address: PAYMASTER,
+			token: FEE_TOKEN,
+		})
+	})
+
+	afterEach(() => {
+		vi.useRealTimers()
+		vi.unstubAllGlobals()
+	})
+
+	it("rejects with SubmittedUnconfirmedError and never sends natively when the lookup fails too", async () => {
+		const timeout = Object.assign(new Error("This operation was aborted"), { name: "TimeoutError" })
+		const reset = Object.assign(new Error("socket closed"), { cause: { code: "ECONNRESET" } })
+		stubFetch({ eth_sendUserOperation: timeout, eth_getUserOperationByHash: reset })
+		const { sender, sendTransaction } = makeRealSender("http://tok-unknown.test/bundler")
+		vi.useFakeTimers()
+
+		const promise = sender.submitCalls("EVM-8453", [transfer]).catch((err) => err)
+		await drainLookups()
+		const error = await promise
+
+		expect(error).toBeInstanceOf(SubmittedUnconfirmedError)
+		expect(error.submission).toMatchObject({ kind: "userOp" })
+		expect(sendTransaction).not.toHaveBeenCalled()
+	})
+
+	it("falls back to a native tx when the bundler confirms it never received the op", async () => {
+		stubFetch({ eth_sendUserOperation: HTML_PAGE, eth_getUserOperationByHash: { result: null } })
+		const { sender, sendTransaction } = makeRealSender("http://tok-absent.test/bundler")
+		vi.useFakeTimers()
+
+		const promise = sender.submitCalls("EVM-8453", [transfer])
+		await drainLookups()
+
+		expect(await promise).toMatchObject({ txHash: "0xnative", sponsored: false })
+		expect(sendTransaction).toHaveBeenCalledOnce()
+	})
+
+	it("treats a proxy's JSON 502 as ambiguous and recovers the op, not resending natively", async () => {
+		const txHash = `0x${"ef".repeat(32)}`
+		stubFetch({
+			eth_sendUserOperation: { status: 502, error: { code: 504, message: "upstream timed out" } },
+			eth_getUserOperationByHash: { result: { userOpHash: `0x${"ab".repeat(32)}` } },
+			eth_getUserOperationReceipt: { result: { success: true, receipt: { transactionHash: txHash } } },
+		})
+		const { sender, sendTransaction } = makeRealSender("http://tok-502.test/bundler")
+		vi.useFakeTimers()
+
+		const promise = sender.submitCalls("EVM-8453", [transfer])
+		await drainLookups()
+
+		expect(await promise).toMatchObject({ txHash, sponsored: true })
+		expect(fetchMethods).toContain("eth_getUserOperationByHash")
+		expect(sendTransaction).not.toHaveBeenCalled()
+	})
+
+	it("throws PendingOpOnNonceError and never sends natively when an earlier op holds the nonce", async () => {
+		// A resend of a still-pending send: rundler answers it -32602, the code of a malformed request.
+		stubFetch({
+			eth_sendUserOperation: {
+				error: {
+					code: -32602,
+					message: "replacement underpriced",
+					data: { currentMaxPriorityFee: "0x1", currentMaxFee: "0x2" },
+				},
+			},
+		})
+		const { sender, sendTransaction } = makeRealSender("http://tok-pending.test/bundler")
+
+		const error = await sender.submitCalls("EVM-8453", [transfer]).catch((err) => err)
+
+		expect(error).toBeInstanceOf(PendingOpOnNonceError)
+		expect(error).not.toBeInstanceOf(SubmittedUnconfirmedError)
+		expect(sendTransaction).not.toHaveBeenCalled()
+		// It is a definite answer, so there is nothing to look up.
+		expect(fetchMethods).not.toContain("eth_getUserOperationByHash")
+	})
+
+	it("still falls back to a native tx on a plain -32602 invalid-params rejection", async () => {
+		stubFetch({ eth_sendUserOperation: { error: { code: -32602, message: "invalid params: sender" } } })
+		const { sender, sendTransaction } = makeRealSender("http://tok-invalid.test/bundler")
+
+		expect(await sender.submitCalls("EVM-8453", [transfer])).toMatchObject({ txHash: "0xnative", sponsored: false })
+		expect(sendTransaction).toHaveBeenCalledOnce()
 	})
 })

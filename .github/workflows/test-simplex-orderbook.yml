@@ -33,7 +33,7 @@ jobs:
     live:
         runs-on: ubuntu-latest
         env:
-            ORDERBOOK_IMAGE: polytopelabs/hyperfx-orderbook:v0.3.0
+            ORDERBOOK_IMAGE: polytopelabs/hyperfx-orderbook:v0.4.13
         steps:
             - name: Checkout repository
               uses: actions/checkout@v4
@@ -51,7 +51,7 @@ jobs:
             - name: Setup pnpm
               uses: pnpm/action-setup@v4
               with:
-                  version: 11
+                  version: 11.0.0
 
             - name: Install dependencies
               working-directory: sdk

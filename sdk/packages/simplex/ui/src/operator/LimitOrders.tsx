@@ -247,10 +247,7 @@ function describeRow(order: LimitOrder, chainLabel: (id: string) => string): str
 	const when = formatDate(sqliteUtcToMs(order.updatedAt))
 
 	if (tabOf(order) === "live") {
-		const parts = [`${fromScaled(order.remaining)} ${output} left`]
-		if (order.reserved !== "0") parts.push(`${fromScaled(order.reserved)} held by live bids`)
-		parts.push(status.detail ?? `takes ${input} on ${chain}`)
-		return parts.join(" · ")
+		return `${fromScaled(order.remaining)} ${output} left · ${status.detail ?? `takes ${input} on ${chain}`}`
 	}
 	if (order.status === "filled") {
 		return status.detail ? `${when} · ${status.detail}` : `closed ${when} · took ${input} on ${chain}`
@@ -260,8 +257,8 @@ function describeRow(order: LimitOrder, chainLabel: (id: string) => string): str
 }
 
 /**
- * One order as a bar: the fill is how much of its cap has gone out, and the fainter rule past it
- * what live bids are holding. The rate leads and the cap closes the row.
+ * One order as a bar: the fill is how much of its cap has gone out. The rate leads and the cap
+ * closes the row.
  */
 function LimitOrderRow(props: { order: LimitOrder; chainLabel: (id: string) => string; onOpen: () => void }) {
 	const { order, chainLabel, onOpen } = props
@@ -270,7 +267,7 @@ function LimitOrderRow(props: { order: LimitOrder; chainLabel: (id: string) => s
 	const rate = rateParts(order)
 	const progress = progressOf(order)
 	const { input, output } = legs(order)
-	const bar = { "--consumed": `${progress.consumed}%`, "--held": `${progress.held}%` } as CSSProperties
+	const bar = { "--consumed": `${progress.consumed}%` } as CSSProperties
 	// A problem reported against a live order is what its second line then says.
 	const problem = status.tone === "warn" && order.lastError !== null && status.detail === order.lastError
 
@@ -347,12 +344,6 @@ function LimitOrderDetail(props: {
 					<dt>Pays out</dt>
 					<dd>
 						{fromScaled(order.remaining)} {output} left of {fromScaled(order.size)}
-					</dd>
-				</div>
-				<div>
-					<dt>Held by live bids</dt>
-					<dd>
-						{fromScaled(order.reserved)} {output}
 					</dd>
 				</div>
 				<div>

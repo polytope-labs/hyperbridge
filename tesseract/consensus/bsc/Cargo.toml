@@ -25,7 +25,7 @@ tokio-stream = "0.1.14"
 hex-literal = "0.4.1"
 base2 = "0.3.1"
 primitive-types = { workspace = true, features = ["impl-codec"] }
-alloy = { workspace = true, features = ["providers", "reqwest-default-tls"] }
+alloy = { workspace = true, features = ["providers", "reqwest-native-tls"] }
 sp-core = { workspace = true }
 ssz = { workspace = true }
 ssz_types = { workspace = true }

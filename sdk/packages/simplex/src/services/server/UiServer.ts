@@ -15,6 +15,7 @@ import { TESTNET_CONFIRMATION_POINTS } from "@/cli/init/state"
 import { ChainConfigService } from "@hyperbridge/sdk"
 import {
 	assertConfirmationCoverage,
+	validateRebalancingConfig,
 	type FillerConfigFile,
 	type FillerTomlConfig,
 	type VaultToml,
@@ -40,6 +41,7 @@ import type { LimitOrderController } from "@/simplex"
 import type { BalanceProvider } from "../BalanceProvider"
 import type { BridgeTopUp, TopUpPayToken } from "../BridgeTopUp"
 import { getLogger, type LogLevel } from "../Logger"
+import { PendingOpOnNonceError, SubmittedUnconfirmedError } from "../submission"
 import { DEFAULT_TUNNEL_RELAY, parseRelayAddress, relayKey, type TunnelControls } from "../tunnel/TunnelService"
 import {
 	readBody,
@@ -136,18 +138,10 @@ export interface PauseControl {
 	getWatchOnly(): Record<number, boolean>
 }
 
-/** Self-halt visibility/reset for one FX strategy (overfill protection). */
-export interface HaltControl {
-	index: number
-	isHalted(): boolean
-	resetHalt(): void
-}
-
 export interface OperatorContext {
 	filler: PauseControl
 	/** `refresh` re-reads every chain now; absent, the snapshot is served as last refreshed. */
 	balances: Pick<BalanceProvider, "getSnapshot" | "on" | "off"> & Partial<Pick<BalanceProvider, "refresh">>
-	haltControls: HaltControl[]
 	/** The running config; runtime edits (curves, allowlist, log level) are persisted back into it at configPath. */
 	/**
 	 * The running config. Typed as the file shape because `persistConfig`
@@ -402,7 +396,8 @@ export class UiServer {
 	private configuredChainIds?: number[]
 	private readonly version: string
 	private readonly notificationAckTimeoutMs: number
-	private readonly configEncrypted: boolean
+	/** Whether the config file is saved encrypted. The setup wizard tells the operator which it is. */
+	readonly configEncrypted: boolean
 
 	constructor(opts: {
 		mode: UiMode
@@ -828,7 +823,7 @@ export class UiServer {
 		// boundary — so a page that frames this UI never needs to read or script
 		// it. It only needs the operator to tap through an invisible overlay: the
 		// click lands in the real UI, same-origin, with its own X-Simplex-UI header.
-		// That reaches pause, reset-halt and vault sweep/redeem, which are one
+		// That reaches pause and vault sweep/redeem, which are one
 		// click each. `frame-ancestors` is the directive browsers honour today;
 		// X-Frame-Options is the fallback for older WebViews that ignore CSP.
 		// Set here, before anything can return, so 403s carry it too — and via
@@ -1451,13 +1446,6 @@ export class UiServer {
 			)
 		}
 
-		if (path === "/api/reset-halt") {
-			if (this.mode !== "operator") return sendJson(res, 409, { error: "Filler is not running" })
-			if (method !== "POST") return sendJson(res, 405, { error: "Method not allowed" })
-			for (const control of this.operator!.haltControls) control.resetHalt()
-			return sendJson(res, 200, { halted: [] })
-		}
-
 		if (path === "/api/stop") {
 			if (method !== "POST") return sendJson(res, 405, { error: "Method not allowed" })
 			if (this.stopping) return sendJson(res, 202, { stopping: true })
@@ -1513,7 +1501,6 @@ export class UiServer {
 			version: op.version,
 			uptimeSec: Math.floor((Date.now() - op.startedAt) / 1000),
 			paused: op.filler.isPaused(),
-			halted: op.haltControls.filter((h) => h.isHalted()).map((h) => h.index),
 			work: op.filler.getWorkSnapshot(),
 			watchOnly: op.filler.getWatchOnly(),
 			chains: op.chains,
@@ -2042,6 +2029,27 @@ export class UiServer {
 		if (!(Number(body.amount) > 0)) {
 			return sendJson(res, 400, { error: `Invalid amount: ${body.amount}` })
 		}
+		// Narrowed here, once, because the closure below loses the narrowing of `body`.
+		const { chain, token, amount, to } = { chain: body.chain, token: body.token, amount: body.amount, to: body.to }
+		const recordSend = async (txHash: string, sponsored: boolean) => {
+			const symbol =
+				(this.sendTokenOptions(op)[chain] ?? []).find(
+					(option) => option.address.toLowerCase() === token.toLowerCase(),
+				)?.symbol ?? token
+			try {
+				await op.activity.recordWalletTx({
+					kind: "send",
+					chainId: parseChainKey(chain),
+					token: symbol,
+					amount,
+					to,
+					txHash,
+					sponsored,
+				})
+			} catch (err) {
+				this.logger.warn({ err }, "Failed to record send in wallet history")
+			}
+		}
 		try {
 			const result = await op.send({
 				chain: body.chain,
@@ -2050,25 +2058,49 @@ export class UiServer {
 				to: body.to as `0x${string}`,
 			})
 			this.logger.warn({ ...body, ...result }, "Operator send submitted from the UI")
-			const symbol =
-				(this.sendTokenOptions(op)[body.chain] ?? []).find(
-					(option) => option.address.toLowerCase() === body.token!.toLowerCase(),
-				)?.symbol ?? body.token
-			try {
-				await op.activity.recordWalletTx({
-					kind: "send",
-					chainId: parseChainKey(body.chain),
-					token: symbol,
-					amount: body.amount,
-					to: body.to,
-					txHash: result.txHash,
-					sponsored: result.sponsored,
-				})
-			} catch (err) {
-				this.logger.warn({ err }, "Failed to record send in wallet history")
-			}
+			await recordSend(result.txHash, result.sponsored)
 			return sendJson(res, 200, result)
 		} catch (err) {
+			if (err instanceof PendingOpOnNonceError) {
+				// Nothing new was sent: the bundler holds an earlier op from this wallet on the
+				// nonce and refused this one. That op may still land, so this is pending rather
+				// than a failure, and the message tells the operator to wait instead of retrying.
+				this.logger.warn({ ...body }, "Operator send refused: an earlier sponsored op is still pending")
+				return sendJson(res, 202, {
+					pending: true,
+					sponsored: true,
+					message: "An earlier sponsored operation from this wallet is still pending; wait for it to land before sending again.",
+				})
+			}
+			if (err instanceof SubmittedUnconfirmedError) {
+				// The send was broadcast but not confirmed within its wait. Reporting this as a
+				// plain failure invites the operator to click again, which would submit a second
+				// send. Report it as pending with the hash to check instead.
+				const submission = err.submission
+				const sponsored = submission.kind === "userOp"
+				const hash = sponsored ? submission.userOpHash : submission.txHash
+				this.logger.warn({ ...body, sponsored, hash }, "Operator send submitted but not confirmed")
+				// A native tx has a hash from the moment the node accepted it, so it is recorded
+				// like a confirmed send. A sponsored UserOp has none until it lands (WalletTx.txHash
+				// is required), so it gets no row.
+				if (submission.kind === "tx") await recordSend(submission.txHash, false)
+				return sendJson(res, 202, {
+					pending: true,
+					sponsored,
+					...(sponsored ? { userOpHash: hash } : { txHash: hash }),
+					// A sponsored UserOp has no tx hash, so there is nothing to look up on the
+					// explorer and, as the comment above says, no wallet-history row to check. The
+					// evidence that exists is the UserOp hash, which the bundler can be asked about,
+					// and the balances once the op lands. A balance cannot show an op still in the
+					// pool, so the operator waits before looking. A native tx does have a hash, and
+					// its message says to check it before resending.
+					message: sponsored
+						? err.maybeSubmitted
+							? `The bundler did not answer, so the send may have been submitted as UserOp ${hash}. It may still land. Wait a few minutes, then look that UserOp up on the bundler or check the wallet's and the recipient's balance before resending it.`
+							: `The send was submitted to the bundler as UserOp ${hash} but is not confirmed yet. It may still land; wait a few minutes, then look that UserOp up on the bundler or check the wallet's and the recipient's balance before resending it.`
+						: "The send was submitted but is not confirmed yet. Do not resend it until it has been checked on the explorer.",
+				})
+			}
 			return sendJson(res, 400, { error: err instanceof Error ? err.message : String(err) })
 		}
 	}
@@ -2135,22 +2167,25 @@ export class UiServer {
 			return sendJson(res, 400, { error: "Invalid JSON body" })
 		}
 		const trigger = Number(body.triggerPercentage)
-		if (!Number.isFinite(trigger) || trigger <= 0 || trigger >= 1) {
-			return sendJson(res, 400, { error: "triggerPercentage must be between 0 and 1 (exclusive)" })
-		}
 		const baseBalances = body.baseBalances ?? {}
+		const rebalancing = { triggerPercentage: trigger, baseBalances }
+		try {
+			validateRebalancingConfig(rebalancing)
+		} catch (error) {
+			return sendJson(res, 400, { error: error instanceof Error ? error.message : String(error) })
+		}
 		const entries = [...Object.entries(baseBalances.USDC ?? {}), ...Object.entries(baseBalances.USDT ?? {})]
 		if (entries.length === 0) {
 			return sendJson(res, 400, { error: "Provide at least one base balance" })
 		}
+		// Balances are read by numeric chain id; any other key would be stored and never consulted.
 		for (const [chainId, amount] of entries) {
-			if (!/^\d+$/.test(chainId) || !(Number(amount) > 0)) {
+			if (!/^\d+$/.test(chainId)) {
 				return sendJson(res, 400, { error: `Invalid base balance for chain ${chainId}: ${amount}` })
 			}
 		}
 
 		const op = this.operator!
-		const rebalancing = { triggerPercentage: trigger, baseBalances }
 		op.applyRebalancing(rebalancing)
 		op.config.rebalancing = rebalancing
 		const persisted = this.persistConfig()

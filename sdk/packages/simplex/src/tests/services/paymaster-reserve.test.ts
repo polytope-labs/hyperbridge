@@ -1,4 +1,5 @@
 import { paymasterReserveForToken, PAYMASTER_RESERVE_TOKENS } from "@/services/paymaster"
+import { RECOMMENDED_AMOUNT_USD } from "@/services/paymaster/types"
 import type { FillerConfigService } from "@/services/FillerConfigService"
 import type { HexString } from "@hyperbridge/sdk"
 import { describe, it, expect } from "vitest"
@@ -38,6 +39,13 @@ const reserve = (assets: ChainAssets, token: HexString): bigint =>
 	paymasterReserveForToken(CHAIN, token.toLowerCase(), configFor(assets))
 
 describe("paymasterReserveForToken", () => {
+	it("keeps back the per-op Permit2 cap, which covers a sponsored op's prefund on Ethereum", () => {
+		// An L2 prefund is cents, but an Ethereum one is 2–5 tokens and is pulled in full
+		// during validation; no op may pull more than the 5-token Permit2 authorization.
+		expect(PAYMASTER_RESERVE_TOKENS).toBe(RECOMMENDED_AMOUNT_USD)
+		expect(reserve({ usdc: USDC, usdcDecimals: 6 }, USDC)).toBe(5_000_000n)
+	})
+
 	it("reserves whole tokens of USDC at the chain's decimals", () => {
 		expect(reserve({ usdc: USDC, usdcDecimals: 6 }, USDC)).toBe(PAYMASTER_RESERVE_TOKENS * 1_000_000n)
 	})

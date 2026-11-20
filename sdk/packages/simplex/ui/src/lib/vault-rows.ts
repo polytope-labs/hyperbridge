@@ -1,6 +1,6 @@
 import type { FillerConfig } from "../types"
 
-/** One editable ERC-4626 vault row, shared by the wizard Treasury step and the operator Operations card. */
+/** One editable ERC-4626 vault row in the dashboard's vault editor. */
 export interface VaultRowDraft {
 	chain: string
 	vault: string

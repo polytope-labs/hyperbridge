@@ -11,8 +11,10 @@ subscriber and applies three filters in order (`src/core/event-monitor.ts`):
 3. **De-duplication.** The order id must not be in the seen set (last 5,000 ids). A scanner
    resuming from a cursor re-delivers, and the fill path has no idempotency of its own.
 
-Only what survives all three is emitted as `newOrder`, which `IntentFiller` picks up in its
-constructor and passes to `handleNewOrder`. Fills take a separate path: `onFill` narrows on the
+Only what survives all three is emitted as `newOrder` — the `Order`, the `transactionHash`
+of its placement, `graffiti`, and the `blockHash` of the scanned log, which the confirmation
+wait is bound to. `IntentFiller` picks it up in its constructor and passes it to
+`handleNewOrder`. Fills take a separate path: `onFill` narrows on the
 filler address — `filler` is `indexed: false` in the ABI, so it can never be a topic filter — and
 emits `orderFilledOnChain`.
 

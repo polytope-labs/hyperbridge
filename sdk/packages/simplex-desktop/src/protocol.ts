@@ -97,6 +97,35 @@ export function proxyToSimplex(
 	})
 }
 
+function json(body: unknown, status = 200, headers?: Record<string, string>): Response {
+	return new Response(JSON.stringify(body), {
+		status,
+		headers: { "Content-Type": "application/json", "Cache-Control": "no-store", ...headers },
+	})
+}
+
+/** The desktop updater, as the dashboard reads it and asks it to install. */
+export interface DesktopUpdateControl {
+	status(): unknown
+	install(): Promise<void>
+}
+
+/** `GET` reports the update state; `POST` installs the downloaded update. */
+async function handleUpdateRequest(request: Request, update: DesktopUpdateControl): Promise<Response> {
+	if (request.method === "GET") return json(update.status())
+	if (request.method !== "POST") return json({ error: "Method not allowed" }, 405, { Allow: "GET, POST" })
+	const origin = request.headers.get("origin")
+	if (request.headers.get("x-simplex-ui") !== "1" || (origin && origin !== "simplex://local")) {
+		return json({ error: "Forbidden" }, 403)
+	}
+	try {
+		await update.install()
+		return json({ ok: true })
+	} catch (error) {
+		return json({ error: error instanceof Error ? error.message : String(error) }, 409)
+	}
+}
+
 async function regularFile(path: string): Promise<boolean> {
 	try {
 		return (await stat(path)).isFile()
@@ -112,19 +141,23 @@ export async function handleSimplexProtocol(
 		socketPath: string
 		uiDistDir: string
 		desktopVersion?: string
+		onSolverStop?: () => void
 		access?: { isUnlocked(): boolean; handle(request: Request): Promise<Response> }
+		update?: DesktopUpdateControl
 	},
 ): Promise<Response> {
 	const url = simplexUrl(request)
+	const locked = Boolean(options.access && !options.access.isUnlocked())
+	// Installing stops the solver, so it needs the same unlocked session as the solver's own API.
+	if (options.update && url.pathname === "/api/desktop/update") {
+		return locked ? json({ error: "Unlock Simplex to continue" }, 423) : handleUpdateRequest(request, options.update)
+	}
 	if (options.access && url.pathname.startsWith("/api/desktop/")) return options.access.handle(request)
 	if (url.pathname === "/health" || url.pathname.startsWith("/api/")) {
-		if (options.access && !options.access.isUnlocked()) {
-			return new Response(JSON.stringify({ error: "Unlock Simplex to continue" }), {
-				status: 423,
-				headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
-			})
-		}
-		return proxyToSimplex(request, options.socketPath, undefined, options.desktopVersion)
+		if (locked) return json({ error: "Unlock Simplex to continue" }, 423)
+		const response = await proxyToSimplex(request, options.socketPath, undefined, options.desktopVersion)
+		if (request.method === "POST" && url.pathname === "/api/stop" && response.ok) options.onSolverStop?.()
+		return response
 	}
 	if (request.method !== "GET" && request.method !== "HEAD") {
 		return new Response(JSON.stringify({ error: "Method not allowed" }), {

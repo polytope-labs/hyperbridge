@@ -38,6 +38,38 @@ overloads it.
 the site calls. Build the site with both its API and its GraphQL endpoint pointed there. The
 compose file runs both under the `explorer-testnet` and `explorer-mainnet` profiles.
 
+## Governance
+
+A governance config (`config/governance-mainnet.toml`) indexes Nexus governance for the
+governance forum, from block 5986840, the runtime upgrade that added OpenGov: referenda with
+their tally history, votes and delegations, technical committee motions, whitelisted calls,
+preimages and treasury spends, into the `governance` schema. It reads substrate-eth-rpc's
+`governance` logs and reads storage at each event's block through the facade's JSON calls, so
+its RPC must be an archive node. `NEXUS_GOVERNANCE` and `NEXUS_GOVERNANCE_SUBSTRATE` must both
+point at our own archive node running a hyperbridge build whose substrate-eth-rpc serves the
+`governance` logs and the JSON reads (`getStorageJson`, `getConstantJson`, `decodeCallJson`). A
+node without them fails every read, and a public RPC is overloaded by a history scan. Like the
+explorer, it has a database of its own, and it keeps SubQuery's metadata table, from which the
+governance API reads how far it is indexed. The first start records its config's mode in
+`indexer.mode`, and every start after it refuses a database recorded for another mode, or, before
+that record, one whose other modes' tables hold rows.
+
+At cutover it starts from a copy of SubQuery's governance database rather than from block
+5986840. `import-subquery` with the governance config copies the current rows of that copy's
+`governance` tables and continues after the last block SubQuery indexed, as for the indexer
+below:
+
+```
+DATABASE_URL=<copy> omniplex --config omniplex/config/governance-mainnet.toml import-subquery
+```
+
+Referenda whose metadata was set or cleared get back the state of their last other event, since
+SubQuery let those events change it.
+
+`governance-api` (in `governance/api`) serves those tables to the forum frontend, together with
+the forum's off-chain content in its own `forum` schema. The compose file runs both under the
+`governance-mainnet` profile.
+
 ## Cutting over from SubQuery
 
 Omniplex takes over SubQuery's data instead of indexing from scratch. SubQuery keeps serving the

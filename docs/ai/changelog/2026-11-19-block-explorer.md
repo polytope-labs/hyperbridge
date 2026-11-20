@@ -15,7 +15,7 @@ caching every call costs memory no other indexer needs.
 
 ## Indexing
 
-A config with `explorer = true` runs only the explorer's handlers, with no SubQuery metadata and
+A config with `mode = "explorer"` runs only the explorer's handlers, with no SubQuery metadata and
 no background jobs, so its chain keeps its own cursor beside the ismp indexer of the same chain.
 Its chains are named `gargantua-explorer` and `nexus-explorer`, which read `GARGANTUA_EXPLORER`
 and `NEXUS_EXPLORER` (and the `_SUBSTRATE` variables) for their RPCs, and start at block 1.

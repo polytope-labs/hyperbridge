@@ -3,7 +3,7 @@
 # `GARGANTUA_EXPLORER_SUBSTRATE` at our own node, never at a public RPC.
 
 environment = "testnet"
-explorer = true
+mode = "explorer"
 
 [chains.gargantua-explorer]
 kind = "substrate"

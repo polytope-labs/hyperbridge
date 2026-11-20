@@ -37,6 +37,7 @@ alloy-json-abi = "1.5.7"
 alloy-rpc-types-eth = { workspace = true, features = ["std", "serde"] }
 alloy-consensus = { workspace = true, features = ["std", "serde"] }
 sp-crypto-hashing = { workspace = true }
+bs58 = "0.5"
 lru = "0.16"
 
 [dependencies.polkadot-sdk]

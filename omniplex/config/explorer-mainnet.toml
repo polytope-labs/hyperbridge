@@ -3,7 +3,7 @@
 # `NEXUS_EXPLORER_SUBSTRATE` at our own node, never at a public RPC.
 
 environment = "mainnet"
-explorer = true
+mode = "explorer"
 
 [chains.nexus-explorer]
 kind = "substrate"

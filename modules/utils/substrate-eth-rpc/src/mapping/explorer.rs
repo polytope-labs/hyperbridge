@@ -36,17 +36,22 @@ pub fn spec() -> PalletSpec {
 					FieldSpec::new("eventsCount", "", AbiType::Uint(32)),
 				],
 			),
-			EventSpec::new(
-				"Event",
-				vec![
-					FieldSpec::new("index", "", AbiType::Uint(32)),
-					FieldSpec::new("isExtrinsic", "", AbiType::Bool),
-					FieldSpec::new("extrinsicIndex", "", AbiType::Uint(32)),
-					FieldSpec::new("section", "", AbiType::String),
-					FieldSpec::new("method", "", AbiType::String),
-					FieldSpec::new("args", "", AbiType::String),
-				],
-			),
+			event(),
 		],
 	}
+}
+
+/** One event of any pallet, with its arguments as JSON. The governance logs have it too. */
+pub fn event() -> EventSpec {
+	EventSpec::new(
+		"Event",
+		vec![
+			FieldSpec::new("index", "", AbiType::Uint(32)),
+			FieldSpec::new("isExtrinsic", "", AbiType::Bool),
+			FieldSpec::new("extrinsicIndex", "", AbiType::Uint(32)),
+			FieldSpec::new("section", "", AbiType::String),
+			FieldSpec::new("method", "", AbiType::String),
+			FieldSpec::new("args", "", AbiType::String),
+		],
+	)
 }

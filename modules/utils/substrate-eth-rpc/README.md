@@ -230,6 +230,15 @@ them, except that numbers past 2^53 are decimal strings and accounts are hex. Th
 These logs take log indices after the block's events, so they never share one with a pallet
 log. An extrinsic that does not decode keeps its log with the call left blank.
 
+### Governance logs
+
+The `governance` key is not a pallet either. It gives a governance forum an `Event` log, the
+same signature as the explorer's, for each event of `Referenda`, `ConvictionVoting`,
+`Scheduler`, `TechnicalCollective`, `Whitelist`, `Preimage` and `Treasury`. Accounts in their
+arguments are SS58 with the chain's own `System::SS58Prefix`, as polkadot.js shows them. A node
+always serves them, since they only add a log per governance event, and a standalone facade
+for chains whose `pallets` include `governance`.
+
 ## Storage `eth_call`
 
 The storage target `0x401e375f643e635ef3b498cedbc47931d2474364` implements:
@@ -238,6 +247,9 @@ The storage target `0x401e375f643e635ef3b498cedbc47931d2474364` implements:
 interface SubstrateStorage {
     function getStorage(bytes key) external view returns (bytes value);
     function getChildStorage(bytes childKey, bytes key) external view returns (bytes value);
+    function getStorageJson(bytes key) external view returns (string value);
+    function getConstantJson(string pallet, string name) external view returns (string value);
+    function decodeCallJson(bytes call) external view returns (string value);
 }
 ```
 
@@ -248,6 +260,32 @@ and `getChildStorage` to `childstate_getStorage`. The block parameter may be a n
 a tag or a block hash. A number above the finalized head is `block <n> not found`; a
 hash that is not a finalized canonical block is `block hash <h> not found`. Any other `to` address returns `-32602 only the storage address is
 callable`; an unknown selector returns `-32602 unknown storage call: ...`.
+
+The JSON calls decode with the metadata of the runtime that wrote the block's state, the one
+its parent reports, and render values as the governance logs do. `getStorageJson` decodes the
+value at `key` as the type of the storage entry whose pallet and entry prefix it starts with,
+`getConstantJson` gives a pallet's constant, such as `Referenda` `Tracks`, and `decodeCallJson`
+decodes the bytes of a call, such as a preimage, as `{callIndex, section, method, args}`. Each
+returns an empty string when there is nothing to decode.
+
+Anyone who reaches the RPC can send these calls, so the bytes are checked before they are
+decoded:
+
+- They must be exactly one value of the type, with no trailing bytes.
+- Composites, variants, sequences, arrays and tuples may nest at most 48 levels deep. Every
+  level adds at most two JSON levels, so the JSON stays under serde_json's limit of 128, and
+  a call can nest at most 24 calls (two levels each), fewer when the innermost call's
+  arguments nest further.
+- All the sequences in a value together may declare no more items than the value has bytes,
+  so a declared length can never reserve more memory than the input backs.
+- `decodeCallJson` takes calls of at most 4 MiB, the largest preimage, and answers a larger
+  one with `-32602 call of <n> bytes exceeds max 4194304`.
+
+Bytes that fail a check answer an empty string, like bytes that don't decode. Decoding runs
+on the blocking pool and holds an `upstream_concurrency` permit, as block decodes do. The
+runtime version comes from the block cache when the block was already fetched by
+`eth_getLogs`, so a JSON read of such a block makes no upstream call beyond the storage read,
+and concurrent reads that need the same uncached metadata fetch it once.
 
 ## Errors
 
@@ -263,6 +301,7 @@ the whole request fails and no partial result is returned.
 | `-32000` | `block hash <h> not found` | `eth_call` at a hash that is not a finalized canonical block |
 | `-32602` | `fromBlock <a> is after toBlock <b>` | Inverted range |
 | `-32602` | `blockHash filter not supported` | `eth_getLogs` with `blockHash` |
+| `-32602` | `call of <n> bytes exceeds max 4194304` | `decodeCallJson` with a call over 4 MiB |
 | `-32602` | parameter errors | Bad `eth_call` target or selector, malformed params |
 
 When a range misses `range_deadline_ms` the hint is `[fromBlock, k]`, where `k` is the

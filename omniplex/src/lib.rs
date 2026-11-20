@@ -30,7 +30,7 @@ use rindexer::{
 
 use crate::{
 	chains::Chain,
-	config::{env_key, env_urls, ChainKind, Config},
+	config::{env_key, env_urls, ChainKind, Config, Mode},
 	substrate::SubstrateRpc,
 };
 
@@ -100,6 +100,9 @@ pub async fn run(
 	let cursors = {
 		let mut conn = db.raw_connection().await?;
 		db::apply_migrations(&mut conn).await?;
+		let tx = conn.transaction().await?;
+		db::claim_mode(&tx, config.mode).await?;
+		tx.commit().await?;
 		let cursors = db::cursor_blocks(&conn).await?;
 		let tx = conn.transaction().await?;
 		let mut unsynced = BTreeMap::new();
@@ -133,7 +136,7 @@ pub async fn run(
 		.map(|(name, chain)| (name.clone(), chain.rpc_urls[0].clone()))
 		.collect();
 
-	let handlers = if config.explorer { handlers::explorer::handlers() } else { handlers::all() };
+	let handlers = handlers::for_mode(config.mode);
 	let routes: HashMap<String, Arc<registry::ChainRoutes>> = config
 		.chains
 		.iter()
@@ -208,8 +211,10 @@ pub async fn run(
 		orderbook: services::prices::Orderbook::from_env(http.clone()),
 		http,
 	});
-	// The explorer has no background jobs, and its chains keep no SubQuery metadata.
-	if !indexer.config.explorer {
+	// Only the indexer has background jobs. The explorer's chains keep no SubQuery metadata,
+	// while the governance API reads how far its chain is indexed from it.
+	let mode = indexer.config.mode;
+	if mode == Mode::Indexer {
 		handlers::spawn_tasks(&indexer);
 	}
 	let mut registry = EventCallbackRegistry::new();
@@ -221,7 +226,7 @@ pub async fn run(
 		&providers,
 		&mut registry,
 	)?;
-	if !indexer.config.explorer {
+	if mode != Mode::Explorer {
 		registry::spawn_upkeep(indexer.clone(), &routes);
 	}
 
@@ -239,7 +244,7 @@ pub async fn run(
 	.await
 	.map_err(|e| anyhow!("rindexer: {e:?}"))?;
 	// With end blocks nothing goes live, so rindexer returns once history is done.
-	if !end_blocks.is_empty() && !indexer.config.explorer {
+	if !end_blocks.is_empty() && mode != Mode::Explorer {
 		registry::finish_upkeep(&indexer, &routes).await;
 	}
 	Ok(())
@@ -247,7 +252,8 @@ pub async fn run(
 
 /**
  * Turns the copy of SubQuery's database at `DATABASE_URL` into this indexer's, so each chain
- * continues after the last block SubQuery indexed. `new_chains` are the chains SubQuery never
+ * continues after the last block SubQuery indexed. A governance config takes a copy of
+ * SubQuery's governance database. `new_chains` are the chains SubQuery never
  * indexed, which start at their start block. A Substrate chain's node, at `<CHAIN>_SUBSTRATE`,
  * gives the name SubQuery's metadata knows it by.
  */

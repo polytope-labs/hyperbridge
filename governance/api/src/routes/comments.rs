@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use axum::{
 	extract::{Path, RawQuery, State},
 	Json,
@@ -8,6 +10,7 @@ use tokio_postgres::Row;
 
 use super::{
 	auth::Session,
+	common::valid_address,
 	posts::{owner, reactions},
 	AppState, Params,
 };
@@ -27,6 +30,9 @@ const SHOWN_ROOTS: &str = "reply_to IS NULL AND (NOT deleted OR EXISTS
 	(SELECT 1 FROM comments reply WHERE reply.reply_to = comments.id AND NOT reply.deleted))";
 const DELETED: &str = "_This comment was deleted._";
 const MAX_PAGE_SIZE: i64 = 200;
+/// Replies a top level comment takes. The frontend shows every reply at once, so a thread is
+/// capped rather than paged.
+const MAX_REPLIES: i64 = 200;
 
 /// A comment as the forum frontend reads it. `height` is its position among the post's comments,
 /// which the frontend shows and links to.
@@ -64,7 +70,7 @@ fn comment(row: &Row, height: i64, reactions: Value, replies: Vec<Value>) -> Val
 }
 
 /// The post a comment route addresses, which must exist and be visible.
-async fn commented_post(state: &AppState, id: &str) -> ApiResult<(PostKind, i64)> {
+pub async fn commented_post(state: &AppState, id: &str) -> ApiResult<(PostKind, i64)> {
 	let (kind, number) = parse_post_id(id).ok_or_else(|| ApiError::not_found("Post"))?;
 	let query = match kind {
 		PostKind::Discussion => "SELECT 1 FROM posts WHERE kind = 0 AND number = $1 AND NOT hidden",
@@ -76,6 +82,8 @@ async fn commented_post(state: &AppState, id: &str) -> ApiResult<(PostKind, i64)
 	};
 	state
 		.db
+		.get()
+		.await?
 		.query_opt(query, &[&number])
 		.await?
 		.ok_or_else(|| ApiError::not_found("Post"))?;
@@ -98,6 +106,8 @@ pub async fn list(
 		.clamp(1, MAX_PAGE_SIZE);
 	let total = state
 		.db
+		.get()
+		.await?
 		.query_one(
 			&format!("SELECT count(*) FROM comments WHERE post_kind = $1 AND post_number = $2 AND {SHOWN_ROOTS}"),
 			&[&(kind as i16), &number],
@@ -113,6 +123,8 @@ pub async fn list(
 
 	let roots = state
 		.db
+		.get()
+		.await?
 		.query(
 			&format!(
 				"{COMMENTS} WHERE post_kind = $1 AND post_number = $2 AND {SHOWN_ROOTS}
@@ -124,8 +136,14 @@ pub async fn list(
 	let root_ids = roots.iter().map(|row| row.get::<_, i64>("id")).collect::<Vec<_>>();
 	let replies = state
 		.db
+		.get()
+		.await?
 		.query(
-			&format!("{COMMENTS} WHERE reply_to = ANY($1) AND NOT deleted ORDER BY id"),
+			&format!(
+				"SELECT * FROM (SELECT *, row_number() OVER (PARTITION BY reply_to ORDER BY id) AS position
+					FROM ({COMMENTS} WHERE reply_to = ANY($1) AND NOT deleted) replies) numbered
+				WHERE position <= {MAX_REPLIES} ORDER BY id"
+			),
 			&[&root_ids],
 		)
 		.await?;
@@ -142,15 +160,23 @@ pub async fn list(
 		Value::from(reactions.get(&comment_id(row.get("id"))).cloned().unwrap_or_default())
 	};
 
+	let mut replies_of =
+		replies.iter().fold(BTreeMap::<i64, Vec<Value>>::new(), |mut by_root, reply| {
+			let root = reply.get::<_, Option<i64>>("reply_to").unwrap_or_default();
+			by_root.entry(root).or_default().push(comment(
+				reply,
+				0,
+				reactions_of(reply),
+				Vec::new(),
+			));
+			by_root
+		});
+
 	let items = roots
 		.iter()
 		.enumerate()
 		.map(|(position, root)| {
-			let nested = replies
-				.iter()
-				.filter(|reply| reply.get::<_, Option<i64>>("reply_to") == Some(root.get("id")))
-				.map(|reply| comment(reply, 0, reactions_of(reply), Vec::new()))
-				.collect();
+			let nested = replies_of.remove(&root.get::<_, i64>("id")).unwrap_or_default();
 			comment(root, offset + position as i64 + 1, reactions_of(root), nested)
 		})
 		.collect();
@@ -191,9 +217,15 @@ async fn insert(
 	input.validate()?;
 	let id = state
 		.db
-		.query_one(
-			"INSERT INTO comments (post_kind, post_number, reply_to, author, content, content_type)
-			VALUES ($1, $2, $3, $4, $5, $6) RETURNING id",
+		.get()
+		.await?
+		.query_opt(
+			&format!(
+				"INSERT INTO comments (post_kind, post_number, reply_to, author, content, content_type)
+				SELECT $1, $2, $3, $4, $5, $6 WHERE $3::bigint IS NULL OR
+					(SELECT count(*) FROM comments WHERE reply_to = $3 AND NOT deleted) < {MAX_REPLIES}
+				RETURNING id"
+			),
 			&[
 				&(kind as i16),
 				&number,
@@ -204,6 +236,7 @@ async fn insert(
 			],
 		)
 		.await?
+		.ok_or_else(|| ApiError::bad_request("This comment has as many replies as it can take"))?
 		.get::<_, i64>(0);
 	let row = find(state, &comment_id(id)).await?;
 	Ok(Json(comment(&row, 0, Value::Array(Vec::new()), Vec::new())))
@@ -230,6 +263,8 @@ pub async fn reply(
 	let parent = parse_comment_id(&parent).ok_or_else(|| ApiError::not_found("Comment"))?;
 	state
 		.db
+		.get()
+		.await?
 		.query_opt(
 			"SELECT 1 FROM comments WHERE id = $1 AND post_kind = $2 AND post_number = $3 AND reply_to IS NULL AND NOT deleted",
 			&[&parent, &(kind as i16), &number],
@@ -243,6 +278,8 @@ async fn find(state: &AppState, id: &str) -> ApiResult<Row> {
 	let id = parse_comment_id(id).ok_or_else(|| ApiError::not_found("Comment"))?;
 	state
 		.db
+		.get()
+		.await?
 		.query_opt(&format!("{COMMENTS} WHERE id = $1 AND NOT deleted"), &[&id])
 		.await?
 		.ok_or_else(|| ApiError::not_found("Comment"))
@@ -267,6 +304,8 @@ pub async fn edit(
 	}
 	state
 		.db
+		.get()
+		.await?
 		.execute(
 			"UPDATE comments SET content = $2, content_type = $3, updated_at = NOW() WHERE id = $1",
 			&[&row.get::<_, i64>("id"), &input.content, &input.content_type],
@@ -288,6 +327,8 @@ pub async fn mark_spam(
 	let row = find(&state, &id).await?;
 	state
 		.db
+		.get()
+		.await?
 		.execute("UPDATE comments SET spam = TRUE WHERE id = $1", &[&row.get::<_, i64>("id")])
 		.await?;
 	Ok(Json(true))
@@ -299,9 +340,12 @@ pub async fn by_user(
 	Path(account): Path<String>,
 	RawQuery(query): RawQuery,
 ) -> ApiResult<Json<Page<Value>>> {
+	let account = valid_address(&account)?;
 	let paging = Params::new(query).paging(10);
 	let rows = state
 		.db
+		.get()
+		.await?
 		.query(
 			&format!(
 				"SELECT c.*, p.title AS post_title, (SELECT count(*) FROM comments
@@ -318,6 +362,8 @@ pub async fn by_user(
 		.await?;
 	let total = state
 		.db
+		.get()
+		.await?
 		.query_one("SELECT count(*) FROM comments WHERE author = $1 AND NOT deleted", &[&account])
 		.await?
 		.get::<_, i64>(0);
@@ -353,6 +399,8 @@ pub async fn delete(
 	}
 	state
 		.db
+		.get()
+		.await?
 		.execute("UPDATE comments SET deleted = TRUE WHERE id = $1", &[&row.get::<_, i64>("id")])
 		.await?;
 	Ok(Json(true))
@@ -379,6 +427,8 @@ pub async fn appendants(
 ) -> ApiResult<Json<Vec<Value>>> {
 	let rows = state
 		.db
+		.get()
+		.await?
 		.query(
 			&format!("{APPENDANTS} WHERE referendum_index = $1 AND NOT deleted ORDER BY id"),
 			&[&index],
@@ -403,6 +453,8 @@ pub async fn append(
 	}
 	let id = state
 		.db
+		.get()
+		.await?
 		.query_one(
 			"INSERT INTO appendants (referendum_index, author, content, content_type) VALUES ($1, $2, $3, $4)
 			RETURNING id",
@@ -410,7 +462,12 @@ pub async fn append(
 		)
 		.await?
 		.get::<_, i64>(0);
-	let row = state.db.query_one(&format!("{APPENDANTS} WHERE id = $1"), &[&id]).await?;
+	let row = state
+		.db
+		.get()
+		.await?
+		.query_one(&format!("{APPENDANTS} WHERE id = $1"), &[&id])
+		.await?;
 	Ok(Json(appendant(&row)))
 }
 
@@ -420,6 +477,8 @@ async fn own_appendant(state: &AppState, session: &Session, id: &str) -> ApiResu
 	let id = id.parse::<i64>().map_err(|_| ApiError::not_found("Appendant"))?;
 	let row = state
 		.db
+		.get()
+		.await?
 		.query_opt("SELECT author FROM appendants WHERE id = $1 AND NOT deleted", &[&id])
 		.await?
 		.ok_or_else(|| ApiError::not_found("Appendant"))?;
@@ -439,6 +498,8 @@ pub async fn edit_appendant(
 	let id = own_appendant(&state, &session, &id).await?;
 	state
 		.db
+		.get()
+		.await?
 		.execute(
 			"UPDATE appendants SET content = $2, content_type = $3, updated_at = NOW() WHERE id = $1",
 			&[&id, &input.content, &input.content_type],
@@ -455,6 +516,8 @@ pub async fn delete_appendant(
 	let id = own_appendant(&state, &session, &id).await?;
 	state
 		.db
+		.get()
+		.await?
 		.execute("UPDATE appendants SET deleted = TRUE WHERE id = $1", &[&id])
 		.await?;
 	Ok(Json(true))

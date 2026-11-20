@@ -1,11 +1,18 @@
+use std::collections::BTreeSet;
+
 use anyhow::Context;
 use serde_json::Value;
 use tokio_postgres::Client as Db;
 
 use crate::{
+	crypto::canonical,
 	forum_client::ForumClient,
 	primitives::{comment_id, post_id, PostKind},
+	routes::files,
 };
+
+/// The longest file id taken from a link in imported text.
+const MAX_FILE_ID: usize = 128;
 
 /// Where each kind of post lives in the current forum's API, and the field holding its number.
 const SECTIONS: [(PostKind, &str, &str); 4] = [
@@ -19,7 +26,7 @@ const SECTIONS: [(PostKind, &str, &str); 4] = [
 /// discussions, comments and reactions. Running it again updates what it brought over before, so it
 /// can be repeated right before switching over.
 pub async fn run(db: &Db, site: &str) -> anyhow::Result<()> {
-	let source = ForumClient::site(site);
+	let source = ForumClient::site(site)?;
 
 	for (kind, route, number_field) in SECTIONS {
 		let (mut posts, mut comments) = (0, 0);
@@ -38,7 +45,7 @@ pub async fn run(db: &Db, site: &str) -> anyhow::Result<()> {
 
 			if detail["title"].is_string() || detail["content"].is_string() {
 				import_post(db, kind, number, &detail).await?;
-				import_images(db, &source, &detail).await?;
+				import_images(db, &source, &detail).await;
 				posts += 1;
 			}
 			import_reactions(db, &post_id(kind, number), &detail["reactions"]).await?;
@@ -71,20 +78,35 @@ pub async fn run(db: &Db, site: &str) -> anyhow::Result<()> {
 }
 
 /// Copies the images a post shows, its banner and any image the current forum hosts in its text,
-/// under their existing ids so the post's links keep working.
-async fn import_images(db: &Db, source: &ForumClient, post: &Value) -> anyhow::Result<()> {
+/// under their existing ids so the post's links keep working. Post text is written by anyone, so a
+/// link to a missing, oversized or non image file is logged and left behind rather than stopping
+/// the import.
+async fn import_images(db: &Db, source: &ForumClient, post: &Value) {
 	let in_text = post["content"]
 		.as_str()
 		.unwrap_or_default()
 		.split("/s3/files/")
 		.skip(1)
 		.map(|rest| rest.chars().take_while(char::is_ascii_alphanumeric).collect::<String>());
-	let ids = post["bannerCid"].as_str().map(str::to_owned).into_iter().chain(in_text);
-	for id in ids.filter(|id| !id.is_empty()).collect::<std::collections::BTreeSet<_>>() {
-		let (content_type, data) = source.file(&format!("s3/files/{id}")).await?;
-		crate::routes::files::store(db, &id, &content_type, &data).await?;
+	let ids = post["bannerCid"]
+		.as_str()
+		.map(str::to_owned)
+		.into_iter()
+		.chain(in_text)
+		.filter(|id| {
+			(1..=MAX_FILE_ID).contains(&id.len()) && id.chars().all(|c| c.is_ascii_alphanumeric())
+		})
+		.collect::<BTreeSet<_>>();
+	for id in ids {
+		let imported = async {
+			let data = source.file(&format!("s3/files/{id}"), files::MAX_FILE_SIZE).await?;
+			let content_type = files::image_type(&data).context("not an image")?;
+			files::store(db, &id, content_type, &data, None).await
+		};
+		if let Err(err) = imported.await {
+			tracing::warn!(target: crate::LOG_TARGET, "Skipped file {id}: {err:?}");
+		}
 	}
-	Ok(())
 }
 
 async fn import_post(db: &Db, kind: PostKind, number: i64, post: &Value) -> anyhow::Result<()> {
@@ -101,7 +123,7 @@ async fn import_post(db: &Db, kind: PostKind, number: i64, post: &Value) -> anyh
 			&post["title"].as_str(),
 			&post["content"].as_str(),
 			&post["contentType"].as_str().unwrap_or("markdown"),
-			&post["author"]["address"].as_str(),
+			&post["author"]["address"].as_str().map(address),
 			&post.get("labels").cloned().unwrap_or_else(|| Value::Array(Vec::new())),
 			&post["bannerCid"].as_str(),
 			&post["createdAt"].as_str(),
@@ -122,7 +144,7 @@ async fn import_comment(
 	reply_to: Option<i64>,
 	comment: &Value,
 ) -> anyhow::Result<Option<i64>> {
-	let Some(author) = comment["author"]["address"].as_str() else { return Ok(None) };
+	let Some(author) = comment["author"]["address"].as_str().map(address) else { return Ok(None) };
 	let row = db
 		.query_one(
 			"INSERT INTO comments (post_kind, post_number, reply_to, author, content, content_type, imported_from,
@@ -148,9 +170,18 @@ async fn import_comment(
 	Ok(Some(id))
 }
 
+/// An imported address in the chain's format, so imported content belongs to the same account as
+/// what its author writes here. Anything that is not an address is kept as it was.
+fn address(imported: &str) -> String {
+	canonical(imported).unwrap_or_else(|| imported.to_owned())
+}
+
 async fn import_reactions(db: &Db, target: &str, reactions: &Value) -> anyhow::Result<()> {
 	for reaction in reactions.as_array().into_iter().flatten() {
-		let Some(address) = reaction["user"]["address"].as_str().or(reaction["proposer"].as_str())
+		let Some(address) = reaction["user"]["address"]
+			.as_str()
+			.or(reaction["proposer"].as_str())
+			.map(address)
 		else {
 			continue
 		};

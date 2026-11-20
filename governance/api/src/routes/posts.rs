@@ -8,10 +8,15 @@ use serde::Deserialize;
 use serde_json::{json, Map, Value};
 use tokio_postgres::Row;
 
-use super::{auth::Session, common::ref_to_post, AppState, Params};
+use super::{
+	auth::Session,
+	comments::commented_post,
+	common::{ref_to_post, valid_address},
+	AppState, Params,
+};
 use crate::{
 	error::{ApiError, ApiResult},
-	primitives::{author, iso, parse_post_id, post_id, Page, PostKind},
+	primitives::{author, iso, parse_comment_id, parse_post_id, post_id, Page, PostKind},
 };
 
 const DISCUSSIONS: &str = "
@@ -61,7 +66,7 @@ pub async fn list(
 	// Active discussions are those started or commented on in the last week
 	let active =
 		if params.flag("active") { "AND last_activity > NOW() - INTERVAL '7 days'" } else { "" };
-	let author = params.get("author").map(str::to_owned);
+	let author = params.get("author").map(valid_address).transpose()?;
 	let discussions = format!(
 		"SELECT * FROM ({DISCUSSIONS} AND p.labels @> $1 AND ($2::text IS NULL OR p.author = $2)) d
 		CROSS JOIN LATERAL (SELECT GREATEST(to_timestamp(d.created_ms / 1000.0),
@@ -70,6 +75,8 @@ pub async fn list(
 
 	let rows = state
 		.db
+		.get()
+		.await?
 		.query(
 			&format!(
 				"{discussions} ORDER BY last_activity DESC LIMIT {} OFFSET {}",
@@ -81,6 +88,8 @@ pub async fn list(
 		.await?;
 	let total = state
 		.db
+		.get()
+		.await?
 		.query_one(&format!("SELECT count(*) FROM ({discussions}) items"), &[&labels, &author])
 		.await?
 		.get::<_, i64>(0);
@@ -98,6 +107,8 @@ pub async fn detail(
 	};
 	let row = state
 		.db
+		.get()
+		.await?
 		.query_opt(&format!("{DISCUSSIONS} AND p.number = $1"), &[&number])
 		.await?
 		.ok_or_else(|| ApiError::not_found("Post"))?;
@@ -151,6 +162,8 @@ pub async fn create(
 	input.validate()?;
 	let row = state
 		.db
+		.get()
+		.await?
 		.query_one(
 			"INSERT INTO posts (kind, number, title, content, content_type, author, labels, banner_cid)
 			VALUES (0, nextval('discussion_number'), $1, $2, $3, $4, $5, $6) RETURNING number",
@@ -176,7 +189,13 @@ pub async fn owner(state: &AppState, kind: PostKind, number: i64) -> ApiResult<O
 		PostKind::Motion => "SELECT proposer FROM governance_motions WHERE index = $1::bigint::int",
 		PostKind::TreasurySpend => return Ok(None),
 	};
-	Ok(state.db.query_opt(query, &[&number]).await?.and_then(|row| row.get(0)))
+	Ok(state
+		.db
+		.get()
+		.await?
+		.query_opt(query, &[&number])
+		.await?
+		.and_then(|row| row.get(0)))
 }
 
 /// The post a write route addresses, checked to be one the signed in account may manage.
@@ -202,6 +221,8 @@ pub async fn edit(
 	let (kind, number) = managed_post(&state, &session, &id).await?;
 	state
 		.db
+		.get()
+		.await?
 		.execute(
 			"INSERT INTO posts (kind, number, title, content, content_type, author, labels, banner_cid, edited)
 			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, TRUE)
@@ -233,6 +254,8 @@ pub async fn delete(
 	}
 	state
 		.db
+		.get()
+		.await?
 		.execute("UPDATE posts SET hidden = TRUE WHERE kind = 0 AND number = $1", &[&number])
 		.await?;
 	Ok(Json(true))
@@ -257,6 +280,8 @@ pub async fn hide(
 	};
 	state
 		.db
+		.get()
+		.await?
 		.execute(
 			"UPDATE posts SET hidden = $2 WHERE kind = 0 AND number = $1",
 			&[&number, &input.hide],
@@ -272,6 +297,8 @@ pub async fn reactions(
 ) -> ApiResult<HashMap<String, Vec<Value>>> {
 	let rows = state
 		.db
+		.get()
+		.await?
 		.query(
 			"SELECT target, address, reaction, ms(created_at) FROM reactions WHERE target = ANY($1) ORDER BY created_at",
 			&[&targets],
@@ -298,7 +325,8 @@ pub struct ReactionInput {
 	reaction: i16,
 }
 
-/// Sets the signed in account's reaction on a post or comment, 1 for up and 0 for down.
+/// Sets the signed in account's reaction on a visible post or on someone else's comment, 1 for up
+/// and 0 for down.
 pub async fn react(
 	State(state): State<AppState>,
 	session: Session,
@@ -308,8 +336,28 @@ pub async fn react(
 	if !matches!(input.reaction, 0 | 1) {
 		return Err(ApiError::bad_request("Unknown reaction"));
 	}
+	match parse_comment_id(&id) {
+		Some(comment) => {
+			let author = state
+				.db
+				.get()
+				.await?
+				.query_opt("SELECT author FROM comments WHERE id = $1 AND NOT deleted", &[&comment])
+				.await?
+				.ok_or_else(|| ApiError::not_found("Comment"))?
+				.get::<_, String>(0);
+			if author == session.address {
+				return Err(ApiError::bad_request("You cannot react to your own comment"));
+			}
+		},
+		None => {
+			commented_post(&state, &id).await?;
+		},
+	}
 	state
 		.db
+		.get()
+		.await?
 		.execute(
 			"INSERT INTO reactions (target, address, reaction) VALUES ($1, $2, $3)
 			ON CONFLICT (target, address) DO UPDATE SET reaction = $3, created_at = NOW()",
@@ -326,6 +374,8 @@ pub async fn unreact(
 ) -> ApiResult<Json<bool>> {
 	state
 		.db
+		.get()
+		.await?
 		.execute(
 			"DELETE FROM reactions WHERE target = $1 AND address = $2",
 			&[&id, &session.address],
@@ -351,6 +401,8 @@ pub async fn set_comment_filter(
 		managed_post(&state, &session, &post_id(PostKind::Referendum, index)).await?;
 	state
 		.db
+		.get()
+		.await?
 		.execute(
 			"INSERT INTO posts (kind, number, comment_filter) VALUES ($1, $2, $3)
 			ON CONFLICT (kind, number) DO UPDATE SET comment_filter = $3",
@@ -377,8 +429,14 @@ pub async fn report(
 	if input.reason.trim().is_empty() || input.reason.chars().count() > 1000 {
 		return Err(ApiError::bad_request("The reason must be between 1 and 1000 characters"));
 	}
+	if !PostKind::ALL.iter().any(|kind| kind.post_type() == input.post_type) {
+		return Err(ApiError::bad_request("Unknown post type"));
+	}
+	commented_post(&state, &input.post_id).await?;
 	state
 		.db
+		.get()
+		.await?
 		.execute(
 			"INSERT INTO reports (post_type, post_id, reason, reporter) VALUES ($1, $2, $3, $4)",
 			&[&input.post_type, &input.post_id, &input.reason.trim(), &session.address],

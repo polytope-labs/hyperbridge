@@ -16,32 +16,64 @@ mod tests;
 mod users;
 mod votes;
 
-use std::sync::Arc;
+use std::{collections::BTreeSet, sync::Arc};
 
 use axum::{
-	extract::DefaultBodyLimit,
+	extract::{DefaultBodyLimit, State},
 	http::{Method, Uri},
 	middleware,
-	routing::{get, patch, post, put},
-	Router,
+	routing::{delete, get, patch, post, put},
+	Json, Router,
 };
-use tokio_postgres::Client;
-
-use axum::{extract::State, Json};
+use tokio::sync::{watch, Semaphore};
 
 use self::{signed::SignedEntity, users::ProfileField};
 use crate::{
+	db::{self, Pool},
 	error::{ApiError, ApiResult},
 	limits::{self, RateLimiter},
 	primitives::Paging,
 };
 
+/// Open scan height streams the API serves at once.
+const MAX_STREAMS: usize = 2_000;
+
 #[derive(Clone)]
 pub struct AppState {
-	pub db: Arc<Client>,
-	/// Addresses allowed to moderate the forum
-	pub admins: Arc<Vec<String>>,
+	pub db: Pool,
+	/// Addresses allowed to moderate the forum, in the chain's address format
+	pub admins: Arc<BTreeSet<String>>,
 	pub limiter: Arc<RateLimiter>,
+	/// The forum's domain, which login messages name so a wallet shows where it signs in
+	pub domain: Arc<str>,
+	/// The indexed height, kept current by one background task
+	pub height: watch::Receiver<i64>,
+	pub streams: Arc<Semaphore>,
+}
+
+impl AppState {
+	/// Links the indexer's metadata and starts following the indexed height.
+	pub async fn new(
+		db: Pool,
+		admins: BTreeSet<String>,
+		limiter: RateLimiter,
+		domain: &str,
+	) -> anyhow::Result<Self> {
+		let connection = db.get().await?;
+		let tables = db::metadata_tables(&connection).await?;
+		db::link_metadata(&connection, &tables).await?;
+		drop(connection);
+		let (sender, height) = watch::channel(0);
+		tokio::spawn(chain::follow_height(db.clone(), sender, Some(tables)));
+		Ok(Self {
+			db,
+			admins: Arc::new(admins),
+			limiter: Arc::new(limiter),
+			domain: domain.into(),
+			height,
+			streams: Arc::new(Semaphore::new(MAX_STREAMS)),
+		})
+	}
 }
 
 pub fn router(state: AppState) -> Router {
@@ -135,6 +167,16 @@ pub fn router(state: AppState) -> Router {
 		.route("/gov2/referendums/:id/comment-filter-setting", put(posts::set_comment_filter))
 		.route("/report", post(posts::report))
 		.route("/search", get(search::search))
+		// Nexus has no bounties, so no address is a bounty's, and client errors are not collected
+		.route("/treasury/addresses/:address", get(|| async { Json(serde_json::json!({})) }))
+		.route("/client-errors", post(|| async { Json(true) }))
+		.route("/gov2/referendums/:id/delegation-votes", get(votes::delegation_votes))
+		.route("/referenda/delegatee/:address/delegators", get(statistics::delegatee_delegators))
+		.route(
+			"/referenda/tracks/:id/delegatee/:address/delegators",
+			get(statistics::track_delegatee_delegators),
+		)
+		.route("/delegation/announcements/:address", delete(statistics::delete_announcement))
 		.route("/comments/:id/reaction", put(posts::react).delete(posts::unreact));
 
 	// Every kind of post shares its comment and reaction routes, the post id says which kind it is

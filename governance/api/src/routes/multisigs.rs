@@ -1,14 +1,19 @@
+use std::collections::BTreeSet;
+
 use axum::{
 	extract::{Path, State},
 	Json,
 };
 use codec::Encode;
 use serde_json::{json, Value};
-use sp_core::crypto::{AccountId32, Ss58AddressFormat, Ss58Codec};
+use sp_core::crypto::{AccountId32, Ss58Codec};
 use sp_crypto_hashing::blake2_256;
 
-use super::{signed::SignedEntity, AppState};
-use crate::error::{ApiError, ApiResult};
+use super::{common::valid_address, signed::SignedEntity, AppState};
+use crate::{
+	crypto::ss58,
+	error::{ApiError, ApiResult},
+};
 
 /// The multisig account a set of signatories and a threshold control, derived as pallet-multisig
 /// does, so a saved multisig always matches the account it signs for.
@@ -20,7 +25,7 @@ pub fn multisig_address(signatories: &[String], threshold: u16) -> Option<String
 	accounts.sort();
 	accounts.dedup();
 	let entropy = blake2_256(&(b"modlpy/utilisuba", accounts, threshold).encode());
-	Some(AccountId32::from(entropy).to_ss58check_with_version(Ss58AddressFormat::custom(0)))
+	Some(ss58(AccountId32::from(entropy)))
 }
 
 /// The multisig accounts an account saved.
@@ -28,8 +33,11 @@ pub async fn list(
 	State(state): State<AppState>,
 	Path(owner): Path<String>,
 ) -> ApiResult<Json<Vec<Value>>> {
+	let owner = valid_address(&owner)?;
 	let rows = state
 		.db
+		.get()
+		.await?
 		.query(
 			"SELECT multisig_address, name, threshold, signatories FROM multisigs WHERE owner = $1 ORDER BY name",
 			&[&owner],
@@ -49,13 +57,20 @@ pub async fn list(
 	))
 }
 
-/// The signed request, checked to come from the account whose list the route names.
-fn owned_entity(signed: &SignedEntity, owner: &str, action: &str) -> ApiResult<Value> {
-	let entity = signed.verify(action)?;
+/// The signed request, checked to come from the account whose list the route names, and that
+/// account in the chain's format.
+async fn owned_entity(
+	state: &AppState,
+	signed: &SignedEntity,
+	owner: &str,
+	action: &str,
+) -> ApiResult<(Value, String)> {
+	let owner = valid_address(owner)?;
+	let signed = signed.verify(state, action).await?;
 	if signed.address != owner {
 		return Err(ApiError::forbidden());
 	}
-	Ok(entity)
+	Ok((signed.entity, owner))
 }
 
 fn name(entity: &Value) -> ApiResult<String> {
@@ -71,9 +86,20 @@ pub async fn add(
 	Path(owner): Path<String>,
 	Json(signed): Json<SignedEntity>,
 ) -> ApiResult<Json<bool>> {
-	let entity = owned_entity(&signed, &owner, "add-multisig")?;
-	let signatories = serde_json::from_value::<Vec<String>>(entity["signatories"].clone())
+	let (entity, owner) = owned_entity(&state, &signed, &owner, "add-multisig").await?;
+	let given = serde_json::from_value::<Vec<String>>(entity["signatories"].clone())
 		.map_err(|_| ApiError::bad_request("Signatories must be a list of addresses"))?;
+	let signatories = given
+		.iter()
+		.map(|signatory| valid_address(signatory))
+		.collect::<ApiResult<BTreeSet<_>>>()
+		.map_err(|_| ApiError::bad_request("Signatories must be valid addresses"))?
+		.into_iter()
+		.collect::<Vec<_>>();
+	// pallet-multisig needs at least one other signatory, and a repeated one could never approve
+	if signatories.len() != given.len() || signatories.len() < 2 {
+		return Err(ApiError::bad_request("A multisig needs at least two different signatories"));
+	}
 	let threshold = entity["threshold"]
 		.as_u64()
 		.and_then(|threshold| u16::try_from(threshold).ok())
@@ -85,6 +111,8 @@ pub async fn add(
 		.ok_or_else(|| ApiError::bad_request("Signatories must be valid addresses"))?;
 	state
 		.db
+		.get()
+		.await?
 		.execute(
 			"INSERT INTO multisigs (owner, multisig_address, name, threshold, signatories) VALUES ($1, $2, $3, $4, $5)
 			ON CONFLICT (owner, multisig_address) DO UPDATE SET name = $3",
@@ -99,9 +127,12 @@ pub async fn rename(
 	Path((owner, multisig)): Path<(String, String)>,
 	Json(signed): Json<SignedEntity>,
 ) -> ApiResult<Json<bool>> {
-	let entity = owned_entity(&signed, &owner, "update-multisig")?;
+	let (entity, owner) = owned_entity(&state, &signed, &owner, "update-multisig").await?;
+	let multisig = valid_address(&multisig)?;
 	state
 		.db
+		.get()
+		.await?
 		.execute(
 			"UPDATE multisigs SET name = $3 WHERE owner = $1 AND multisig_address = $2",
 			&[&owner, &multisig, &name(&entity)?],
@@ -115,9 +146,12 @@ pub async fn remove(
 	Path((owner, multisig)): Path<(String, String)>,
 	Json(signed): Json<SignedEntity>,
 ) -> ApiResult<Json<bool>> {
-	owned_entity(&signed, &owner, "remove-multisig")?;
+	let (_, owner) = owned_entity(&state, &signed, &owner, "remove-multisig").await?;
+	let multisig = valid_address(&multisig)?;
 	state
 		.db
+		.get()
+		.await?
 		.execute(
 			"DELETE FROM multisigs WHERE owner = $1 AND multisig_address = $2",
 			&[&owner, &multisig],

@@ -8,7 +8,7 @@ mod primitives;
 mod routes;
 mod verify;
 
-use std::{env, net::SocketAddr, sync::Arc, time::Duration};
+use std::{collections::BTreeSet, env, net::SocketAddr, sync::Arc, time::Duration};
 
 use anyhow::Context;
 use axum::http::HeaderValue;
@@ -38,11 +38,10 @@ async fn main() -> anyhow::Result<()> {
 	}
 
 	let database_url = env::var("DATABASE_URL").context("DATABASE_URL is not set")?;
-	let db = db::connect(&database_url).await?;
 
 	// `import <site>` copies the current forum's off-chain content into this one and exits
 	if command == Some("import") {
-		return import::run(&db, site()?).await;
+		return import::run(&db::connect(&database_url).await?, site()?).await;
 	}
 
 	let admins = env::var("ADMINS")
@@ -50,14 +49,25 @@ async fn main() -> anyhow::Result<()> {
 		.split(',')
 		.map(str::trim)
 		.filter(|admin| !admin.is_empty())
-		.map(str::to_owned)
-		.collect();
-	let state = AppState {
-		db: Arc::new(db),
-		admins: Arc::new(admins),
-		limiter: Arc::new(RateLimiter::default()),
-	};
+		.map(|admin| {
+			crypto::canonical(admin).with_context(|| format!("{admin} in ADMINS is not an address"))
+		})
+		.collect::<anyhow::Result<BTreeSet<_>>>()?;
+	let trusted = RateLimiter::trusted_proxies(&env::var("TRUSTED_PROXIES").unwrap_or_default())?;
+	if trusted.is_empty() {
+		tracing::warn!(target: LOG_TARGET, "TRUSTED_PROXIES is not set, so X-Forwarded-For is ignored");
+	}
+	// Login messages name this domain, so a wallet never signs one naming the wrong site
+	let domain = env::var("FORUM_DOMAIN")
+		.ok()
+		.map(|domain| domain.trim().to_owned())
+		.filter(|domain| !domain.is_empty())
+		.context("FORUM_DOMAIN is not set, give the forum's domain, such as forum.example")?;
+	let state =
+		AppState::new(db::pool(&database_url).await?, admins, RateLimiter::new(trusted), &domain)
+			.await?;
 	tokio::spawn(clean_up(state.clone()));
+	tokio::spawn(prune_limits(state.limiter.clone()));
 	let app = routes::router(state).layer(cors());
 
 	let port = env::var("PORT").unwrap_or_else(|_| "7071".into());
@@ -85,21 +95,53 @@ fn cors() -> CorsLayer {
 	CorsLayer::new().allow_origin(origins).allow_methods(Any).allow_headers(Any)
 }
 
-/// Clears expired sessions, unanswered login challenges and ended rate limit windows every hour.
+/// The hourly sweeps, each run on its own so one that fails or times out leaves the others done.
+/// Uploads nothing has linked to in the day after they were made are removed. Uploads are named by
+/// the hex of their sha256 and only checked for a week, and the ids the forum's text links to are
+/// gathered in one pass, so the sweep grows with the forum's text rather than with files times
+/// text.
+const CLEAN_UPS: [(&str, &str); 3] = [
+	("expired sessions", "DELETE FROM sessions WHERE expires_at < NOW()"),
+	("spent signatures", "DELETE FROM used_signatures WHERE expires_at < NOW()"),
+	(
+		"unused uploads",
+		"WITH linked AS (
+			SELECT match[1] AS id FROM (
+				SELECT content AS text FROM posts
+				UNION ALL SELECT content FROM comments
+				UNION ALL SELECT content FROM appendants
+				UNION ALL SELECT long_description FROM delegate_announcements
+			) texts, regexp_matches(texts.text, '(?<![0-9a-fA-F])([0-9a-f]{64})(?![0-9a-fA-F])', 'g') match
+			UNION SELECT banner_cid FROM posts
+			UNION SELECT avatar_cid FROM users
+			UNION SELECT banner_cid FROM users
+		)
+		DELETE FROM files f WHERE f.uploader IS NOT NULL
+			AND f.created_at BETWEEN NOW() - INTERVAL '7 days' AND NOW() - INTERVAL '1 day'
+			AND NOT EXISTS (SELECT 1 FROM linked WHERE linked.id = f.id)",
+	),
+];
+
+/// Runs the clean ups every hour.
 async fn clean_up(state: AppState) {
 	let mut interval = tokio::time::interval(Duration::from_secs(60 * 60));
 	loop {
 		interval.tick().await;
-		let cleared = state
-			.db
-			.batch_execute(
-				"DELETE FROM sessions WHERE expires_at < NOW();
-				DELETE FROM login_attempts WHERE created_at < NOW() - INTERVAL '10 minutes';",
-			)
-			.await;
-		if let Err(err) = cleared {
-			tracing::error!(target: LOG_TARGET, "cleaning up sessions failed: {err}");
+		for (what, statement) in CLEAN_UPS {
+			let cleared =
+				async { anyhow::Ok(state.db.get().await?.execute(statement, &[]).await?) };
+			if let Err(err) = cleared.await {
+				tracing::error!(target: LOG_TARGET, "clearing {what} failed: {err:?}");
+			}
 		}
-		state.limiter.prune();
+	}
+}
+
+/// Forgets ended rate limit windows each window, so the limiter only holds recent visitors.
+async fn prune_limits(limiter: Arc<RateLimiter>) {
+	let mut interval = tokio::time::interval(limits::WINDOW);
+	loop {
+		interval.tick().await;
+		limiter.prune();
 	}
 }

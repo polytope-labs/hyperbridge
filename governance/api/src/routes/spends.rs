@@ -6,7 +6,7 @@ use serde_json::{json, Value};
 use tokio_postgres::Row;
 
 use super::{
-	common::{item_index, parse},
+	common::{item_index, parse, INDEXED_HEIGHT},
 	AppState, Params,
 };
 use crate::{
@@ -14,14 +14,26 @@ use crate::{
 	primitives::{iso, post_id, Page, PostKind},
 };
 
-const SPENDS: &str = "
-	SELECT s.index, s.asset_kind, s.amount::text AS amount, s.beneficiary, s.valid_from, s.expire_at, s.state,
-		s.payment_id, s.approved_block, ms(s.approved_at) AS approved_ms, p.title, p.content, p.content_type
-	FROM governance_treasury_spends s
-	LEFT JOIN posts p ON p.kind = 3 AND p.number = s.index";
+fn spends() -> String {
+	format!(
+		"SELECT s.index, s.asset_kind, s.amount::text AS amount, s.beneficiary, s.valid_from, s.expire_at,
+			s.state, s.payment_id, s.approved_block, ms(s.approved_at) AS approved_ms, p.title, p.content,
+			p.content_type, {} AS pending
+		FROM governance_treasury_spends s
+		LEFT JOIN posts p ON p.kind = 3 AND p.number = s.index",
+		pending()
+	)
+}
 
-/// Spends still waiting to be paid out.
-const PENDING: &str = "s.state = 'Approved'";
+/// Matches spends `s` that are still open. A paid spend stays open until `check_status` finds the
+/// payment done or failed, whenever that is. An approved or failed one can be paid out until it
+/// expires. Before the indexer records a height, nothing counts as expired.
+pub fn pending() -> String {
+	format!(
+		"(s.state = 'Paid' OR (s.state IN ('Approved', 'Failed')
+			AND s.expire_at >= COALESCE({INDEXED_HEIGHT}, 0)))"
+	)
+}
 
 fn spend(row: &Row) -> Value {
 	let index = row.get::<_, i32>("index");
@@ -33,7 +45,7 @@ fn spend(row: &Row) -> Value {
 		"content": row.get::<_, Option<String>>("content"),
 		"contentType": row.get::<_, Option<String>>("content_type").unwrap_or_else(|| "markdown".into()),
 		"state": state,
-		"isFinal": state != "Approved",
+		"isFinal": !row.get::<_, bool>("pending"),
 		"createdAt": iso(row.get("approved_ms")),
 		"onchainData": {
 			"index": index,
@@ -57,12 +69,15 @@ pub async fn list(
 ) -> ApiResult<Json<Page<Value>>> {
 	let params = Params::new(query);
 	let paging = params.paging(10);
-	let filter = if params.flag("ongoing") { PENDING } else { "TRUE" };
+	let filter = if params.flag("ongoing") { pending() } else { "TRUE".into() };
 	let rows = state
 		.db
+		.get()
+		.await?
 		.query(
 			&format!(
-				"{SPENDS} WHERE {filter} ORDER BY s.index DESC LIMIT {} OFFSET {}",
+				"{} WHERE {filter} ORDER BY s.index DESC LIMIT {} OFFSET {}",
+				spends(),
 				paging.page_size,
 				paging.offset()
 			),
@@ -71,6 +86,8 @@ pub async fn list(
 		.await?;
 	let total = state
 		.db
+		.get()
+		.await?
 		.query_one(
 			&format!("SELECT count(*) FROM governance_treasury_spends s WHERE {filter}"),
 			&[],
@@ -87,7 +104,9 @@ pub async fn detail(
 	let index = item_index(&id, PostKind::TreasurySpend, "Treasury spend")?;
 	let row = state
 		.db
-		.query_opt(&format!("{SPENDS} WHERE s.index = $1"), &[&index])
+		.get()
+		.await?
+		.query_opt(&format!("{} WHERE s.index = $1", spends()), &[&index])
 		.await?
 		.ok_or_else(|| ApiError::not_found("Treasury spend"))?;
 	Ok(Json(spend(&row)))
@@ -96,6 +115,8 @@ pub async fn detail(
 pub async fn summary(State(state): State<AppState>) -> ApiResult<Json<Value>> {
 	let rows = state
 		.db
+		.get()
+		.await?
 		.query("SELECT state, count(*) FROM governance_treasury_spends GROUP BY state", &[])
 		.await?;
 	let detail = rows

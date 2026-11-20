@@ -7,8 +7,9 @@ use serde_json::{json, Value};
 
 use super::{
 	auth::{ConnectedAccount, Session},
+	common::valid_address,
 	posts, referenda,
-	signed::SignedEntity,
+	signed::{Signed, SignedEntity},
 	with_param, AppState,
 };
 use crate::{
@@ -21,6 +22,8 @@ use crate::{
 pub async fn profile(state: &AppState, address: &str) -> ApiResult<Value> {
 	let row = state
 		.db
+		.get()
+		.await?
 		.query_opt("SELECT avatar_cid, banner_cid, bio FROM users WHERE address = $1", &[&address])
 		.await?;
 	let field = |name: &str| row.as_ref().and_then(|row| row.get::<_, Option<String>>(name));
@@ -55,11 +58,12 @@ pub async fn user(
 	State(state): State<AppState>,
 	Path(address): Path<String>,
 ) -> ApiResult<Json<Value>> {
+	let address = valid_address(&address)?;
 	Ok(Json(profile(&state, &address).await?))
 }
 
 pub async fn admins(State(state): State<AppState>) -> Json<Vec<String>> {
-	Json(state.admins.as_ref().clone())
+	Json(state.admins.iter().cloned().collect())
 }
 
 #[derive(Deserialize)]
@@ -77,6 +81,8 @@ pub async fn avatars(
 	}
 	let rows = state
 		.db
+		.get()
+		.await?
 		.query(
 			"SELECT address, avatar_cid FROM users WHERE address = ANY($1) AND avatar_cid IS NOT NULL",
 			&[&request.addresses],
@@ -97,8 +103,11 @@ pub async fn counts(
 	State(state): State<AppState>,
 	Path(address): Path<String>,
 ) -> ApiResult<Json<Value>> {
+	let address = valid_address(&address)?;
 	let row = state
 		.db
+		.get()
+		.await?
 		.query_one(
 			"SELECT
 				(SELECT count(*) FROM posts WHERE kind = 0 AND author = $1 AND NOT hidden) AS discussions,
@@ -170,7 +179,8 @@ pub async fn update_profile(
 	signed: SignedEntity,
 ) -> ApiResult<Json<bool>> {
 	let (set_action, unset_action, key) = field.actions();
-	let entity = signed.verify(if set { set_action } else { unset_action })?;
+	let Signed { entity, address } =
+		signed.verify(state, if set { set_action } else { unset_action }).await?;
 	let value = if set {
 		let value = entity[key].as_str().unwrap_or_default().trim();
 		if value.is_empty() || value.chars().count() > 2_000 {
@@ -182,13 +192,15 @@ pub async fn update_profile(
 	};
 	state
 		.db
+		.get()
+		.await?
 		.execute(
 			&format!(
 				"INSERT INTO users (address, {column}) VALUES ($1, $2)
 				ON CONFLICT (address) DO UPDATE SET {column} = $2",
 				column = field.column()
 			),
-			&[&signed.address, &value],
+			&[&address, &value],
 		)
 		.await?;
 	Ok(Json(true))

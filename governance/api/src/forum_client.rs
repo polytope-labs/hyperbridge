@@ -1,8 +1,7 @@
-use anyhow::Context;
-use reqwest::{
-	header::{CONTENT_TYPE, REFERER},
-	Client, RequestBuilder, StatusCode,
-};
+use std::time::Duration;
+
+use anyhow::{bail, Context};
+use reqwest::{header::REFERER, Client, RequestBuilder, StatusCode};
 use serde_json::Value;
 
 /// A client for a forum API, the current forum's or this one.
@@ -13,15 +12,21 @@ pub struct ForumClient {
 }
 
 impl ForumClient {
-	pub fn new(base: &str) -> Self {
-		Self { client: Client::new(), base: base.trim_end_matches('/').to_owned(), referer: None }
+	/// A client whose requests give up rather than hang on a slow server.
+	pub fn new(base: &str) -> anyhow::Result<Self> {
+		let client = Client::builder()
+			.connect_timeout(Duration::from_secs(10))
+			.timeout(Duration::from_secs(60))
+			.build()
+			.context("building the HTTP client")?;
+		Ok(Self { client, base: base.trim_end_matches('/').to_owned(), referer: None })
 	}
 
 	/// The current forum serves its API under the site and only answers some routes for its own
 	/// pages.
-	pub fn site(site: &str) -> Self {
+	pub fn site(site: &str) -> anyhow::Result<Self> {
 		let site = site.trim_end_matches('/');
-		Self { referer: Some(format!("{site}/")), ..Self::new(&format!("{site}/api")) }
+		Ok(Self { referer: Some(format!("{site}/")), ..Self::new(&format!("{site}/api"))? })
 	}
 
 	fn request(&self, path: &str) -> (String, RequestBuilder) {
@@ -48,21 +53,26 @@ impl ForumClient {
 		Ok(Some(value))
 	}
 
-	/// A file the site serves, with its content type.
-	pub async fn file(&self, path: &str) -> anyhow::Result<(String, Vec<u8>)> {
+	/// A file the site serves, which is refused once it grows past `max_size` bytes.
+	pub async fn file(&self, path: &str, max_size: usize) -> anyhow::Result<Vec<u8>> {
 		let (url, request) = self.request(path);
-		let response = request
+		let mut response = request
 			.send()
 			.await?
 			.error_for_status()
 			.with_context(|| format!("fetching {url}"))?;
-		let content_type = response
-			.headers()
-			.get(CONTENT_TYPE)
-			.and_then(|value| value.to_str().ok())
-			.unwrap_or("application/octet-stream")
-			.to_owned();
-		Ok((content_type, response.bytes().await?.to_vec()))
+		let too_large = || format!("{url} is larger than {max_size} bytes");
+		if response.content_length().is_some_and(|length| length > max_size as u64) {
+			bail!(too_large());
+		}
+		let mut data = Vec::new();
+		while let Some(chunk) = response.chunk().await.with_context(|| format!("reading {url}"))? {
+			if data.len() + chunk.len() > max_size {
+				bail!(too_large());
+			}
+			data.extend_from_slice(&chunk);
+		}
+		Ok(data)
 	}
 
 	pub async fn get(&self, path: &str) -> anyhow::Result<Value> {

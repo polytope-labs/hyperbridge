@@ -7,7 +7,8 @@ use tokio_postgres::{types::ToSql, Row};
 
 use super::{
 	common::{
-		decimal, item_index, last_event, parse, post_fields, post_joins, timeline, POST_COLUMNS,
+		decimal, event_join, item_index, last_event, parse, post_fields, post_joins, timeline,
+		valid_address, POST_COLUMNS,
 	},
 	posts::post_reactions,
 	with_param, AppState, Params,
@@ -20,6 +21,11 @@ use crate::{
 // A referendum's stage while it is live, read from the last ongoing `ReferendumInfoFor` value.
 const DECIDING: &str = "jsonb_typeof(r.info::jsonb -> 'deciding') = 'object'";
 const CONFIRMING: &str = "jsonb_typeof(r.info::jsonb #> '{deciding,confirming}') = 'number'";
+
+/// Matches the events that set referendum `r`'s state. The indexer marks deposit refunds and
+/// metadata changes as not changing it, so a killed referendum whose metadata is then cleared
+/// stays killed.
+pub const STATE_EVENTS: &str = "referendum_id = r.id AND changes_state";
 
 fn query(filter: &str) -> String {
 	format!(
@@ -34,7 +40,7 @@ fn query(filter: &str) -> String {
 		WHERE {filter}",
 		post_joins(
 			"governance_referendum_events",
-			"referendum_id = r.id AND changes_state",
+			STATE_EVENTS,
 			PostKind::Referendum,
 			"r.index"
 		),
@@ -111,24 +117,54 @@ fn whitelist_hashes(call: &Value, dispatched: &mut Vec<Value>, whitelisted: &mut
 	}
 }
 
+/// The referendum's state as the forum shows it, from its last state changing event.
+fn state(row: &Row, proposer: &str, proposal_hash: &Value) -> Value {
+	let mut state = last_event(row);
+	let name = row.get::<_, String>("l_name");
+	// A confirmed referendum is `Approved` on chain until its enactment runs, and stays so if it
+	// fails
+	if name == "Confirmed" {
+		state["name"] = "Approved".into();
+	}
+	state["args"] = timeline_args(&name, state["args"].take(), proposer, proposal_hash);
+	state
+}
+
+/// The columns [`proposal_summary`] reads, from the joins [`summary_joins`] adds.
+pub const SUMMARY_COLUMNS: &str = "r.proposer, r.proposal_hash, p.title AS p_title";
+
+/// Joins referendum `r`, its forum post `p` and its last state event `l` to a row naming the
+/// referendum's index as `index`.
+pub fn summary_joins(index: &str) -> String {
+	format!(
+		"LEFT JOIN governance_referendums r ON r.index = {index}
+		LEFT JOIN posts p ON p.kind = {} AND p.number = {index}
+		LEFT JOIN LATERAL {} l ON TRUE",
+		PostKind::Referendum as i16,
+		event_join("governance_referendum_events", STATE_EVENTS, "DESC"),
+	)
+}
+
+/// The referendum a user voted on, for the user's vote lists: its title and where it ended up.
+pub fn proposal_summary(row: &Row) -> Value {
+	let state = match row.get::<_, Option<String>>("l_name") {
+		Some(_) => {
+			let proposer = row.get::<_, Option<String>>("proposer").unwrap_or_default();
+			let proposal_hash = Value::from(row.get::<_, Option<String>>("proposal_hash"));
+			state(row, &proposer, &proposal_hash)
+		},
+		None => Value::Null,
+	};
+	json!({ "title": row.get::<_, Option<String>>("p_title"), "state": state })
+}
+
 fn referendum(row: &Row) -> Value {
 	let index = row.get::<_, i32>("index");
 	let is_final = row.get::<_, bool>("is_final");
 	let proposer = row.get::<_, Option<String>>("proposer").unwrap_or_default();
 	let track_info = track(row.get("track"), row.get("track_info"));
 	let proposal_hash = Value::from(row.get::<_, Option<String>>("proposal_hash"));
-	let mut state = last_event(row);
-	// A confirmed referendum is `Approved` on chain until its enactment runs, and stays so if it
-	// fails
-	if state["name"] == "Confirmed" {
-		state["name"] = "Approved".into();
-	}
-	state["args"] = timeline_args(
-		&row.get::<_, String>("l_name"),
-		state["args"].take(),
-		&proposer,
-		&proposal_hash,
-	);
+	let state = state(row, &proposer, &proposal_hash);
 	let proposal = match parse(row.get("call")) {
 		Value::Null => parse(row.get("proposal")),
 		call => json!({ "call": call, "shorten": false }),
@@ -198,7 +234,7 @@ pub async fn list(
 		filters.push(format!("r.index = ANY(${})", values.len()));
 	}
 	if let Some(proposer) = params.get("proposer") {
-		values.push(Box::new(proposer.to_owned()));
+		values.push(Box::new(valid_address(proposer)?));
 		filters.push(format!("r.proposer = ${}", values.len()));
 	}
 	if let Some(track) = params.get("track").and_then(|track| track.parse::<i32>().ok()) {
@@ -210,6 +246,8 @@ pub async fn list(
 			"Preparing" => format!("NOT r.is_final AND NOT {DECIDING}"),
 			"Deciding" => format!("NOT r.is_final AND {DECIDING} AND NOT {CONFIRMING}"),
 			"Confirming" => format!("NOT r.is_final AND {CONFIRMING}"),
+			// Shown as `Approved`, which pallet-referenda never emits
+			"Approved" => "l.name = 'Confirmed'".to_owned(),
 			_ => {
 				values.push(Box::new(status.to_owned()));
 				format!("l.name = ${}", values.len())
@@ -232,6 +270,8 @@ async fn page(
 		.collect::<Vec<_>>();
 	let rows = state
 		.db
+		.get()
+		.await?
 		.query(
 			&format!(
 				"{} ORDER BY r.is_final, r.index DESC LIMIT {} OFFSET {}",
@@ -244,6 +284,8 @@ async fn page(
 		.await?;
 	let total = state
 		.db
+		.get()
+		.await?
 		.query_one(&format!("SELECT count(*) FROM ({}) items", query(filter)), &params)
 		.await?
 		.get::<_, i64>(0);
@@ -254,6 +296,8 @@ async fn page(
 pub async fn referendum_by_index(state: &AppState, index: i32) -> ApiResult<Value> {
 	let row = state
 		.db
+		.get()
+		.await?
 		.query_opt(&query("r.index = $1"), &[&index])
 		.await?
 		.ok_or_else(|| ApiError::not_found("Referendum"))?;
@@ -270,9 +314,9 @@ pub async fn detail(
 	let proposer = detail["proposer"].as_str().unwrap_or_default().to_owned();
 	let proposal_hash = detail["onchainData"]["proposalHash"].clone();
 	let timeline = timeline(
-		&state.db,
+		&*state.db.get().await?,
 		"governance_referendum_events",
-		"referendum_id = $1 AND changes_state",
+		&STATE_EVENTS.replace("r.id", "$1"),
 		index.to_string(),
 	)
 	.await?
@@ -305,6 +349,8 @@ pub async fn track_summary(
 async fn stage_counts(state: &AppState, track: Option<i32>) -> ApiResult<Json<Value>> {
 	let row = state
 		.db
+		.get()
+		.await?
 		.query_one(
 			&format!(
 				"SELECT count(*) FILTER (WHERE NOT r.is_final) AS active,
@@ -332,6 +378,8 @@ pub async fn track_detail(
 ) -> ApiResult<Json<Value>> {
 	let row = state
 		.db
+		.get()
+		.await?
 		.query_opt("SELECT info FROM governance_tracks WHERE id = $1::int::text", &[&id])
 		.await?
 		.ok_or_else(|| ApiError::not_found("Track"))?;
@@ -355,6 +403,8 @@ pub async fn preimage(
 ) -> ApiResult<Json<Value>> {
 	let row = state
 		.db
+		.get()
+		.await?
 		.query_opt(
 			"SELECT length, data, status FROM governance_preimages WHERE id = $1 AND data IS NOT NULL",
 			&[&hash],
@@ -372,6 +422,8 @@ pub async fn preimage(
 pub async fn tracks(State(state): State<AppState>) -> ApiResult<Json<Vec<Value>>> {
 	let rows = state
 		.db
+		.get()
+		.await?
 		.query("SELECT id::int, info FROM governance_tracks ORDER BY id::int", &[])
 		.await?;
 	Ok(Json(rows.iter().map(|row| track(row.get(0), row.get(1))).collect()))
@@ -385,6 +437,8 @@ pub async fn tracks_summary(State(state): State<AppState>) -> ApiResult<Json<Vec
 pub async fn track_counts(state: &AppState) -> ApiResult<Vec<Value>> {
 	let rows = state
 		.db
+		.get()
+		.await?
 		.query(
 			"SELECT t.id::int AS id, t.name, count(r.index) FILTER (WHERE NOT r.is_final) AS active
 			FROM governance_tracks t LEFT JOIN governance_referendums r ON r.track::text = t.id

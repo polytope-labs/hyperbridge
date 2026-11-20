@@ -24,6 +24,13 @@ impl ApiError {
 		Self { status: StatusCode::FORBIDDEN, message: "You are not allowed to do this".into() }
 	}
 
+	pub fn busy() -> Self {
+		Self {
+			status: StatusCode::SERVICE_UNAVAILABLE,
+			message: "The server is busy, please try again".into(),
+		}
+	}
+
 	pub fn unauthorized() -> Self {
 		Self { status: StatusCode::UNAUTHORIZED, message: "Please login".into() }
 	}

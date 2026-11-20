@@ -13,10 +13,11 @@ pub enum PostKind {
 }
 
 impl PostKind {
+	pub const ALL: [Self; 4] =
+		[Self::Discussion, Self::Referendum, Self::Motion, Self::TreasurySpend];
+
 	pub fn from_code(code: u8) -> Option<Self> {
-		[Self::Discussion, Self::Referendum, Self::Motion, Self::TreasurySpend]
-			.into_iter()
-			.find(|kind| *kind as u8 == code)
+		Self::ALL.into_iter().find(|kind| *kind as u8 == code)
 	}
 
 	/// The post type name the forum frontend uses in `refToPost` and reports.

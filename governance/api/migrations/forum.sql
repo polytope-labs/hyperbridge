@@ -95,9 +95,31 @@ CREATE TABLE IF NOT EXISTS forum.login_attempts (
 	created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+-- Expired challenges are cleared whenever a new one is made
+CREATE INDEX IF NOT EXISTS login_attempts_created ON forum.login_attempts (created_at);
+
+-- Sessions are found by the sha256 of their token, as hex, so the table holds no usable token
 CREATE TABLE IF NOT EXISTS forum.sessions (
-	token TEXT PRIMARY KEY,
+	token_hash TEXT PRIMARY KEY,
 	address TEXT NOT NULL,
+	expires_at TIMESTAMPTZ NOT NULL
+);
+
+-- Databases from before hashing keep their sessions, with each token replaced by its hash
+DO $$ BEGIN
+	IF EXISTS (SELECT FROM information_schema.columns
+		WHERE table_schema = 'forum' AND table_name = 'sessions' AND column_name = 'token') THEN
+		UPDATE forum.sessions SET token = encode(sha256(convert_to(token, 'UTF8')), 'hex');
+		ALTER TABLE forum.sessions RENAME COLUMN token TO token_hash;
+	END IF;
+END $$;
+
+CREATE INDEX IF NOT EXISTS sessions_expires ON forum.sessions (expires_at);
+
+-- Wallet signed requests already acted on, so each is accepted once while it is still valid.
+-- The hash covers the signing account and the signed entity.
+CREATE TABLE IF NOT EXISTS forum.used_signatures (
+	hash BYTEA PRIMARY KEY,
 	expires_at TIMESTAMPTZ NOT NULL
 );
 
@@ -129,3 +151,18 @@ CREATE TABLE IF NOT EXISTS forum.multisigs (
 	signatories JSONB NOT NULL,
 	PRIMARY KEY (owner, multisig_address)
 );
+
+-- A post's replies, and an account's comments for its profile
+CREATE INDEX IF NOT EXISTS comments_reply_to ON forum.comments (reply_to, id) WHERE reply_to IS NOT NULL;
+CREATE INDEX IF NOT EXISTS comments_author ON forum.comments (author, id DESC) WHERE NOT deleted;
+
+-- Who uploaded a file and how large it is, so each account's uploads fit a daily quota. Imported
+-- files have no uploader.
+ALTER TABLE forum.files ADD COLUMN IF NOT EXISTS uploader TEXT;
+ALTER TABLE forum.files ADD COLUMN IF NOT EXISTS size INT;
+CREATE INDEX IF NOT EXISTS files_uploader ON forum.files (uploader, created_at) WHERE uploader IS NOT NULL;
+
+-- The votes a balance carries with its conviction: a tenth without a lock, then one to six times
+CREATE OR REPLACE FUNCTION forum.conviction_votes(balance NUMERIC, conviction INT) RETURNS NUMERIC
+	IMMUTABLE LANGUAGE SQL
+	AS $$ SELECT CASE WHEN conviction = 0 THEN div(balance, 10) ELSE balance * conviction END $$;

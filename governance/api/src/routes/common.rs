@@ -2,38 +2,56 @@ use serde_json::{json, Map, Value};
 use tokio_postgres::{Client, Row};
 
 use crate::{
+	crypto::canonical,
 	error::{ApiError, ApiResult},
 	primitives::{author, iso, parse_post_id, post_id, Indexer, PostKind},
 };
 
+macro_rules! last_event_columns {
+	() => {
+		"l.name AS l_name, l.args AS l_args, l.block_number AS l_block, l.block_hash AS l_hash,
+		l.extrinsic_index AS l_extrinsic, l.event_index AS l_event, l.ms AS l_ms"
+	};
+}
+
+/// The columns [`last_event`] reads, from an [`event_join`] aliased `l`.
+pub const LAST_EVENT_COLUMNS: &str = last_event_columns!();
+
 /// The forum post, first event, last event and comment columns every on-chain item query selects,
 /// so their rows can be turned into forum posts the same way. `{events}` is the item's event
 /// table and `{filter}` matches its rows to the item.
-pub const POST_COLUMNS: &str = "
-	s.block_number AS s_block, s.block_hash AS s_hash, s.extrinsic_index AS s_extrinsic,
-	s.event_index AS s_event, s.ms AS s_ms,
-	l.name AS l_name, l.args AS l_args, l.block_number AS l_block, l.block_hash AS l_hash,
-	l.extrinsic_index AS l_extrinsic, l.event_index AS l_event, l.ms AS l_ms,
-	p.title, p.content, p.content_type, p.author, p.labels, p.comment_filter, p.edited,
+pub const POST_COLUMNS: &str = concat!(
+	"s.block_number AS s_block, s.block_hash AS s_hash, s.extrinsic_index AS s_extrinsic,
+	s.event_index AS s_event, s.ms AS s_ms, ",
+	last_event_columns!(),
+	", p.title, p.content, p.content_type, p.author, p.labels, p.comment_filter, p.edited,
 	ms(p.updated_at) AS p_updated_ms,
-	c.count AS comments_count, c.last_ms AS comment_ms";
+	c.count AS comments_count, c.last_ms AS comment_ms"
+);
+
+/// The block the governance indexer has processed up to, or NULL before it has recorded one.
+pub const INDEXED_HEIGHT: &str =
+	"(SELECT (value #>> '{}')::int FROM _metadata WHERE key = 'lastProcessedHeight')";
+
+/// A subquery for an item's first (`ASC`) or last (`DESC`) event in `events` matching `filter`, to
+/// join laterally.
+pub fn event_join(events: &str, filter: &str, order: &str) -> String {
+	format!(
+		"(SELECT name, args, block_number, block_hash, extrinsic_index, event_index,
+			ms(timestamp) AS ms
+		FROM {events} WHERE {filter} ORDER BY block_number {order}, event_index {order} LIMIT 1)"
+	)
+}
 
 pub fn post_joins(events: &str, filter: &str, kind: PostKind, number: &str) -> String {
-	let event = |order: &str| {
-		format!(
-			"CROSS JOIN LATERAL (SELECT name, args, block_number, block_hash, extrinsic_index, event_index,
-				ms(timestamp) AS ms
-			FROM {events} WHERE {filter} ORDER BY block_number {order}, event_index {order} LIMIT 1)"
-		)
-	};
 	let kind = kind as i16;
 	format!(
-		"{} s {} l
+		"CROSS JOIN LATERAL {} s CROSS JOIN LATERAL {} l
 		LEFT JOIN posts p ON p.kind = {kind} AND p.number = {number}
 		CROSS JOIN LATERAL (SELECT count(*) AS count, ms(max(created_at)) AS last_ms
 			FROM comments WHERE post_kind = {kind} AND post_number = {number} AND NOT deleted) c",
-		event("ASC"),
-		event("DESC"),
+		event_join(events, filter, "ASC"),
+		event_join(events, filter, "DESC"),
 	)
 }
 
@@ -114,6 +132,12 @@ pub async fn timeline(
 		.iter()
 		.map(|row| (row.get("name"), parse(row.get("args")), indexer(row, "e")))
 		.collect())
+}
+
+/// An address a request names, in the chain's format so it matches what the indexer and the forum
+/// store.
+pub fn valid_address(address: &str) -> ApiResult<String> {
+	canonical(address).ok_or_else(|| ApiError::bad_request("Invalid address"))
 }
 
 /// An on-chain item's index from a detail route, which receives either the index itself or the post

@@ -100,9 +100,11 @@ pub async fn list(
 	let filter = if params.flag("ongoing") { "NOT m.is_final" } else { "TRUE" };
 	let rows = state
 		.db
+		.get()
+		.await?
 		.query(
 			&format!(
-				"{} ORDER BY m.is_final, m.updated_block DESC LIMIT {} OFFSET {}",
+				"{} ORDER BY m.is_final, m.updated_block DESC, m.index DESC LIMIT {} OFFSET {}",
 				query(filter),
 				paging.page_size,
 				paging.offset()
@@ -112,6 +114,8 @@ pub async fn list(
 		.await?;
 	let total = state
 		.db
+		.get()
+		.await?
 		.query_one(&format!("SELECT count(*) FROM governance_motions m WHERE {filter}"), &[])
 		.await?
 		.get::<_, i64>(0);
@@ -126,19 +130,25 @@ pub async fn detail(
 	let index = item_index(&id, PostKind::Motion, "Motion")?;
 	let row = state
 		.db
+		.get()
+		.await?
 		.query_opt(&query("m.index = $1"), &[&index])
 		.await?
 		.ok_or_else(|| ApiError::not_found("Motion"))?;
 
-	let timeline =
-		timeline(&state.db, "governance_motion_events", "motion_id = $1", index.to_string())
-			.await?
-			.into_iter()
-			.map(|(method, args, indexer)| {
-				let args = timeline_args(&method, args);
-				json!({ "type": "event", "method": method, "args": args, "indexer": indexer })
-			})
-			.collect::<Vec<_>>();
+	let timeline = timeline(
+		&*state.db.get().await?,
+		"governance_motion_events",
+		"motion_id = $1",
+		index.to_string(),
+	)
+	.await?
+	.into_iter()
+	.map(|(method, args, indexer)| {
+		let args = timeline_args(&method, args);
+		json!({ "type": "event", "method": method, "args": args, "indexer": indexer })
+	})
+	.collect::<Vec<_>>();
 
 	let mut detail = motion(&row);
 	detail["onchainData"]["timeline"] = timeline.into();

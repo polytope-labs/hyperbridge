@@ -1,27 +1,65 @@
 use chrono::Utc;
+use codec::Encode;
 use serde::Deserialize;
 use serde_json::{value::RawValue, Value};
+use sp_core::crypto::{AccountId32, Ss58Codec};
+use sp_crypto_hashing::blake2_256;
 
+use super::AppState;
 use crate::{
-	crypto::verify,
+	crypto::{ss58, verify},
 	error::{ApiError, ApiResult},
 };
 
 /// How long a signed request stays valid, so an old signature cannot be replayed later.
 const VALID_FOR_MS: i64 = 10 * 60 * 1000;
+/// How far ahead of the server's clock a signer's clock may be.
+const MAX_SKEW_MS: i64 = 60 * 1000;
 
 /// A change an account signed with its wallet instead of a session: the frontend signs
 /// `JSON.stringify(entity)`, so the entity is kept exactly as sent to check the signature against.
 #[derive(Deserialize)]
 pub struct SignedEntity {
 	entity: Box<RawValue>,
-	pub address: String,
+	address: String,
 	signature: String,
 }
 
+/// A signed request that checked out, with the signer in the chain's address format.
+pub struct Signed {
+	pub entity: Value,
+	pub address: String,
+}
+
 impl SignedEntity {
-	/// The entity, once its signature, action and age check out.
-	pub fn verify(&self, action: &str) -> ApiResult<Value> {
+	/// The entity and its signer, once its signature, action and age check out. Each signed request
+	/// is acted on once, so one seen before is turned away.
+	pub async fn verify(&self, state: &AppState, action: &str) -> ApiResult<Signed> {
+		let (signed, account, timestamp) = self.check(action)?;
+		let fresh = state
+			.db
+			.get()
+			.await?
+			.execute(
+				"INSERT INTO used_signatures (hash, expires_at)
+				VALUES ($1, to_timestamp($2::double precision / 1000)) ON CONFLICT DO NOTHING",
+				&[
+					&blake2_256(&(account, self.entity.get()).encode()).to_vec(),
+					&((timestamp + VALID_FOR_MS) as f64),
+				],
+			)
+			.await?;
+		if fresh == 0 {
+			return Err(ApiError::bad_request("This signed request was already used"));
+		}
+		Ok(signed)
+	}
+
+	/// The checks that need no database, returning the request with the signing account and the
+	/// signed time.
+	fn check(&self, action: &str) -> ApiResult<(Signed, [u8; 32], i64)> {
+		let account = AccountId32::from_ss58check(self.address.trim())
+			.map_err(|_| ApiError::bad_request("Invalid address"))?;
 		if !verify(&self.address, self.entity.get(), &self.signature) {
 			return Err(ApiError::bad_request("Invalid signature"));
 		}
@@ -34,13 +72,14 @@ impl SignedEntity {
 		if !entity["real"].is_null() {
 			return Err(ApiError::bad_request("Signing for a proxied account is not supported yet"));
 		}
-		let age = Utc::now().timestamp_millis() - entity["timestamp"].as_i64().unwrap_or_default();
-		if !(0..VALID_FOR_MS).contains(&age.abs()) {
+		let timestamp = entity["timestamp"].as_i64().unwrap_or_default();
+		if !(-MAX_SKEW_MS..VALID_FOR_MS).contains(&(Utc::now().timestamp_millis() - timestamp)) {
 			return Err(ApiError::bad_request(
 				"The signed request has expired, please sign it again",
 			));
 		}
-		Ok(entity)
+		let raw = <[u8; 32]>::from(account.clone());
+		Ok((Signed { entity, address: ss58(account) }, raw, timestamp))
 	}
 }
 
@@ -62,8 +101,9 @@ mod tests {
 			"0x{}",
 			hex::encode(signer.sign(format!("<Bytes>{entity}</Bytes>").as_bytes()).0)
 		);
+		// Signed in the generic format, which the server turns into the chain's
 		let address = AccountId32::from(address.public().0)
-			.to_ss58check_with_version(Ss58AddressFormat::custom(0));
+			.to_ss58check_with_version(Ss58AddressFormat::custom(42));
 		Ok(serde_json::from_value(
 			json!({ "entity": entity, "address": address, "signature": signature }),
 		)?)
@@ -78,21 +118,36 @@ mod tests {
 		let now = Utc::now().timestamp_millis();
 		let bio = |timestamp: i64| json!({ "action": "set-profile-bio", "bio": "hi", "timestamp": timestamp });
 
-		assert!(request(&alice, &alice, bio(now))?.verify("set-profile-bio").is_ok());
-		assert!(request(&alice, &alice, bio(now))?.verify("set-avatar").is_err(), "another action");
+		let (signed, ..) = request(&alice, &alice, bio(now))?
+			.check("set-profile-bio")
+			.map_err(|_| anyhow::anyhow!("a fresh request is accepted"))?;
+		assert_eq!(signed.address, ss58(AccountId32::from(alice.public().0)));
+		assert!(request(&alice, &alice, bio(now))?.check("set-avatar").is_err(), "another action");
 		assert!(
-			request(&bob, &alice, bio(now))?.verify("set-profile-bio").is_err(),
+			request(&bob, &alice, bio(now))?.check("set-profile-bio").is_err(),
 			"another signer"
 		);
 		assert!(
 			request(&alice, &alice, bio(now - VALID_FOR_MS - 1))?
-				.verify("set-profile-bio")
+				.check("set-profile-bio")
 				.is_err(),
 			"too old"
 		);
+		assert!(
+			request(&alice, &alice, bio(now + 2 * MAX_SKEW_MS))?
+				.check("set-profile-bio")
+				.is_err(),
+			"too far ahead"
+		);
+		assert!(
+			request(&alice, &alice, bio(now + MAX_SKEW_MS / 2))?
+				.check("set-profile-bio")
+				.is_ok(),
+			"a little clock skew is fine"
+		);
 		let proxied = json!({ "action": "set-profile-bio", "timestamp": now, "real": "someone" });
 		assert!(
-			request(&alice, &alice, proxied)?.verify("set-profile-bio").is_err(),
+			request(&alice, &alice, proxied)?.check("set-profile-bio").is_err(),
 			"signed as a proxy"
 		);
 		Ok(())

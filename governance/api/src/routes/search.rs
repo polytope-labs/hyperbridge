@@ -22,6 +22,8 @@ async fn found(
 	let kind = kind as i16;
 	let rows = state
 		.db
+		.get()
+		.await?
 		.query(
 			&format!(
 				"SELECT i.index, p.title, p.content FROM {table} i

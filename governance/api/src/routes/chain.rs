@@ -1,57 +1,122 @@
-use std::{convert::Infallible, time::Duration};
+use std::{convert::Infallible, net::SocketAddr, time::Duration};
 
 use axum::{
 	body::Body,
-	extract::{RawQuery, State},
+	extract::{ConnectInfo, RawQuery, State},
+	http::HeaderMap,
 	Json,
 };
 use futures::stream;
 use serde_json::{json, Value};
+use tokio::sync::watch;
 
 use super::{
 	motions, posts, referenda, referenda::track_counts, spends, with_param, AppState, Params,
 };
-use crate::{error::ApiResult, primitives::Page};
+use crate::{
+	db::{self, Pool},
+	error::{ApiError, ApiResult},
+	primitives::Page,
+};
 
-/// The last block the governance indexer has processed.
-async fn indexed_height(state: &AppState) -> ApiResult<i64> {
-	let row = state
-		.db
-		.query_opt("SELECT value FROM _metadata WHERE key = 'lastProcessedHeight'", &[])
+/// How often the indexed height is read on behalf of every visitor following it.
+const HEIGHT_POLL: Duration = Duration::from_secs(3);
+
+/// The last block the governance indexer has processed, with the metadata tables the view is
+/// linked to. Unless the view is known to point at the indexer's one table, the tables are looked
+/// up and the view is only recreated when they differ from `linked`, since recreating it locks out
+/// every query that reads the height.
+async fn indexed_height(
+	db: &Pool,
+	linked: Option<&[String]>,
+) -> anyhow::Result<(i64, Vec<String>)> {
+	let connection = db.get().await?;
+	let tables = match linked {
+		Some(tables @ [_]) => tables.to_vec(),
+		_ => {
+			let tables = db::metadata_tables(&connection).await?;
+			if linked != Some(tables.as_slice()) {
+				db::link_metadata(&connection, &tables).await?;
+			}
+			tables
+		},
+	};
+	let row = connection
+		.query_opt("SELECT value FROM forum._metadata WHERE key = 'lastProcessedHeight'", &[])
 		.await?;
-	Ok(row.and_then(|row| row.get::<_, Value>(0).as_i64()).unwrap_or_default())
+	Ok((row.and_then(|row| row.get::<_, Value>(0).as_i64()).unwrap_or_default(), tables))
 }
 
-pub async fn scan_height(State(state): State<AppState>) -> ApiResult<Json<Value>> {
-	Ok(Json(json!({ "value": indexed_height(&state).await? })))
+/// Reads the indexed height on a timer and publishes it, so visitors following it never query the
+/// database themselves. `linked` holds the metadata tables the view was last linked to, and is
+/// forgotten after a failed read, such as when a reindex dropped the table and the view with it.
+pub async fn follow_height(db: Pool, height: watch::Sender<i64>, mut linked: Option<Vec<String>>) {
+	let mut interval = tokio::time::interval(HEIGHT_POLL);
+	loop {
+		interval.tick().await;
+		match indexed_height(&db, linked.as_deref()).await {
+			Ok((value, tables)) => {
+				linked = Some(tables);
+				height.send_if_modified(|current| std::mem::replace(current, value) != value);
+			},
+			Err(err) => {
+				linked = None;
+				tracing::warn!(target: crate::LOG_TARGET, "reading the indexed height failed: {err:?}");
+			},
+		}
+	}
 }
 
-/// Streams the indexed height as one JSON object per line, which the frontend's header follows.
-pub async fn scan_height_stream(State(state): State<AppState>, RawQuery(query): RawQuery) -> Body {
+pub async fn scan_height(State(state): State<AppState>) -> Json<Value> {
+	Json(json!({ "value": *state.height.borrow() }))
+}
+
+/// Streams the indexed height as one JSON object per line, which the frontend's header follows. A
+/// line goes out whenever the height changes, and at least every `interval` milliseconds. The
+/// number of open streams is capped in all and for each visitor, since each holds a connection
+/// open.
+pub async fn scan_height_stream(
+	State(state): State<AppState>,
+	ConnectInfo(peer): ConnectInfo<SocketAddr>,
+	headers: HeaderMap,
+	RawQuery(query): RawQuery,
+) -> ApiResult<Body> {
 	let interval = Params::new(query)
 		.get("interval")
 		.and_then(|value| value.parse().ok())
 		.unwrap_or(6000u64)
 		.max(1000);
+	let permit = state.streams.clone().try_acquire_owned().map_err(|_| ApiError::busy())?;
+	let slot = state
+		.limiter
+		.open_stream(state.limiter.visitor(&headers, peer))
+		.ok_or_else(ApiError::busy)?;
+	let mut height = state.height.clone();
+	height.mark_changed();
 
-	Body::from_stream(stream::unfold((state, true), move |(state, first)| async move {
-		if !first {
-			tokio::time::sleep(Duration::from_millis(interval)).await;
-		}
-		// A failed read skips this beat instead of ending the stream, so it recovers on its own
-		let line = indexed_height(&state)
-			.await
-			.map(|height| format!("{{\"value\":{height}}}\n"))
-			.unwrap_or_default();
-		Some((Ok::<_, Infallible>(line), (state, false)))
-	}))
+	Ok(Body::from_stream(stream::unfold(
+		(height, (permit, slot)),
+		move |(mut height, held)| async move {
+			// The sender lives as long as the server, so a closed channel means it is shutting down
+			if let Ok(Err(_)) =
+				tokio::time::timeout(Duration::from_millis(interval), height.changed()).await
+			{
+				return None;
+			}
+			let line = format!("{{\"value\":{}}}\n", *height.borrow_and_update());
+			Some((Ok::<_, Infallible>(line), (height, held)))
+		},
+	)))
 }
 
 pub async fn summary(State(state): State<AppState>) -> ApiResult<Json<Value>> {
 	let row = state
 		.db
+		.get()
+		.await?
 		.query_one(
-			"SELECT
+			&format!(
+				"SELECT
 				(SELECT count(*) FROM posts WHERE kind = 0 AND NOT hidden) AS discussions,
 				(SELECT count(*) FROM posts p WHERE kind = 0 AND NOT hidden AND GREATEST(p.created_at,
 					(SELECT max(created_at) FROM comments WHERE post_kind = 0 AND post_number = p.number))
@@ -62,7 +127,9 @@ pub async fn summary(State(state): State<AppState>) -> ApiResult<Json<Value>> {
 				(SELECT count(*) FROM governance_motions) AS motions,
 				(SELECT count(*) FROM governance_motions WHERE NOT is_final) AS active_motions,
 				(SELECT count(*) FROM governance_treasury_spends) AS spends,
-				(SELECT count(*) FROM governance_treasury_spends WHERE state = 'Approved') AS active_spends",
+				(SELECT count(*) FROM governance_treasury_spends s WHERE {}) AS active_spends",
+				spends::pending()
+			),
 			&[],
 		)
 		.await?;

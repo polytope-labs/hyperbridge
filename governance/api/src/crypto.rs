@@ -1,9 +1,28 @@
 use rand::RngCore;
 use sp_core::{
-	crypto::{AccountId32, Ss58Codec},
+	crypto::{AccountId32, Ss58AddressFormat, Ss58Codec},
 	ecdsa, ed25519, sr25519, Pair,
 };
-use sp_crypto_hashing::blake2_256;
+use sp_crypto_hashing::{blake2_256, sha2_256};
+
+/// Nexus's SS58 prefix, which omniplex writes every address in.
+const SS58_PREFIX: u16 = 0;
+
+/// An account in the chain's address format.
+pub fn ss58(account: AccountId32) -> String {
+	account.to_ss58check_with_version(Ss58AddressFormat::custom(SS58_PREFIX))
+}
+
+/// The address in the chain's format, whatever SS58 prefix it was given in, so one key is always
+/// one account. `None` when it is not an address.
+pub fn canonical(address: &str) -> Option<String> {
+	AccountId32::from_ss58check(address.trim()).ok().map(ss58)
+}
+
+/// What the database keeps of a session token, so reading the table does not hand out sessions.
+pub fn token_hash(token: &str) -> String {
+	hex::encode(sha2_256(token.as_bytes()))
+}
 
 /// Random bytes as hex, for login challenges and session tokens.
 pub fn random_hex(bytes: usize) -> String {
@@ -58,12 +77,11 @@ fn signed_by(account: &[u8; 32], message: &[u8], signature: &[u8]) -> bool {
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use sp_core::crypto::Ss58AddressFormat;
 
 	const CHALLENGE: &str = "challenge";
 
 	fn address(account: [u8; 32]) -> String {
-		AccountId32::from(account).to_ss58check_with_version(Ss58AddressFormat::custom(0))
+		ss58(AccountId32::from(account))
 	}
 
 	fn wrapped() -> String {
@@ -98,6 +116,20 @@ mod tests {
 			CHALLENGE,
 			&hex::encode([&[2u8][..], &ec_signature.0].concat())
 		));
+	}
+
+	#[test]
+	fn gives_one_address_for_a_key_whatever_its_prefix() {
+		let alice = sr25519::Pair::from_string("//Alice", None).unwrap();
+		let account = AccountId32::from(alice.public().0);
+		let polkadot = address(alice.public().0);
+		let generic = account.to_ss58check_with_version(Ss58AddressFormat::custom(42));
+		let kusama = account.to_ss58check_with_version(Ss58AddressFormat::custom(2));
+		assert_ne!(polkadot, generic);
+		assert_eq!(canonical(&generic).as_deref(), Some(polkadot.as_str()));
+		assert_eq!(canonical(&kusama).as_deref(), Some(polkadot.as_str()));
+		assert_eq!(canonical(&polkadot).as_deref(), Some(polkadot.as_str()));
+		assert_eq!(canonical("not an address"), None);
 	}
 
 	#[test]

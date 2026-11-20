@@ -98,7 +98,7 @@ fn normalized(value: &Value) -> Value {
 /// Compares what this API serves with the current forum for every referendum and motion it
 /// knows, and fails if any on-chain field differs.
 pub async fn run(api: &str, site: &str) -> anyhow::Result<()> {
-	let (ours, theirs) = (ForumClient::new(api), ForumClient::site(site));
+	let (ours, theirs) = (ForumClient::new(api)?, ForumClient::site(site)?);
 	let mut report = Report::default();
 
 	for item in theirs.all("gov2/referendums").await? {

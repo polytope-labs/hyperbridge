@@ -161,6 +161,9 @@ CREATE INDEX IF NOT EXISTS comments_author ON forum.comments (author, id DESC) W
 ALTER TABLE forum.files ADD COLUMN IF NOT EXISTS uploader TEXT;
 ALTER TABLE forum.files ADD COLUMN IF NOT EXISTS size INT;
 CREATE INDEX IF NOT EXISTS files_uploader ON forum.files (uploader, created_at) WHERE uploader IS NOT NULL;
+-- When a file was last uploaded, which an upload of the same content renews, so the sweep of
+-- unused uploads never takes a file someone has just been given
+ALTER TABLE forum.files ADD COLUMN IF NOT EXISTS uploaded_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
 
 -- The votes a balance carries with its conviction: a tenth without a lock, then one to six times
 CREATE OR REPLACE FUNCTION forum.conviction_votes(balance NUMERIC, conviction INT) RETURNS NUMERIC

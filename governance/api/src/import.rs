@@ -53,12 +53,15 @@ pub async fn run(db: &Db, site: &str) -> anyhow::Result<()> {
 			if item["commentsCount"].as_i64().unwrap_or_default() > 0 {
 				let path = format!("{route}/{}/comments", item["_id"].as_str().unwrap_or_default());
 				for root in source.all(&path).await? {
-					let Some(id) = import_comment(db, kind, number, None, &root).await? else {
+					let has_replies = root["replies"].as_array().is_some_and(|r| !r.is_empty());
+					let Some(id) =
+						import_comment(db, kind, number, None, &root, has_replies).await?
+					else {
 						continue
 					};
 					comments += 1;
 					for reply in root["replies"].as_array().into_iter().flatten() {
-						comments += import_comment(db, kind, number, Some(id), reply)
+						comments += import_comment(db, kind, number, Some(id), reply, false)
 							.await?
 							.is_some() as usize;
 					}
@@ -143,25 +146,37 @@ async fn import_comment(
 	number: i64,
 	reply_to: Option<i64>,
 	comment: &Value,
+	has_replies: bool,
 ) -> anyhow::Result<Option<i64>> {
-	let Some(author) = comment["author"]["address"].as_str().map(address) else { return Ok(None) };
+	// Comments by accounts with no address, such as email accounts, can't belong to anyone here.
+	// One with replies stays as a deleted comment, so its replies keep their thread.
+	let author = comment["author"]["address"].as_str().map(address);
+	if author.is_none() && !has_replies {
+		return Ok(None);
+	}
+	let content = match author {
+		Some(_) => comment["content"].as_str().unwrap_or_default(),
+		None => "",
+	};
 	let row = db
 		.query_one(
 			"INSERT INTO comments (post_kind, post_number, reply_to, author, content, content_type, imported_from,
-				created_at, updated_at)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8::text::timestamptz, $9::text::timestamptz)
-			ON CONFLICT (imported_from) DO UPDATE SET content = $5, content_type = $6, updated_at = $9::text::timestamptz
+				created_at, updated_at, deleted)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8::text::timestamptz, $9::text::timestamptz, $10)
+			ON CONFLICT (imported_from) DO UPDATE SET content = $5, content_type = $6, updated_at = $9::text::timestamptz,
+				deleted = $10
 			RETURNING id",
 			&[
 				&(kind as i16),
 				&number,
 				&reply_to,
-				&author,
-				&comment["content"].as_str().unwrap_or_default(),
+				&author.as_deref().unwrap_or_default(),
+				&content,
 				&comment["contentType"].as_str().unwrap_or("markdown"),
 				&comment["_id"].as_str(),
 				&comment["createdAt"].as_str(),
 				&comment["updatedAt"].as_str(),
+				&author.is_none(),
 			],
 		)
 		.await?;

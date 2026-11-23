@@ -28,6 +28,11 @@ const COMMENTS: &str =
 // A deleted top level comment stays in the thread while it has replies, so they keep their context
 const SHOWN_ROOTS: &str = "reply_to IS NULL AND (NOT deleted OR EXISTS
 	(SELECT 1 FROM comments reply WHERE reply.reply_to = comments.id AND NOT reply.deleted))";
+/// Comments outside a hidden discussion. Only discussions can be hidden, and hiding one hides
+/// what was said under it too.
+const ON_VISIBLE_POST: &str = "NOT EXISTS (SELECT 1 FROM posts hidden_post
+	WHERE comments.post_kind = 0 AND hidden_post.kind = 0
+	AND hidden_post.number = comments.post_number AND hidden_post.hidden)";
 const DELETED: &str = "_This comment was deleted._";
 const MAX_PAGE_SIZE: i64 = 200;
 /// Replies a top level comment takes. The frontend shows every reply at once, so a thread is
@@ -280,7 +285,10 @@ async fn find(state: &AppState, id: &str) -> ApiResult<Row> {
 		.db
 		.get()
 		.await?
-		.query_opt(&format!("{COMMENTS} WHERE id = $1 AND NOT deleted"), &[&id])
+		.query_opt(
+			&format!("{COMMENTS} WHERE id = $1 AND NOT deleted AND {ON_VISIBLE_POST}"),
+			&[&id],
+		)
 		.await?
 		.ok_or_else(|| ApiError::not_found("Comment"))
 }
@@ -351,7 +359,7 @@ pub async fn by_user(
 				"SELECT c.*, p.title AS post_title, (SELECT count(*) FROM comments
 					WHERE post_kind = c.post_kind AND post_number = c.post_number AND {SHOWN_ROOTS}
 					AND id <= COALESCE(c.reply_to, c.id)) AS position
-				FROM ({COMMENTS} WHERE author = $1 AND NOT deleted) c
+				FROM ({COMMENTS} WHERE author = $1 AND NOT deleted AND {ON_VISIBLE_POST}) c
 				LEFT JOIN posts p ON p.kind = c.post_kind AND p.number = c.post_number
 				ORDER BY c.id DESC LIMIT {} OFFSET {}",
 				paging.page_size,
@@ -364,7 +372,12 @@ pub async fn by_user(
 		.db
 		.get()
 		.await?
-		.query_one("SELECT count(*) FROM comments WHERE author = $1 AND NOT deleted", &[&account])
+		.query_one(
+			&format!(
+				"SELECT count(*) FROM comments WHERE author = $1 AND NOT deleted AND {ON_VISIBLE_POST}"
+			),
+			&[&account],
+		)
 		.await?
 		.get::<_, i64>(0);
 	let items = rows

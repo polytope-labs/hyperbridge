@@ -117,7 +117,7 @@ const CLEAN_UPS: [(&str, &str); 3] = [
 			UNION SELECT banner_cid FROM users
 		)
 		DELETE FROM files f WHERE f.uploader IS NOT NULL
-			AND f.created_at BETWEEN NOW() - INTERVAL '7 days' AND NOW() - INTERVAL '1 day'
+			AND f.uploaded_at BETWEEN NOW() - INTERVAL '7 days' AND NOW() - INTERVAL '1 day'
 			AND NOT EXISTS (SELECT 1 FROM linked WHERE linked.id = f.id)",
 	),
 ];

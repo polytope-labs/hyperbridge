@@ -216,11 +216,19 @@ async fn unknown_route(method: Method, uri: Uri) -> ApiError {
 /// list.
 pub struct Params(Vec<(String, String)>);
 
-/// A query string with one more `key=value` pair, for routes that narrow another route's list.
+/// A query string with the route's own `key=value` pair in place of any the visitor sent, for
+/// routes that narrow another route's list.
 pub fn with_param(query: Option<String>, pair: &str) -> String {
-	match query.filter(|query| !query.is_empty()) {
-		Some(query) => format!("{query}&{pair}"),
-		None => pair.to_owned(),
+	let key = pair.split('=').next().unwrap_or_default();
+	let query = query.unwrap_or_default();
+	let kept = form_urlencoded::parse(query.as_bytes()).filter(|(k, _)| k != key);
+	let mut out = form_urlencoded::Serializer::new(String::new());
+	out.extend_pairs(kept);
+	let kept = out.finish();
+	if kept.is_empty() {
+		pair.to_owned()
+	} else {
+		format!("{kept}&{pair}")
 	}
 }
 
@@ -268,6 +276,8 @@ mod params_tests {
 		assert_eq!(params.get("status"), None, "an empty filter is not a filter");
 		assert_eq!(params.all("referendum_index").collect::<Vec<_>>(), ["1", "2"]);
 		assert!(params.flag("ongoing"));
+		let narrowed = Params::new(Some(with_param(Some("track=2&page=3".into()), "track=1")));
+		assert_eq!((narrowed.get("track"), narrowed.get("page")), (Some("1"), Some("3")));
 		assert_eq!(params.paging(10).page_size, 100, "pages are capped");
 		assert_eq!(with_param(None, "track=1"), "track=1");
 		assert_eq!(with_param(Some("page=2".into()), "track=1"), "page=2&track=1");

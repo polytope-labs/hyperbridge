@@ -62,7 +62,8 @@ pub async fn store(
 	if inserted == 1 {
 		return Ok(true);
 	}
-	Ok(db.query_opt("SELECT 1 FROM files WHERE id = $1", &[&id]).await?.is_some())
+	let renewed = db.execute("UPDATE files SET uploaded_at = NOW() WHERE id = $1", &[&id]).await?;
+	Ok(renewed == 1)
 }
 
 /// Uploads an image for a post or banner. The frontend shows banners by `cid` and embeds `url` in

@@ -2,6 +2,8 @@ use axum::{
 	extract::{Path, RawQuery, State},
 	Json,
 };
+use std::collections::BTreeMap;
+
 use serde::Deserialize;
 use serde_json::{json, Value};
 
@@ -13,6 +15,7 @@ use super::{
 	with_param, AppState,
 };
 use crate::{
+	crypto::canonical,
 	error::{ApiError, ApiResult},
 	primitives::{author, Page},
 };
@@ -79,20 +82,32 @@ pub async fn avatars(
 	if request.addresses.len() > 500 {
 		return Err(ApiError::bad_request("Too many addresses"));
 	}
+	// Users are stored under the chain's address format, and each avatar is answered under the
+	// address the frontend asked with
+	let requested: Vec<(String, String)> = request
+		.addresses
+		.iter()
+		.filter_map(|address| Some((canonical(address)?, address.clone())))
+		.collect();
+	let lookup: Vec<&String> = requested.iter().map(|(canonical, _)| canonical).collect();
 	let rows = state
 		.db
 		.get()
 		.await?
 		.query(
 			"SELECT address, avatar_cid FROM users WHERE address = ANY($1) AND avatar_cid IS NOT NULL",
-			&[&request.addresses],
+			&[&lookup],
 		)
 		.await?;
+	let avatars: BTreeMap<String, String> =
+		rows.iter().map(|row| (row.get(0), row.get(1))).collect();
 	Ok(Json(
-		rows.iter()
-			.map(
-				|row| json!({ "address": row.get::<_, String>(0), "avatarCid": row.get::<_, String>(1) }),
-			)
+		requested
+			.iter()
+			.filter_map(|(canonical, address)| {
+				let cid = avatars.get(canonical)?;
+				Some(json!({ "address": address, "avatarCid": cid }))
+			})
 			.collect(),
 	))
 }

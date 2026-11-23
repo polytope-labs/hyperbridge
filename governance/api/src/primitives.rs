@@ -37,8 +37,14 @@ pub fn post_id(kind: PostKind, number: i64) -> String {
 	format!("{:02x}{number:022x}", kind as u8)
 }
 
+/// Lowercase hex digits only, as our ids are written. A parser that took uppercase or a sign too
+/// would let one post or comment answer to several ids.
+fn lower_hex(digits: &str) -> bool {
+	digits.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
+}
+
 pub fn parse_post_id(id: &str) -> Option<(PostKind, i64)> {
-	if id.len() != 24 {
+	if id.len() != 24 || !lower_hex(id) {
 		return None;
 	}
 	let kind = PostKind::from_code(u8::from_str_radix(&id[..2], 16).ok()?)?;
@@ -52,7 +58,8 @@ pub fn comment_id(id: i64) -> String {
 }
 
 pub fn parse_comment_id(id: &str) -> Option<i64> {
-	i64::from_str_radix(id.strip_prefix("ff").filter(|rest| rest.len() == 22)?, 16).ok()
+	let digits = id.strip_prefix("ff").filter(|rest| rest.len() == 22 && lower_hex(rest))?;
+	i64::from_str_radix(digits, 16).ok()
 }
 
 /// Milliseconds since the epoch as the ISO string the forum frontend reads, such as
@@ -105,7 +112,7 @@ pub struct Paging {
 
 impl Paging {
 	pub fn offset(self) -> i64 {
-		(self.page - 1) * self.page_size
+		(self.page - 1).saturating_mul(self.page_size)
 	}
 
 	pub fn page<T>(self, items: Vec<T>, total: i64) -> Page<T> {
@@ -123,6 +130,16 @@ mod tests {
 		assert_eq!(id.len(), 24);
 		assert_eq!(parse_post_id(&id), Some((PostKind::Referendum, 80)));
 		assert_eq!(parse_comment_id(&comment_id(5)), Some(5));
+		// A multibyte character across the kind's two bytes, uppercase and signs are no ids
+		assert_eq!(parse_post_id("a\u{20ac}aaaaaaaaaaaaaaaaaaaa"), None);
+		assert_eq!(parse_post_id(&post_id(PostKind::Referendum, 0xab).to_uppercase()), None);
+		assert_eq!(parse_comment_id("ff+000000000000000000005"), None);
+		assert_eq!(
+			parse_comment_id(&comment_id(0xab).to_uppercase().replacen("FF", "ff", 1)),
+			None
+		);
+		let far = Paging { page: i64::MAX, page_size: 100 };
+		assert!(far.offset() > 0);
 		assert_eq!(parse_post_id(&comment_id(80)), None);
 		assert_eq!(parse_comment_id(&id), None);
 	}

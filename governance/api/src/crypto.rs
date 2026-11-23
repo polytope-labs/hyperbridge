@@ -66,8 +66,9 @@ fn signed_by(account: &[u8; 32], message: &[u8], signature: &[u8]) -> bool {
 	};
 
 	match signature {
-		[0, rest @ ..] if rest.len() == 64 => ed25519(rest),
-		[1, rest @ ..] if rest.len() == 64 => sr25519(rest),
+		// An unprefixed 65 byte ecdsa signature can start with either prefix byte too
+		[0, rest @ ..] if rest.len() == 64 => ed25519(rest) || ecdsa(signature),
+		[1, rest @ ..] if rest.len() == 64 => sr25519(rest) || ecdsa(signature),
 		[2, rest @ ..] if rest.len() == 65 => ecdsa(rest),
 		_ if signature.len() == 64 => sr25519(signature) || ed25519(signature),
 		_ => ecdsa(signature),
@@ -116,6 +117,24 @@ mod tests {
 			CHALLENGE,
 			&hex::encode([&[2u8][..], &ec_signature.0].concat())
 		));
+	}
+
+	#[test]
+	fn accepts_unprefixed_ecdsa_signatures_that_look_prefixed() {
+		let ec = ecdsa::Pair::from_string("//Charlie", None).unwrap();
+		let ec_address = address(blake2_256(ec.public().as_ref()));
+		for first in [0u8, 1] {
+			// Signing is deterministic, so search the messages for a signature with that first byte
+			let (message, signature) = (0..10_000)
+				.map(|nonce| format!("{CHALLENGE} {nonce}"))
+				.map(|message| {
+					let signature = ec.sign(message.as_bytes()).0;
+					(message, signature)
+				})
+				.find(|(_, signature)| signature[0] == first)
+				.unwrap();
+			assert!(verify(&ec_address, &message, &hex::encode(signature)));
+		}
 	}
 
 	#[test]

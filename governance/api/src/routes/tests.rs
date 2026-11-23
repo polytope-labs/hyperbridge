@@ -128,9 +128,11 @@ impl Visitor {
 		method: Method,
 		path: &str,
 		signer: &sr25519::Pair,
-		entity: Value,
+		mut entity: Value,
 		address: String,
 	) -> anyhow::Result<StatusCode> {
+		// Signed for this forum, as its frontend signs every request
+		entity["domain"] = json!("forum.test");
 		let body = json!({
 			"entity": entity,
 			"address": address,
@@ -811,13 +813,19 @@ async fn serves_the_forum() -> anyhow::Result<()> {
 	);
 
 	// The hourly sweep keeps uploads the forum's text links to, and recent ones, and drops the rest
-	let (linked, unused) = ("a".repeat(64), "b".repeat(64));
+	let (linked, unused, again) = ("a".repeat(64), "b".repeat(64), "c".repeat(64));
 	db.execute(
-		"INSERT INTO forum.files (id, content_type, data, uploader, size, created_at)
-		SELECT id, 'image/png', '\\x00', $3, 1, NOW() - INTERVAL '2 days' FROM unnest(ARRAY[$1, $2]) id",
-		&[&linked, &unused, &address(&bob)],
+		"INSERT INTO forum.files (id, content_type, data, uploader, size, created_at, uploaded_at)
+		SELECT id, 'image/png', '\\x00', $4, 1, NOW() - INTERVAL '2 days', NOW() - INTERVAL '2 days'
+		FROM unnest(ARRAY[$1, $2, $3]) id",
+		&[&linked, &unused, &again, &address(&bob)],
 	)
 	.await?;
+	// Someone uploading the same content again is given the file, so it stays
+	db.batch_execute("SET search_path TO forum, governance, public").await?;
+	assert!(
+		crate::routes::files::store(&db, &again, "image/png", &[0], Some(&address(&alice))).await?
+	);
 	db.execute(
 		"UPDATE forum.posts SET content = COALESCE(content, '') || ' ![](/api/s3/files/' || $1 || ')'
 		WHERE (kind, number) = (SELECT kind, number FROM forum.posts LIMIT 1)",
@@ -830,13 +838,13 @@ async fn serves_the_forum() -> anyhow::Result<()> {
 	let kept = db
 		.query(
 			"SELECT id FROM forum.files WHERE id = ANY($1) ORDER BY id",
-			&[&vec![linked.clone(), unused, cid.clone()]],
+			&[&vec![linked.clone(), unused, again.clone(), cid.clone()]],
 		)
 		.await?
 		.iter()
 		.map(|row| row.get::<_, String>(0))
 		.collect::<Vec<_>>();
-	assert_eq!(kept, [cid, linked]);
+	assert_eq!(kept, [cid, linked, again]);
 
 	db.execute(
 		"INSERT INTO forum.files (id, content_type, data, uploader, size)

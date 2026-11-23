@@ -160,7 +160,8 @@ async fn sync(ev: &Context<'_>, account: &str, delegation: bool) -> anyhow::Resu
 		.db
 		.query(
 			"SELECT r.index, r.track, v.id AS vote_id, v.kind, v.aye, v.conviction, v.balance,
-				v.aye_balance, v.nay_balance, v.abstain_balance, v.delegated_votes
+				v.aye_balance, v.nay_balance, v.abstain_balance, v.delegated_votes,
+				v.delegated_capital
 			 FROM governance.governance_referendums r
 			 LEFT JOIN governance.governance_votes v
 				ON v.referendum_index = r.index AND v.account = $1
@@ -225,7 +226,8 @@ async fn sync(ev: &Context<'_>, account: &str, delegation: bool) -> anyhow::Resu
 		let (vote_changed, delegated_changed) = if existing {
 			(
 				Choice::from_row(row)? != choice,
-				big(row, "delegated_votes")? != Some(casting.delegated_votes),
+				big(row, "delegated_votes")? != Some(casting.delegated_votes) ||
+					big(row, "delegated_capital")? != Some(casting.delegated_capital),
 			)
 		} else {
 			(true, true)

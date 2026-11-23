@@ -10,9 +10,11 @@ The `governance` key gives an `Event` log, the explorer's signature, for each ev
 and `Treasury`, with arguments as JSON and accounts in SS58 with the chain's prefix. A node
 always serves them.
 
-Three reads on the storage address decode with the runtime that wrote the block's state:
-`getStorageJson` (a storage value, typed by the entry its key belongs to), `getConstantJson`
-and `decodeCallJson`. Each answers an empty string when there is nothing to decode. Anyone
+Four reads on the storage address decode with the runtime that wrote the block's state:
+`getStorageJson` (a storage value, typed by the entry its key belongs to), `getConstantJson`,
+`decodeCallJson` and `getExtrinsicJson` (the call of one of the block's extrinsics, for a call
+storage never kept past the block). Each answers an empty string when there is nothing to
+decode. Anyone
 who reaches the RPC can call them, so their input is checked before anything is allocated:
 declared lengths must fit the bytes given, nesting is capped at 48 levels (about 24 nested
 calls, which keeps the JSON parseable), trailing bytes are rejected and calls are limited to
@@ -22,9 +24,9 @@ block in the cache makes no upstream call, and metadata is fetched once per runt
 ## Indexing
 
 A config with `mode = "governance"` (`omniplex/config/governance-mainnet.toml`) runs only the
-governance handlers, from block 5986840 where OpenGov was added, in a database of its own.
-The database records the mode of its first start, and a config of another mode is refused on
-it, since both would write the same Nexus metadata table. Its RPCs must be an archive node
+governance handlers, from block 5986840 where OpenGov was added. The indexer and a governance
+config both write the Nexus metadata table, so each records its mode in the database and
+refuses one the other has used; the explorer keeps no metadata and can share either's. Its RPCs must be an archive node
 whose substrate-eth-rpc includes the reads above.
 
 The handlers write the `governance` schema (migration `0004_governance`) with the tables and
@@ -38,11 +40,15 @@ columns the API reads:
   since Nexus vote events carry no referendum index. A vote or removal reads only the tracks
   of ongoing referenda; delegation changes read every track. Votes on finished referenda keep
   their final state.
-- Tally snapshots, vote calls, technical committee motions, whitelisted calls, preimages
-  (bytes kept after they are cleared) and treasury spends.
+- Technical committee motions, whose votes come from each `Voted` event and whose call comes
+  from `ProposalOf`, or from the proposing extrinsic when the motion was closed in the block it
+  was proposed in, since storage keeps neither past a close.
+- Tally snapshots, vote calls, whitelisted calls, preimages (bytes kept after they are cleared,
+  and by a noting that is gone by the end of its block) and treasury spends.
 
 At cutover, `import-subquery` on a copy of SubQuery's governance database keeps each row's
-current version and continues after its last indexed block, so history is not re-read.
+current version and continues after its last indexed block, so history is not re-read. It sets
+`changes_state` on every referendum event, which SubQuery left empty on older rows.
 
 ## API
 
@@ -60,8 +66,8 @@ progress and reads the indexed height through `forum._metadata`.
 | `TRUSTED_PROXIES` | Proxies whose `X-Forwarded-For` is believed; other visitors are keyed by their own address |
 
 Sign-in is a readable message naming the forum's domain, a nonce and its issue time, signed by
-the wallet. Sessions are stored as hashes. Signed edits are single use within a ten-minute
-window. Addresses are canonicalised to SS58 prefix 0 wherever they enter. Uploads have a
+the wallet. Sessions are stored as hashes. Signed edits name the forum's domain, which the
+frontend adds to each signed request, and are single use within a ten-minute window. Addresses are canonicalised to SS58 prefix 0 wherever they enter. Uploads have a
 per-account quota and must be images by their content; served files carry `nosniff` and a
 sandbox policy. `import <site>` copies the current forum's content and keeps going past a
 missing file, and `verify <site>` compares this API with the current forum.

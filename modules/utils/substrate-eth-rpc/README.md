@@ -250,6 +250,7 @@ interface SubstrateStorage {
     function getStorageJson(bytes key) external view returns (string value);
     function getConstantJson(string pallet, string name) external view returns (string value);
     function decodeCallJson(bytes call) external view returns (string value);
+    function getExtrinsicJson(uint32 index) external view returns (string value);
 }
 ```
 
@@ -265,7 +266,9 @@ The JSON calls decode with the metadata of the runtime that wrote the block's st
 its parent reports, and render values as the governance logs do. `getStorageJson` decodes the
 value at `key` as the type of the storage entry whose pallet and entry prefix it starts with,
 `getConstantJson` gives a pallet's constant, such as `Referenda` `Tracks`, and `decodeCallJson`
-decodes the bytes of a call, such as a preimage, as `{callIndex, section, method, args}`. Each
+decodes the bytes of a call, such as a preimage, as `{callIndex, section, method, args}`.
+`getExtrinsicJson` gives the call of the block's extrinsic at `index` in the same shape, for a
+call that storage never kept past the block, such as a motion proposed and closed in it. Each
 returns an empty string when there is nothing to decode.
 
 Anyone who reaches the RPC can send these calls, so the bytes are checked before they are

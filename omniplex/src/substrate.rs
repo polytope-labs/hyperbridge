@@ -28,6 +28,7 @@ sol! {
 		function getStorageJson(bytes key) external view returns (string value);
 		function getConstantJson(string pallet, string name) external view returns (string value);
 		function decodeCallJson(bytes call) external view returns (string value);
+		function getExtrinsicJson(uint32 index) external view returns (string value);
 	}
 }
 
@@ -81,6 +82,12 @@ impl Chain {
 	/** An encoded call decoded with the runtime of `block`, or `None` when it isn't a call. */
 	pub async fn call_json(&self, call: &[u8], block: u64) -> anyhow::Result<Option<Value>> {
 		let call = SubstrateStorage::decodeCallJsonCall { call: Bytes::copy_from_slice(call) };
+		self.json_call(call.abi_encode(), block).await
+	}
+
+	/** The call of extrinsic `index` of `block`, decoded with the block's runtime. */
+	pub async fn extrinsic_json(&self, index: u32, block: u64) -> anyhow::Result<Option<Value>> {
+		let call = SubstrateStorage::getExtrinsicJsonCall { index };
 		self.json_call(call.abi_encode(), block).await
 	}
 

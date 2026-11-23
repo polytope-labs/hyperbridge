@@ -34,6 +34,7 @@ sol! {
 		function getStorageJson(bytes key) external view returns (string value);
 		function getConstantJson(string pallet, string name) external view returns (string value);
 		function decodeCallJson(bytes call) external view returns (string value);
+		function getExtrinsicJson(uint32 index) external view returns (string value);
 	}
 }
 
@@ -85,6 +86,17 @@ impl Node {
 			name: "Tracks".into(),
 		};
 		self.set(call, from, tracks.to_string().abi_encode());
+	}
+
+	fn constant(&self, pallet: &str, name: &str, from: u64, value: Value) {
+		let call =
+			SubstrateStorage::getConstantJsonCall { pallet: pallet.into(), name: name.into() };
+		self.set(call, from, value.to_string().abi_encode());
+	}
+
+	fn extrinsic(&self, index: u32, from: u64, call: Value) {
+		let call_json = SubstrateStorage::getExtrinsicJsonCall { index };
+		self.set(call_json, from, call.to_string().abi_encode());
 	}
 
 	fn issuance(&self, from: u64, total: u128, inactive: u128) {
@@ -544,4 +556,87 @@ async fn a_treasury_spend_is_followed_from_approval_to_payment() {
 	)
 	.await;
 	assert_eq!(spend.as_deref(), Some("1000 Paid 7 100 105"));
+}
+
+#[tokio::test]
+async fn a_motion_proposed_voted_and_closed_in_one_block_keeps_its_votes_and_call() {
+	let Some(url) = database_url().await else { return };
+	let node = Node::default();
+	let indexer = indexer(&url, &node).await;
+	let (mut client, connection) = tokio_postgres::connect(&url, NoTls).await.unwrap();
+	tokio::spawn(connection);
+	let db = client.transaction().await.unwrap();
+
+	// Closing in the same block leaves neither `ProposalOf` nor `Voting` in storage, so the call
+	// comes from the extrinsic and the votes from the events
+	node.constant("TechnicalCollective", "MotionDuration", 200, json!(100));
+	let propose = json!({ "section": "technicalCollective", "method": "propose", "args": [
+		{ "name": "threshold", "value": 2 },
+		{ "name": "proposal", "value": { "section": "whitelist", "method": "whitelistCall", "args": [] } },
+	]});
+	node.extrinsic(
+		2,
+		200,
+		json!({ "section": "utility", "method": "batchAll", "args": [
+			{ "name": "calls", "value": [propose] },
+		]}),
+	);
+	let hash = json!(format!("0x{}", "77".repeat(32)));
+	let voted = |who: String, aye: bool| {
+		[("account", json!(who)), ("proposalHash", hash.clone()), ("voted", json!(aye))]
+	};
+	let proposed = [
+		("account", json!(alice())),
+		("proposalIndex", json!(7)),
+		("proposalHash", hash.clone()),
+		("threshold", json!(2)),
+	];
+	event(&indexer, &db, 200, 1, "technicalCollective", "Proposed", &proposed).await;
+	event(&indexer, &db, 200, 2, "technicalCollective", "Voted", &voted(alice(), true)).await;
+	event(&indexer, &db, 200, 3, "technicalCollective", "Voted", &voted(bob(), false)).await;
+	event(&indexer, &db, 200, 4, "technicalCollective", "Voted", &voted(bob(), true)).await;
+	let closed = [("proposalHash", hash.clone())];
+	event(&indexer, &db, 200, 5, "technicalCollective", "Closed", &closed).await;
+	event(&indexer, &db, 200, 6, "technicalCollective", "Approved", &closed).await;
+	let executed = [("proposalHash", hash.clone()), ("result", json!({ "ok": null }))];
+	event(&indexer, &db, 200, 7, "technicalCollective", "Executed", &executed).await;
+
+	let motion = text(
+		&db,
+		"SELECT ayes::text || ' ' || nays::text || ' ' || \"end\" || ' ' || state || ' ' || is_final
+		   || ' ' || (call::jsonb ->> 'method') FROM governance.governance_motions WHERE id = '7'",
+	)
+	.await;
+	let expected = format!("[\"{}\", \"{}\"] [] 300 Executed true whitelistCall", alice(), bob());
+	assert_eq!(motion.as_deref(), Some(expected.as_str()));
+}
+
+#[tokio::test]
+async fn a_preimage_noted_again_and_gone_by_the_end_of_its_block_keeps_its_bytes() {
+	let Some(url) = database_url().await else { return };
+	let node = Node::default();
+	let indexer = indexer(&url, &node).await;
+	let (mut client, connection) = tokio_postgres::connect(&url, NoTls).await.unwrap();
+	tokio::spawn(connection);
+	let db = client.transaction().await.unwrap();
+
+	let hash = [0x55u8; 32];
+	let status = [key("Preimage", "RequestStatusFor"), hash.to_vec()].concat();
+	node.json(status.clone(), 300, Some(json!({ "unrequested": { "len": 3 } })));
+	let bytes = [key("Preimage", "PreimageFor"), (hash, 3u32).encode()].concat();
+	node.storage(bytes.clone(), 300, vec![1u8, 2, 3].encode());
+	let noted = [("hash", json!(format!("0x{}", hex::encode(hash))))];
+	event(&indexer, &db, 300, 1, "preimage", "Noted", &noted).await;
+
+	// Noted and cleared again within block 310, so its storage is empty at the end of it
+	node.json(status, 310, None);
+	node.storage(bytes, 310, Vec::new());
+	event(&indexer, &db, 310, 1, "preimage", "Noted", &noted).await;
+
+	let preimage = text(
+		&db,
+		"SELECT length || ' ' || data || ' ' || noted_block FROM governance.governance_preimages",
+	)
+	.await;
+	assert_eq!(preimage.as_deref(), Some("3 0x010203 310"));
 }

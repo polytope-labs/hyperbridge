@@ -8,8 +8,8 @@
 # At cutover, import a copy of SubQuery's governance database instead of indexing all of
 # history: `DATABASE_URL=<copy> omniplex --config omniplex/config/governance-mainnet.toml
 # import-subquery`. The import keeps each row's current version and continues after the last
-# block SubQuery indexed. The database must be one of its own; its first start claims it for
-# governance, and a start of any other mode's config on it is refused.
+# block SubQuery indexed. The indexer's config must never run on the same database, since both
+# write the Nexus metadata table, so each refuses a database the other has used.
 
 environment = "mainnet"
 mode = "governance"

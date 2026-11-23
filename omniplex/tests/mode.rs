@@ -1,4 +1,5 @@
-//! Each mode claiming a database of its own. Set `INDEXER_TEST_DATABASE_URL` to run.
+//! The indexer and a governance config never sharing a database, while the explorer shares with
+//! either. Set `INDEXER_TEST_DATABASE_URL` to run.
 
 mod common;
 
@@ -22,12 +23,33 @@ async fn a_database_with_another_modes_rows_is_refused() {
 	// SubQuery's metadata tables belong to no mode, so a governance config takes this database.
 	db::claim_mode(&tx, Mode::Governance).await.unwrap();
 	assert_eq!(
-		common::text(&tx, "SELECT mode FROM indexer.mode").await.as_deref(),
+		common::text(&tx, "SELECT string_agg(mode, ',') FROM indexer.modes")
+			.await
+			.as_deref(),
 		Some("governance")
 	);
 	db::claim_mode(&tx, Mode::Governance).await.unwrap();
 	let refused = db::claim_mode(&tx, Mode::Indexer).await.unwrap_err();
-	assert!(refused.to_string().contains("belongs to a governance config"), "{refused}");
+	assert!(refused.to_string().contains("the governance config has run"), "{refused}");
+}
+
+#[tokio::test]
+async fn the_explorer_shares_a_database_with_the_indexer() {
+	let Some(mut client) = common::database().await else { return };
+	let tx = client.transaction().await.unwrap();
+	tx.batch_execute(
+		"CREATE TABLE app.probe (id int);
+		 INSERT INTO app.probe VALUES (1);
+		 CREATE TABLE explorer.probe (id int);
+		 INSERT INTO explorer.probe VALUES (1);",
+	)
+	.await
+	.unwrap();
+	db::claim_mode(&tx, Mode::Explorer).await.unwrap();
+	db::claim_mode(&tx, Mode::Indexer).await.unwrap();
+	db::claim_mode(&tx, Mode::Explorer).await.unwrap();
+	let refused = db::claim_mode(&tx, Mode::Governance).await.unwrap_err();
+	assert!(refused.to_string().contains("the indexer config has run"), "{refused}");
 }
 
 #[tokio::test(flavor = "multi_thread")]

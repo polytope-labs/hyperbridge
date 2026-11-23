@@ -14,26 +14,32 @@ use tokio_postgres::{Client, IsolationLevel, Transaction};
 use crate::{
 	config::{Config, Mode},
 	db,
+	handlers::governance::NON_STATE_EVENTS,
 };
 
 /** Where SubQuery's tables wait while the import copies them, before they are dropped. */
 const OLD_SCHEMA: &str = "subquery";
 
 /**
- * SubQuery's governance project set a referendum's state on `MetadataSet` and
- * `MetadataCleared`, which anyone can send once it has ended. They stay in its history
- * without changing its state, which goes back to that of its last other event.
+ * Sets `changes_state` on every imported referendum event from [`NON_STATE_EVENTS`], since
+ * SubQuery left it NULL on rows written before it had the column and set a referendum's state
+ * on `MetadataSet` and `MetadataCleared`, which anyone can send once it has ended. A state
+ * taken from one of those goes back to that of the referendum's last other event.
  */
-const METADATA_EVENTS_KEEP_STATE: &str = "
-	UPDATE governance.governance_referendum_events SET changes_state = false
-	WHERE name IN ('MetadataSet', 'MetadataCleared');
-	UPDATE governance.governance_referendums r SET state = last.name
-	FROM (
-		SELECT DISTINCT ON (referendum_id) referendum_id, name
-		FROM governance.governance_referendum_events WHERE changes_state
-		ORDER BY referendum_id, block_number DESC, event_index DESC
-	) last
-	WHERE last.referendum_id = r.id AND r.state IN ('MetadataSet', 'MetadataCleared');";
+fn restore_states() -> String {
+	let names = NON_STATE_EVENTS.iter().map(|name| format!("'{name}'")).collect::<Vec<_>>();
+	let names = names.join(", ");
+	format!(
+		"UPDATE governance.governance_referendum_events SET changes_state = name NOT IN ({names});
+		UPDATE governance.governance_referendums r SET state = last.name
+		FROM (
+			SELECT DISTINCT ON (referendum_id) referendum_id, name
+			FROM governance.governance_referendum_events WHERE changes_state
+			ORDER BY referendum_id, block_number DESC, event_index DESC
+		) last
+		WHERE last.referendum_id = r.id AND r.state IN ({names});"
+	)
+}
 
 /** What an import did. */
 #[derive(Debug, Default)]
@@ -136,7 +142,7 @@ pub async fn import(
 		rows.insert(table, copied);
 	}
 	if config.mode == Mode::Governance {
-		tx.batch_execute(METADATA_EVENTS_KEEP_STATE).await?;
+		tx.batch_execute(&restore_states()).await?;
 	}
 	for (network, block) in &cursors {
 		tx.execute(

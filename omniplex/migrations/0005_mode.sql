@@ -1,5 +1,5 @@
--- The mode of the config the database belongs to, recorded by its first start.
-CREATE TABLE indexer.mode (
-    only_row boolean PRIMARY KEY DEFAULT true CHECK (only_row),
-    mode text NOT NULL
+-- The modes of the configs that have run on this database, so the indexer and a governance
+-- config never share one.
+CREATE TABLE indexer.modes (
+    mode text PRIMARY KEY
 );

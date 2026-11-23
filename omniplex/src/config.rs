@@ -28,14 +28,23 @@ pub enum Mode {
 }
 
 impl Mode {
-	pub const ALL: [Mode; 3] = [Mode::Indexer, Mode::Explorer, Mode::Governance];
-
 	/** The name a config gives the mode. */
 	pub fn name(&self) -> &'static str {
 		match self {
 			Mode::Indexer => "indexer",
 			Mode::Explorer => "explorer",
 			Mode::Governance => "governance",
+		}
+	}
+
+	/** The mode that can't share a database with this one. The indexer and a governance config
+	 * both follow Nexus under the same chain name, so they would write the same metadata table.
+	 * The explorer keeps no metadata and shares a database with either. */
+	pub fn rival(&self) -> Option<Mode> {
+		match self {
+			Mode::Indexer => Some(Mode::Governance),
+			Mode::Explorer => None,
+			Mode::Governance => Some(Mode::Indexer),
 		}
 	}
 

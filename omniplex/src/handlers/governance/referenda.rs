@@ -30,7 +30,7 @@ pub(super) const METHODS: &[&str] = &[
 
 /** Events that stay in a referendum's history without changing its state or track. Deposits are
  * refunded long after a referendum ends, and anyone may clear the metadata of one that has. */
-const NON_STATE_EVENTS: &[&str] =
+pub const NON_STATE_EVENTS: &[&str] =
 	&["DecisionDepositRefunded", "SubmissionDepositRefunded", "MetadataSet", "MetadataCleared"];
 
 const COLUMNS: &[&str] = &[

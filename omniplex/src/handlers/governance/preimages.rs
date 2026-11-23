@@ -26,7 +26,10 @@ pub(super) async fn handle(ev: &Context<'_>) -> anyhow::Result<()> {
 	let noted = preimage(ev, hash).await?;
 	ev.db
 		.execute(
-			"UPDATE governance.governance_preimages SET length = $2, data = $3, noted_block = $4
+			// A preimage noted and cleared within one block is gone by the end of it, so the bytes
+			// kept from an earlier noting stay
+			"UPDATE governance.governance_preimages SET length = coalesce($2, length),
+				data = coalesce($3, data), noted_block = $4
 			 WHERE id = $1",
 			&[
 				&hash,

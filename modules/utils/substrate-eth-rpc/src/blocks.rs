@@ -13,7 +13,7 @@ use futures::{
 };
 use serde_json::Value as Json;
 use sp_crypto_hashing::twox_128;
-use subxt_core::Metadata;
+use subxt_core::{blocks::Extrinsics, config::SubstrateConfig, Metadata};
 use tokio::{
 	sync::{OwnedSemaphorePermit, Semaphore},
 	time::Instant,
@@ -294,6 +294,33 @@ impl BlockService {
 		let call = call.to_vec();
 		self.render(metadata, move |encoder| {
 			encoder.decode(encoder.metadata.outer_enums().call_enum_ty(), &call)
+		})
+		.await
+	}
+
+	/** The call of extrinsic `index` of block `at` as JSON, or `None` when the block has no such
+	 * extrinsic. It shows a call that only lived within the block, such as a motion proposed
+	 * and closed in it. The call bytes are checked as `call_json` checks them. */
+	pub async fn extrinsic_json(&self, index: u32, at: u64) -> Result<Option<String>, BlockError> {
+		let metadata = self.state_metadata(at).await?;
+		let hash = self.canonical_hash(at).await?;
+		let block = self
+			.upstream(&format!("block {at}"), || self.rpc.block(hash))
+			.await
+			.map_err(|e| BlockError::from(e).at(at))?;
+		let Some(extrinsic) =
+			block.and_then(|block| block.extrinsics.into_iter().nth(index as usize))
+		else {
+			return Ok(None);
+		};
+		self.render(metadata, move |encoder| {
+			let extrinsics = Extrinsics::<SubstrateConfig>::decode_from(
+				vec![extrinsic],
+				encoder.metadata.clone(),
+			)
+			.ok()?;
+			let extrinsic = extrinsics.iter().next()?;
+			encoder.decode(encoder.metadata.outer_enums().call_enum_ty(), extrinsic.call_bytes())
 		})
 		.await
 	}
@@ -1084,6 +1111,18 @@ mod tests {
 		assert!(tracks.iter().all(|tracks| tracks.is_some()));
 		assert_eq!(rpc.version_calls.load(Ordering::SeqCst), 8);
 		assert_eq!(rpc.metadata_calls.load(Ordering::SeqCst), 1);
+	}
+
+	#[tokio::test]
+	async fn extrinsics_decode_to_their_calls() {
+		let service = new_service(fixture(), 1000);
+		let first = service.extrinsic_json(0, 101).await.unwrap().unwrap();
+		let first: Json = serde_json::from_str(&first).unwrap();
+		assert_eq!(
+			(first["section"].as_str(), first["method"].as_str()),
+			(Some("timestamp"), Some("set"))
+		);
+		assert_eq!(service.extrinsic_json(10_000, 101).await.unwrap(), None);
 	}
 
 	#[tokio::test]

@@ -108,43 +108,45 @@ pub async fn cursor_blocks(conn: &Client) -> anyhow::Result<BTreeMap<String, u64
 }
 
 /**
- * Claims the database for `mode`, or fails when it belongs to another mode. Each mode needs a
- * database of its own: the governance chain and the indexer's Nexus share a chain name, so both
- * would write the same metadata table. The first start records its mode under a lock, so starts
- * that race on a fresh database are refused as well. A database from before that record, or a
- * fresh import, is claimed only while no other mode's tables hold rows. SubQuery's bookkeeping
- * tables, named with a leading underscore, don't count.
+ * Claims the database for `mode`, or fails when its rival (see [`Mode::rival`]) has used it.
+ * Each start records its mode under a lock, so starts that race on a fresh database are refused
+ * too. A database from before that record counts as used by the rival while the rival's tables
+ * hold rows. SubQuery's bookkeeping tables, named with a leading underscore, don't count.
  */
 pub async fn claim_mode(tx: &Transaction<'_>, mode: Mode) -> anyhow::Result<()> {
+	let Some(rival) = mode.rival() else { return Ok(()) };
 	tx.execute("SELECT pg_advisory_xact_lock($1)", &[&MODE_LOCK]).await?;
-	let name = mode.name();
-	if let Some(row) = tx.query_opt("SELECT mode FROM indexer.mode", &[]).await? {
-		let recorded: String = row.get(0);
-		if recorded != name {
-			bail!("this database belongs to a {recorded} config; a {name} config needs its own");
-		}
-		return Ok(());
+	let (name, rival_name) = (mode.name(), rival.name());
+	let recorded = tx
+		.query_opt("SELECT 1 FROM indexer.modes WHERE mode = $1", &[&rival_name])
+		.await?
+		.is_some();
+	if recorded {
+		bail!(
+			"the {rival_name} config has run on this database, so the {name} config needs one of its own"
+		);
 	}
-	let schemas: Vec<&str> =
-		Mode::ALL.iter().filter(|other| **other != mode).map(Mode::schema).collect();
 	let filled: Vec<String> = tx
 		.query(
 			"SELECT format('%I.%I', n.nspname, c.relname)
 			 FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
-			 WHERE n.nspname = ANY($1) AND c.relkind = 'r' AND c.relname NOT LIKE '\\_%'
+			 WHERE n.nspname = $1 AND c.relkind = 'r' AND c.relname NOT LIKE '\\_%'
 			   AND (xpath('/row/filled/text()', query_to_xml(
 			     format('SELECT EXISTS (SELECT 1 FROM %I.%I) AS filled', n.nspname, c.relname),
 			     false, true, '')))[1]::text = 'true'
 			 ORDER BY 1",
-			&[&schemas],
+			&[&rival.schema()],
 		)
 		.await?
 		.iter()
 		.map(|row| row.get(0))
 		.collect();
 	if !filled.is_empty() {
-		bail!("this database holds another config's rows in {filled:?}; a {name} config needs its own");
+		bail!(
+			"this database holds the {rival_name} config's rows in {filled:?}, so the {name} config needs one of its own"
+		);
 	}
-	tx.execute("INSERT INTO indexer.mode (mode) VALUES ($1)", &[&name]).await?;
+	tx.execute("INSERT INTO indexer.modes (mode) VALUES ($1) ON CONFLICT DO NOTHING", &[&name])
+		.await?;
 	Ok(())
 }

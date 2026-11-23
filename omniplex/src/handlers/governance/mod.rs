@@ -6,6 +6,8 @@
 mod motions;
 mod preimages;
 mod referenda;
+
+pub use referenda::NON_STATE_EVENTS;
 mod treasury;
 mod voting;
 

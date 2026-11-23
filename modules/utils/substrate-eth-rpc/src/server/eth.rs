@@ -28,6 +28,7 @@ sol! {
 		function getStorageJson(bytes key) external view returns (string value);
 		function getConstantJson(string pallet, string name) external view returns (string value);
 		function decodeCallJson(bytes call) external view returns (string value);
+		function getExtrinsicJson(uint32 index) external view returns (string value);
 	}
 }
 
@@ -174,6 +175,8 @@ impl ChainRpc {
 				service.constant_json(&call.pallet, &call.name, at).await.map(json),
 			SubstrateStorage::SubstrateStorageCalls::decodeCallJson(call) =>
 				service.call_json(&call.call, at).await.map(json),
+			SubstrateStorage::SubstrateStorageCalls::getExtrinsicJson(call) =>
+				service.extrinsic_json(call.index, at).await.map(json),
 		}
 		.map_err(to_rpc_error);
 		log_outcome(started, format!("block {at} selector {selector}"), &result, |value| {

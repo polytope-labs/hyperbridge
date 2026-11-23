@@ -12,9 +12,9 @@ always serves them.
 
 Four reads on the storage address decode with the runtime that wrote the block's state:
 `getStorageJson` (a storage value, typed by the entry its key belongs to), `getConstantJson`,
-`decodeCallJson` and `getExtrinsicJson` (the call of one of the block's extrinsics, for a call
-storage never kept past the block). Each answers an empty string when there is nothing to
-decode. Anyone
+`decodeCallJson` and `getExtrinsicCallJson` (the call in one of the block's extrinsics whose
+encoding hashes to a given hash, for a call storage never kept past the block). Each answers an
+empty string when there is nothing to decode. Anyone
 who reaches the RPC can call them, so their input is checked before anything is allocated:
 declared lengths must fit the bytes given, nesting is capped at 48 levels (about 24 nested
 calls, which keeps the JSON parseable), trailing bytes are rejected and calls are limited to
@@ -40,9 +40,11 @@ columns the API reads:
   since Nexus vote events carry no referendum index. A vote or removal reads only the tracks
   of ongoing referenda; delegation changes read every track. Votes on finished referenda keep
   their final state.
-- Technical committee motions, whose votes come from each `Voted` event and whose call comes
-  from `ProposalOf`, or from the proposing extrinsic when the motion was closed in the block it
-  was proposed in, since storage keeps neither past a close.
+- Technical committee motions. Their votes and deadline come from `Voting` while the motion is
+  open, which also drops the votes of members who leave the committee, and from each `Voted`
+  event when it closed in the same block. Their call comes from `ProposalOf`, or, for a motion
+  closed in the block it was proposed in, from the call in the proposing extrinsic that hashes
+  to the motion's hash. Storage keeps neither past a close, and such a motion has no deadline.
 - Tally snapshots, vote calls, whitelisted calls, preimages (bytes kept after they are cleared,
   and by a noting that is gone by the end of its block) and treasury spends.
 

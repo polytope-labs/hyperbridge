@@ -105,6 +105,46 @@ impl<'a> Encoder<'a> {
 	 * bytes.
 	 */
 	pub fn decode(&self, ty: u32, bytes: &[u8]) -> Option<Json> {
+		self.checked(ty, bytes).map(|value| self.value(&value))
+	}
+
+	/**
+	 * The call in `call`, itself or one nested in it, whose encoding `matches`, as JSON. A
+	 * batch's bytes hold calls that failed or never ran as well, so a call is found by its
+	 * hash rather than its place.
+	 */
+	pub fn nested_call(&self, call: &[u8], matches: impl Fn(&[u8]) -> bool) -> Option<Json> {
+		let ty = self.metadata.outer_enums().call_enum_ty();
+		let root = self.checked(ty, call)?;
+		self.find_call(&root, ty, &matches).map(|value| self.value(value))
+	}
+
+	/** The first call in `value`, depth first, whose encoding `matches`. `checked` bounds how
+	 * deep this goes. */
+	fn find_call<'v>(
+		&self,
+		value: &'v Value<u32>,
+		ty: u32,
+		matches: &impl Fn(&[u8]) -> bool,
+	) -> Option<&'v Value<u32>> {
+		if value.context == ty {
+			let mut bytes = Vec::new();
+			let encoded =
+				scale_value::scale::encode_as_type(value, ty, self.metadata.types(), &mut bytes);
+			if encoded.is_ok() && matches(&bytes) {
+				return Some(value);
+			}
+		}
+		let mut children = match &value.value {
+			ValueDef::Composite(fields) => Some(fields.values()),
+			ValueDef::Variant(variant) => Some(variant.values.values()),
+			_ => None,
+		}?;
+		children.find_map(|child| self.find_call(child, ty, matches))
+	}
+
+	/** `bytes` decoded as exactly one value of type `ty`, after the checks `decode` names. */
+	fn checked(&self, ty: u32, bytes: &[u8]) -> Option<Value<u32>> {
 		let types = self.metadata.types();
 		let mut check = Check { types, input: bytes, items: bytes.len() };
 		check.value(ty, 0)?;
@@ -113,7 +153,7 @@ impl<'a> Encoder<'a> {
 		}
 		let mut input = bytes;
 		let value = scale_value::scale::decode_as_type(&mut input, ty, types).ok()?;
-		input.is_empty().then(|| self.value(&value))
+		input.is_empty().then_some(value)
 	}
 
 	pub fn value(&self, value: &Value<u32>) -> Json {
@@ -375,7 +415,10 @@ mod tests {
 	use codec::Encode;
 
 	use super::*;
-	use crate::decode::{decode_metadata, testdata::NEXUS};
+	use crate::{
+		decode::{decode_metadata, testdata::NEXUS},
+		types::Hasher,
+	};
 
 	fn call_index(metadata: &Metadata, pallet: &str, call: &str) -> [u8; 2] {
 		let pallet = metadata.pallet_by_name(pallet).unwrap();
@@ -422,6 +465,29 @@ mod tests {
 
 		// Deep enough to overflow the stack if the walk or the decode recursed without a bound.
 		assert_eq!(encoder.decode(ty, &nested_remark(&metadata, 100_000, &[])), None);
+	}
+
+	#[test]
+	fn nested_calls_are_found_by_their_hash() {
+		let metadata = decode_metadata(NEXUS.metadata).unwrap();
+		let encoder = Encoder::ss58(&metadata);
+		let remark =
+			|text: &[u8]| [&call_index(&metadata, "System", "remark")[..], &text.encode()].concat();
+		let (first, second) = (remark(b"a"), remark(b"b"));
+		let batch = [
+			&call_index(&metadata, "Utility", "batch")[..],
+			&codec::Compact(2u32).encode(),
+			&first,
+			&second,
+		]
+		.concat();
+		let hash_of = |call: &[u8]| Hasher::Keccak.hash(call);
+
+		let found = encoder.nested_call(&batch, |bytes| hash_of(bytes) == hash_of(&second));
+		assert_eq!(found.unwrap()["args"][0]["value"], "0x62");
+		let found = encoder.nested_call(&batch, |bytes| hash_of(bytes) == hash_of(&batch));
+		assert_eq!(found.unwrap()["method"], "batch");
+		assert_eq!(encoder.nested_call(&batch, |bytes| hash_of(bytes) == hash_of(b"")), None);
 	}
 
 	#[test]

@@ -1,6 +1,7 @@
 //! Technical committee motions, and the calls the committee whitelists for the whitelisted
 //! caller track.
 
+use alloy::primitives::B256;
 use serde_json::{json, Value};
 
 use super::{int, key, text, Context};
@@ -10,8 +11,9 @@ pub(super) const METHODS: &[&str] =
 
 pub(super) async fn handle(ev: &Context<'_>) -> anyhow::Result<()> {
 	let Some(hash) = ev.arg("proposalHash").as_str() else { return Ok(()) };
+	let Ok(hash_bytes) = hex::decode(hash.trim_start_matches("0x")) else { return Ok(()) };
 	let id = if ev.method == "Proposed" {
-		propose(ev, hash).await?
+		propose(ev, hash, &hash_bytes).await?
 	} else {
 		let row = ev
 			.db
@@ -27,9 +29,18 @@ pub(super) async fn handle(ev: &Context<'_>) -> anyhow::Result<()> {
 		}
 	};
 
-	// Votes come from the events, since a vote and a close in one block leave no `Voting` in
-	// storage at its end. A changed vote moves the member to the other side.
-	let voter = (ev.method == "Voted").then(|| ev.arg("account").as_str()).flatten();
+	// `Voting` holds an open motion's votes and deadline, and loses the votes of members who
+	// leave the committee, which emits no event. A close in this block removes it, so the
+	// event's own vote is applied instead, moving a changed vote to the other side.
+	let voting = ev
+		.chain
+		.storage_json(&[key("TechnicalCollective", "Voting"), hash_bytes].concat(), ev.block)
+		.await?;
+	let voters = |side: &str| voting.as_ref().map(|voting| voting[side].clone());
+	let voter = match &voting {
+		None if ev.method == "Voted" => ev.arg("account").as_str(),
+		_ => None,
+	};
 	let aye = ev.arg("voted").as_bool().unwrap_or_default();
 	let state = (ev.method != "Voted" && ev.method != "Closed").then_some(&ev.method);
 	let is_final = ["Disapproved", "Executed", "Killed"].contains(&ev.method.as_str());
@@ -37,16 +48,29 @@ pub(super) async fn handle(ev: &Context<'_>) -> anyhow::Result<()> {
 	ev.db
 		.execute(
 			"UPDATE governance.governance_motions SET
-				ayes = CASE WHEN $2::text IS NULL THEN ayes
-					ELSE (ayes - $2::text) || CASE WHEN $3 THEN jsonb_build_array($2::text)
+				ayes = CASE WHEN $2::jsonb IS NOT NULL THEN $2
+					WHEN $4::text IS NULL THEN ayes
+					ELSE (ayes - $4::text) || CASE WHEN $5 THEN jsonb_build_array($4::text)
 						ELSE '[]'::jsonb END END,
-				nays = CASE WHEN $2::text IS NULL THEN nays
-					ELSE (nays - $2::text) || CASE WHEN $3 THEN '[]'::jsonb
-						ELSE jsonb_build_array($2::text) END END,
-				state = coalesce($4, state), is_final = is_final OR $5,
-				result = coalesce($6, result), updated_block = $7
+				nays = CASE WHEN $3::jsonb IS NOT NULL THEN $3
+					WHEN $4::text IS NULL THEN nays
+					ELSE (nays - $4::text) || CASE WHEN $5 THEN '[]'::jsonb
+						ELSE jsonb_build_array($4::text) END END,
+				\"end\" = coalesce($6, \"end\"), state = coalesce($7, state),
+				is_final = is_final OR $8, result = coalesce($9, result), updated_block = $10
 			 WHERE id = $1",
-			&[&id, &voter, &aye, &state, &is_final, &result, &ev.position.block_number],
+			&[
+				&id,
+				&voters("ayes"),
+				&voters("nays"),
+				&voter,
+				&aye,
+				&voting.as_ref().and_then(|voting| int(&voting["end"])),
+				&state,
+				&is_final,
+				&result,
+				&ev.position.block_number,
+			],
 		)
 		.await?;
 
@@ -72,37 +96,31 @@ pub(super) async fn handle(ev: &Context<'_>) -> anyhow::Result<()> {
 	Ok(())
 }
 
-/** Stores a new motion with its call, returning its id. */
-async fn propose(ev: &Context<'_>, hash: &str) -> anyhow::Result<String> {
+/** Stores a new motion with its call, returning its id. Its votes and deadline follow from
+ * `Voting`, read for every motion event. */
+async fn propose(ev: &Context<'_>, hash: &str, hash_bytes: &[u8]) -> anyhow::Result<String> {
 	let index = int(ev.arg("proposalIndex")).unwrap_or_default();
-	let hash_bytes = hex::decode(hash.trim_start_matches("0x"))?;
 	let stored = ev
 		.chain
-		.storage_json(&[key("TechnicalCollective", "ProposalOf"), hash_bytes].concat(), ev.block)
+		.storage_json(
+			&[key("TechnicalCollective", "ProposalOf"), hash_bytes.to_vec()].concat(),
+			ev.block,
+		)
 		.await?;
 	let call = match stored {
 		Some(call) => Some(call),
-		None => proposed_call(ev).await?,
+		None => proposed_call(ev, hash_bytes).await?,
 	};
-	// The motion can be closed from this block plus the motion duration on
-	let duration = ev
-		.chain
-		.constant_json("TechnicalCollective", "MotionDuration", ev.block)
-		.await?;
-	let end = duration
-		.as_ref()
-		.and_then(int)
-		.map(|duration| ev.position.block_number + duration);
 	let p = &ev.position;
 	ev.db
 		.execute(
 			"INSERT INTO governance.governance_motions (id, index, hash, proposer, threshold,
 				call, ayes, nays, \"end\", state, is_final, proposed_block, proposed_at,
 				updated_block)
-			 VALUES ($1, $2, $3, $4, $5, $6, $7, $7, $8, 'Proposed', false, $9, $10, $9)
+			 VALUES ($1, $2, $3, $4, $5, $6, $7, $7, NULL, 'Proposed', false, $8, $9, $8)
 			 ON CONFLICT (id) DO UPDATE SET hash = EXCLUDED.hash, proposer = EXCLUDED.proposer,
 				threshold = EXCLUDED.threshold, call = EXCLUDED.call, ayes = EXCLUDED.ayes,
-				nays = EXCLUDED.nays, \"end\" = EXCLUDED.\"end\", state = EXCLUDED.state,
+				nays = EXCLUDED.nays, \"end\" = NULL, state = EXCLUDED.state,
 				is_final = false, proposed_block = EXCLUDED.proposed_block,
 				proposed_at = EXCLUDED.proposed_at, updated_block = EXCLUDED.updated_block",
 			&[
@@ -113,7 +131,6 @@ async fn propose(ev: &Context<'_>, hash: &str) -> anyhow::Result<String> {
 				&int(ev.arg("threshold")).unwrap_or_default(),
 				&call.as_ref().map(Value::to_string),
 				&json!([]),
-				&end,
 				&p.block_number,
 				&p.timestamp,
 			],
@@ -124,49 +141,14 @@ async fn propose(ev: &Context<'_>, hash: &str) -> anyhow::Result<String> {
 
 /**
  * The call of a motion that storage no longer holds at the end of its block, because it was
- * closed in that block too. It is taken from the extrinsic that proposed it: the extrinsic's
- * motions, in the order they ran, matched to the motions it has proposed so far.
+ * closed in that block too. It is the call in the proposing extrinsic that hashes to the
+ * motion's hash, so a batch's failed proposals can't stand in for it.
  */
-async fn proposed_call(ev: &Context<'_>) -> anyhow::Result<Option<Value>> {
-	let Some(extrinsic) = ev.position.extrinsic_index else { return Ok(None) };
-	let Some(call) = ev.chain.extrinsic_json(extrinsic as u32, ev.block).await? else {
+async fn proposed_call(ev: &Context<'_>, hash: &[u8]) -> anyhow::Result<Option<Value>> {
+	let (Some(extrinsic), Ok(hash)) = (ev.position.extrinsic_index, B256::try_from(hash)) else {
 		return Ok(None);
 	};
-	let earlier: i64 = ev
-		.db
-		.query_one(
-			"SELECT count(*) FROM governance.governance_motion_events
-			 WHERE block_number = $1 AND extrinsic_index = $2 AND name = 'Proposed'",
-			&[&ev.position.block_number, &extrinsic],
-		)
-		.await?
-		.get(0);
-	Ok(motions(&call).into_iter().nth(earlier as usize))
-}
-
-/** The proposals of the `technicalCollective.propose` calls in a call, nested ones included,
- * in the order they run. A threshold below two executes at once and makes no motion. */
-fn motions(value: &Value) -> Vec<Value> {
-	let arg = |args: &Value, name: &str| {
-		args.as_array()
-			.and_then(|args| args.iter().find(|arg| arg["name"] == name))
-			.map(|arg| arg["value"].clone())
-	};
-	match value {
-		Value::Object(call)
-			if call.get("section") == Some(&json!("technicalCollective")) &&
-				call.get("method") == Some(&json!("propose")) =>
-		{
-			let threshold = arg(&call["args"], "threshold").as_ref().and_then(int);
-			match (threshold, arg(&call["args"], "proposal")) {
-				(Some(threshold), Some(proposal)) if threshold >= 2 => vec![proposal],
-				_ => vec![],
-			}
-		},
-		Value::Object(fields) => fields.values().flat_map(motions).collect(),
-		Value::Array(items) => items.iter().flat_map(motions).collect(),
-		_ => vec![],
-	}
+	ev.chain.extrinsic_call_json(extrinsic as u32, hash, ev.block).await
 }
 
 pub(super) async fn whitelist(ev: &Context<'_>) -> anyhow::Result<()> {
@@ -197,27 +179,4 @@ pub(super) async fn whitelist(ev: &Context<'_>) -> anyhow::Result<()> {
 		)
 		.await?;
 	Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-	use super::*;
-
-	fn propose(threshold: u64, method: &str) -> Value {
-		json!({ "section": "technicalCollective", "method": "propose", "args": [
-			{ "name": "threshold", "value": threshold },
-			{ "name": "proposal", "value": { "section": "whitelist", "method": method, "args": [] } },
-			{ "name": "lengthBound", "value": 40 },
-		]})
-	}
-
-	#[test]
-	fn a_batch_yields_its_motions_in_order() {
-		let batch = json!({ "section": "utility", "method": "batchAll", "args": [
-			{ "name": "calls", "value": [propose(2, "whitelistCall"), propose(1, "now"), propose(3, "removeWhitelistedCall")] },
-		]});
-		let methods: Vec<_> = motions(&batch).iter().map(|call| call["method"].clone()).collect();
-		assert_eq!(methods, [json!("whitelistCall"), json!("removeWhitelistedCall")]);
-		assert!(motions(&json!({ "section": "system", "method": "remark", "args": [] })).is_empty());
-	}
 }

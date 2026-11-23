@@ -298,14 +298,20 @@ impl BlockService {
 		.await
 	}
 
-	/** The call of extrinsic `index` of block `at` as JSON, or `None` when the block has no such
-	 * extrinsic. It shows a call that only lived within the block, such as a motion proposed
-	 * and closed in it. The call bytes are checked as `call_json` checks them. */
-	pub async fn extrinsic_json(&self, index: u32, at: u64) -> Result<Option<String>, BlockError> {
+	/** The call in extrinsic `index` of block `at`, its own or one nested in it, whose encoding
+	 * hashes to `hash` with the chain's hasher, as JSON. `None` when there is no such call. It
+	 * shows a call that only lived within the block, such as a motion proposed and closed in
+	 * it. The call bytes are checked as `call_json` checks them. */
+	pub async fn extrinsic_call_json(
+		&self,
+		index: u32,
+		hash: H256,
+		at: u64,
+	) -> Result<Option<String>, BlockError> {
 		let metadata = self.state_metadata(at).await?;
-		let hash = self.canonical_hash(at).await?;
+		let block_hash = self.canonical_hash(at).await?;
 		let block = self
-			.upstream(&format!("block {at}"), || self.rpc.block(hash))
+			.upstream(&format!("block {at}"), || self.rpc.block(block_hash))
 			.await
 			.map_err(|e| BlockError::from(e).at(at))?;
 		let Some(extrinsic) =
@@ -313,6 +319,7 @@ impl BlockService {
 		else {
 			return Ok(None);
 		};
+		let hasher = self.chain.hasher;
 		self.render(metadata, move |encoder| {
 			let extrinsics = Extrinsics::<SubstrateConfig>::decode_from(
 				vec![extrinsic],
@@ -320,7 +327,7 @@ impl BlockService {
 			)
 			.ok()?;
 			let extrinsic = extrinsics.iter().next()?;
-			encoder.decode(encoder.metadata.outer_enums().call_enum_ty(), extrinsic.call_bytes())
+			encoder.nested_call(extrinsic.call_bytes(), |call| hasher.hash(call) == hash)
 		})
 		.await
 	}
@@ -1116,13 +1123,19 @@ mod tests {
 	#[tokio::test]
 	async fn extrinsics_decode_to_their_calls() {
 		let service = new_service(fixture(), 1000);
-		let first = service.extrinsic_json(0, 101).await.unwrap().unwrap();
+		let metadata = decode_metadata(METADATA).unwrap();
+		let extrinsics =
+			Extrinsics::<SubstrateConfig>::decode_from(NEXUS.extrinsics(), metadata).unwrap();
+		let hash = Hasher::Keccak.hash(extrinsics.iter().next().unwrap().call_bytes());
+
+		let first = service.extrinsic_call_json(0, hash, 101).await.unwrap().unwrap();
 		let first: Json = serde_json::from_str(&first).unwrap();
 		assert_eq!(
 			(first["section"].as_str(), first["method"].as_str()),
 			(Some("timestamp"), Some("set"))
 		);
-		assert_eq!(service.extrinsic_json(10_000, 101).await.unwrap(), None);
+		assert_eq!(service.extrinsic_call_json(0, H256::ZERO, 101).await.unwrap(), None);
+		assert_eq!(service.extrinsic_call_json(10_000, hash, 101).await.unwrap(), None);
 	}
 
 	#[tokio::test]

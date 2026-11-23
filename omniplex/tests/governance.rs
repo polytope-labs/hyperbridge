@@ -34,7 +34,7 @@ sol! {
 		function getStorageJson(bytes key) external view returns (string value);
 		function getConstantJson(string pallet, string name) external view returns (string value);
 		function decodeCallJson(bytes call) external view returns (string value);
-		function getExtrinsicJson(uint32 index) external view returns (string value);
+		function getExtrinsicCallJson(uint32 index, bytes32 hash) external view returns (string value);
 	}
 }
 
@@ -88,14 +88,9 @@ impl Node {
 		self.set(call, from, tracks.to_string().abi_encode());
 	}
 
-	fn constant(&self, pallet: &str, name: &str, from: u64, value: Value) {
-		let call =
-			SubstrateStorage::getConstantJsonCall { pallet: pallet.into(), name: name.into() };
-		self.set(call, from, value.to_string().abi_encode());
-	}
-
-	fn extrinsic(&self, index: u32, from: u64, call: Value) {
-		let call_json = SubstrateStorage::getExtrinsicJsonCall { index };
+	/** The call in extrinsic `index` whose encoding hashes to `hash`. */
+	fn extrinsic_call(&self, index: u32, hash: [u8; 32], from: u64, call: Value) {
+		let call_json = SubstrateStorage::getExtrinsicCallJsonCall { index, hash: hash.into() };
 		self.set(call_json, from, call.to_string().abi_encode());
 	}
 
@@ -568,19 +563,9 @@ async fn a_motion_proposed_voted_and_closed_in_one_block_keeps_its_votes_and_cal
 	let db = client.transaction().await.unwrap();
 
 	// Closing in the same block leaves neither `ProposalOf` nor `Voting` in storage, so the call
-	// comes from the extrinsic and the votes from the events
-	node.constant("TechnicalCollective", "MotionDuration", 200, json!(100));
-	let propose = json!({ "section": "technicalCollective", "method": "propose", "args": [
-		{ "name": "threshold", "value": 2 },
-		{ "name": "proposal", "value": { "section": "whitelist", "method": "whitelistCall", "args": [] } },
-	]});
-	node.extrinsic(
-		2,
-		200,
-		json!({ "section": "utility", "method": "batchAll", "args": [
-			{ "name": "calls", "value": [propose] },
-		]}),
-	);
+	// comes from the extrinsic, found by the motion's hash, and the votes from the events
+	let proposal = json!({ "section": "whitelist", "method": "whitelistCall", "args": [] });
+	node.extrinsic_call(2, [0x77; 32], 200, proposal);
 	let hash = json!(format!("0x{}", "77".repeat(32)));
 	let voted = |who: String, aye: bool| {
 		[("account", json!(who)), ("proposalHash", hash.clone()), ("voted", json!(aye))]
@@ -603,12 +588,53 @@ async fn a_motion_proposed_voted_and_closed_in_one_block_keeps_its_votes_and_cal
 
 	let motion = text(
 		&db,
-		"SELECT ayes::text || ' ' || nays::text || ' ' || \"end\" || ' ' || state || ' ' || is_final
-		   || ' ' || (call::jsonb ->> 'method') FROM governance.governance_motions WHERE id = '7'",
+		"SELECT ayes::text || ' ' || nays::text || ' ' || coalesce(\"end\"::text, 'none') || ' ' ||
+		   state || ' ' || is_final || ' ' || (call::jsonb ->> 'method')
+		 FROM governance.governance_motions WHERE id = '7'",
 	)
 	.await;
-	let expected = format!("[\"{}\", \"{}\"] [] 300 Executed true whitelistCall", alice(), bob());
+	let expected = format!("[\"{}\", \"{}\"] [] none Executed true whitelistCall", alice(), bob());
 	assert_eq!(motion.as_deref(), Some(expected.as_str()));
+}
+
+#[tokio::test]
+async fn an_open_motion_follows_voting_and_drops_a_removed_members_vote() {
+	let Some(url) = database_url().await else { return };
+	let node = Node::default();
+	let indexer = indexer(&url, &node).await;
+	let (mut client, connection) = tokio_postgres::connect(&url, NoTls).await.unwrap();
+	tokio::spawn(connection);
+	let db = client.transaction().await.unwrap();
+
+	let charlie = ss58(&[3; 32], 0);
+	let hash = [0x66u8; 32];
+	let voting = [key("TechnicalCollective", "Voting"), hash.to_vec()].concat();
+	let votes = |ayes: Vec<String>| json!({ "index": 8, "threshold": 2, "ayes": ayes, "nays": [], "end": 400 });
+	let hash = json!(format!("0x{}", hex::encode(hash)));
+	let voted = |who: String| {
+		[("account", json!(who)), ("proposalHash", hash.clone()), ("voted", json!(true))]
+	};
+
+	node.json(voting.clone(), 300, Some(votes(vec![alice()])));
+	let proposed = [
+		("account", json!(alice())),
+		("proposalIndex", json!(8)),
+		("proposalHash", hash.clone()),
+		("threshold", json!(2)),
+	];
+	event(&indexer, &db, 300, 1, "technicalCollective", "Proposed", &proposed).await;
+	node.json(voting.clone(), 310, Some(votes(vec![alice(), charlie.clone()])));
+	event(&indexer, &db, 310, 1, "technicalCollective", "Voted", &voted(charlie)).await;
+	// Charlie leaves the committee without an event, and then Bob votes
+	node.json(voting, 320, Some(votes(vec![alice(), bob()])));
+	event(&indexer, &db, 320, 1, "technicalCollective", "Voted", &voted(bob())).await;
+
+	let motion = text(
+		&db,
+		"SELECT ayes::text || ' ' || \"end\" FROM governance.governance_motions WHERE id = '8'",
+	)
+	.await;
+	assert_eq!(motion, Some(format!("[\"{}\", \"{}\"] 400", alice(), bob())));
 }
 
 #[tokio::test]

@@ -4,7 +4,7 @@ use std::{sync::Arc, time::Duration};
 
 use alloy::{
 	eips::BlockId,
-	primitives::{keccak256, Address, Bytes},
+	primitives::{keccak256, Address, Bytes, B256},
 	providers::Provider,
 	rpc::{json_rpc::ErrorPayload, types::TransactionRequest},
 	sol,
@@ -28,7 +28,7 @@ sol! {
 		function getStorageJson(bytes key) external view returns (string value);
 		function getConstantJson(string pallet, string name) external view returns (string value);
 		function decodeCallJson(bytes call) external view returns (string value);
-		function getExtrinsicJson(uint32 index) external view returns (string value);
+		function getExtrinsicCallJson(uint32 index, bytes32 hash) external view returns (string value);
 	}
 }
 
@@ -85,9 +85,15 @@ impl Chain {
 		self.json_call(call.abi_encode(), block).await
 	}
 
-	/** The call of extrinsic `index` of `block`, decoded with the block's runtime. */
-	pub async fn extrinsic_json(&self, index: u32, block: u64) -> anyhow::Result<Option<Value>> {
-		let call = SubstrateStorage::getExtrinsicJsonCall { index };
+	/** The call in extrinsic `index` of `block`, its own or one nested in it, whose encoding
+	 * hashes to `hash`, decoded with the block's runtime. */
+	pub async fn extrinsic_call_json(
+		&self,
+		index: u32,
+		hash: B256,
+		block: u64,
+	) -> anyhow::Result<Option<Value>> {
+		let call = SubstrateStorage::getExtrinsicCallJsonCall { index, hash };
 		self.json_call(call.abi_encode(), block).await
 	}
 

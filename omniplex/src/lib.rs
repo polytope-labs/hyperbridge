@@ -274,6 +274,9 @@ pub async fn import_subquery(config_path: &Path, new_chains: &[String]) -> anyho
 	for (table, rows) in &imported.rows {
 		tracing::info!(table, rows, "copied");
 	}
+	for (table, rows) in &imported.retired {
+		tracing::info!(table, rows, "dropped a table SubQuery's schema no longer has");
+	}
 	for (network, block) in &imported.cursors {
 		tracing::info!(%network, block, "continues after SubQuery's last block");
 	}

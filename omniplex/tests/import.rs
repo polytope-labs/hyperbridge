@@ -148,7 +148,35 @@ async fn a_subquery_copy_becomes_the_indexers_database() {
 	assert_eq!(untouched.as_deref(), Some("true"));
 	db.batch_execute("DROP VIEW public.statuses").await.unwrap();
 
+	// A table SubQuery's schema no longer has. The import drops the retired ones it knows, and
+	// refuses any other, which would lose its rows.
+	db.batch_execute(
+		"CREATE TABLE app.phantom_orders (id text NOT NULL, _id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+		   _block_range int8range NOT NULL);
+		 INSERT INTO app.phantom_orders (id, _block_range) VALUES ('0xp', '[10,20)'), ('0xp', '[20,)');
+		 CREATE TABLE app.mystery_entities (LIKE app.phantom_orders INCLUDING ALL);",
+	)
+	.await
+	.unwrap();
+	let err = subquery::import(&mut db, &config, &names, &new).await.unwrap_err();
+	assert!(err.to_string().contains("[\"mystery_entities\"]"), "{err:#}");
+	let untouched = text(
+		&db,
+		"SELECT (to_regclass('indexer.migrations') IS NULL
+		   AND (SELECT count(*) FROM app.phantom_orders) = 2)::text",
+	)
+	.await;
+	assert_eq!(untouched.as_deref(), Some("true"));
+	db.batch_execute("DROP TABLE app.mystery_entities").await.unwrap();
+
 	let imported = subquery::import(&mut db, &config, &names, &new).await.unwrap();
+	assert_eq!(imported.retired, BTreeMap::from([("phantom_orders".to_string(), 2)]));
+	assert_eq!(
+		text(&db, "SELECT (to_regclass('app.phantom_orders') IS NULL)::text")
+			.await
+			.as_deref(),
+		Some("true")
+	);
 	assert_eq!(
 		imported.cursors,
 		BTreeMap::from([

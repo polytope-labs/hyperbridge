@@ -486,6 +486,51 @@ async fn releases_accumulate_until_the_order_is_redeemed() {
 	assert_eq!(tokens.as_deref(), Some("2"));
 }
 
+/**
+ * The source chain ran ahead: the release or refund was indexed before the destination's fill.
+ * The fill writes its status row and the user's stats, but leaves the order settled.
+ */
+#[tokio::test]
+async fn a_fill_indexed_after_the_settlement_leaves_the_order_settled() {
+	let Some(mut client) = database().await else { return };
+	let db = client.transaction().await.unwrap();
+	let market = TestMarket::new();
+	let g = gateway(&db, &market);
+	let statuses = |c: &str| {
+		format!(
+			"SELECT o.status || ' ' || string_agg(m.status::text, ',' ORDER BY m.id) FROM app.i_order_v3s o
+			 JOIN app.i_order_v3_status_metadata m ON m.order_id = o.id WHERE o.id = '{c}' GROUP BY o.status"
+		)
+	};
+
+	let redeemed = order(vec![token(USDC, 100)], vec![token(WETH, 1)], 11);
+	let c = place(&g, &redeemed, &tx(0xaa, 100, 3)).await;
+	g.record_escrow_release(&c, Some(FILLER), &[token(USDC, 100)], &tx(0xe1, 120, 2))
+		.await
+		.unwrap();
+	g.update_order_status(&c, OrderStatus::Filled, &tx(0xbb, 110, 5), Some(FILLER))
+		.await
+		.unwrap();
+	assert_eq!(one(&db, &statuses(&c)).await.as_deref(), Some("REDEEMED FILLED,PLACED,REDEEMED"));
+	let user = one(
+		&db,
+		"SELECT total_filled_orders::text FROM app.user_activity_v2s
+		 WHERE id = '0x3c43ad0f71bb11ba2cc9466c2c8614bbb2589d3d'",
+	)
+	.await;
+	assert_eq!(user.as_deref(), Some("1"));
+
+	let refunded = order(vec![token(USDC, 100)], vec![token(WETH, 1)], 12);
+	let c = place(&g, &refunded, &tx(0xa2, 100, 4)).await;
+	g.update_order_status(&c, OrderStatus::Refunded, &tx(0xf2, 130, 1), None)
+		.await
+		.unwrap();
+	g.update_order_status(&c, OrderStatus::Filled, &tx(0xb2, 110, 6), Some(FILLER))
+		.await
+		.unwrap();
+	assert_eq!(one(&db, &statuses(&c)).await.as_deref(), Some("REFUNDED FILLED,PLACED,REFUNDED"));
+}
+
 #[tokio::test]
 async fn cancellations_write_metadata_never_the_order_row() {
 	let Some(mut client) = database().await else { return };

@@ -408,7 +408,11 @@ impl Gateway<'_> {
 		Ok(())
 	}
 
-	/** `updateOrderStatus`. A missing order parks the status in `pending_status_metadata`. */
+	/**
+	 * `updateOrderStatus`. A missing order parks the status in `pending_status_metadata`. The
+	 * order row only moves forward (`OrderStatus::supersedes`); the status row and a fill's
+	 * stats are written either way.
+	 */
 	pub async fn update_order_status(
 		&self,
 		commitment: &str,
@@ -420,7 +424,7 @@ impl Gateway<'_> {
 		let row = self
 			.db
 			.query_opt(
-				"SELECT \"user\", referrer, input_u_s_d, source_chain FROM app.i_order_v3s
+				"SELECT \"user\", referrer, input_u_s_d, source_chain, status FROM app.i_order_v3s
 				 WHERE id = $1 FOR UPDATE",
 				&[&commitment],
 			)
@@ -444,7 +448,8 @@ impl Gateway<'_> {
 			)
 			.await;
 		};
-		if status != OrderStatus::Placed {
+		let current: OrderStatus = row.get(4);
+		if status.supersedes(current) {
 			self.db
 				.execute(
 					"UPDATE app.i_order_v3s SET status = $2 WHERE id = $1",

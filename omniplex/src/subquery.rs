@@ -15,6 +15,21 @@ use crate::{config::Config, db};
 /** Where SubQuery's tables wait while the import copies them, before they are dropped. */
 const OLD_SCHEMA: &str = "subquery";
 
+/**
+ * Tables of entities SubQuery's schema no longer has: the dust events, since renamed
+ * `protocol_dust_*`, and the phantom order and liquidity provider entities. SubQuery stopped
+ * writing them but never drops a table, so its mainnet database still holds them. They go
+ * with SubQuery's schema. Any other table only SubQuery has fails the import.
+ */
+const RETIRED_TABLES: &[&str] = &[
+	"dust_collecteds",
+	"dust_swepts",
+	"liquidity_provider_balances",
+	"phantom_order_lp_balances",
+	"phantom_order_price_snapshots",
+	"phantom_orders",
+];
+
 /** What an import did. */
 #[derive(Debug, Default)]
 pub struct Imported {
@@ -22,6 +37,8 @@ pub struct Imported {
 	pub cursors: BTreeMap<String, u64>,
 	/** The rows copied into each table. */
 	pub rows: BTreeMap<String, u64>,
+	/** The retired tables the copy had, with their rows, which were dropped. */
+	pub retired: BTreeMap<String, u64>,
 }
 
 /**
@@ -93,13 +110,22 @@ pub async fn import(
 
 	// SubQuery's own tables start with `_`, and go with its schema.
 	let tables = entity_tables(&tx, "app").await?;
-	let only_subquery: Vec<String> = entity_tables(&tx, OLD_SCHEMA)
-		.await?
-		.into_iter()
-		.filter(|table| !tables.contains(table))
-		.collect();
+	let (retired_tables, only_subquery): (Vec<String>, Vec<String>) =
+		entity_tables(&tx, OLD_SCHEMA)
+			.await?
+			.into_iter()
+			.filter(|table| !tables.contains(table))
+			.partition(|table| RETIRED_TABLES.contains(&table.as_str()));
 	if !only_subquery.is_empty() {
 		bail!("only SubQuery has the tables {only_subquery:?}, which the import would drop");
+	}
+	let mut retired = BTreeMap::new();
+	for table in retired_tables {
+		let rows: i64 = tx
+			.query_one(&format!("SELECT count(*) FROM {OLD_SCHEMA}.\"{table}\""), &[])
+			.await?
+			.get(0);
+		retired.insert(table, rows as u64);
 	}
 	let mut rows = BTreeMap::new();
 	for table in tables {
@@ -116,7 +142,7 @@ pub async fn import(
 	refuse_outside_dependents(&tx).await?;
 	tx.batch_execute(&format!("DROP SCHEMA {OLD_SCHEMA} CASCADE")).await?;
 	tx.commit().await?;
-	Ok(Imported { cursors, rows })
+	Ok(Imported { cursors, rows, retired })
 }
 
 /**

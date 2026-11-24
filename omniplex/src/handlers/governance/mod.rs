@@ -1,13 +1,11 @@
 //! The governance forum's tables: OpenGov referenda with their votes and delegations, technical
 //! committee motions, whitelisted calls, preimages and treasury spends, from substrate-eth-rpc's
-//! `governance` logs. A governance config (`mode = "governance"`) runs these handlers and
+//! `governance` logs. A chain entry with `handlers = "governance"` runs these handlers and
 //! nothing else. Storage is read at the event's block, so the history they keep is exact.
 
 mod motions;
 mod preimages;
 mod referenda;
-
-pub use referenda::NON_STATE_EVENTS;
 mod treasury;
 mod voting;
 

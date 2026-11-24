@@ -29,7 +29,7 @@ use tokio::sync::{watch, Semaphore};
 
 use self::{signed::SignedEntity, users::ProfileField};
 use crate::{
-	db::{self, Pool},
+	db::Pool,
 	error::{ApiError, ApiResult},
 	limits::{self, RateLimiter},
 	primitives::Paging,
@@ -52,19 +52,15 @@ pub struct AppState {
 }
 
 impl AppState {
-	/// Links the indexer's metadata and starts following the indexed height.
+	/// Starts following the indexed height.
 	pub async fn new(
 		db: Pool,
 		admins: BTreeSet<String>,
 		limiter: RateLimiter,
 		domain: &str,
 	) -> anyhow::Result<Self> {
-		let connection = db.get().await?;
-		let tables = db::metadata_tables(&connection).await?;
-		db::link_metadata(&connection, &tables).await?;
-		drop(connection);
 		let (sender, height) = watch::channel(0);
-		tokio::spawn(chain::follow_height(db.clone(), sender, Some(tables)));
+		tokio::spawn(chain::follow_height(db.clone(), sender));
 		Ok(Self {
 			db,
 			admins: Arc::new(admins),

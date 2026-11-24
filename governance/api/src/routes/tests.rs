@@ -143,15 +143,13 @@ impl Visitor {
 	}
 }
 
-const METADATA: &str = "app.\"_metadata_0x1867da0954c96ede\"";
 /// A voter in the fixture, and the account delegating to it.
 const VOTER: &str = "12ve5fWBPUnhqZFvZtzg5QVND5dBkdWQfC5boWywnsob5PMH";
 const DELEGATOR: &str = "1333zsMafds2sKAr8nG3zwXTCHPYv2Nm6CRgakpu6YVGt7nM";
 const INDEXED_HEIGHT: i64 = 12337798;
 
-/// Creates the governance tables from omniplex's migration and loads the fixture into them, with
-/// the indexer's metadata table set aside so the API
-/// starts before omniplex has created it, and serves the API on a free port. The test reaches it
+/// Creates the governance tables from omniplex's migration and loads the fixture into them, before
+/// omniplex has recorded any progress, and serves the API on a free port. The test reaches it
 /// from 127.0.0.1, which is trusted as a proxy so each visitor can name its own address. Returns
 /// the API's address and a connection to the database.
 async fn serve(admins: Vec<String>) -> anyhow::Result<(String, Client)> {
@@ -160,17 +158,13 @@ async fn serve(admins: Vec<String>) -> anyhow::Result<(String, Client)> {
 	tokio::spawn(connection);
 	client
 		.batch_execute(
-			"DROP SCHEMA IF EXISTS forum CASCADE; DROP SCHEMA IF EXISTS governance CASCADE;
-			DROP SCHEMA IF EXISTS app CASCADE;",
+			"DROP SCHEMA IF EXISTS forum CASCADE; DROP SCHEMA IF EXISTS governance CASCADE;",
 		)
 		.await?;
 	client
 		.batch_execute(include_str!("../../../../omniplex/migrations/0004_governance.sql"))
 		.await?;
 	client.batch_execute(include_str!("../../tests/governance.sql")).await?;
-	client
-		.batch_execute(&format!("ALTER TABLE {METADATA} RENAME TO not_yet_created"))
-		.await?;
 
 	let state = AppState {
 		// One stream at a time, so the cap is easy to reach
@@ -198,15 +192,18 @@ async fn serves_the_forum() -> anyhow::Result<()> {
 	let (base, db) = serve(vec![address(&alice)]).await?;
 	let anyone = Visitor::new(&base);
 
-	// The API starts before omniplex has created its metadata table, and finds it once it exists
+	// The API starts before omniplex has recorded any progress, and follows it once it does
 	assert_eq!(anyone.get("inspect/scan-height").await?["value"], 0);
 	let mut stream = anyone.http.get(format!("{base}/stream/scan-height")).send().await?;
 	let first = stream.chunk().await?.context("the stream sends the height straight away")?;
 	assert_eq!(serde_json::from_slice::<Value>(&first)?["value"], 0);
 	let (status, _) = anyone.call(Method::GET, "stream/scan-height", None).await?;
 	assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE, "open streams are capped");
-	db.batch_execute(&format!("ALTER TABLE app.not_yet_created RENAME TO {}", &METADATA[4..]))
-		.await?;
+	db.batch_execute(&format!(
+		"INSERT INTO governance._metadata VALUES
+			('lastProcessedHeight', '{INDEXED_HEIGHT}', now(), now())"
+	))
+	.await?;
 	let changed = tokio::time::timeout(Duration::from_secs(10), stream.chunk()).await??;
 	let changed = changed.context("the stream follows the height")?;
 	assert_eq!(serde_json::from_slice::<Value>(&changed)?["value"], INDEXED_HEIGHT);

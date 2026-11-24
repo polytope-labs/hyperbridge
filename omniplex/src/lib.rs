@@ -30,7 +30,7 @@ use rindexer::{
 
 use crate::{
 	chains::Chain,
-	config::{env_key, env_urls, ChainKind, Config, Mode},
+	config::{env_key, env_urls, ChainHandlers, ChainKind, Config},
 	substrate::SubstrateRpc,
 };
 
@@ -52,9 +52,12 @@ impl Indexer {
 		self.chains.get(network).ok_or_else(|| anyhow!("unknown network {network}"))
 	}
 
-	/** The chain with this ISMP state machine id, if the indexer follows it. */
+	/** The chain with this ISMP state machine id, if the indexer follows it. A governance entry
+	 * follows a chain the indexer's own entry does, so it never answers. */
 	pub fn chain_by_state_machine(&self, state_machine_id: &str) -> Option<&Chain> {
-		self.chains.values().find(|c| c.state_machine_id() == state_machine_id)
+		self.chains.values().find(|c| {
+			c.config.handlers == ChainHandlers::Indexer && c.state_machine_id() == state_machine_id
+		})
 	}
 }
 
@@ -100,9 +103,6 @@ pub async fn run(
 	let cursors = {
 		let mut conn = db.raw_connection().await?;
 		db::apply_migrations(&mut conn).await?;
-		let tx = conn.transaction().await?;
-		db::claim_mode(&tx, config.mode).await?;
-		tx.commit().await?;
 		let cursors = db::cursor_blocks(&conn).await?;
 		let tx = conn.transaction().await?;
 		let mut unsynced = BTreeMap::new();
@@ -136,12 +136,14 @@ pub async fn run(
 		.map(|(name, chain)| (name.clone(), chain.rpc_urls[0].clone()))
 		.collect();
 
-	let handlers = handlers::for_mode(config.mode);
+	// Each entry runs its own handlers, so the governance entry and the indexer's Nexus entry
+	// never run each other's.
 	let routes: HashMap<String, Arc<registry::ChainRoutes>> = config
 		.chains
 		.iter()
 		.filter(|(name, _)| chains.contains_key(*name))
 		.map(|(name, chain)| {
+			let handlers = handlers::for_chain(&config, chain);
 			let routes =
 				registry::ChainRoutes::new(chain, &handlers.subscriptions, &handlers.hooks);
 			(name.clone(), Arc::new(routes))
@@ -211,10 +213,11 @@ pub async fn run(
 		orderbook: services::prices::Orderbook::from_env(http.clone()),
 		http,
 	});
-	// Only the indexer has background jobs. The explorer's chains keep no SubQuery metadata,
-	// while the governance API reads how far its chain is indexed from it.
-	let mode = indexer.config.mode;
-	if mode == Mode::Indexer {
+	// The background jobs serve the indexer's handlers, so a process that runs only governance
+	// entries, or an explorer, starts none. The explorer's chains keep no SubQuery metadata.
+	let explorer = indexer.config.explorer;
+	let runs_indexer = indexer.chains.values().any(|c| c.config.handlers == ChainHandlers::Indexer);
+	if !explorer && runs_indexer {
 		handlers::spawn_tasks(&indexer);
 	}
 	let mut registry = EventCallbackRegistry::new();
@@ -226,7 +229,7 @@ pub async fn run(
 		&providers,
 		&mut registry,
 	)?;
-	if mode != Mode::Explorer {
+	if !explorer {
 		registry::spawn_upkeep(indexer.clone(), &routes);
 	}
 
@@ -244,7 +247,7 @@ pub async fn run(
 	.await
 	.map_err(|e| anyhow!("rindexer: {e:?}"))?;
 	// With end blocks nothing goes live, so rindexer returns once history is done.
-	if !end_blocks.is_empty() && mode != Mode::Explorer {
+	if !end_blocks.is_empty() && !explorer {
 		registry::finish_upkeep(&indexer, &routes).await;
 	}
 	Ok(())
@@ -252,16 +255,19 @@ pub async fn run(
 
 /**
  * Turns the copy of SubQuery's database at `DATABASE_URL` into this indexer's, so each chain
- * continues after the last block SubQuery indexed. A governance config takes a copy of
- * SubQuery's governance database. `new_chains` are the chains SubQuery never
- * indexed, which start at their start block. A Substrate chain's node, at `<CHAIN>_SUBSTRATE`,
- * gives the name SubQuery's metadata knows it by.
+ * continues after the last block SubQuery indexed. `new_chains` are the chains SubQuery never
+ * indexed, which start at their start block, as governance entries do. A Substrate chain's
+ * node, at `<CHAIN>_SUBSTRATE`, gives the name SubQuery's metadata knows it by.
  */
 pub async fn import_subquery(config_path: &Path, new_chains: &[String]) -> anyhow::Result<()> {
 	let config = Config::load(config_path)?;
 	let http = reqwest::Client::builder().build()?;
 	let mut names = BTreeMap::new();
-	for (network, chain) in &config.chains {
+	let indexed = config
+		.chains
+		.iter()
+		.filter(|(_, chain)| chain.handlers == ChainHandlers::Indexer);
+	for (network, chain) in indexed {
 		let node = match chain.kind {
 			ChainKind::Substrate => {
 				let urls = env_urls(&format!("{}_SUBSTRATE", env_key(network)))?;

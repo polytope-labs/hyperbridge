@@ -31,7 +31,7 @@ pub const POST_COLUMNS: &str = concat!(
 
 /// The block the governance indexer has processed up to, or NULL before it has recorded one.
 pub const INDEXED_HEIGHT: &str =
-	"(SELECT (value #>> '{}')::int FROM _metadata WHERE key = 'lastProcessedHeight')";
+	"(SELECT (value #>> '{}')::int FROM governance._metadata WHERE key = 'lastProcessedHeight')";
 
 /// A subquery for an item's first (`ASC`) or last (`DESC`) event in `events` matching `filter`, to
 /// join laterally.

@@ -1,9 +1,8 @@
 //! Starting from a copy of SubQuery's database. SubQuery keeps every version of a row in its
-//! tables, keyed by `_id`, with the time each version held in `_block_range`. This indexer
-//! keeps the current version, keyed by `id`, except in `solver_inventories`. The import turns
-//! the copy into this indexer's database, and each chain continues after the last block
-//! SubQuery indexed. The indexer's tables are SubQuery's `app` schema, and a governance
-//! config's are the `governance` schema of SubQuery's governance project.
+//! `app` tables, keyed by `_id`, with the time each version held in `_block_range`. This
+//! indexer keeps the current version, keyed by `id`, except in `solver_inventories`. The
+//! import turns the copy into this indexer's database, and each chain continues after the last
+//! block SubQuery indexed.
 
 use std::{collections::BTreeMap, time::Duration};
 
@@ -12,34 +11,12 @@ use serde_json::Value;
 use tokio_postgres::{Client, IsolationLevel, Transaction};
 
 use crate::{
-	config::{Config, Mode},
+	config::{ChainHandlers, Config},
 	db,
-	handlers::governance::NON_STATE_EVENTS,
 };
 
 /** Where SubQuery's tables wait while the import copies them, before they are dropped. */
 const OLD_SCHEMA: &str = "subquery";
-
-/**
- * Sets `changes_state` on every imported referendum event from [`NON_STATE_EVENTS`], since
- * SubQuery left it NULL on rows written before it had the column and set a referendum's state
- * on `MetadataSet` and `MetadataCleared`, which anyone can send once it has ended. A state
- * taken from one of those goes back to that of the referendum's last other event.
- */
-fn restore_states() -> String {
-	let names = NON_STATE_EVENTS.iter().map(|name| format!("'{name}'")).collect::<Vec<_>>();
-	let names = names.join(", ");
-	format!(
-		"UPDATE governance.governance_referendum_events SET changes_state = name NOT IN ({names});
-		UPDATE governance.governance_referendums r SET state = last.name
-		FROM (
-			SELECT DISTINCT ON (referendum_id) referendum_id, name
-			FROM governance.governance_referendum_events WHERE changes_state
-			ORDER BY referendum_id, block_number DESC, event_index DESC
-		) last
-		WHERE last.referendum_id = r.id AND r.state IN ({names});"
-	)
-}
 
 /** What an import did. */
 #[derive(Debug, Default)]
@@ -53,8 +30,8 @@ pub struct Imported {
 /**
  * Turns a copy of SubQuery's database into this indexer's, in one transaction, so a failure
  * leaves the copy as it was. `names` holds the name SubQuery's metadata gives each chain of
- * the config. `new_chains` are the chains SubQuery never indexed: they start at their start
- * block. Every other chain needs a height in SubQuery's metadata.
+ * the config's indexer entries. `new_chains` are the chains SubQuery never indexed: they start
+ * at their start block. Every other indexer entry needs a height in SubQuery's metadata.
  */
 pub async fn import(
 	conn: &mut Client,
@@ -62,10 +39,6 @@ pub async fn import(
 	names: &BTreeMap<String, String>,
 	new_chains: &[String],
 ) -> anyhow::Result<Imported> {
-	if config.mode == Mode::Explorer {
-		bail!("an explorer config indexes from genesis; there is nothing to import");
-	}
-	let schema = config.mode.schema();
 	refuse_other_clients(conn).await?;
 	// One snapshot for the heights and the rows, so a writer that commits during the import
 	// can't put copied rows past the cursors.
@@ -80,21 +53,19 @@ pub async fn import(
 	}
 	if !flag(
 		&tx,
-		&format!(
-			"SELECT EXISTS (SELECT 1 FROM information_schema.columns
-			   WHERE table_schema = '{schema}' AND column_name = '_block_range')"
-		),
+		"SELECT EXISTS (SELECT 1 FROM information_schema.columns
+		   WHERE table_schema = 'app' AND column_name = '_block_range')",
 	)
 	.await?
 	{
-		bail!("schema {schema} holds no SubQuery tables");
+		bail!("schema app holds no SubQuery tables");
 	}
 	if flag(&tx, &format!("SELECT to_regnamespace('{OLD_SCHEMA}') IS NOT NULL")).await? {
 		bail!("schema {OLD_SCHEMA} exists; the import needs the name for SubQuery's tables");
 	}
-	refuse_rewind(&tx, schema).await?;
+	refuse_rewind(&tx).await?;
 
-	let heights = subquery_heights(&tx, schema).await?;
+	let heights = subquery_heights(&tx).await?;
 	let cursors = chain_cursors(config, names, new_chains, &heights)?;
 	for (name, height) in &heights {
 		if !names.values().any(|known| known == name) {
@@ -106,8 +77,7 @@ pub async fn import(
 		}
 	}
 
-	tx.batch_execute(&format!("ALTER SCHEMA {schema} RENAME TO {OLD_SCHEMA}"))
-		.await?;
+	tx.batch_execute(&format!("ALTER SCHEMA app RENAME TO {OLD_SCHEMA}")).await?;
 	// An extension in SubQuery's schema would go when it is dropped, with the indexes that use it.
 	let extensions = tx
 		.query(
@@ -125,7 +95,7 @@ pub async fn import(
 	db::apply_in(&tx).await?;
 
 	// SubQuery's own tables start with `_`, and go with its schema.
-	let tables = entity_tables(&tx, schema).await?;
+	let tables = entity_tables(&tx, "app").await?;
 	let only_subquery: Vec<String> = entity_tables(&tx, OLD_SCHEMA)
 		.await?
 		.into_iter()
@@ -136,13 +106,8 @@ pub async fn import(
 	}
 	let mut rows = BTreeMap::new();
 	for table in tables {
-		let copied = copy_table(&tx, schema, &table)
-			.await
-			.with_context(|| format!("copying {table}"))?;
+		let copied = copy_table(&tx, &table).await.with_context(|| format!("copying {table}"))?;
 		rows.insert(table, copied);
-	}
-	if config.mode == Mode::Governance {
-		tx.batch_execute(&restore_states()).await?;
 	}
 	for (network, block) in &cursors {
 		tx.execute(
@@ -224,16 +189,13 @@ async fn refuse_other_clients(conn: &Client) -> anyhow::Result<()> {
 }
 
 /** Fails on a copy taken while SubQuery was rewinding its chains together, which is half done. */
-async fn refuse_rewind(tx: &Transaction<'_>, schema: &str) -> anyhow::Result<()> {
-	if !flag(tx, &format!("SELECT to_regclass('{schema}._global') IS NOT NULL")).await? {
+async fn refuse_rewind(tx: &Transaction<'_>) -> anyhow::Result<()> {
+	if !flag(tx, "SELECT to_regclass('app._global') IS NOT NULL").await? {
 		return Ok(());
 	}
 	if flag(
 		tx,
-		&format!(
-			"SELECT EXISTS (SELECT 1 FROM {schema}._global
-			   WHERE status::text IS DISTINCT FROM 'complete')"
-		),
+		"SELECT EXISTS (SELECT 1 FROM app._global WHERE status::text IS DISTINCT FROM 'complete')",
 	)
 	.await?
 	{
@@ -247,16 +209,13 @@ async fn refuse_rewind(tx: &Transaction<'_>, schema: &str) -> anyhow::Result<()>
  * tables. Fails when a table says SubQuery kept history by anything but timestamp, the way
  * `solver_inventories` keeps it here.
  */
-async fn subquery_heights(
-	tx: &Transaction<'_>,
-	schema: &str,
-) -> anyhow::Result<BTreeMap<String, u64>> {
+async fn subquery_heights(tx: &Transaction<'_>) -> anyhow::Result<BTreeMap<String, u64>> {
 	let tables = tx
 		.query(
-			"SELECT c.relname::text FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
-			 WHERE n.nspname = $1 AND c.relkind = 'r'
+			"SELECT c.relname::text FROM pg_class c
+			 WHERE c.relnamespace = 'app'::regnamespace AND c.relkind = 'r'
 			   AND c.relname LIKE '\\_metadata%'",
-			&[&schema],
+			&[],
 		)
 		.await?;
 	let mut heights = BTreeMap::new();
@@ -265,7 +224,7 @@ async fn subquery_heights(
 		let entries: BTreeMap<String, Value> = tx
 			.query(
 				&format!(
-					"SELECT key::text, value FROM {schema}.\"{table}\"
+					"SELECT key::text, value FROM app.\"{table}\"
 					 WHERE key IN ('chain', 'lastProcessedHeight', 'historicalStateEnabled')"
 				),
 				&[],
@@ -296,7 +255,8 @@ async fn subquery_heights(
 /**
  * Each chain's cursor at SubQuery's height. A chain without a height must be one of
  * `new_chains`: started at its start block on data SubQuery already indexed, it would count
- * everything twice.
+ * everything twice. A governance entry starts at its start block, since SubQuery's database
+ * holds none of its tables.
  */
 fn chain_cursors(
 	config: &Config,
@@ -309,7 +269,11 @@ fn chain_cursors(
 	}
 	let mut cursors = BTreeMap::new();
 	let mut missing = vec![];
-	for network in config.chains.keys() {
+	let indexed = config
+		.chains
+		.iter()
+		.filter(|(_, chain)| chain.handlers == ChainHandlers::Indexer);
+	for (network, _) in indexed {
 		let name = names.get(network).ok_or_else(|| anyhow!("no SubQuery name for {network}"))?;
 		match (heights.get(name), new_chains.contains(network)) {
 			(Some(height), false) => {
@@ -375,8 +339,8 @@ async fn columns(tx: &Transaction<'_>, schema: &str, table: &str) -> anyhow::Res
  * history too, else each row's current version. Fails when the two tables' columns differ,
  * other than SubQuery's history columns, since the copy would lose or invent values.
  */
-async fn copy_table(tx: &Transaction<'_>, schema: &str, table: &str) -> anyhow::Result<u64> {
-	let target = columns(tx, schema, table).await?;
+async fn copy_table(tx: &Transaction<'_>, table: &str) -> anyhow::Result<u64> {
+	let target = columns(tx, "app", table).await?;
 	let source = columns(tx, OLD_SCHEMA, table).await?;
 	if source.is_empty() {
 		bail!("SubQuery has no such table");
@@ -402,22 +366,22 @@ async fn copy_table(tx: &Transaction<'_>, schema: &str, table: &str) -> anyhow::
 	let values: Vec<String> = target
 		.iter()
 		.map(|column| match column.data_type.as_str() {
-			"USER-DEFINED" =>
-				format!("s.\"{}\"::text::{schema}.\"{}\"", column.name, column.udt_name),
+			"USER-DEFINED" => format!("s.\"{}\"::text::app.\"{}\"", column.name, column.udt_name),
 			_ => format!("s.\"{}\"", column.name),
 		})
 		.collect();
 	let (names, values) = (names.join(", "), values.join(", "));
 	let current_only = has(&source, "_block_range") && !has(&target, "_block_range");
-	let sql = if current_only {
-		format!(
-			"INSERT INTO {schema}.\"{table}\" ({names})
+	let sql =
+		if current_only {
+			format!(
+				"INSERT INTO app.\"{table}\" ({names})
 			 SELECT DISTINCT ON (s.id) {values} FROM {OLD_SCHEMA}.\"{table}\" s
 			 WHERE upper_inf(s._block_range) ORDER BY s.id, lower(s._block_range) DESC"
-		)
-	} else {
-		format!("INSERT INTO {schema}.\"{table}\" ({names}) SELECT {values} FROM {OLD_SCHEMA}.\"{table}\" s")
-	};
+			)
+		} else {
+			format!("INSERT INTO app.\"{table}\" ({names}) SELECT {values} FROM {OLD_SCHEMA}.\"{table}\" s")
+		};
 	let copied = tx.execute(&sql, &[]).await?;
 	if current_only {
 		// SubQuery's multichain history can leave a row with two open versions. The copy keeps

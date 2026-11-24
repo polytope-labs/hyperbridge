@@ -11,7 +11,7 @@ pub mod solver;
 use std::sync::Arc;
 
 use crate::{
-	config::Mode,
+	config::{ChainConfig, ChainHandlers, Config},
 	registry::{BlockHook, Subscription},
 	Indexer,
 };
@@ -33,12 +33,12 @@ pub fn all() -> Handlers {
 	handlers
 }
 
-/** The handlers a config of this mode runs. */
-pub fn for_mode(mode: Mode) -> Handlers {
-	match mode {
-		Mode::Indexer => all(),
-		Mode::Explorer => explorer::handlers(),
-		Mode::Governance => governance::handlers(),
+/** The handlers a chain entry of `config` runs. */
+pub fn for_chain(config: &Config, chain: &ChainConfig) -> Handlers {
+	match (config.explorer, chain.handlers) {
+		(true, _) => explorer::handlers(),
+		(false, ChainHandlers::Indexer) => all(),
+		(false, ChainHandlers::Governance) => governance::handlers(),
 	}
 }
 

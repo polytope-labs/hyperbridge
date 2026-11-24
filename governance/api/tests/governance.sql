@@ -2,14 +2,6 @@
 -- the shapes it writes them, for the API's integration test. The test creates the governance
 -- tables from omniplex's migration first. Referenda 81 to 83 and the spends and delegations are
 -- made up to cover states the indexed blocks never reached.
-CREATE SCHEMA app;
-
-CREATE TABLE app."_metadata_0x1867da0954c96ede" (
-	key character varying(255) NOT NULL PRIMARY KEY,
-	value jsonb,
-	"createdAt" timestamp with time zone NOT NULL,
-	"updatedAt" timestamp with time zone NOT NULL
-);
 
 INSERT INTO governance.governance_motions VALUES
 	('65', 65, '0xe526eafaa7faf08bdfc617829ccbc7958c41ffc4e6f43a8d488fe95ebdc8be49', '15PCbSw1gdtCG9fp1AdLVEQnovPh7LLYWN9krTDAZYhHirSY', 2, '{"callIndex":"0x5300","section":"whitelist","method":"whitelistCall","args":[{"name":"callHash","type":"H256","value":"0x3437c169b25cdf20c03e0241c5204151ffc478c4c8b2878f6fffe27052f5f029"}]}', '["15PCbSw1gdtCG9fp1AdLVEQnovPh7LLYWN9krTDAZYhHirSY", "1333zsMafds2sKAr8nG3zwXTCHPYv2Nm6CRgakpu6YVGt7nM"]', '[]', 12285416, 'Executed', true, '{"ok":null}', 12249416, '2026-10-09 17:03:24', 12249554),
@@ -116,7 +108,3 @@ INSERT INTO governance.governance_treasury_spends VALUES
 	('1', 1, '"native"', 1000, '"12ve5fWBPUnhqZFvZtzg5QVND5dBkdWQfC5boWywnsob5PMH"', 12200000, 12300000, 'Approved', NULL, 12200000, '2026-10-01 10:00:00', 12200000),
 	('2', 2, '"native"', 1000, '"12ve5fWBPUnhqZFvZtzg5QVND5dBkdWQfC5boWywnsob5PMH"', 12200000, 12400000, 'Failed', '8', 12200000, '2026-10-01 10:00:00', 12210000),
 	('3', 3, '"native"', 1000, '"12ve5fWBPUnhqZFvZtzg5QVND5dBkdWQfC5boWywnsob5PMH"', 12200000, 12400000, 'Processed', '9', 12200000, '2026-10-01 10:00:00', 12220000);
-INSERT INTO app."_metadata_0x1867da0954c96ede" VALUES
-	('chain', '"Hyperbridge (Nexus)"', '2026-10-15 19:18:38.92+00', '2026-10-15 19:18:38.92+00'),
-	('targetHeight', '12337798', '2026-10-15 19:18:51.311+00', '2026-10-15 19:18:51.311+00'),
-	('lastProcessedHeight', '12337798', '2026-10-15 19:18:51.311+00', '2026-10-15 19:18:51.311+00');

@@ -16,7 +16,7 @@ use axum::{extract::State, routing::post, Json, Router};
 use codec::Encode;
 use omniplex::{
 	chains::Chain,
-	config::{ChainConfig, ChainKind, Config, Contracts, Environment, Mode},
+	config::{ChainConfig, ChainHandlers, ChainKind, Config, Contracts, Environment},
 	handlers::{abi::pallets::Governance, governance},
 	registry::{EventContext, EventHandler, LogMeta},
 	services::prices::Orderbook,
@@ -197,6 +197,7 @@ async fn indexer(url: &str, node: &Node) -> Indexer {
 	std::env::set_var("DATABASE_URL", url);
 	let config = ChainConfig {
 		kind: ChainKind::Substrate,
+		handlers: ChainHandlers::Governance,
 		chain_id: 1000003367,
 		state_machine_id: "POLKADOT-3367".into(),
 		start_block: 0,
@@ -218,7 +219,7 @@ async fn indexer(url: &str, node: &Node) -> Indexer {
 	Indexer {
 		config: Config {
 			environment: Environment::Mainnet,
-			mode: Mode::Governance,
+			explorer: false,
 			chains: BTreeMap::from([(NETWORK.to_string(), config)]),
 		},
 		db: Arc::new(rindexer::PostgresClient::new().await.unwrap()),
@@ -632,6 +633,51 @@ async fn an_open_motion_follows_voting_and_drops_a_removed_members_vote() {
 	let motion = text(
 		&db,
 		"SELECT ayes::text || ' ' || \"end\" FROM governance.governance_motions WHERE id = '8'",
+	)
+	.await;
+	assert_eq!(motion, Some(format!("[\"{}\", \"{}\"] 400", alice(), bob())));
+}
+
+/** A member who left without an event loses their vote on a motion whose last vote closes it in
+ * the same block, since its votes start from `Voting` at the end of the block before. */
+#[tokio::test]
+async fn a_motion_closed_by_its_last_vote_drops_a_removed_members_vote() {
+	let Some(url) = database_url().await else { return };
+	let node = Node::default();
+	let indexer = indexer(&url, &node).await;
+	let (mut client, connection) = tokio_postgres::connect(&url, NoTls).await.unwrap();
+	tokio::spawn(connection);
+	let db = client.transaction().await.unwrap();
+
+	let charlie = ss58(&[3; 32], 0);
+	let hash = [0x67u8; 32];
+	let voting = [key("TechnicalCollective", "Voting"), hash.to_vec()].concat();
+	let votes = |ayes: Vec<String>| json!({ "index": 9, "threshold": 2, "ayes": ayes, "nays": [], "end": 400 });
+	let hash = json!(format!("0x{}", hex::encode(hash)));
+	let voted = |who: String| {
+		[("account", json!(who)), ("proposalHash", hash.clone()), ("voted", json!(true))]
+	};
+
+	node.json(voting.clone(), 300, Some(votes(vec![alice()])));
+	let proposed = [
+		("account", json!(alice())),
+		("proposalIndex", json!(9)),
+		("proposalHash", hash.clone()),
+		("threshold", json!(2)),
+	];
+	event(&indexer, &db, 300, 1, "technicalCollective", "Proposed", &proposed).await;
+	node.json(voting.clone(), 310, Some(votes(vec![alice(), charlie.clone()])));
+	event(&indexer, &db, 310, 1, "technicalCollective", "Voted", &voted(charlie)).await;
+	// Charlie leaves the committee without an event, then Bob's vote closes the motion
+	node.json(voting.clone(), 315, Some(votes(vec![alice()])));
+	node.json(voting, 320, None);
+	event(&indexer, &db, 320, 1, "technicalCollective", "Voted", &voted(bob())).await;
+	let closed = [("proposalHash", hash.clone()), ("yes", json!(2)), ("no", json!(0))];
+	event(&indexer, &db, 320, 2, "technicalCollective", "Closed", &closed).await;
+
+	let motion = text(
+		&db,
+		"SELECT ayes::text || ' ' || \"end\" FROM governance.governance_motions WHERE id = '9'",
 	)
 	.await;
 	assert_eq!(motion, Some(format!("[\"{}\", \"{}\"] 400", alice(), bob())));

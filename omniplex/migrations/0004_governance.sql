@@ -1,7 +1,17 @@
--- The governance forum's tables, filled by a governance config from substrate-eth-rpc's
+-- The governance forum's tables, filled by a governance chain entry from substrate-eth-rpc's
 -- `governance` logs, with the names and columns the governance API reads. Addresses are SS58
 -- and JSON columns hold polkadot.js shaped values, as text.
 CREATE SCHEMA governance;
+
+-- How far the governance entry is indexed, in the layout of SubQuery's metadata tables. It
+-- follows the same chain as the indexer's entry, so it can't share that entry's
+-- `app._metadata_0x…` table, which omnihedron serves.
+CREATE TABLE governance._metadata (
+    key character varying(255) PRIMARY KEY,
+    value jsonb,
+    "createdAt" timestamp with time zone NOT NULL,
+    "updatedAt" timestamp with time zone NOT NULL
+);
 
 CREATE TABLE governance.governance_referendums (
     id text PRIMARY KEY,

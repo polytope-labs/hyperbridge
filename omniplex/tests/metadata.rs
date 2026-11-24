@@ -6,7 +6,10 @@ use std::time::Duration;
 
 use common::{database, text};
 use futures::{channel::mpsc::UnboundedReceiver, StreamExt};
-use omniplex::metadata::{record_progress, register, table};
+use omniplex::{
+	config::ChainConfig,
+	metadata::{record_progress, register, table, table_for, GOVERNANCE_TABLE},
+};
 use tokio_postgres::{AsyncMessage, NoTls};
 
 #[tokio::test]
@@ -14,11 +17,11 @@ async fn each_chain_keeps_one_metadata_table_omnihedron_lists() {
 	let Some(mut client) = database().await else { return };
 	let db = client.transaction().await.unwrap();
 	let chain = "Hyperbridge (Test)";
-	register(&db, chain).await.unwrap();
-	record_progress(&db, chain, 100, 105).await.unwrap();
+	register(&db, &table(chain), chain).await.unwrap();
+	record_progress(&db, &table(chain), 100, 105).await.unwrap();
 	// A restart registers again, and progress overwrites the last.
-	register(&db, chain).await.unwrap();
-	record_progress(&db, chain, 104, 110).await.unwrap();
+	register(&db, &table(chain), chain).await.unwrap();
+	record_progress(&db, &table(chain), 104, 110).await.unwrap();
 
 	let rows = text(
 		&db,
@@ -48,6 +51,36 @@ async fn each_chain_keeps_one_metadata_table_omnihedron_lists() {
 	assert_eq!(listed.as_deref(), Some("1"));
 	let plain_absent = text(&db, "SELECT (to_regclass('app._metadata') IS NULL)::text").await;
 	assert_eq!(plain_absent.as_deref(), Some("true"));
+}
+
+/**
+ * The governance entry follows Nexus like the indexer's entry, so it records its progress in
+ * the governance schema and leaves the indexer's table, which omnihedron serves, alone.
+ */
+#[tokio::test]
+async fn the_governance_entry_keeps_its_progress_apart_from_the_indexers() {
+	let Some(mut client) = database().await else { return };
+	let db = client.transaction().await.unwrap();
+	let entry = |handlers: &str| -> ChainConfig {
+		toml::from_str(&format!(
+			"kind = \"substrate\"\nhandlers = \"{handlers}\"\nchain_id = 1\n\
+			 state_machine_id = \"POLKADOT-3367\"\nstart_block = 0\nreorg_safe_distance = 0"
+		))
+		.unwrap()
+	};
+	let chain = "Hyperbridge (Governance Test)";
+	let (indexer, governance) =
+		(table_for(&entry("indexer"), chain), table_for(&entry("governance"), chain));
+	assert_eq!((indexer.as_str(), governance.as_str()), (table(chain).as_str(), GOVERNANCE_TABLE));
+
+	register(&db, &indexer, chain).await.unwrap();
+	record_progress(&db, &indexer, 12_000_000, 12_000_010).await.unwrap();
+	register(&db, &governance, chain).await.unwrap();
+	record_progress(&db, &governance, 6_000_000, 12_000_010).await.unwrap();
+	let height =
+		|table: &str| format!("SELECT value::text FROM {table} WHERE key = 'lastProcessedHeight'");
+	assert_eq!(text(&db, &height(&indexer)).await.as_deref(), Some("12000000"));
+	assert_eq!(text(&db, &height(&governance)).await.as_deref(), Some("6000000"));
 }
 
 /** The next notification within two seconds. */
@@ -89,12 +122,12 @@ async fn a_new_metadata_table_tells_omnihedron_to_reload() {
 		.unwrap();
 
 	let db = client.transaction().await.unwrap();
-	register(&db, chain).await.unwrap();
+	register(&db, &table(chain), chain).await.unwrap();
 	db.commit().await.unwrap();
 	assert_eq!(next(&mut notifications).await.as_deref(), Some("schema_updated"));
 
 	let db = client.transaction().await.unwrap();
-	register(&db, chain).await.unwrap();
+	register(&db, &table(chain), chain).await.unwrap();
 	db.commit().await.unwrap();
 	assert_eq!(next(&mut notifications).await, None, "an existing table is not announced");
 

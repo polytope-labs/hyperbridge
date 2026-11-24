@@ -135,16 +135,14 @@ mod tests {
 	 * serde_json's `arbitrary_precision`. */
 	#[test]
 	fn every_chain_reads_back_as_rindexer_parses_it() {
-		for env in
-			["mainnet", "testnet", "explorer-mainnet", "explorer-testnet", "governance-mainnet"]
-		{
+		for env in ["mainnet", "testnet", "explorer-mainnet", "explorer-testnet"] {
 			let root = Path::new(env!("CARGO_MANIFEST_DIR"));
 			let config = Config::load(&root.join(format!("config/{env}.toml"))).unwrap();
-			let handlers = handlers::for_mode(config.mode);
 			let routes = config
 				.chains
 				.iter()
 				.map(|(name, chain)| {
+					let handlers = handlers::for_chain(&config, chain);
 					let routes = ChainRoutes::new(chain, &handlers.subscriptions, &handlers.hooks);
 					(name.clone(), Arc::new(routes))
 				})
@@ -165,6 +163,23 @@ mod tests {
 				assert_eq!(network.chain_id, chain.chain_id, "{env} {}", network.name);
 			}
 		}
+	}
+
+	/** Both Nexus entries of the mainnet config read the same chain, each with only its own
+	 * handlers: governance logs on the governance entry, the indexer's pallets on the other. */
+	#[test]
+	fn each_nexus_entry_runs_only_its_own_handlers() {
+		let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+		let config = Config::load(&root.join("config/mainnet.toml")).unwrap();
+		let addresses = |name: &str| {
+			let chain = &config.chains[name];
+			let handlers = handlers::for_chain(&config, chain);
+			ChainRoutes::new(chain, &handlers.subscriptions, &handlers.hooks).addresses()
+		};
+		let governance = crate::registry::pallet_address("governance");
+		assert_eq!(addresses("nexus-governance"), std::collections::BTreeSet::from([governance]));
+		let nexus = addresses("hyperbridge-nexus");
+		assert!(!nexus.is_empty() && !nexus.contains(&governance), "{nexus:?}");
 	}
 
 	/** Writes the manifest that a process indexing `names` would write into `dir`. */

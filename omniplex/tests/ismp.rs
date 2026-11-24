@@ -46,6 +46,7 @@ fn address(value: &str) -> Address {
 fn chain_config(kind: ChainKind, state_machine_id: &str, host: Option<&str>) -> ChainConfig {
 	ChainConfig {
 		kind,
+		handlers: Default::default(),
 		chain_id: 1,
 		state_machine_id: state_machine_id.into(),
 		start_block: 0,
@@ -65,7 +66,7 @@ async fn indexer(environment: Environment, chains: &[(&str, ChainConfig, &Assert
 	}
 	let config = Config {
 		environment,
-		mode: Default::default(),
+		explorer: false,
 		chains: chains
 			.iter()
 			.map(|(name, config, _)| (name.to_string(), config.clone()))

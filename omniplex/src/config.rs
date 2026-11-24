@@ -9,53 +9,10 @@ use serde::Deserialize;
 #[serde(deny_unknown_fields)]
 pub struct Config {
 	pub environment: Environment,
+	/** Runs the block explorer's handlers instead of the indexer's. */
 	#[serde(default)]
-	pub mode: Mode,
+	pub explorer: bool,
 	pub chains: BTreeMap<String, ChainConfig>,
-}
-
-/** Which handlers a config runs. */
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum Mode {
-	/** The Hyperbridge indexer, whose tables omnihedron serves. */
-	#[default]
-	Indexer,
-	/** A block explorer of one Substrate chain. */
-	Explorer,
-	/** The governance forum's tables, for one Substrate chain. */
-	Governance,
-}
-
-impl Mode {
-	/** The name a config gives the mode. */
-	pub fn name(&self) -> &'static str {
-		match self {
-			Mode::Indexer => "indexer",
-			Mode::Explorer => "explorer",
-			Mode::Governance => "governance",
-		}
-	}
-
-	/** The mode that can't share a database with this one. The indexer and a governance config
-	 * both follow Nexus under the same chain name, so they would write the same metadata table.
-	 * The explorer keeps no metadata and shares a database with either. */
-	pub fn rival(&self) -> Option<Mode> {
-		match self {
-			Mode::Indexer => Some(Mode::Governance),
-			Mode::Explorer => None,
-			Mode::Governance => Some(Mode::Indexer),
-		}
-	}
-
-	/** The schema that holds the mode's tables. */
-	pub fn schema(&self) -> &'static str {
-		match self {
-			Mode::Indexer => "app",
-			Mode::Explorer => "explorer",
-			Mode::Governance => "governance",
-		}
-	}
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
@@ -84,10 +41,26 @@ pub enum ChainKind {
 	Substrate,
 }
 
+/** The handlers a chain entry runs. */
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ChainHandlers {
+	/** The Hyperbridge indexer's, whose tables omnihedron serves. */
+	#[default]
+	Indexer,
+	/** The governance forum's, on a Substrate chain. The entry follows the same chain as its
+	 * indexer entry on a cursor of its own, so it can index governance history from before the
+	 * indexer's start block. */
+	Governance,
+}
+
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ChainConfig {
 	pub kind: ChainKind,
+	/** Ignored by an explorer config, whose chains run the explorer's handlers. */
+	#[serde(default)]
+	pub handlers: ChainHandlers,
 	/** The `eth_chainId` the RPC answers. For Substrate chains, the facade's chain id. */
 	pub chain_id: u64,
 	/** The ISMP state machine id, e.g. `EVM-56` or `POLKADOT-3367`. */
@@ -153,14 +126,19 @@ impl Config {
 			if chain.kind == ChainKind::Evm && chain.contracts.ethereum_host.is_none() {
 				bail!("chain {name}: EVM chains need contracts.ethereum_host");
 			}
-			if config.mode != Mode::Indexer && chain.kind == ChainKind::Evm {
-				bail!("chain {name}: a {:?} config follows Substrate chains only", config.mode);
+			if chain.handlers == ChainHandlers::Governance && chain.kind == ChainKind::Evm {
+				bail!("chain {name}: governance handlers run on Substrate chains only");
+			}
+			if config.explorer && chain.handlers != ChainHandlers::Indexer {
+				bail!("chain {name}: an explorer config runs the explorer's handlers only");
+			}
+			if config.explorer && chain.kind == ChainKind::Evm {
+				bail!("chain {name}: the explorer follows Substrate chains only");
 			}
 		}
-		// The explorer's and the governance tables hold one chain, so each has a database of
-		// its own.
-		if config.mode != Mode::Indexer && config.chains.len() != 1 {
-			bail!("a {:?} config follows exactly one chain", config.mode);
+		// The explorer's tables hold one chain, so each explorer has a database of its own.
+		if config.explorer && config.chains.len() != 1 {
+			bail!("an explorer config follows exactly one chain");
 		}
 		Ok(config)
 	}
@@ -220,9 +198,14 @@ mod tests {
 		for env in ["mainnet", "testnet"] {
 			let path = Path::new(env!("CARGO_MANIFEST_DIR")).join(format!("config/{env}.toml"));
 			let config = Config::load(&path).unwrap();
-			let ids: std::collections::BTreeSet<_> =
-				config.chains.values().map(|c| c.chain_id).collect();
-			assert_eq!(ids.len(), config.chains.len(), "{env}: chain ids must be unique");
+			// A governance entry follows a chain the config also indexes.
+			let indexed: Vec<_> = config
+				.chains
+				.values()
+				.filter(|c| c.handlers == ChainHandlers::Indexer)
+				.collect();
+			let ids: std::collections::BTreeSet<_> = indexed.iter().map(|c| c.chain_id).collect();
+			assert_eq!(ids.len(), indexed.len(), "{env}: chain ids must be unique");
 		}
 	}
 }

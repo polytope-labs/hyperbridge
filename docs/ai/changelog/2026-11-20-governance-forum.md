@@ -23,11 +23,19 @@ block in the cache makes no upstream call, and metadata is fetched once per runt
 
 ## Indexing
 
-A config with `mode = "governance"` (`omniplex/config/governance-mainnet.toml`) runs only the
-governance handlers, from block 5986840 where OpenGov was added. The indexer and a governance
-config both write the Nexus metadata table, so each records its mode in the database and
-refuses one the other has used; the explorer keeps no metadata and can share either's. Its RPCs must be an archive node
-whose substrate-eth-rpc includes the reads above.
+Governance lives in the main indexer's database. `omniplex/config/mainnet.toml` has a
+`nexus-governance` entry with `handlers = "governance"`, from block 5986840 where OpenGov was
+added, run as its own process (`INDEXER_CHAINS: nexus-governance`) in the `mainnet` compose
+profile. Each chain entry's routes are built from its own handlers, so this entry runs only the
+governance handlers and `hyperbridge-nexus` runs none of them. On its own cursor it backfills
+history while the other chains keep indexing, then follows the head, so nothing is handed off
+later. A process running only governance entries starts no flusher or solver watchlist.
+
+Both Nexus entries go by the chain's name `Nexus`, so the governance entry records its progress
+in `governance._metadata` instead of the `app._metadata_0x…` table omnihedron serves and the
+SDK's CI waits on. `import-subquery` gives it no cursor, so it starts at its start block. Its
+RPCs, `NEXUS_GOVERNANCE` and `NEXUS_GOVERNANCE_SUBSTRATE`, must be an archive node whose
+substrate-eth-rpc includes the reads above.
 
 The handlers write the `governance` schema (migration `0004_governance`) with the tables and
 columns the API reads:
@@ -41,23 +49,22 @@ columns the API reads:
   of ongoing referenda; delegation changes read every track. Votes on finished referenda keep
   their final state.
 - Technical committee motions. Their votes and deadline come from `Voting` while the motion is
-  open, which also drops the votes of members who leave the committee, and from each `Voted`
-  event when it closed in the same block. Their call comes from `ProposalOf`, or, for a motion
-  closed in the block it was proposed in, from the call in the proposing extrinsic that hashes
-  to the motion's hash. Storage keeps neither past a close, and such a motion has no deadline.
+  open, which also drops the votes of members who leave the committee. For a motion closed in
+  the block of the event, they start from `Voting` at the end of the block before, when the
+  motion was last updated earlier, with the block's `Voted` events applied on top. Their call
+  comes from `ProposalOf`, or, for a motion closed in the block it was proposed in, from the
+  call in the proposing extrinsic that hashes to the motion's hash. Storage keeps neither past
+  a close, and such a motion has no deadline.
 - Tally snapshots, vote calls, whitelisted calls, preimages (bytes kept after they are cleared,
   and by a noting that is gone by the end of its block) and treasury spends.
-
-At cutover, `import-subquery` on a copy of SubQuery's governance database keeps each row's
-current version and continues after its last indexed block, so history is not re-read. It sets
-`changes_state` on every referendum event, which SubQuery left empty on older rows.
 
 ## API
 
 `governance-api` serves the forum frontend on `PORT` (7071) from a connection pool with a
 per-statement timeout, and keeps the forum's own content in the `forum` schema, whose
-statements are idempotent so a restart upgrades it. It starts before the indexer has made
-progress and reads the indexed height through `forum._metadata`.
+statements are idempotent so a restart upgrades it. It runs on the main indexer's database,
+starts before the governance entry has made progress and reads the indexed height from
+`governance._metadata`.
 
 | Setting | Meaning |
 |---------|---------|
@@ -74,6 +81,6 @@ per-account quota and must be images by their content; served files carry `nosni
 sandbox policy. `import <site>` copies the current forum's content and keeps going past a
 missing file, and `verify <site>` compares this API with the current forum.
 
-The compose file runs the indexer and the API under the `governance-mainnet` profile, with the
-API bound to localhost behind the site's proxy. The API's integration test applies migration
+The compose file runs the API under the `governance-api` profile, next to the `mainnet` profile
+on its database, bound to localhost behind the site's proxy. The API's integration test applies migration
 `0004_governance` and runs in CI with the omniplex tests.

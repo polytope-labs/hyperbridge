@@ -14,7 +14,7 @@ use super::{
 	motions, posts, referenda, referenda::track_counts, spends, with_param, AppState, Params,
 };
 use crate::{
-	db::{self, Pool},
+	db::Pool,
 	error::{ApiError, ApiResult},
 	primitives::Page,
 };
@@ -22,45 +22,27 @@ use crate::{
 /// How often the indexed height is read on behalf of every visitor following it.
 const HEIGHT_POLL: Duration = Duration::from_secs(3);
 
-/// The last block the governance indexer has processed, with the metadata tables the view is
-/// linked to. Unless the view is known to point at the indexer's one table, the tables are looked
-/// up and the view is only recreated when they differ from `linked`, since recreating it locks out
-/// every query that reads the height.
-async fn indexed_height(
-	db: &Pool,
-	linked: Option<&[String]>,
-) -> anyhow::Result<(i64, Vec<String>)> {
+/// The last block the governance entry has processed, which omniplex records in
+/// `governance._metadata`. Before its first progress the table is empty and the height reads as 0.
+async fn indexed_height(db: &Pool) -> anyhow::Result<i64> {
 	let connection = db.get().await?;
-	let tables = match linked {
-		Some(tables @ [_]) => tables.to_vec(),
-		_ => {
-			let tables = db::metadata_tables(&connection).await?;
-			if linked != Some(tables.as_slice()) {
-				db::link_metadata(&connection, &tables).await?;
-			}
-			tables
-		},
-	};
 	let row = connection
-		.query_opt("SELECT value FROM forum._metadata WHERE key = 'lastProcessedHeight'", &[])
+		.query_opt("SELECT value FROM governance._metadata WHERE key = 'lastProcessedHeight'", &[])
 		.await?;
-	Ok((row.and_then(|row| row.get::<_, Value>(0).as_i64()).unwrap_or_default(), tables))
+	Ok(row.and_then(|row| row.get::<_, Value>(0).as_i64()).unwrap_or_default())
 }
 
 /// Reads the indexed height on a timer and publishes it, so visitors following it never query the
-/// database themselves. `linked` holds the metadata tables the view was last linked to, and is
-/// forgotten after a failed read, such as when a reindex dropped the table and the view with it.
-pub async fn follow_height(db: Pool, height: watch::Sender<i64>, mut linked: Option<Vec<String>>) {
+/// database themselves.
+pub async fn follow_height(db: Pool, height: watch::Sender<i64>) {
 	let mut interval = tokio::time::interval(HEIGHT_POLL);
 	loop {
 		interval.tick().await;
-		match indexed_height(&db, linked.as_deref()).await {
-			Ok((value, tables)) => {
-				linked = Some(tables);
+		match indexed_height(&db).await {
+			Ok(value) => {
 				height.send_if_modified(|current| std::mem::replace(current, value) != value);
 			},
 			Err(err) => {
-				linked = None;
 				tracing::warn!(target: crate::LOG_TARGET, "reading the indexed height failed: {err:?}");
 			},
 		}

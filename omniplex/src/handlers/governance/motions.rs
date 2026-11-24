@@ -12,33 +12,39 @@ pub(super) const METHODS: &[&str] =
 pub(super) async fn handle(ev: &Context<'_>) -> anyhow::Result<()> {
 	let Some(hash) = ev.arg("proposalHash").as_str() else { return Ok(()) };
 	let Ok(hash_bytes) = hex::decode(hash.trim_start_matches("0x")) else { return Ok(()) };
-	let id = if ev.method == "Proposed" {
-		propose(ev, hash, &hash_bytes).await?
+	let (id, updated_block) = if ev.method == "Proposed" {
+		(propose(ev, hash, &hash_bytes).await?, ev.position.block_number)
 	} else {
 		let row = ev
 			.db
 			.query_opt(
-				"SELECT id FROM governance.governance_motions WHERE hash = $1 AND NOT is_final
-				 LIMIT 1",
+				"SELECT id, updated_block FROM governance.governance_motions
+				 WHERE hash = $1 AND NOT is_final LIMIT 1",
 				&[&hash],
 			)
 			.await?;
 		match row {
-			Some(row) => row.get(0),
+			Some(row) => (row.get(0), row.get::<_, i32>(1)),
 			None => return Ok(()),
 		}
 	};
 
 	// `Voting` holds an open motion's votes and deadline, and loses the votes of members who
 	// leave the committee, which emits no event. A close in this block removes it, so the
-	// event's own vote is applied instead, moving a changed vote to the other side.
-	let voting = ev
-		.chain
-		.storage_json(&[key("TechnicalCollective", "Voting"), hash_bytes].concat(), ev.block)
-		.await?;
+	// votes start from `Voting` at the end of the block before, when the motion was last
+	// updated in an earlier block, and the event's own vote is applied on top, moving a changed
+	// vote to the other side.
+	let voting_key = [key("TechnicalCollective", "Voting"), hash_bytes].concat();
+	let voting = ev.chain.storage_json(&voting_key, ev.block).await?;
+	let closed_here = voting.is_none();
+	let voting = match voting {
+		None if updated_block < ev.position.block_number =>
+			ev.chain.storage_json(&voting_key, ev.block - 1).await?,
+		voting => voting,
+	};
 	let voters = |side: &str| voting.as_ref().map(|voting| voting[side].clone());
-	let voter = match &voting {
-		None if ev.method == "Voted" => ev.arg("account").as_str(),
+	let voter = match closed_here {
+		true if ev.method == "Voted" => ev.arg("account").as_str(),
 		_ => None,
 	};
 	let aye = ev.arg("voted").as_bool().unwrap_or_default();
@@ -48,14 +54,12 @@ pub(super) async fn handle(ev: &Context<'_>) -> anyhow::Result<()> {
 	ev.db
 		.execute(
 			"UPDATE governance.governance_motions SET
-				ayes = CASE WHEN $2::jsonb IS NOT NULL THEN $2
-					WHEN $4::text IS NULL THEN ayes
-					ELSE (ayes - $4::text) || CASE WHEN $5 THEN jsonb_build_array($4::text)
-						ELSE '[]'::jsonb END END,
-				nays = CASE WHEN $3::jsonb IS NOT NULL THEN $3
-					WHEN $4::text IS NULL THEN nays
-					ELSE (nays - $4::text) || CASE WHEN $5 THEN '[]'::jsonb
-						ELSE jsonb_build_array($4::text) END END,
+				ayes = CASE WHEN $4::text IS NULL THEN coalesce($2::jsonb, ayes)
+					ELSE (coalesce($2::jsonb, ayes) - $4::text) || CASE WHEN $5
+						THEN jsonb_build_array($4::text) ELSE '[]'::jsonb END END,
+				nays = CASE WHEN $4::text IS NULL THEN coalesce($3::jsonb, nays)
+					ELSE (coalesce($3::jsonb, nays) - $4::text) || CASE WHEN $5
+						THEN '[]'::jsonb ELSE jsonb_build_array($4::text) END END,
 				\"end\" = coalesce($6, \"end\"), state = coalesce($7, state),
 				is_final = is_final OR $8, result = coalesce($9, result), updated_block = $10
 			 WHERE id = $1",

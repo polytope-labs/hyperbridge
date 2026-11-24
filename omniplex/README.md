@@ -40,35 +40,31 @@ compose file runs both under the `explorer-testnet` and `explorer-mainnet` profi
 
 ## Governance
 
-A governance config (`config/governance-mainnet.toml`) indexes Nexus governance for the
-governance forum, from block 5986840, the runtime upgrade that added OpenGov: referenda with
-their tally history, votes and delegations, technical committee motions, whitelisted calls,
-preimages and treasury spends, into the `governance` schema. It reads substrate-eth-rpc's
-`governance` logs and reads storage at each event's block through the facade's JSON calls, so
-its RPC must be an archive node. `NEXUS_GOVERNANCE` and `NEXUS_GOVERNANCE_SUBSTRATE` must both
-point at our own archive node running a hyperbridge build whose substrate-eth-rpc serves the
-`governance` logs and the JSON reads (`getStorageJson`, `getConstantJson`, `decodeCallJson`). A
-node without them fails every read, and a public RPC is overloaded by a history scan. Like the
-explorer, it has a database of its own, and it keeps SubQuery's metadata table, from which the
-governance API reads how far it is indexed. The first start records its config's mode in
-`indexer.mode`, and every start after it refuses a database recorded for another mode, or, before
-that record, one whose other modes' tables hold rows.
+The `nexus-governance` entry of `config/mainnet.toml` (`handlers = "governance"`) indexes Nexus
+governance for the governance forum, from block 5986840, the runtime upgrade that added
+OpenGov: referenda with their tally history, votes and delegations, technical committee
+motions, whitelisted calls, preimages and treasury spends, into the `governance` schema. Each
+chain entry runs only its own handlers, so this entry runs none of the indexer's and
+`hyperbridge-nexus` runs no governance handlers. It has its own cursor and runs as its own
+process (`INDEXER_CHAINS=nexus-governance`), so it backfills history while the other chains keep
+indexing, then follows the head. A process running only governance entries starts no flusher or
+solver watchlist.
 
-At cutover it starts from a copy of SubQuery's governance database rather than from block
-5986840. `import-subquery` with the governance config copies the current rows of that copy's
-`governance` tables and continues after the last block SubQuery indexed, as for the indexer
-below:
+It reads substrate-eth-rpc's `governance` logs and reads storage at each event's block through
+the facade's JSON calls, so its RPC must be an archive node. `NEXUS_GOVERNANCE` and
+`NEXUS_GOVERNANCE_SUBSTRATE` must both point at our own archive node running a hyperbridge
+build whose substrate-eth-rpc serves the `governance` logs and the JSON reads
+(`getStorageJson`, `getConstantJson`, `decodeCallJson`, `getExtrinsicCallJson`). A node without
+them fails every read, and a public RPC is overloaded by a history scan.
 
-```
-DATABASE_URL=<copy> omniplex --config omniplex/config/governance-mainnet.toml import-subquery
-```
-
-Referenda whose metadata was set or cleared get back the state of their last other event, since
-SubQuery let those events change it.
+Both Nexus entries go by the chain's name `Nexus`, so the governance entry records how far it is
+indexed in `governance._metadata` rather than the `app._metadata_0x…` table omnihedron serves.
+The governance API reads its height from there. `import-subquery` gives the governance entry no
+cursor, so it starts at its start block.
 
 `governance-api` (in `governance/api`) serves those tables to the forum frontend, together with
-the forum's off-chain content in its own `forum` schema. The compose file runs both under the
-`governance-mainnet` profile.
+the forum's off-chain content in its own `forum` schema. The compose file runs it under the
+`governance-api` profile, on the `mainnet` profile's database.
 
 ## Cutting over from SubQuery
 

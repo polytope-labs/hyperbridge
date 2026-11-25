@@ -164,7 +164,7 @@ async fn import_comment(
 				created_at, updated_at, deleted)
 			VALUES ($1, $2, $3, $4, $5, $6, $7, $8::text::timestamptz, $9::text::timestamptz, $10)
 			ON CONFLICT (imported_from) DO UPDATE SET content = $5, content_type = $6, updated_at = $9::text::timestamptz,
-				deleted = $10
+				deleted = comments.deleted OR $10
 			RETURNING id",
 			&[
 				&(kind as i16),

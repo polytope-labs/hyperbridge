@@ -30,7 +30,7 @@ const SHOWN_ROOTS: &str = "reply_to IS NULL AND (NOT deleted OR EXISTS
 	(SELECT 1 FROM comments reply WHERE reply.reply_to = comments.id AND NOT reply.deleted))";
 /// Comments outside a hidden discussion. Only discussions can be hidden, and hiding one hides
 /// what was said under it too.
-const ON_VISIBLE_POST: &str = "NOT EXISTS (SELECT 1 FROM posts hidden_post
+pub(super) const ON_VISIBLE_POST: &str = "NOT EXISTS (SELECT 1 FROM posts hidden_post
 	WHERE comments.post_kind = 0 AND hidden_post.kind = 0
 	AND hidden_post.number = comments.post_number AND hidden_post.hidden)";
 const DELETED: &str = "_This comment was deleted._";

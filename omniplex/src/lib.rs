@@ -61,10 +61,25 @@ impl Indexer {
 	}
 }
 
+/// The chains a run indexes: those named, or every entry with the indexer's handlers.
+fn indexed_chains<'a>(config: &'a Config, selected: &[String]) -> Vec<&'a String> {
+	config
+		.chains
+		.iter()
+		.filter(|(name, chain)| match selected.is_empty() {
+			true => chain.handlers == ChainHandlers::Indexer,
+			false => selected.contains(name),
+		})
+		.map(|(name, _)| name)
+		.collect()
+}
+
 /**
- * Connects, migrates, and indexes `selected` chains (all when empty) until shutdown, or up to
- * a chain's block in `end_blocks`. rindexer finishes every chain's history before any chain
- * goes live, so one process per chain keeps a slow or stuck chain from holding back the others.
+ * Connects, migrates, and indexes `selected` chains until shutdown, or up to a chain's block
+ * in `end_blocks`. With none selected it indexes every indexer entry, and governance entries
+ * only when named, since their backfill would hold back every other chain. rindexer finishes
+ * every chain's history before any chain goes live, so one process per chain keeps a slow or
+ * stuck chain from holding back the others.
  */
 pub async fn run(
 	config_path: &Path,
@@ -85,11 +100,7 @@ pub async fn run(
 			.ok_or_else(|| anyhow!("--end-blocks: {name} is not in {}", config_path.display()))?;
 		chain.end_block = Some(*block);
 	}
-	let indexed: Vec<&String> = config
-		.chains
-		.keys()
-		.filter(|n| selected.is_empty() || selected.contains(n))
-		.collect();
+	let indexed = indexed_chains(&config, selected);
 
 	// Each chain's batch holds a connection for its transaction, and rindexer's default pool
 	// is 10. Leave room for each chain's upkeep, the flusher and the watchlist.
@@ -290,4 +301,21 @@ pub async fn import_subquery(config_path: &Path, new_chains: &[String]) -> anyho
 		tracing::info!(%network, block, "continues after SubQuery's last block");
 	}
 	Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn a_run_without_chains_leaves_out_the_governance_backfill() {
+		let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+		let config = Config::load(&root.join("config/mainnet.toml")).unwrap();
+		let governance = "nexus-governance".to_owned();
+
+		let all = indexed_chains(&config, &[]);
+		assert!(!all.contains(&&governance));
+		assert!(all.iter().any(|name| *name == "hyperbridge-nexus"));
+		assert_eq!(indexed_chains(&config, &[governance.clone()]), vec![&governance]);
+	}
 }

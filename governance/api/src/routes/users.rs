@@ -9,6 +9,7 @@ use serde_json::{json, Value};
 
 use super::{
 	auth::{ConnectedAccount, Session},
+	comments::ON_VISIBLE_POST,
 	common::valid_address,
 	posts, referenda,
 	signed::{Signed, SignedEntity},
@@ -124,11 +125,13 @@ pub async fn counts(
 		.get()
 		.await?
 		.query_one(
-			"SELECT
+			&format!(
+				"SELECT
 				(SELECT count(*) FROM posts WHERE kind = 0 AND author = $1 AND NOT hidden) AS discussions,
-				(SELECT count(*) FROM comments WHERE author = $1 AND NOT deleted) AS comments,
+				(SELECT count(*) FROM comments WHERE author = $1 AND NOT deleted AND {ON_VISIBLE_POST}) AS comments,
 				(SELECT count(*) FROM governance_referendums WHERE proposer = $1) AS referenda,
-				(SELECT count(*) FROM governance_motions WHERE proposer = $1) AS motions",
+				(SELECT count(*) FROM governance_motions WHERE proposer = $1) AS motions"
+			),
 			&[&address],
 		)
 		.await?;

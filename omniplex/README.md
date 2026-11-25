@@ -47,7 +47,7 @@ motions, whitelisted calls, preimages and treasury spends, into the `governance`
 chain entry runs only its own handlers, so this entry runs none of the indexer's and
 `hyperbridge-nexus` runs no governance handlers. It has its own cursor and runs as its own
 process (`INDEXER_CHAINS=nexus-governance`), so it backfills history while the other chains keep
-indexing, then follows the head. A process running only governance entries starts no flusher or
+indexing, then follows the head. A run without `--chains` leaves it out, so name it to index it. A process running only governance entries starts no flusher or
 solver watchlist.
 
 It reads substrate-eth-rpc's `governance` logs and reads storage at each event's block through

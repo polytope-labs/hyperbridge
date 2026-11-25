@@ -82,8 +82,12 @@ pub struct Indexer {
 	pub event_index: i32,
 }
 
-/// The account behind a post. Wallet users have no username, so one is derived from the key.
+/// The account behind a post. Wallet users have no username, so one is derived from the key. A
+/// comment kept only for its replies has no author, which the frontend shows as a deleted account.
 pub fn author(address: &str) -> Value {
+	if address.is_empty() {
+		return Value::Null;
+	}
 	let public_key = AccountId32::from_ss58check(address)
 		.map(|account| hex::encode(<[u8; 32]>::from(account)))
 		.unwrap_or_default();

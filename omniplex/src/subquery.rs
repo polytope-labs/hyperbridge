@@ -18,8 +18,9 @@ const OLD_SCHEMA: &str = "subquery";
 /**
  * Tables of entities SubQuery's schema no longer has: the dust events, since renamed
  * `protocol_dust_*`, and the phantom order and liquidity provider entities. SubQuery stopped
- * writing them but never drops a table, so its mainnet database still holds them. They go
- * with SubQuery's schema. Any other table only SubQuery has fails the import.
+ * writing them but never drops a table, so its mainnet database still holds all six and its
+ * testnet one all but `liquidity_provider_balances`. Their rows are discarded with
+ * SubQuery's schema. Any other table only SubQuery has fails the import.
  */
 const RETIRED_TABLES: &[&str] = &[
 	"dust_collecteds",
@@ -37,8 +38,10 @@ pub struct Imported {
 	pub cursors: BTreeMap<String, u64>,
 	/** The rows copied into each table. */
 	pub rows: BTreeMap<String, u64>,
-	/** The retired tables the copy had, with their rows, which were dropped. */
+	/** The retired tables the copy had, which were dropped, with their current rows. */
 	pub retired: BTreeMap<String, u64>,
+	/** The cross-chain orders whose status was moved on from `FILLED` to their settlement. */
+	pub settled_orders: u64,
 }
 
 /**
@@ -121,8 +124,14 @@ pub async fn import(
 	}
 	let mut retired = BTreeMap::new();
 	for table in retired_tables {
+		// Count rows, not their history's versions, as the copied tables are counted.
+		let history = columns(&tx, OLD_SCHEMA, &table)
+			.await?
+			.iter()
+			.any(|column| column.name == "_block_range");
+		let current = if history { " WHERE upper_inf(_block_range)" } else { "" };
 		let rows: i64 = tx
-			.query_one(&format!("SELECT count(*) FROM {OLD_SCHEMA}.\"{table}\""), &[])
+			.query_one(&format!("SELECT count(*) FROM {OLD_SCHEMA}.\"{table}\"{current}"), &[])
 			.await?
 			.get(0);
 		retired.insert(table, rows as u64);
@@ -132,6 +141,7 @@ pub async fn import(
 		let copied = copy_table(&tx, &table).await.with_context(|| format!("copying {table}"))?;
 		rows.insert(table, copied);
 	}
+	let settled_orders = settle_reversed_orders(&tx).await?;
 	for (network, block) in &cursors {
 		tx.execute(
 			"INSERT INTO indexer.cursors (network, block_number, log_index) VALUES ($1, $2, $3)",
@@ -142,7 +152,26 @@ pub async fn import(
 	refuse_outside_dependents(&tx).await?;
 	tx.batch_execute(&format!("DROP SCHEMA {OLD_SCHEMA} CASCADE")).await?;
 	tx.commit().await?;
-	Ok(Imported { cursors, rows, retired })
+	Ok(Imported { cursors, rows, retired, settled_orders })
+}
+
+/**
+ * Moves each cross-chain order SubQuery left `FILLED` after its release or refund on to that
+ * settlement, its latest when it has both, as `OrderStatus::supersedes` keeps new ones.
+ * SubQuery set the order back to `FILLED` when the destination's fill was indexed after the
+ * source's settlement. Same-chain orders keep `FILLED`, which the indexer writes too.
+ */
+async fn settle_reversed_orders(tx: &Transaction<'_>) -> anyhow::Result<u64> {
+	Ok(tx
+		.execute(
+			"UPDATE app.i_order_v3s o SET status = s.status
+			 FROM (SELECT DISTINCT ON (order_id) order_id, status FROM app.i_order_v3_status_metadata
+			       WHERE status IN ('REDEEMED', 'REFUNDED')
+			       ORDER BY order_id, \"timestamp\" DESC, block_number::numeric DESC) s
+			 WHERE o.id = s.order_id AND o.status = 'FILLED' AND o.source_chain <> o.dest_chain",
+			&[],
+		)
+		.await?)
 }
 
 /**

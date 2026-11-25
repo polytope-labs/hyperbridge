@@ -57,6 +57,13 @@ API until omniplex is shown to produce the same data.
 4. Start one omniplex process per chain on A, with no stop heights. Each chain continues from
    where its parity run stopped.
 5. Point omnihedron at A, then stop SubQuery.
+6. Before SubQuery's database is retired, keep a dump of the tables the import drops, whose
+   history exists nowhere else:
+
+   ```
+   pg_dump -Fc -t 'app.dust_*' -t 'app.liquidity_provider_balances' -t 'app.phantom_order*' \
+     <subquery database> > subquery-retired-tables.dump
+   ```
 
 The imported tables belong to the role that ran the import. Grant omnihedron's role access if it
 is another.

@@ -77,16 +77,51 @@ VALUES
 	 gen_random_uuid(), '[1000,2000)'),
 	('inv', 'EVM-56', '0xs', '0xt', 7, 7, 0, 0, 11, 0, '2026-11-01', '2026-11-01', 1, 11, 'FILL',
 	 gen_random_uuid(), '[2000,)');
+
+-- A cross-chain order whose fill was indexed after its release, which set it back to FILLED; a
+-- same-chain order released in its fill's transaction; and a cross-chain order not yet settled.
+INSERT INTO app.i_order_v3s
+	("user", id, commitment, source_chain, dest_chain, status, _block_range, deadline, nonce, fees,
+	 input_u_s_d, predispatch_calldata, post_dispatch_calldata, created_at, block_number,
+	 block_timestamp, transaction_hash)
+SELECT '0xu', id, id, source_chain, dest_chain, status::app."869e90c211", range::int8range, 1, 1, 0,
+	0, '0x', '0x', '2026-11-01', 10, 1, '0xt'
+FROM (VALUES
+	('0xcross', 'EVM-8453', 'EVM-56', 'REDEEMED', '[1000,2000)'),
+	('0xcross', 'EVM-8453', 'EVM-56', 'FILLED', '[2000,)'),
+	('0xsame', 'EVM-8453', 'EVM-8453', 'FILLED', '[1000,)'),
+	('0xopen', 'EVM-8453', 'EVM-56', 'FILLED', '[1000,)')
+) AS o (id, source_chain, dest_chain, status, range);
+INSERT INTO app.i_order_v3_status_metadata
+	(id, status, chain, "timestamp", block_number, transaction_hash, order_id, created_at,
+	 _block_range)
+VALUES
+	('0xcross.REDEEMED', 'REDEEMED', '8453', 1, '10', '0xr', '0xcross', '2026-11-01', '[1000,)'),
+	('0xcross.FILLED', 'FILLED', '56', 2, '11', '0xf', '0xcross', '2026-11-01', '[2000,)'),
+	('0xsame.REDEEMED', 'REDEEMED', '8453', 1, '10', '0xs', '0xsame', '2026-11-01', '[1000,)'),
+	('0xsame.FILLED', 'FILLED', '8453', 1, '10', '0xs', '0xsame', '2026-11-01', '[1000,)'),
+	('0xopen.FILLED', 'FILLED', '56', 1, '10', '0xo', '0xopen', '2026-11-01', '[1000,)');
 "#;
+
+/** The tables `subquery::RETIRED_TABLES` names, as SubQuery's mainnet database holds them. */
+const RETIRED: [&str; 6] = [
+	"dust_collecteds",
+	"dust_swepts",
+	"liquidity_provider_balances",
+	"phantom_order_lp_balances",
+	"phantom_order_price_snapshots",
+	"phantom_orders",
+];
 
 async fn text(db: &Client, sql: &str) -> Option<String> {
 	db.query_opt(sql, &[]).await.unwrap().and_then(|row| row.get(0))
 }
 
 /**
- * The import keeps each row's current version, keeps `solver_inventories`' history, and starts
- * each chain after SubQuery's height. It refuses a live database, a copy taken mid-rewind and a
- * chain SubQuery has no height for, and leaves the copy as it was when it does.
+ * The import keeps each row's current version, keeps `solver_inventories`' history, drops the
+ * retired tables, settles cross-chain orders SubQuery left FILLED, and starts each chain after
+ * SubQuery's height. It refuses a live database, a copy taken mid-rewind, a chain SubQuery has
+ * no height for and a table only SubQuery has, and leaves the copy as it was when it does.
  */
 #[tokio::test]
 async fn a_subquery_copy_becomes_the_indexers_database() {
@@ -148,35 +183,42 @@ async fn a_subquery_copy_becomes_the_indexers_database() {
 	assert_eq!(untouched.as_deref(), Some("true"));
 	db.batch_execute("DROP VIEW public.statuses").await.unwrap();
 
-	// A table SubQuery's schema no longer has. The import drops the retired ones it knows, and
+	// Tables SubQuery's schema no longer has. The import drops the retired ones it knows, and
 	// refuses any other, which would lose its rows.
-	db.batch_execute(
+	let mut tables = String::from(
 		"CREATE TABLE app.phantom_orders (id text NOT NULL, _id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
 		   _block_range int8range NOT NULL);
-		 INSERT INTO app.phantom_orders (id, _block_range) VALUES ('0xp', '[10,20)'), ('0xp', '[20,)');
+		 INSERT INTO app.phantom_orders (id, _block_range)
+		   VALUES ('0xp', '[10,20)'), ('0xp', '[20,)'), ('0xq', '[10,)');
 		 CREATE TABLE app.mystery_entities (LIKE app.phantom_orders INCLUDING ALL);",
-	)
-	.await
-	.unwrap();
+	);
+	for table in RETIRED.iter().filter(|table| **table != "phantom_orders") {
+		tables += &format!("CREATE TABLE app.{table} (LIKE app.phantom_orders INCLUDING ALL);");
+	}
+	db.batch_execute(&tables).await.unwrap();
 	let err = subquery::import(&mut db, &config, &names, &new).await.unwrap_err();
 	assert!(err.to_string().contains("[\"mystery_entities\"]"), "{err:#}");
 	let untouched = text(
 		&db,
 		"SELECT (to_regclass('indexer.migrations') IS NULL
-		   AND (SELECT count(*) FROM app.phantom_orders) = 2)::text",
+		   AND (SELECT count(*) FROM app.phantom_orders) = 3)::text",
 	)
 	.await;
 	assert_eq!(untouched.as_deref(), Some("true"));
 	db.batch_execute("DROP TABLE app.mystery_entities").await.unwrap();
 
 	let imported = subquery::import(&mut db, &config, &names, &new).await.unwrap();
-	assert_eq!(imported.retired, BTreeMap::from([("phantom_orders".to_string(), 2)]));
-	assert_eq!(
-		text(&db, "SELECT (to_regclass('app.phantom_orders') IS NULL)::text")
-			.await
-			.as_deref(),
-		Some("true")
-	);
+	// Rows, not versions: `0xp` has two.
+	let retired = RETIRED
+		.iter()
+		.map(|table| (table.to_string(), if *table == "phantom_orders" { 2 } else { 0 }))
+		.collect();
+	assert_eq!(imported.retired, retired);
+	assert_eq!(imported.settled_orders, 1);
+	let orders =
+		text(&db, "SELECT string_agg(id || ' ' || status, ',' ORDER BY id) FROM app.i_order_v3s")
+			.await;
+	assert_eq!(orders.as_deref(), Some("0xcross REDEEMED,0xopen FILLED,0xsame FILLED"));
 	assert_eq!(
 		imported.cursors,
 		BTreeMap::from([

@@ -84,10 +84,16 @@ The import runs in one transaction, so a failure leaves the copy as it was.
   one side has, and a chain SubQuery has no height for. And it refuses when an object outside
   SubQuery's schema, such as a view, depends on it, since dropping the schema would drop that
   too.
-- Six tables only SubQuery has are dropped instead, with a log of their row counts:
-  `dust_collecteds`, `dust_swepts`, `liquidity_provider_balances`, `phantom_orders`,
-  `phantom_order_price_snapshots` and `phantom_order_lp_balances`. SubQuery's schema no longer
-  has their entities, but its mainnet database still holds the tables.
+- Six tables only SubQuery has are dropped instead, and their rows discarded, with a log of
+  each one's count: `dust_collecteds`, `dust_swepts`, `liquidity_provider_balances`,
+  `phantom_orders`, `phantom_order_price_snapshots` and `phantom_order_lp_balances`. SubQuery's
+  schema no longer has their entities, but its mainnet database still holds all six and its
+  testnet one all but `liquidity_provider_balances`. Dust indexed before the `protocol_dust_*`
+  tables replaced the first two (polytope-labs/hyperbridge#972) exists only there. The README's
+  cutover steps keep a dump of them.
+- A cross-chain order SubQuery left `FILLED` after its release or refund moves on to that
+  settlement, its latest when it has both, so imported orders match what omniplex writes (see
+  "Parity with SubQuery"). The import logs how many.
 - A chain SubQuery never indexed, such as the Polkadex testnet, goes in `--new-chains`. It starts
   at its start block.
 
@@ -222,10 +228,13 @@ lose data are fixed instead. The deliberate differences:
   SubQuery kept no valuation for it.
 - A chain still in its history doesn't consume a solver watchlist version until its blocks
   reach the time of the poll that wrote it, as SubQuery's time-bounded reads did.
-- An order's `status` only moves forward: `PLACED`, then `FILLED`, then `REDEEMED` or
-  `REFUNDED`. A full fill indexed after the source chain's release or refund still writes its
-  `i_order_v3_status_metadata` row and the user's fill stats, but leaves the order settled.
-  SubQuery set the order back to `FILLED` whenever the destination chain trailed the source.
+- A cross-chain order's `status` only moves forward: `PLACED`, then `FILLED`, then `REDEEMED`
+  or `REFUNDED`. A full fill indexed after the source chain's release or refund still writes
+  its `i_order_v3_status_metadata` row, the user's fill stats and the referrer's points, but
+  leaves the order settled. SubQuery set the order back to `FILLED` whenever the destination
+  chain trailed the source. A same-chain order takes its statuses in log order, as in
+  SubQuery. Its fill releases the escrow before it emits `OrderFilled`, in one transaction, so
+  it ends `FILLED` with a `REDEEMED` status row.
 
 Bugs kept for parity, to decide on separately:
 

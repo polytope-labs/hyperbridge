@@ -1,7 +1,8 @@
 //! SubQuery's per-chain `_metadata` tables. omnihedron serves each `app._metadata_0x…` table as
 //! one `_metadatas` node. The explorer matches a node to a network by `chain` and reads its
 //! `lastProcessedHeight`. The SDK's CI waits until `lastProcessedHeight` is close to
-//! `targetHeight`.
+//! `targetHeight`. A governance entry records its progress in `governance._metadata` instead,
+//! which the governance API reads, since it follows a chain the indexer also does.
 
 use alloy::{hex, primitives::keccak256};
 use anyhow::{anyhow, Context};
@@ -11,7 +12,7 @@ use tokio_postgres::Transaction;
 
 use crate::{
 	chains::Chain,
-	config::{ChainConfig, ChainKind},
+	config::{ChainConfig, ChainHandlers, ChainKind},
 	substrate::SubstrateRpc,
 };
 
@@ -21,6 +22,17 @@ use crate::{
  */
 pub fn table(chain: &str) -> String {
 	format!("app.\"_metadata_0x{}\"", hex::encode(&keccak256(chain.as_bytes())[..8]))
+}
+
+/** The governance entry's metadata table, which migration `0004_governance` creates. */
+pub const GOVERNANCE_TABLE: &str = "governance._metadata";
+
+/** Where a chain entry named `chain` records how far it is indexed. */
+pub fn table_for(config: &ChainConfig, chain: &str) -> String {
+	match config.handlers {
+		ChainHandlers::Indexer => table(chain),
+		ChainHandlers::Governance => GOVERNANCE_TABLE.into(),
+	}
 }
 
 /**
@@ -45,27 +57,26 @@ pub async fn name(config: &ChainConfig, node: Option<&SubstrateRpc>) -> anyhow::
 }
 
 /**
- * Creates the metadata table for the chain named `chain`, and records the name in it.
+ * Creates the metadata `table` when it is missing, and records the chain's name in it.
  * omnihedron reads the schema only at startup and on SubQuery's `schema_updated` notification,
  * so a new table is announced on commit.
  */
-pub async fn register(db: &Transaction<'_>, chain: &str) -> anyhow::Result<()> {
-	let new: bool = db.query_one("SELECT to_regclass($1) IS NULL", &[&table(chain)]).await?.get(0);
+pub async fn register(db: &Transaction<'_>, table: &str, chain: &str) -> anyhow::Result<()> {
+	let new: bool = db.query_one("SELECT to_regclass($1) IS NULL", &[&table]).await?.get(0);
 	db.batch_execute(&format!(
-		"CREATE TABLE IF NOT EXISTS {} (
+		"CREATE TABLE IF NOT EXISTS {table} (
 			key character varying(255) NOT NULL PRIMARY KEY,
 			value jsonb,
 			\"createdAt\" timestamp with time zone NOT NULL,
 			\"updatedAt\" timestamp with time zone NOT NULL
-		)",
-		table(chain)
+		)"
 	))
 	.await?;
 	if new {
 		db.batch_execute(&format!("NOTIFY \"{}\", 'schema_updated'", schema_channel()))
 			.await?;
 	}
-	write(db, chain, &[("chain", json!(chain))]).await
+	write(db, table, &[("chain", json!(chain))]).await
 }
 
 /** The channel omnihedron listens on for schema changes, named as SubQuery's `hashName` names
@@ -78,19 +89,18 @@ fn schema_channel() -> String {
 /** Records how far a chain is indexed, and the block indexing is heading for. */
 pub async fn record_progress(
 	db: &Transaction<'_>,
-	chain: &str,
+	table: &str,
 	processed: u64,
 	target: u64,
 ) -> anyhow::Result<()> {
-	write(db, chain, &[("lastProcessedHeight", json!(processed)), ("targetHeight", json!(target))])
+	write(db, table, &[("lastProcessedHeight", json!(processed)), ("targetHeight", json!(target))])
 		.await
 }
 
-async fn write(db: &Transaction<'_>, chain: &str, entries: &[(&str, Value)]) -> anyhow::Result<()> {
+async fn write(db: &Transaction<'_>, table: &str, entries: &[(&str, Value)]) -> anyhow::Result<()> {
 	let sql = format!(
-		"INSERT INTO {} (key, value, \"createdAt\", \"updatedAt\") VALUES ($1, $2, now(), now())
-		 ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, \"updatedAt\" = now()",
-		table(chain)
+		"INSERT INTO {table} (key, value, \"createdAt\", \"updatedAt\") VALUES ($1, $2, now(), now())
+		 ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, \"updatedAt\" = now()"
 	);
 	for (key, value) in entries {
 		db.execute(&sql, &[key, value]).await?;

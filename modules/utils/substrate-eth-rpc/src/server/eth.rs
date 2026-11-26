@@ -25,6 +25,10 @@ sol! {
 	interface SubstrateStorage {
 		function getStorage(bytes key) external view returns (bytes value);
 		function getChildStorage(bytes childKey, bytes key) external view returns (bytes value);
+		function getStorageJson(bytes key) external view returns (string value);
+		function getConstantJson(string pallet, string name) external view returns (string value);
+		function decodeCallJson(bytes call) external view returns (string value);
+		function getExtrinsicCallJson(uint32 index, bytes32 hash) external view returns (string value);
 	}
 }
 
@@ -152,14 +156,29 @@ impl ChainRpc {
 			.resolve_block_id(block.unwrap_or(BlockId::Number(BlockNumberOrTag::Finalized)))
 			.await?;
 
+		// A JSON read answers an empty string for a value that is absent or doesn't decode.
+		let json = |text: Option<String>| {
+			Bytes::from(sol_data::String::abi_encode(&text.unwrap_or_default()))
+		};
+		let bytes = |value: Option<Vec<u8>>| {
+			Bytes::from(sol_data::Bytes::abi_encode(&value.unwrap_or_default()))
+		};
+		let service = &self.service;
 		let result = match call {
 			SubstrateStorage::SubstrateStorageCalls::getStorage(call) =>
-				self.service.storage(&call.key, at).await,
+				service.storage(&call.key, at).await.map(bytes),
 			SubstrateStorage::SubstrateStorageCalls::getChildStorage(call) =>
-				self.service.child_storage(&call.childKey, &call.key, at).await,
+				service.child_storage(&call.childKey, &call.key, at).await.map(bytes),
+			SubstrateStorage::SubstrateStorageCalls::getStorageJson(call) =>
+				service.storage_json(&call.key, at).await.map(json),
+			SubstrateStorage::SubstrateStorageCalls::getConstantJson(call) =>
+				service.constant_json(&call.pallet, &call.name, at).await.map(json),
+			SubstrateStorage::SubstrateStorageCalls::decodeCallJson(call) =>
+				service.call_json(&call.call, at).await.map(json),
+			SubstrateStorage::SubstrateStorageCalls::getExtrinsicCallJson(call) =>
+				service.extrinsic_call_json(call.index, call.hash, at).await.map(json),
 		}
-		.map_err(to_rpc_error)
-		.map(|value| Bytes::from(sol_data::Bytes::abi_encode(&value.unwrap_or_default())));
+		.map_err(to_rpc_error);
 		log_outcome(started, format!("block {at} selector {selector}"), &result, |value| {
 			format!("{} bytes", value.len())
 		});

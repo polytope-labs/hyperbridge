@@ -41,10 +41,26 @@ pub enum ChainKind {
 	Substrate,
 }
 
+/** The handlers a chain entry runs. */
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ChainHandlers {
+	/** The Hyperbridge indexer's, whose tables omnihedron serves. */
+	#[default]
+	Indexer,
+	/** The governance forum's, on a Substrate chain. The entry follows the same chain as its
+	 * indexer entry on a cursor of its own, so it can index governance history from before the
+	 * indexer's start block. */
+	Governance,
+}
+
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ChainConfig {
 	pub kind: ChainKind,
+	/** Ignored by an explorer config, whose chains run the explorer's handlers. */
+	#[serde(default)]
+	pub handlers: ChainHandlers,
 	/** The `eth_chainId` the RPC answers. For Substrate chains, the facade's chain id. */
 	pub chain_id: u64,
 	/** The ISMP state machine id, e.g. `EVM-56` or `POLKADOT-3367`. */
@@ -109,6 +125,12 @@ impl Config {
 		for (name, chain) in &config.chains {
 			if chain.kind == ChainKind::Evm && chain.contracts.ethereum_host.is_none() {
 				bail!("chain {name}: EVM chains need contracts.ethereum_host");
+			}
+			if chain.handlers == ChainHandlers::Governance && chain.kind == ChainKind::Evm {
+				bail!("chain {name}: governance handlers run on Substrate chains only");
+			}
+			if config.explorer && chain.handlers != ChainHandlers::Indexer {
+				bail!("chain {name}: an explorer config runs the explorer's handlers only");
 			}
 			if config.explorer && chain.kind == ChainKind::Evm {
 				bail!("chain {name}: the explorer follows Substrate chains only");
@@ -176,9 +198,14 @@ mod tests {
 		for env in ["mainnet", "testnet"] {
 			let path = Path::new(env!("CARGO_MANIFEST_DIR")).join(format!("config/{env}.toml"));
 			let config = Config::load(&path).unwrap();
-			let ids: std::collections::BTreeSet<_> =
-				config.chains.values().map(|c| c.chain_id).collect();
-			assert_eq!(ids.len(), config.chains.len(), "{env}: chain ids must be unique");
+			// A governance entry follows a chain the config also indexes.
+			let indexed: Vec<_> = config
+				.chains
+				.values()
+				.filter(|c| c.handlers == ChainHandlers::Indexer)
+				.collect();
+			let ids: std::collections::BTreeSet<_> = indexed.iter().map(|c| c.chain_id).collect();
+			assert_eq!(ids.len(), indexed.len(), "{env}: chain ids must be unique");
 		}
 	}
 }

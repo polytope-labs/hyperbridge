@@ -131,7 +131,19 @@ async fn the_site_reads_every_page_it_shows() {
 	let port = std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port();
 	tokio::spawn(omniplex::explorer_api::serve(([127, 0, 0, 1], port).into()));
 	let base = format!("http://127.0.0.1:{port}");
-	tokio::time::sleep(Duration::from_millis(500)).await;
+	// The server is ready once it answers the overview from the seeded block
+	for _ in 0..100 {
+		let answer = reqwest::get(format!("{base}/overview")).await;
+		let ready = match answer {
+			Ok(answer) =>
+				answer.json::<Value>().await.is_ok_and(|o| o["finalizedHeight"] == HEIGHT),
+			Err(_) => false,
+		};
+		if ready {
+			break;
+		}
+		tokio::time::sleep(Duration::from_millis(100)).await;
+	}
 
 	let alice = encode_address(&ALICE, 0).unwrap();
 	let alice_42 = encode_address(&ALICE, 42).unwrap();

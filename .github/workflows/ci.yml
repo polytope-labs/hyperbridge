@@ -112,6 +112,7 @@ jobs:
                         - '.github/workflows/ci.yml'
                       omniplex:
                         - 'omniplex/**'
+                        - 'governance/api/**'
                         - 'modules/ismp/core/**'
                         - 'modules/utils/serde/**'
                         - 'modules/utils/substrate-eth-rpc/**'
@@ -397,6 +398,17 @@ jobs:
                   CARGO_PROFILE_DEV_DEBUG: line-tables-only
               run: |
                   cargo test -p omniplex --locked
+
+            # The governance API's integration test reads the tables omniplex's migrations create,
+            # so it runs here against a database of its own.
+            - name: Run governance API tests against Postgres
+              env:
+                  PGPASSWORD: postgres
+                  TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/governance_api_test
+                  CARGO_PROFILE_DEV_DEBUG: line-tables-only
+              run: |
+                  psql -h localhost -U postgres -c "CREATE DATABASE governance_api_test"
+                  cargo test -p governance-api --locked -- --include-ignored
 
     simnet-tests:
         name: Simnet Tests

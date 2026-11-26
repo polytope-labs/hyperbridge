@@ -4,7 +4,7 @@ use std::{sync::Arc, time::Duration};
 
 use alloy::{
 	eips::BlockId,
-	primitives::{keccak256, Address, Bytes},
+	primitives::{keccak256, Address, Bytes, B256},
 	providers::Provider,
 	rpc::{json_rpc::ErrorPayload, types::TransactionRequest},
 	sol,
@@ -25,6 +25,10 @@ sol! {
 	interface SubstrateStorage {
 		function getStorage(bytes key) external view returns (bytes value);
 		function getChildStorage(bytes childKey, bytes key) external view returns (bytes value);
+		function getStorageJson(bytes key) external view returns (string value);
+		function getConstantJson(string pallet, string name) external view returns (string value);
+		function decodeCallJson(bytes call) external view returns (string value);
+		function getExtrinsicCallJson(uint32 index, bytes32 hash) external view returns (string value);
 	}
 }
 
@@ -54,15 +58,75 @@ impl Chain {
 		self.storage_call(call.abi_encode(), block).await
 	}
 
+	/**
+	 * The value at `key` as of `block`, decoded as its storage entry's type with the runtime
+	 * that wrote it, as polkadot.js shaped JSON with SS58 accounts. An absent key is `None`.
+	 */
+	pub async fn storage_json(&self, key: &[u8], block: u64) -> anyhow::Result<Option<Value>> {
+		let call = SubstrateStorage::getStorageJsonCall { key: Bytes::copy_from_slice(key) };
+		self.json_call(call.abi_encode(), block).await
+	}
+
+	/** A pallet's constant in the runtime of `block`, as JSON. */
+	pub async fn constant_json(
+		&self,
+		pallet: &str,
+		name: &str,
+		block: u64,
+	) -> anyhow::Result<Option<Value>> {
+		let call =
+			SubstrateStorage::getConstantJsonCall { pallet: pallet.into(), name: name.into() };
+		self.json_call(call.abi_encode(), block).await
+	}
+
+	/** An encoded call decoded with the runtime of `block`, or `None` when it isn't a call. */
+	pub async fn call_json(&self, call: &[u8], block: u64) -> anyhow::Result<Option<Value>> {
+		let call = SubstrateStorage::decodeCallJsonCall { call: Bytes::copy_from_slice(call) };
+		self.json_call(call.abi_encode(), block).await
+	}
+
+	/** The call in extrinsic `index` of `block`, its own or one nested in it, whose encoding
+	 * hashes to `hash`, decoded with the block's runtime. */
+	pub async fn extrinsic_call_json(
+		&self,
+		index: u32,
+		hash: B256,
+		block: u64,
+	) -> anyhow::Result<Option<Value>> {
+		let call = SubstrateStorage::getExtrinsicCallJsonCall { index, hash };
+		self.json_call(call.abi_encode(), block).await
+	}
+
 	async fn storage_call(&self, input: Vec<u8>, block: u64) -> anyhow::Result<Vec<u8>> {
+		Ok(Bytes::abi_decode(&self.eth_call(input, block).await?)?.to_vec())
+	}
+
+	/**
+	 * A JSON read, which substrate-eth-rpc answers with an empty string for nothing. An answer
+	 * that doesn't parse, such as a call nested deeper than serde_json reads, is `None` too:
+	 * it comes from bytes on chain, so reading it again would fail the same way forever.
+	 */
+	async fn json_call(&self, input: Vec<u8>, block: u64) -> anyhow::Result<Option<Value>> {
+		let text = String::abi_decode(&self.eth_call(input, block).await?)?;
+		if text.is_empty() {
+			return Ok(None);
+		}
+		match serde_json::from_str(&text) {
+			Ok(value) => Ok(Some(value)),
+			Err(err) => {
+				tracing::warn!(chain = %self.name, block, "unreadable JSON from storage read: {err}");
+				Ok(None)
+			},
+		}
+	}
+
+	async fn eth_call(&self, input: Vec<u8>, block: u64) -> anyhow::Result<Bytes> {
 		let request = TransactionRequest::default().to(storage_address()).input(input.into());
-		let output = self
-			.provider
+		self.provider
 			.call(request)
 			.block(BlockId::number(block))
 			.await
-			.with_context(|| format!("{}: storage read at block {block}", self.name))?;
-		Ok(Bytes::abi_decode(&output)?.to_vec())
+			.with_context(|| format!("{}: storage read at block {block}", self.name))
 	}
 }
 

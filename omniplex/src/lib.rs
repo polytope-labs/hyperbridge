@@ -61,13 +61,20 @@ impl Indexer {
 	}
 }
 
-/// The chains a run indexes: those named, or every entry with the indexer's handlers.
-fn indexed_chains<'a>(config: &'a Config, selected: &[String]) -> Vec<&'a String> {
+/// The chains a run indexes: those named, or every entry with the indexer's handlers and any
+/// other entry given an end block.
+fn indexed_chains<'a>(
+	config: &'a Config,
+	selected: &[String],
+	end_blocks: &[(String, u64)],
+) -> Vec<&'a String> {
 	config
 		.chains
 		.iter()
 		.filter(|(name, chain)| match selected.is_empty() {
-			true => chain.handlers == ChainHandlers::Indexer,
+			true =>
+				chain.handlers == ChainHandlers::Indexer ||
+					end_blocks.iter().any(|(ended, _)| ended == *name),
 			false => selected.contains(name),
 		})
 		.map(|(name, _)| name)
@@ -77,7 +84,8 @@ fn indexed_chains<'a>(config: &'a Config, selected: &[String]) -> Vec<&'a String
 /**
  * Connects, migrates, and indexes `selected` chains until shutdown, or up to a chain's block
  * in `end_blocks`. With none selected it indexes every indexer entry, and governance entries
- * only when named, since their backfill would hold back every other chain. rindexer finishes
+ * only when named in `selected` or `end_blocks`, since their backfill would hold back every
+ * other chain. rindexer finishes
  * every chain's history before any chain goes live, so one process per chain keeps a slow or
  * stuck chain from holding back the others.
  */
@@ -100,7 +108,7 @@ pub async fn run(
 			.ok_or_else(|| anyhow!("--end-blocks: {name} is not in {}", config_path.display()))?;
 		chain.end_block = Some(*block);
 	}
-	let indexed = indexed_chains(&config, selected);
+	let indexed = indexed_chains(&config, selected, end_blocks);
 
 	// Each chain's batch holds a connection for its transaction, and rindexer's default pool
 	// is 10. Leave room for each chain's upkeep, the flusher and the watchlist.
@@ -313,9 +321,14 @@ mod tests {
 		let config = Config::load(&root.join("config/mainnet.toml")).unwrap();
 		let governance = "nexus-governance".to_owned();
 
-		let all = indexed_chains(&config, &[]);
+		let all = indexed_chains(&config, &[], &[]);
 		assert!(!all.contains(&&governance));
 		assert!(all.iter().any(|name| *name == "hyperbridge-nexus"));
-		assert_eq!(indexed_chains(&config, &[governance.clone()]), vec![&governance]);
+		assert_eq!(indexed_chains(&config, &[governance.clone()], &[]), vec![&governance]);
+
+		// An end block names the entry as well, so it isn't dropped without a word.
+		let ended = indexed_chains(&config, &[], &[(governance.clone(), 6_000_000)]);
+		assert!(ended.contains(&&governance));
+		assert_eq!(ended.len(), all.len() + 1);
 	}
 }

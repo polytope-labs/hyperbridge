@@ -112,14 +112,43 @@ async fn import_images(db: &Db, source: &ForumClient, post: &Value) {
 	}
 }
 
+/// Upsert assignments that take the source's values unless the row was edited here since, which
+/// leaves it with a later `updated_at` than the source's. Only an edit moves `updated_at`.
+fn unless_edited(table: &str, updated_at: &str, columns: &[(&str, &str)]) -> String {
+	let edited = format!("{table}.updated_at > {updated_at}::text::timestamptz");
+	columns
+		.iter()
+		.map(|(column, value)| {
+			format!("{column} = CASE WHEN {edited} THEN {table}.{column} ELSE {value} END")
+		})
+		.chain([format!(
+			"updated_at = GREATEST({table}.updated_at, {updated_at}::text::timestamptz)"
+		)])
+		.collect::<Vec<_>>()
+		.join(", ")
+}
+
 async fn import_post(db: &Db, kind: PostKind, number: i64, post: &Value) -> anyhow::Result<()> {
+	let kept = unless_edited(
+		"posts",
+		"$10",
+		&[
+			("title", "$3"),
+			("content", "$4"),
+			("content_type", "$5"),
+			("author", "$6"),
+			("labels", "$7"),
+			("banner_cid", "$8"),
+			("edited", "$11"),
+		],
+	);
 	db.execute(
-		"INSERT INTO posts (kind, number, title, content, content_type, author, labels, banner_cid, created_at, updated_at,
-			edited)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::text::timestamptz, $10::text::timestamptz, $11)
-		ON CONFLICT (kind, number) DO UPDATE SET title = $3, content = $4, content_type = $5, author = $6,
-			labels = $7, banner_cid = $8, created_at = $9::text::timestamptz, updated_at = $10::text::timestamptz,
-			edited = $11",
+		&format!(
+			"INSERT INTO posts (kind, number, title, content, content_type, author, labels, banner_cid, created_at,
+				updated_at, edited)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::text::timestamptz, $10::text::timestamptz, $11)
+			ON CONFLICT (kind, number) DO UPDATE SET {kept}, created_at = $9::text::timestamptz"
+		),
 		&[
 			&(kind as i16),
 			&number,
@@ -158,14 +187,16 @@ async fn import_comment(
 		Some(_) => comment["content"].as_str().unwrap_or_default(),
 		None => "",
 	};
+	let kept = unless_edited("comments", "$9", &[("content", "$5"), ("content_type", "$6")]);
 	let row = db
 		.query_one(
-			"INSERT INTO comments (post_kind, post_number, reply_to, author, content, content_type, imported_from,
-				created_at, updated_at, deleted)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8::text::timestamptz, $9::text::timestamptz, $10)
-			ON CONFLICT (imported_from) DO UPDATE SET content = $5, content_type = $6, updated_at = $9::text::timestamptz,
-				deleted = comments.deleted OR $10
-			RETURNING id",
+			&format!(
+				"INSERT INTO comments (post_kind, post_number, reply_to, author, content, content_type, imported_from,
+					created_at, updated_at, deleted)
+				VALUES ($1, $2, $3, $4, $5, $6, $7, $8::text::timestamptz, $9::text::timestamptz, $10)
+				ON CONFLICT (imported_from) DO UPDATE SET {kept}, deleted = comments.deleted OR $10
+				RETURNING id"
+			),
 			&[
 				&(kind as i16),
 				&number,

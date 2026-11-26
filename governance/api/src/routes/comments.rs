@@ -58,7 +58,15 @@ fn comment(row: &Row, height: i64, reactions: Value, replies: Vec<Value>) -> Val
 		),
 		("contentType", row.get::<_, String>("content_type").into()),
 		("contentVersion", "2".into()),
-		("author", author(&row.get::<_, String>("author"))),
+		// A comment kept only for its replies has no author, which the frontend shows as a deleted
+		// account.
+		(
+			"author",
+			Some(row.get::<_, String>("author"))
+				.filter(|a| !a.is_empty())
+				.map(|a| author(&a))
+				.into(),
+		),
 		("height", height.into()),
 		("spam", row.get::<_, bool>("spam").into()),
 		("createdAt", iso(row.get("created_ms")).into()),

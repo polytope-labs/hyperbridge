@@ -210,6 +210,28 @@ pg_enum!(
 	}
 );
 
+impl OrderStatus {
+	/**
+	 * Whether this status takes the place of `current` on a cross-chain order's row. Such an
+	 * order is placed, filled on its destination, then settled on its source by a release or
+	 * a refund. Each chain is indexed on its own, so a fill can be indexed after the
+	 * settlement it led to; it doesn't take the order back. Settlements come from one chain,
+	 * in its order, so a later one replaces an earlier one.
+	 */
+	pub fn supersedes(self, current: Self) -> bool {
+		fn stage(status: OrderStatus) -> u8 {
+			match status {
+				OrderStatus::Placed => 0,
+				OrderStatus::Filled => 1,
+				// A cancellation only writes its status row, never the order's, so it never
+				// reaches this comparison.
+				OrderStatus::Redeemed | OrderStatus::Refunded | OrderStatus::Cancelled => 2,
+			}
+		}
+		self != current && stage(self) >= stage(current)
+	}
+}
+
 pg_enum!(
 	RelayerRewardType = "1b9d21697d" {
 		ConsensusReward = "CONSENSUS_REWARD",
@@ -301,6 +323,27 @@ mod tests {
 	fn numeric_rejects_non_decimals() {
 		for value in ["", "-", "1e5", "0x10", "1.2.3", ".5"] {
 			assert!(Numeric::parse(value).is_err(), "{value}");
+		}
+	}
+
+	#[test]
+	fn order_statuses_only_move_forward() {
+		use OrderStatus::*;
+		for (status, current, expected) in [
+			(Filled, Placed, true),
+			(Redeemed, Filled, true),
+			(Refunded, Filled, true),
+			(Redeemed, Placed, true),
+			(Refunded, Redeemed, true),
+			(Redeemed, Refunded, true),
+			(Placed, Filled, false),
+			(Filled, Redeemed, false),
+			(Filled, Refunded, false),
+			(Placed, Placed, false),
+			(Filled, Filled, false),
+			(Redeemed, Redeemed, false),
+		] {
+			assert_eq!(status.supersedes(current), expected, "{status:?} over {current:?}");
 		}
 	}
 }

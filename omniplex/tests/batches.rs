@@ -140,6 +140,7 @@ async fn test_indexer(network: &str) -> (Indexer, ChainConfig) {
 	std::env::set_var("DATABASE_URL", std::env::var("INDEXER_TEST_DATABASE_URL").unwrap());
 	let chain_config = ChainConfig {
 		kind: ChainKind::Evm,
+		handlers: Default::default(),
 		chain_id: 1,
 		state_machine_id: "EVM-1".into(),
 		start_block: 0,

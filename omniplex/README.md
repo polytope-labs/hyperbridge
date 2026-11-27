@@ -38,6 +38,34 @@ overloads it.
 the site calls. Build the site with both its API and its GraphQL endpoint pointed there. The
 compose file runs both under the `explorer-testnet` and `explorer-mainnet` profiles.
 
+## Governance
+
+The `nexus-governance` entry of `config/mainnet.toml` (`handlers = "governance"`) indexes Nexus
+governance for the governance forum, from block 5986840, the runtime upgrade that added
+OpenGov: referenda with their tally history, votes and delegations, technical committee
+motions, whitelisted calls, preimages and treasury spends, into the `governance` schema. Each
+chain entry runs only its own handlers, so this entry runs none of the indexer's and
+`hyperbridge-nexus` runs no governance handlers. It has its own cursor and runs as its own
+process (`INDEXER_CHAINS=nexus-governance`), so it backfills history while the other chains keep
+indexing, then follows the head. A run without `--chains` leaves it out unless `--end-blocks`
+names it. A process running only governance entries starts no flusher or solver watchlist.
+
+It reads substrate-eth-rpc's `governance` logs and reads storage at each event's block through
+the facade's JSON calls, so its RPC must be an archive node. `NEXUS_GOVERNANCE` and
+`NEXUS_GOVERNANCE_SUBSTRATE` must both point at our own archive node running a hyperbridge
+build whose substrate-eth-rpc serves the `governance` logs and the JSON reads
+(`getStorageJson`, `getConstantJson`, `decodeCallJson`, `getExtrinsicCallJson`). A node without
+them fails every read, and a public RPC is overloaded by a history scan.
+
+Both Nexus entries go by the chain's name `Nexus`, so the governance entry records how far it is
+indexed in `governance._metadata` rather than the `app._metadata_0x…` table omnihedron serves.
+The governance API reads its height from there. `import-subquery` gives the governance entry no
+cursor, so it starts at its start block.
+
+`governance-api` (in `governance/api`) serves those tables to the forum frontend, together with
+the forum's off-chain content in its own `forum` schema. The compose file runs it under the
+`governance-api` profile, on the `mainnet` profile's database.
+
 ## Cutting over from SubQuery
 
 Omniplex takes over SubQuery's data instead of indexing from scratch. SubQuery keeps serving the

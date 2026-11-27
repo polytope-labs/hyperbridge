@@ -130,6 +130,9 @@ members = [
 
     "tesseract/relayer",
 
+    # governance
+    "governance/api",
+
     # omniplex: the indexer
     "omniplex",
 ]

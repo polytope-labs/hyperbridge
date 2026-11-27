@@ -11,6 +11,20 @@ start_block = 10190400
 reorg_safe_distance = 0
 max_block_range = 500
 
+# Nexus governance for the governance forum, from the runtime upgrade that added OpenGov. It
+# has a cursor of its own, so it backfills governance history while the other chains keep
+# indexing, then follows the head. Its handlers read storage at every governance event's block,
+# so `NEXUS_GOVERNANCE` and `NEXUS_GOVERNANCE_SUBSTRATE` must be our own archive node, never a
+# public RPC, running a substrate-eth-rpc that serves the `governance` logs and the JSON reads.
+[chains.nexus-governance]
+kind = "substrate"
+handlers = "governance"
+chain_id = 1000003367
+state_machine_id = "POLKADOT-3367"
+start_block = 5986840
+reorg_safe_distance = 0
+max_block_range = 500
+
 [chains.ethereum-mainnet]
 kind = "evm"
 chain_id = 1

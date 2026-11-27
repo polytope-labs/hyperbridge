@@ -140,7 +140,8 @@ async fn a_subquery_copy_becomes_the_indexers_database() {
 	let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
 	let mut config = Config::load(&root.join("config/mainnet.toml")).unwrap();
 	config.chains.retain(|network, _| {
-		["bsc-mainnet", "hyperbridge-nexus", "polkadot-hub-mainnet"].contains(&network.as_str())
+		["bsc-mainnet", "hyperbridge-nexus", "nexus-governance", "polkadot-hub-mainnet"]
+			.contains(&network.as_str())
 	});
 	let names: BTreeMap<String, String> = [
 		("bsc-mainnet", "56"),
@@ -207,6 +208,8 @@ async fn a_subquery_copy_becomes_the_indexers_database() {
 	assert_eq!(untouched.as_deref(), Some("true"));
 	db.batch_execute("DROP TABLE app.mystery_entities").await.unwrap();
 
+	// The governance entry has no SubQuery name and no cursor, so it backfills from its start
+	// block.
 	let imported = subquery::import(&mut db, &config, &names, &new).await.unwrap();
 	// Rows, not versions: `0xp` has two.
 	let retired = RETIRED
@@ -255,7 +258,9 @@ async fn a_subquery_copy_becomes_the_indexers_database() {
 		text(&db, "SELECT string_agg(name, ',' ORDER BY name) FROM indexer.migrations").await;
 	assert_eq!(
 		migrations.as_deref(),
-		Some("0000_indexer,0001_app_schema,0002_deferred_fill_points,0003_explorer")
+		Some(
+			"0000_indexer,0001_app_schema,0002_deferred_fill_points,0003_explorer,0004_governance"
+		)
 	);
 	// SubQuery's own tables went with its schema, and every table is keyed by `id` again.
 	let leftovers = text(

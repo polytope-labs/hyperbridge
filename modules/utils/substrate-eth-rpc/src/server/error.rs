@@ -15,7 +15,8 @@ pub fn to_rpc_error(e: BlockError) -> ErrorObjectOwned {
 			server_error(range_hint(from, decoded_to.unwrap_or(from))),
 		BlockError::BeyondHead { to, head } =>
 			server_error(format!("toBlock {to:#x} is beyond finalized head {head:#x}")),
-		BlockError::InvalidRange { .. } => invalid_params(e.to_string()),
+		BlockError::InvalidRange { .. } | BlockError::CallTooLarge { .. } =>
+			invalid_params(e.to_string()),
 		other => server_error(other.to_string()),
 	}
 }
@@ -69,6 +70,10 @@ mod tests {
 		let err = to_rpc_error(BlockError::InvalidRange { from: 102, to: 101 });
 		assert_eq!(err.code(), INVALID_PARAMS);
 		assert_eq!(err.message(), "fromBlock 102 is after toBlock 101");
+
+		let err = to_rpc_error(BlockError::CallTooLarge { len: 5, max: 4 });
+		assert_eq!(err.code(), INVALID_PARAMS);
+		assert_eq!(err.message(), "call of 5 bytes exceeds max 4");
 	}
 
 	#[test]

@@ -603,10 +603,10 @@ pub fn spawn_upkeep(indexer: Arc<Indexer>, routes: &HashMap<String, Arc<ChainRou
 			(indexer.clone(), network.clone(), chain_routes.clone());
 		tokio::spawn(async move {
 			let mut interval = tokio::time::interval(UPKEEP_INTERVAL);
-			let mut metadata_name = None;
+			let mut metadata_table = None;
 			loop {
 				interval.tick().await;
-				metadata_name = upkeep(&indexer, &network, &chain_routes, metadata_name).await;
+				metadata_table = upkeep(&indexer, &network, &chain_routes, metadata_table).await;
 			}
 		});
 	}
@@ -622,33 +622,33 @@ pub async fn finish_upkeep(indexer: &Indexer, routes: &HashMap<String, Arc<Chain
 	}
 }
 
-/** Runs the idle hooks and records the chain's progress, returning its metadata table's name
- * once it is known. */
+/** Runs the idle hooks and records the chain's progress, returning its metadata table once it
+ * is known. */
 async fn upkeep(
 	indexer: &Indexer,
 	network: &str,
 	routes: &ChainRoutes,
-	metadata_name: Option<String>,
+	metadata_table: Option<String>,
 ) -> Option<String> {
 	if !routes.hooks.is_empty() {
 		if let Err(err) = run_idle_hooks(indexer, network, routes).await {
 			tracing::warn!(%network, "idle hooks failed: {err:#}");
 		}
 	}
-	let name = match metadata_name {
-		Some(name) => name,
+	let table = match metadata_table {
+		Some(table) => table,
 		None => match register_metadata(indexer, network).await {
-			Ok(name) => name,
+			Ok(table) => table,
 			Err(err) => {
 				tracing::warn!(%network, "metadata registration failed: {err:#}");
 				return None;
 			},
 		},
 	};
-	if let Err(err) = record_progress(indexer, network, &name, routes).await {
+	if let Err(err) = record_progress(indexer, network, &table, routes).await {
 		tracing::warn!(%network, "metadata update failed: {err:#}");
 	}
-	Some(name)
+	Some(table)
 }
 
 /**
@@ -797,14 +797,16 @@ async fn run_idle_hooks(
 	}
 }
 
-/** Creates the chain's metadata table, and returns the chain's name in it. */
+/** Creates the chain entry's metadata table, and returns the table. */
 async fn register_metadata(indexer: &Indexer, network: &str) -> anyhow::Result<String> {
-	let name = crate::metadata::chain_name(indexer.chain(network)?).await?;
+	let chain = indexer.chain(network)?;
+	let name = crate::metadata::chain_name(chain).await?;
+	let table = crate::metadata::table_for(&chain.config, &name);
 	let mut conn = indexer.db.raw_connection().await?;
 	let tx = conn.transaction().await?;
-	crate::metadata::register(&tx, &name).await?;
+	crate::metadata::register(&tx, &table, &name).await?;
 	tx.commit().await?;
-	Ok(name)
+	Ok(table)
 }
 
 /**
@@ -814,7 +816,7 @@ async fn register_metadata(indexer: &Indexer, network: &str) -> anyhow::Result<S
 async fn record_progress(
 	indexer: &Indexer,
 	network: &str,
-	name: &str,
+	table: &str,
 	routes: &ChainRoutes,
 ) -> anyhow::Result<()> {
 	let chain = indexer.chain(network)?;
@@ -823,7 +825,7 @@ async fn record_progress(
 	let tx = conn.transaction().await?;
 	let Some(synced) = synced_block(&tx, network, routes).await? else { return Ok(()) };
 	let target = head.saturating_sub(chain.config.reorg_safe_distance).max(synced);
-	crate::metadata::record_progress(&tx, name, synced, target).await?;
+	crate::metadata::record_progress(&tx, table, synced, target).await?;
 	tx.commit().await?;
 	Ok(())
 }

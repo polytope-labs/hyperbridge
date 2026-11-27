@@ -10,6 +10,7 @@ const MIGRATIONS: &[(&str, &str)] = &[
 	("0001_app_schema", include_str!("../migrations/0001_app_schema.sql")),
 	("0002_deferred_fill_points", include_str!("../migrations/0002_deferred_fill_points.sql")),
 	("0003_explorer", include_str!("../migrations/0003_explorer.sql")),
+	("0004_governance", include_str!("../migrations/0004_governance.sql")),
 ];
 
 /** The advisory lock a process holds while it sets up the database. */

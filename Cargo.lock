@@ -3534,6 +3534,7 @@ dependencies = [
  "matchit 0.7.3",
  "memchr",
  "mime",
+ "multer",
  "percent-encoding",
  "pin-project-lite",
  "rustversion",
@@ -10276,6 +10277,35 @@ dependencies = [
 ]
 
 [[package]]
+name = "governance-api"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "axum 0.7.9",
+ "bb8 0.9.1",
+ "bb8-postgres",
+ "chrono",
+ "dotenv",
+ "form_urlencoded",
+ "futures",
+ "hex",
+ "ipnet",
+ "parity-scale-codec",
+ "percent-encoding",
+ "rand 0.8.8",
+ "reqwest 0.11.27",
+ "serde",
+ "serde_json",
+ "sp-core",
+ "sp-crypto-hashing",
+ "tokio",
+ "tokio-postgres 0.7.18",
+ "tower-http 0.5.2",
+ "tracing",
+ "tracing-subscriber 0.3.19",
+]
+
+[[package]]
 name = "governor"
 version = "0.6.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -11130,7 +11160,7 @@ dependencies = [
 
 [[package]]
 name = "hyperbridge"
-version = "1.9.7"
+version = "1.9.8"
 dependencies = [
  "clap",
  "futures",
@@ -15055,6 +15085,23 @@ checksum = "f9563a7d5556636e74bbd8773241fbcbc5c89b9f6bfdc97b29b56e740c2c74b9"
 dependencies = [
  "typeid_prefix",
  "typeid_suffix",
+]
+
+[[package]]
+name = "multer"
+version = "3.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "83e87776546dc87511aa5ee218730c92b666d7264ab6ed41f9d215af9cd5224b"
+dependencies = [
+ "bytes",
+ "encoding_rs",
+ "futures-util",
+ "http 1.4.0",
+ "httparse",
+ "memchr",
+ "mime",
+ "spin 0.9.8",
+ "version_check",
 ]
 
 [[package]]
@@ -30324,6 +30371,7 @@ dependencies = [
  "alloy-sol-types 1.5.7",
  "anyhow",
  "async-trait",
+ "bs58",
  "clap",
  "futures",
  "ismp",

@@ -30,7 +30,7 @@ use rindexer::{
 
 use crate::{
 	chains::Chain,
-	config::{env_key, env_urls, ChainKind, Config},
+	config::{env_key, env_urls, ChainHandlers, ChainKind, Config},
 	substrate::SubstrateRpc,
 };
 
@@ -52,16 +52,42 @@ impl Indexer {
 		self.chains.get(network).ok_or_else(|| anyhow!("unknown network {network}"))
 	}
 
-	/** The chain with this ISMP state machine id, if the indexer follows it. */
+	/** The chain with this ISMP state machine id, if the indexer follows it. A governance entry
+	 * follows a chain the indexer's own entry does, so it never answers. */
 	pub fn chain_by_state_machine(&self, state_machine_id: &str) -> Option<&Chain> {
-		self.chains.values().find(|c| c.state_machine_id() == state_machine_id)
+		self.chains.values().find(|c| {
+			c.config.handlers == ChainHandlers::Indexer && c.state_machine_id() == state_machine_id
+		})
 	}
 }
 
+/// The chains a run indexes: those named, or every entry with the indexer's handlers and any
+/// other entry given an end block.
+fn indexed_chains<'a>(
+	config: &'a Config,
+	selected: &[String],
+	end_blocks: &[(String, u64)],
+) -> Vec<&'a String> {
+	config
+		.chains
+		.iter()
+		.filter(|(name, chain)| match selected.is_empty() {
+			true =>
+				chain.handlers == ChainHandlers::Indexer ||
+					end_blocks.iter().any(|(ended, _)| ended == *name),
+			false => selected.contains(name),
+		})
+		.map(|(name, _)| name)
+		.collect()
+}
+
 /**
- * Connects, migrates, and indexes `selected` chains (all when empty) until shutdown, or up to
- * a chain's block in `end_blocks`. rindexer finishes every chain's history before any chain
- * goes live, so one process per chain keeps a slow or stuck chain from holding back the others.
+ * Connects, migrates, and indexes `selected` chains until shutdown, or up to a chain's block
+ * in `end_blocks`. With none selected it indexes every indexer entry, and governance entries
+ * only when named in `selected` or `end_blocks`, since their backfill would hold back every
+ * other chain. rindexer finishes
+ * every chain's history before any chain goes live, so one process per chain keeps a slow or
+ * stuck chain from holding back the others.
  */
 pub async fn run(
 	config_path: &Path,
@@ -82,11 +108,7 @@ pub async fn run(
 			.ok_or_else(|| anyhow!("--end-blocks: {name} is not in {}", config_path.display()))?;
 		chain.end_block = Some(*block);
 	}
-	let indexed: Vec<&String> = config
-		.chains
-		.keys()
-		.filter(|n| selected.is_empty() || selected.contains(n))
-		.collect();
+	let indexed = indexed_chains(&config, selected, end_blocks);
 
 	// Each chain's batch holds a connection for its transaction, and rindexer's default pool
 	// is 10. Leave room for each chain's upkeep, the flusher and the watchlist.
@@ -133,12 +155,14 @@ pub async fn run(
 		.map(|(name, chain)| (name.clone(), chain.rpc_urls[0].clone()))
 		.collect();
 
-	let handlers = if config.explorer { handlers::explorer::handlers() } else { handlers::all() };
+	// Each entry runs its own handlers, so the governance entry and the indexer's Nexus entry
+	// never run each other's.
 	let routes: HashMap<String, Arc<registry::ChainRoutes>> = config
 		.chains
 		.iter()
 		.filter(|(name, _)| chains.contains_key(*name))
 		.map(|(name, chain)| {
+			let handlers = handlers::for_chain(&config, chain);
 			let routes =
 				registry::ChainRoutes::new(chain, &handlers.subscriptions, &handlers.hooks);
 			(name.clone(), Arc::new(routes))
@@ -208,8 +232,11 @@ pub async fn run(
 		orderbook: services::prices::Orderbook::from_env(http.clone()),
 		http,
 	});
-	// The explorer has no background jobs, and its chains keep no SubQuery metadata.
-	if !indexer.config.explorer {
+	// The background jobs serve the indexer's handlers, so a process that runs only governance
+	// entries, or an explorer, starts none. The explorer's chains keep no SubQuery metadata.
+	let explorer = indexer.config.explorer;
+	let runs_indexer = indexer.chains.values().any(|c| c.config.handlers == ChainHandlers::Indexer);
+	if !explorer && runs_indexer {
 		handlers::spawn_tasks(&indexer);
 	}
 	let mut registry = EventCallbackRegistry::new();
@@ -221,7 +248,7 @@ pub async fn run(
 		&providers,
 		&mut registry,
 	)?;
-	if !indexer.config.explorer {
+	if !explorer {
 		registry::spawn_upkeep(indexer.clone(), &routes);
 	}
 
@@ -239,7 +266,7 @@ pub async fn run(
 	.await
 	.map_err(|e| anyhow!("rindexer: {e:?}"))?;
 	// With end blocks nothing goes live, so rindexer returns once history is done.
-	if !end_blocks.is_empty() && !indexer.config.explorer {
+	if !end_blocks.is_empty() && !explorer {
 		registry::finish_upkeep(&indexer, &routes).await;
 	}
 	Ok(())
@@ -248,14 +275,18 @@ pub async fn run(
 /**
  * Turns the copy of SubQuery's database at `DATABASE_URL` into this indexer's, so each chain
  * continues after the last block SubQuery indexed. `new_chains` are the chains SubQuery never
- * indexed, which start at their start block. A Substrate chain's node, at `<CHAIN>_SUBSTRATE`,
- * gives the name SubQuery's metadata knows it by.
+ * indexed, which start at their start block, as governance entries do. A Substrate chain's
+ * node, at `<CHAIN>_SUBSTRATE`, gives the name SubQuery's metadata knows it by.
  */
 pub async fn import_subquery(config_path: &Path, new_chains: &[String]) -> anyhow::Result<()> {
 	let config = Config::load(config_path)?;
 	let http = reqwest::Client::builder().build()?;
 	let mut names = BTreeMap::new();
-	for (network, chain) in &config.chains {
+	let indexed = config
+		.chains
+		.iter()
+		.filter(|(_, chain)| chain.handlers == ChainHandlers::Indexer);
+	for (network, chain) in indexed {
 		let node = match chain.kind {
 			ChainKind::Substrate => {
 				let urls = env_urls(&format!("{}_SUBSTRATE", env_key(network)))?;
@@ -285,4 +316,26 @@ pub async fn import_subquery(config_path: &Path, new_chains: &[String]) -> anyho
 		tracing::info!(%network, block, "continues after SubQuery's last block");
 	}
 	Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn a_run_without_chains_leaves_out_the_governance_backfill() {
+		let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+		let config = Config::load(&root.join("config/mainnet.toml")).unwrap();
+		let governance = "nexus-governance".to_owned();
+
+		let all = indexed_chains(&config, &[], &[]);
+		assert!(!all.contains(&&governance));
+		assert!(all.iter().any(|name| *name == "hyperbridge-nexus"));
+		assert_eq!(indexed_chains(&config, &[governance.clone()], &[]), vec![&governance]);
+
+		// An end block names the entry as well, so it isn't dropped without a word.
+		let ended = indexed_chains(&config, &[], &[(governance.clone(), 6_000_000)]);
+		assert!(ended.contains(&&governance));
+		assert_eq!(ended.len(), all.len() + 1);
+	}
 }

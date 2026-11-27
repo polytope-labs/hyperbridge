@@ -10,7 +10,10 @@ use anyhow::{anyhow, bail, Context};
 use serde_json::Value;
 use tokio_postgres::{Client, IsolationLevel, Transaction};
 
-use crate::{config::Config, db};
+use crate::{
+	config::{ChainHandlers, Config},
+	db,
+};
 
 /** Where SubQuery's tables wait while the import copies them, before they are dropped. */
 const OLD_SCHEMA: &str = "subquery";
@@ -47,8 +50,8 @@ pub struct Imported {
 /**
  * Turns a copy of SubQuery's database into this indexer's, in one transaction, so a failure
  * leaves the copy as it was. `names` holds the name SubQuery's metadata gives each chain of
- * the config. `new_chains` are the chains SubQuery never indexed: they start at their start
- * block. Every other chain needs a height in SubQuery's metadata.
+ * the config's indexer entries. `new_chains` are the chains SubQuery never indexed: they start
+ * at their start block. Every other indexer entry needs a height in SubQuery's metadata.
  */
 pub async fn import(
 	conn: &mut Client,
@@ -307,7 +310,8 @@ async fn subquery_heights(tx: &Transaction<'_>) -> anyhow::Result<BTreeMap<Strin
 /**
  * Each chain's cursor at SubQuery's height. A chain without a height must be one of
  * `new_chains`: started at its start block on data SubQuery already indexed, it would count
- * everything twice.
+ * everything twice. A governance entry starts at its start block, since SubQuery's database
+ * holds none of its tables.
  */
 fn chain_cursors(
 	config: &Config,
@@ -320,7 +324,11 @@ fn chain_cursors(
 	}
 	let mut cursors = BTreeMap::new();
 	let mut missing = vec![];
-	for network in config.chains.keys() {
+	let indexed = config
+		.chains
+		.iter()
+		.filter(|(_, chain)| chain.handlers == ChainHandlers::Indexer);
+	for (network, _) in indexed {
 		let name = names.get(network).ok_or_else(|| anyhow!("no SubQuery name for {network}"))?;
 		match (heights.get(name), new_chains.contains(network)) {
 			(Some(height), false) => {
